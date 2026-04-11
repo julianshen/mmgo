@@ -49,12 +49,13 @@ pkg/
                        Defines the common Diagram interface and per-type structs
 
   layout/              Graph layout engine (Go port of dagre)
-    graph/             Graph data structure (nodes, edges, adjacency)
-    acyclic/           Cycle removal — greedy feedback arc set
-    rank/              Rank assignment — network simplex algorithm
-    order/             Crossing minimization — barycenter heuristic
-    position/          Coordinate assignment — Brandes-Kopf algorithm
-    edge/              Edge routing — orthogonal polyline and spline paths
+    graph/             Graph data structure (nodes, edges, adjacency) — public
+    internal/          Algorithmic internals (not part of public API)
+      acyclic/         Cycle removal — greedy feedback arc set
+      rank/            Rank assignment — network simplex algorithm
+      order/           Crossing minimization — barycenter heuristic
+      position/        Coordinate assignment — Brandes-Kopf algorithm
+      edge/            Edge routing — orthogonal polyline and spline paths
 
   textmeasure/         Font metrics and text bounding box measurement
                        Uses golang.org/x/image/font with bundled fonts
@@ -79,8 +80,8 @@ pkg/
 ```
 Input (.mmd/markdown/stdin)
   → parser (text → diagram AST)
-    → layout engine (AST → positioned graph with coordinates)
-      → text measurer (computes node sizes from font metrics)
+    → text measurer (computes node sizes from font metrics)
+      → layout engine (sized nodes → positioned graph with coordinates)
         → renderer (positioned graph → SVG elements)
           → output (SVG/PNG/PDF/rewritten markdown)
 ```

@@ -222,7 +222,9 @@ func (g *Graph) Predecessors(id string) []string
 func (g *Graph) NodeAttrs(id string) NodeAttrs
 ```
 
-#### 4.3.2 `layout/acyclic/` — Cycle Removal
+**Internal packages:** The sub-packages `acyclic/`, `rank/`, `order/`, `position/`, and `edge/` are internal implementation details. They live under `pkg/layout/internal/` so consumers import only the top-level `pkg/layout.Layout()` function. This keeps the public API surface small and allows us to refactor algorithms without breaking changes.
+
+#### 4.3.2 `layout/internal/acyclic/` — Cycle Removal
 
 **Algorithm:** Greedy Feedback Arc Set (Eades, Lin, Smyth).
 
@@ -230,7 +232,7 @@ Identifies and reverses edges to make the graph acyclic. Reversed edges are mark
 
 ~150 lines in dagre. Straightforward port.
 
-#### 4.3.3 `layout/rank/` — Rank Assignment
+#### 4.3.3 `layout/internal/rank/` — Rank Assignment
 
 **Algorithm:** Network Simplex (Gansner et al., 1993).
 
@@ -241,7 +243,7 @@ Assigns each node to a rank (layer/row) to minimize total edge length. Three sub
 
 ~255 lines in dagre. Medium complexity — tree data structures and cut value computation.
 
-#### 4.3.4 `layout/order/` — Crossing Minimization
+#### 4.3.4 `layout/internal/order/` — Crossing Minimization
 
 **Algorithm:** Barycenter heuristic with iterative up/down sweeping.
 
@@ -249,7 +251,7 @@ Determines node order within each rank to minimize edge crossings. Runs multiple
 
 ~400 lines across 9 files in dagre. Medium complexity — the core logic is straightforward, supporting functions handle conflict resolution.
 
-#### 4.3.5 `layout/position/` — Coordinate Assignment
+#### 4.3.5 `layout/internal/position/` — Coordinate Assignment
 
 **Algorithm:** Brandes-Kopf (2002).
 
@@ -261,12 +263,18 @@ Computes final x/y coordinates in O(N) time. The most complex phase:
 
 ~526 lines in dagre. Hard — requires careful implementation of the paper's algorithm.
 
-#### 4.3.6 `layout/edge/` — Edge Routing
+#### 4.3.6 `layout/internal/edge/` — Edge Routing
 
-Computes control points for edge paths (straight lines, orthogonal segments, or spline curves). Handles:
-- Self-loops
-- Multi-edges between same nodes
-- Edge labels (positioned at midpoint)
+**Algorithm:** Orthogonal polyline routing with optional cubic Bezier curve fitting.
+
+Computes control points for edge paths after node positions are finalized. Phases:
+1. Route edges through dummy nodes (inserted during normalization for long-span edges)
+2. Compute bend points at rank boundaries
+3. Apply curve fitting (linear, basis, or cardinal interpolation matching Mermaid's `curve` config)
+4. Position edge labels at midpoint of the path
+5. Handle special cases: self-loops (loop back to same node), multi-edges (offset parallel paths)
+
+~200-300 lines estimated. References dagre's edge normalization and denormalization logic.
 
 **Top-level layout API:**
 
@@ -283,7 +291,9 @@ type LayoutOptions struct {
 }
 
 // Layout computes positions for all nodes and edges in the graph.
-func Layout(g *graph.Graph, opts LayoutOptions) *LayoutResult
+// Returns an error if the graph contains invalid structure (e.g., nil graph,
+// references to non-existent nodes in edges).
+func Layout(g *graph.Graph, opts LayoutOptions) (*LayoutResult, error)
 
 type LayoutResult struct {
     Nodes map[string]NodeLayout  // id → {x, y, width, height}
@@ -307,31 +317,39 @@ func NewRuler(fontData []byte, defaultSize float64) (*Ruler, error)
 func (r *Ruler) Measure(text string, fontSize float64) (width, height float64)
 ```
 
-**Font bundling:** A default font (e.g., Source Sans Pro, licensed under OFL) is embedded via `//go:embed`. Users can override with `--cssFile` to specify custom fonts.
+**Font bundling:** A default font (Source Sans Pro, licensed under SIL Open Font License) is embedded via `//go:embed`. The OFL license text must be included in the repository alongside the font files. Users can override with `--cssFile` to specify custom fonts.
 
 **Why not just estimate?** Layout quality depends on accurate text measurement. A 10% error in text width cascades through the layout engine, causing overlapping labels or excessive whitespace. Actual font metrics are necessary.
 
 ### 4.5 Renderer (`pkg/renderer/`)
 
-Each diagram type has a dedicated renderer that transforms a positioned layout into SVG elements.
+Each diagram type owns its full render pipeline (layout + SVG generation), because different diagram types use fundamentally different layout strategies:
+
+- **Graph-based diagrams** (flowchart, class, state, ER) use the dagre layout engine
+- **Linear diagrams** (sequence) use column-based custom layout
+- **Radial diagrams** (pie) use angle-based layout
+- **Time-based diagrams** (gantt, timeline) use axis-based layout
 
 ```go
 // pkg/renderer/renderer.go
 
-// Renderer converts a diagram with computed layout into SVG.
-type Renderer interface {
-    Render(d diagram.Diagram, layout *layout.LayoutResult, opts RenderOptions) (string, error)
+// RenderPipeline takes a parsed diagram and produces SVG.
+// Each diagram type implements its own layout strategy internally.
+type RenderPipeline interface {
+    Render(d diagram.Diagram, ruler *textmeasure.Ruler, opts RenderOptions) (string, error)
 }
 ```
 
-**Flowchart renderer** generates:
+This design avoids a forced uniform `LayoutResult` that wouldn't fit all diagram types. Graph-based renderers call `layout.Layout()` internally; other renderers compute positions directly.
+
+**Flowchart renderer** (uses dagre layout) generates:
 - `<rect>`, `<polygon>`, `<circle>` for node shapes
 - `<path>` with marker-end for edges (arrows)
 - `<text>` for labels
 - `<g>` groups for subgraphs with background rectangles
 - CSS classes for styling/theming
 
-**Sequence renderer** generates:
+**Sequence renderer** (uses custom column layout) generates:
 - Vertical `<line>` for lifelines
 - `<rect>` for participant boxes and activation bars
 - `<line>`/`<path>` for messages with arrow markers
@@ -378,6 +396,12 @@ Loads JSON configuration matching mermaid-cli's format:
 
 Theme determines default colors for node fills, strokes, text, and backgrounds. Four built-in themes: `default`, `dark`, `forest`, `neutral`.
 
+**Config precedence** (highest to lowest):
+1. `%%{init: ...}%%` directives in the diagram source
+2. `--configFile` JSON file
+3. CLI flags (`--theme`, `--backgroundColor`)
+4. Built-in theme defaults
+
 ### 4.8 CLI (`cmd/mmdc/`)
 
 Thin orchestrator that wires together the packages:
@@ -387,10 +411,8 @@ Thin orchestrator that wires together the packages:
 3. Read input (file, stdin, or markdown)
 4. For each diagram:
    a. Parse → AST
-   b. Measure text (for node sizing)
-   c. Layout → positioned graph
-   d. Render → SVG
-   e. Convert to output format (SVG/PNG/PDF)
+   b. Render (internally: measure text → layout → SVG generation)
+   c. Convert to output format (SVG/PNG/PDF)
 5. Write output (file or markdown rewrite)
 
 ## 5. Dependencies
@@ -407,7 +429,7 @@ CLI flag parsing: Use stdlib `flag` package or evaluate `spf13/pflag` for POSIX-
 ## 6. Error Handling Strategy
 
 - **Parser errors:** Return line number, column, and descriptive message. Support multiple errors per parse (collect and report all, not just first).
-- **Layout errors:** Should not fail on valid ASTs. Panic indicates a bug in the layout engine.
+- **Layout errors:** Return errors for invalid graph structures (nil graph, edge referencing non-existent node). Should not fail on valid ASTs — if it does, that is a bug to fix, not a panic to allow.
 - **Render errors:** Unlikely on valid layouts. Return error for unsupported features.
 - **I/O errors:** Wrap with `fmt.Errorf("reading input %s: %w", path, err)` for context.
 

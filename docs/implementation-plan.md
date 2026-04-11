@@ -111,7 +111,7 @@ Build `pkg/diagram/` — shared AST types.
 
 **Branch:** `feature/layout-acyclic`
 
-Build `pkg/layout/acyclic/` — greedy feedback arc set.
+Build `pkg/layout/internal/acyclic/` — greedy feedback arc set.
 
 **Algorithm:** Port dagre's `greedy-fas.ts` (~150 lines).
 
@@ -136,7 +136,7 @@ Build `pkg/layout/acyclic/` — greedy feedback arc set.
 
 **Branch:** `feature/layout-rank`
 
-Build `pkg/layout/rank/` — network simplex algorithm.
+Build `pkg/layout/internal/rank/` — network simplex algorithm.
 
 **Algorithm:** Port dagre's `rank/` directory (~255 lines + supporting files).
 
@@ -161,7 +161,7 @@ Build `pkg/layout/rank/` — network simplex algorithm.
 
 **Branch:** `feature/layout-order`
 
-Build `pkg/layout/order/` — barycenter heuristic.
+Build `pkg/layout/internal/order/` — barycenter heuristic.
 
 **Algorithm:** Port dagre's `order/` directory (~400 lines across 9 files).
 
@@ -186,7 +186,7 @@ Build `pkg/layout/order/` — barycenter heuristic.
 
 **Branch:** `feature/layout-position`
 
-Build `pkg/layout/position/` — Brandes-Kopf algorithm.
+Build `pkg/layout/internal/position/` — Brandes-Kopf algorithm.
 
 **Algorithm:** Port dagre's `position/bk.ts` (~526 lines). Reference: Brandes & Kopf 2002 paper.
 
@@ -356,7 +356,15 @@ sequenceDiagram
 
 **Requirements:**
 - Participant/actor declarations with aliases
-- Message types: solid (`->>`, `->>`), dashed (`-->>`, `-->>`), open (`->`), cross (`-x`), async (`-)`)
+- All 8 message arrow types:
+  - `->>` solid line with arrowhead
+  - `->` solid line without arrowhead
+  - `-->>` dashed line with arrowhead
+  - `-->` dashed line without arrowhead
+  - `-x` solid line with cross
+  - `--x` dashed line with cross
+  - `-)` solid line with open arrow (async)
+  - `--)` dashed line with open arrow (async)
 - Activation markers (`+`/`-` suffix)
 - Notes: `Note left of`, `Note right of`, `Note over`
 - Blocks: `alt`/`else`, `opt`, `loop`, `par`/`and`, `critical`/`option`, `break`, `rect`
