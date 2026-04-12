@@ -208,6 +208,64 @@ func TestRunDeterministic(t *testing.T) {
 	}
 }
 
+// TestRunReversedSliceIsDeterministic verifies that the []EdgeID returned
+// by Run is in a stable order for identical inputs. This matters because
+// Go's map iteration (inside g.Edges()) is randomized, so without an
+// explicit sort the returned IDs would vary across runs.
+func TestRunReversedSliceIsDeterministic(t *testing.T) {
+	build := func() *graph.Graph {
+		// Multiple back edges so there's more than one item to order.
+		return buildGraph(
+			[2]string{"a", "b"}, [2]string{"b", "c"}, [2]string{"c", "a"},
+			[2]string{"a", "d"}, [2]string{"d", "e"}, [2]string{"e", "a"},
+		)
+	}
+	g1 := build()
+	g2 := build()
+	r1 := Run(g1)
+	r2 := Run(g2)
+
+	if len(r1) != len(r2) {
+		t.Fatalf("reversed slice length mismatch: %d vs %d", len(r1), len(r2))
+	}
+	// The EdgeID.ID field varies with graph mutation history, so compare
+	// on (From, To) tuples which are the stable part.
+	for i := range r1 {
+		if r1[i].From != r2[i].From || r1[i].To != r2[i].To {
+			t.Errorf("reversed[%d] differs: %v vs %v", i, r1[i], r2[i])
+		}
+	}
+}
+
+// TestPickMaxDeltaStrictImprovement directly exercises the "strict
+// improvement" branch of pickMaxDelta, where a later node in the sorted
+// input has a strictly higher delta than the current best.
+func TestPickMaxDeltaStrictImprovement(t *testing.T) {
+	nodes := []string{"a", "b", "c"}
+	degs := map[string]degrees{
+		"a": {in: 1, out: 1}, // delta = 0
+		"b": {in: 2, out: 5}, // delta = 3 ← winner
+		"c": {in: 1, out: 2}, // delta = 1
+	}
+	if got := pickMaxDelta(nodes, degs); got != "b" {
+		t.Errorf("expected 'b' (highest delta), got %q", got)
+	}
+}
+
+// TestPickMaxDeltaTieBreakAlphabetical verifies that when deltas tie, the
+// earlier-sorted node wins.
+func TestPickMaxDeltaTieBreakAlphabetical(t *testing.T) {
+	nodes := []string{"a", "b", "c"} // pre-sorted
+	degs := map[string]degrees{
+		"a": {in: 1, out: 1}, // delta = 0
+		"b": {in: 1, out: 1}, // delta = 0
+		"c": {in: 1, out: 1}, // delta = 0
+	}
+	if got := pickMaxDelta(nodes, degs); got != "a" {
+		t.Errorf("expected 'a' (alphabetically first on tie), got %q", got)
+	}
+}
+
 // --- Undo ---
 
 func TestUndoRestoresDirections(t *testing.T) {

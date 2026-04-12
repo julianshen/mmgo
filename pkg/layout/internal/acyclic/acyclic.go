@@ -10,6 +10,7 @@ package acyclic
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/julianshen/mmgo/pkg/layout/graph"
 )
@@ -19,9 +20,12 @@ import (
 //
 // The returned slice contains the current EdgeIDs of the reversed edges
 // (i.e., their direction after reversal). Pass this slice to Undo to
-// restore the original edge directions.
+// restore the original edge directions. The order of the returned slice
+// is deterministic for identical inputs.
 //
-// Panics if the graph mutates during reversal (internal invariant violation).
+// Panics if an edge returned by g.Edges() cannot be reversed. This
+// indicates concurrent mutation of the graph or a bug in the graph
+// package.
 func Run(g *graph.Graph) []graph.EdgeID {
 	order := greedyOrdering(g)
 	orderIdx := make(map[string]int, len(order))
@@ -32,6 +36,10 @@ func Run(g *graph.Graph) []graph.EdgeID {
 	// Edges whose source comes after their target in the ordering are
 	// "back edges" — reverse them to break cycles. Self-loops are skipped
 	// because reversing them has no effect.
+	//
+	// Sort back edges for deterministic reversal order. g.Edges() iterates
+	// a map and would otherwise return them in Go-runtime-randomized order,
+	// making the returned EdgeIDs non-reproducible across runs.
 	var backEdges []graph.EdgeID
 	for _, eid := range g.Edges() {
 		if eid.From == eid.To {
@@ -41,6 +49,7 @@ func Run(g *graph.Graph) []graph.EdgeID {
 			backEdges = append(backEdges, eid)
 		}
 	}
+	slices.SortFunc(backEdges, compareEdgeIDs)
 
 	reversed := make([]graph.EdgeID, 0, len(backEdges))
 	for _, eid := range backEdges {
@@ -51,6 +60,18 @@ func Run(g *graph.Graph) []graph.EdgeID {
 		reversed = append(reversed, newID)
 	}
 	return reversed
+}
+
+// compareEdgeIDs orders edges by From, then To, then ID for stable
+// deterministic iteration.
+func compareEdgeIDs(a, b graph.EdgeID) int {
+	if a.From != b.From {
+		return strings.Compare(a.From, b.From)
+	}
+	if a.To != b.To {
+		return strings.Compare(a.To, b.To)
+	}
+	return a.ID - b.ID
 }
 
 // Undo reverses the edges listed in reversed, restoring their original
@@ -70,6 +91,12 @@ func Undo(g *graph.Graph, reversed []graph.EdgeID) {
 // greedyOrdering computes a node ordering using the Eades-Lin-Smyth
 // greedy feedback arc set heuristic. The ordering is deterministic:
 // ties are broken by alphabetical node ID.
+//
+// TODO(perf): the inner drain loop currently rebuilds the degree map
+// via computeDegrees on each pass, costing O(V+E) per batch. Dagre's
+// reference uses an incremental bucket-based structure for total
+// O(V+E). Swap in a bucket implementation if layout becomes a hot
+// path on diagrams with hundreds of nodes.
 //
 // The algorithm repeatedly:
 //  1. Drains all sinks and sources using a single degree snapshot (sinks
