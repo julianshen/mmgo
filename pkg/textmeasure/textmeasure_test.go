@@ -1,6 +1,7 @@
 package textmeasure
 
 import (
+	"fmt"
 	"testing"
 
 	"golang.org/x/image/font/gofont/goregular"
@@ -18,17 +19,18 @@ func TestNewRulerValidFont(t *testing.T) {
 	}
 }
 
-func TestNewRulerInvalidFont(t *testing.T) {
-	_, err := NewRuler([]byte("not a font"))
-	if err == nil {
-		t.Error("expected error for invalid font bytes")
+func TestNewRulerInvalidInput(t *testing.T) {
+	cases := map[string][]byte{
+		"nil":     nil,
+		"empty":   {},
+		"garbage": []byte("not a font"),
 	}
-}
-
-func TestNewRulerEmptyBytes(t *testing.T) {
-	_, err := NewRuler(nil)
-	if err == nil {
-		t.Error("expected error for empty font bytes")
+	for name, data := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := NewRuler(data); err == nil {
+				t.Error("expected error")
+			}
+		})
 	}
 }
 
@@ -101,15 +103,11 @@ func TestMeasureMultiLine(t *testing.T) {
 
 func TestMeasureMultiLineWidestLineWins(t *testing.T) {
 	r := mustRuler(t)
-	// "MMMMMMMMMM" (10 chars) should be wider than "M".
 	w, _ := r.Measure("M\nMMMMMMMMMM", 12)
-	shortW, _ := r.Measure("M", 12)
 	longW, _ := r.Measure("MMMMMMMMMM", 12)
-
 	if w < longW*0.99 {
 		t.Errorf("expected multi-line width to match longest line: got=%f longest=%f", w, longW)
 	}
-	_ = shortW
 }
 
 func TestMeasureScalesWithFontSize(t *testing.T) {
@@ -130,21 +128,18 @@ func TestMeasureScalesWithFontSize(t *testing.T) {
 
 func TestMeasureUnicode(t *testing.T) {
 	r := mustRuler(t)
-	// CJK, accented, and emoji — just verify we don't panic and return positive values.
-	cases := []string{
-		"héllo",
-		"日本語",
-		"Ω ∀ ∃",
-	}
+	cases := []string{"héllo", "日本語", "Ω ∀ ∃"}
 	for _, text := range cases {
-		w, h := r.Measure(text, 12)
-		if w <= 0 || h <= 0 {
-			t.Errorf("expected positive dimensions for %q, got w=%f h=%f", text, w, h)
-		}
+		t.Run(text, func(t *testing.T) {
+			w, h := r.Measure(text, 12)
+			if w <= 0 || h <= 0 {
+				t.Errorf("expected positive dimensions, got w=%f h=%f", w, h)
+			}
+		})
 	}
 }
 
-func TestMeasureIgnoresTrailingNewline(t *testing.T) {
+func TestMeasureTrailingNewlineAddsLine(t *testing.T) {
 	r := mustRuler(t)
 	_, h1 := r.Measure("Hello", 12)
 	_, h2 := r.Measure("Hello\n", 12)
@@ -173,20 +168,16 @@ func TestMeasureLineHeight(t *testing.T) {
 	}
 }
 
-func TestMeasureZeroFontSize(t *testing.T) {
+func TestMeasureNonPositiveFontSize(t *testing.T) {
 	r := mustRuler(t)
-	// Zero or negative font size should not panic; returns 0 or small values.
-	w, h := r.Measure("Hello", 0)
-	if w != 0 || h != 0 {
-		t.Errorf("expected 0,0 for zero font size, got w=%f h=%f", w, h)
-	}
-}
-
-func TestMeasureNegativeFontSize(t *testing.T) {
-	r := mustRuler(t)
-	w, h := r.Measure("Hello", -5)
-	if w != 0 || h != 0 {
-		t.Errorf("expected 0,0 for negative font size, got w=%f h=%f", w, h)
+	sizes := []float64{0, -5, -0.0001}
+	for _, size := range sizes {
+		t.Run(fmt.Sprintf("%v", size), func(t *testing.T) {
+			w, h := r.Measure("Hello", size)
+			if w != 0 || h != 0 {
+				t.Errorf("expected 0,0 for size %v, got w=%f h=%f", size, w, h)
+			}
+		})
 	}
 }
 
@@ -199,14 +190,23 @@ func TestMeasureConsistentAcrossCalls(t *testing.T) {
 	}
 }
 
-func TestMeasureCustomFont(t *testing.T) {
-	// Verify that NewRuler accepts custom font bytes and produces measurements.
-	r, err := NewRuler(goregular.TTF)
-	if err != nil {
-		t.Fatalf("NewRuler: %v", err)
+func TestCloseReleasesFaces(t *testing.T) {
+	r := mustRuler(t)
+	r.Measure("Hello", 12) // populate cache
+	if err := r.Close(); err != nil {
+		t.Errorf("Close: %v", err)
 	}
-	w, h := r.Measure("test", 14)
-	if w <= 0 || h <= 0 {
-		t.Errorf("custom font ruler should produce positive measurements, got w=%f h=%f", w, h)
+	if r.faces != nil {
+		t.Error("faces should be nil after Close")
+	}
+}
+
+func TestFaceCaching(t *testing.T) {
+	r := mustRuler(t)
+	r.Measure("Hello", 12)
+	r.Measure("World", 12) // same size — should reuse cached face
+	r.Measure("Hello", 14) // different size — new face
+	if len(r.faces) != 2 {
+		t.Errorf("expected 2 cached faces, got %d", len(r.faces))
 	}
 }
