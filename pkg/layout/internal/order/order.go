@@ -51,15 +51,18 @@ func Run(g *graph.Graph, ranks map[string]int) Order {
 
 	order := initOrder(g, ranks)
 
-	// Precompute data that never changes during iteration:
-	//   - sortedRanks: the sorted list of rank numbers
-	//   - layerEdges: edges indexed by (upperRank -> edges to lowerRank)
-	// Rebuilding these every iteration would double the work.
+	// Precompute data that never changes during iteration. These are
+	// built once before the main loop and reused on every sweep.
 	ranksAsc := sortedRanks(order)
 	layerEdges := buildLayerEdges(g, ranks, ranksAsc)
+	preds, succs := buildAdjacency(g)
+
+	// Scratch buffer for countCrossingsInLayer — allocated once and
+	// resized per call to avoid per-layer-pair allocations.
+	var scratch []edgePos
 
 	best := copyOrder(order)
-	bestCross := countCrossings(order, ranksAsc, layerEdges)
+	bestCross := countCrossings(order, ranksAsc, layerEdges, &scratch)
 
 	minR, maxR := ranksAsc[0], ranksAsc[len(ranksAsc)-1]
 
@@ -68,19 +71,19 @@ func Run(g *graph.Graph, ranks map[string]int) Order {
 			// Down sweep: sort each rank by its predecessors.
 			for r := minR + 1; r <= maxR; r++ {
 				if nodes, ok := order[r]; ok {
-					order[r] = sortByBarycenter(g, nodes, order[r-1], true)
+					order[r] = sortByBarycenter(nodes, order[r-1], preds)
 				}
 			}
 		} else {
 			// Up sweep: sort each rank by its successors.
 			for r := maxR - 1; r >= minR; r-- {
 				if nodes, ok := order[r]; ok {
-					order[r] = sortByBarycenter(g, nodes, order[r+1], false)
+					order[r] = sortByBarycenter(nodes, order[r+1], succs)
 				}
 			}
 		}
 
-		cross := countCrossings(order, ranksAsc, layerEdges)
+		cross := countCrossings(order, ranksAsc, layerEdges, &scratch)
 		if cross < bestCross {
 			best = copyOrder(order)
 			bestCross = cross
@@ -107,13 +110,28 @@ func initOrder(g *graph.Graph, ranks map[string]int) Order {
 	return result
 }
 
+// buildAdjacency returns deduped predecessor and successor lists for every
+// node in g. Called once before the main loop to avoid repeatedly calling
+// g.Predecessors / g.Successors (which allocate fresh maps and slices on
+// every invocation).
+func buildAdjacency(g *graph.Graph) (preds, succs map[string][]string) {
+	nodes := g.Nodes()
+	preds = make(map[string][]string, len(nodes))
+	succs = make(map[string][]string, len(nodes))
+	for _, n := range nodes {
+		preds[n] = g.Predecessors(n)
+		succs[n] = g.Successors(n)
+	}
+	return preds, succs
+}
+
 // sortByBarycenter reorders nodes in the target rank by the average
 // position of their neighbors in the adjacent source rank. Nodes without
 // any neighbor in the source rank keep their current relative position.
 //
-// If usePredecessors is true, neighbors are the node's predecessors
-// (typical for a down sweep). Otherwise they are successors.
-func sortByBarycenter(g *graph.Graph, nodes, source []string, usePredecessors bool) []string {
+// neighbors is either the predecessors or successors map (depending on
+// sweep direction).
+func sortByBarycenter(nodes, source []string, neighbors map[string][]string) []string {
 	sourcePos := positionMap(source)
 
 	type entry struct {
@@ -123,16 +141,9 @@ func sortByBarycenter(g *graph.Graph, nodes, source []string, usePredecessors bo
 	}
 	entries := make([]entry, len(nodes))
 	for i, n := range nodes {
-		var neighbors []string
-		if usePredecessors {
-			neighbors = g.Predecessors(n)
-		} else {
-			neighbors = g.Successors(n)
-		}
-
 		sum := 0.0
 		count := 0
-		for _, nbr := range neighbors {
+		for _, nbr := range neighbors[n] {
 			if p, ok := sourcePos[nbr]; ok {
 				sum += float64(p)
 				count++
@@ -171,16 +182,19 @@ type layerEdge struct {
 	to   string
 }
 
+// edgePos is a cross-counting work item: the horizontal positions of an
+// edge's endpoints in their respective ranks.
+type edgePos struct{ u, l int }
+
 // buildLayerEdges groups edges by (upperRank, lowerRank) pair. Called once
 // before the main loop; the result is immutable across iterations since
 // only positions change, not edges.
 func buildLayerEdges(g *graph.Graph, ranks map[string]int, ranksAsc []int) map[int][]layerEdge {
-	// Pre-size by the number of adjacent rank pairs.
 	result := make(map[int][]layerEdge, len(ranksAsc))
 
-	// Build a set of adjacent rank pairs we care about so we can filter
-	// edges that span more than one rank (which shouldn't happen after
-	// dummy node insertion in a later phase, but we're defensive).
+	// Adjacent rank pair set — edges spanning more than one rank are
+	// skipped. Dummy-node insertion in a later phase normally prevents
+	// this, but the builder is defensive.
 	adjacent := make(map[[2]int]bool, len(ranksAsc)-1)
 	for i := 0; i < len(ranksAsc)-1; i++ {
 		adjacent[[2]int{ranksAsc[i], ranksAsc[i+1]}] = true
@@ -204,37 +218,42 @@ func buildLayerEdges(g *graph.Graph, ranks map[string]int, ranksAsc []int) map[i
 }
 
 // countCrossings returns the total number of edge crossings between all
-// adjacent rank pairs in order, using precomputed layerEdges.
-func countCrossings(order Order, ranksAsc []int, layerEdges map[int][]layerEdge) int {
+// adjacent rank pairs in order. Builds a position map per rank once
+// (instead of twice per layer pair) and reuses a scratch buffer for the
+// cross-counting work items.
+func countCrossings(order Order, ranksAsc []int, layerEdges map[int][]layerEdge, scratch *[]edgePos) int {
 	if len(ranksAsc) < 2 {
 		return 0
+	}
+	// Build one position map per rank. Each rank except the outermost
+	// would otherwise be positioned twice (as lower of pair i and upper
+	// of pair i+1).
+	positions := make([]map[string]int, len(ranksAsc))
+	for i, r := range ranksAsc {
+		positions[i] = positionMap(order[r])
 	}
 	total := 0
 	for i := 0; i < len(ranksAsc)-1; i++ {
 		upperRank := ranksAsc[i]
-		lowerRank := ranksAsc[i+1]
 		total += countCrossingsInLayer(
-			order[upperRank], order[lowerRank], layerEdges[upperRank],
+			positions[i], positions[i+1], layerEdges[upperRank], scratch,
 		)
 	}
 	return total
 }
 
 // countCrossingsInLayer counts crossings for the given precomputed edges
-// using the current positions of nodes in upper and lower ranks.
-// O(E^2) pairwise comparison.
-func countCrossingsInLayer(upper, lower []string, edges []layerEdge) int {
+// using position maps for upper and lower ranks. O(E^2) pairwise.
+// scratch is a reusable buffer to avoid per-call slice allocations.
+func countCrossingsInLayer(upperPos, lowerPos map[string]int, edges []layerEdge, scratch *[]edgePos) int {
 	if len(edges) < 2 {
 		return 0
 	}
-	upperPos := positionMap(upper)
-	lowerPos := positionMap(lower)
-
-	type edgePos struct{ u, l int }
-	positioned := make([]edgePos, 0, len(edges))
+	positioned := (*scratch)[:0]
 	for _, e := range edges {
 		positioned = append(positioned, edgePos{u: upperPos[e.from], l: lowerPos[e.to]})
 	}
+	*scratch = positioned
 
 	crossings := 0
 	for i := 0; i < len(positioned); i++ {

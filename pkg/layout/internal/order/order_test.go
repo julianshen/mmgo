@@ -27,13 +27,20 @@ func collectNodes(order Order) []string {
 	return all
 }
 
-// testCountCrossings is a convenience wrapper that rebuilds the precomputed
-// layer-edge map on every call. Tests don't run in a hot loop so the
-// per-call overhead is acceptable.
-func testCountCrossings(g *graph.Graph, ranks map[string]int, order Order) int {
+// testCountCrossings is a convenience wrapper that derives ranks from the
+// Order itself and rebuilds the precomputed layer-edge map. Tests don't
+// run in a hot loop so the per-call overhead is acceptable.
+func testCountCrossings(g *graph.Graph, order Order) int {
+	ranks := make(map[string]int)
+	for r, nodes := range order {
+		for _, n := range nodes {
+			ranks[n] = r
+		}
+	}
 	ranksAsc := sortedRanks(order)
 	layerEdges := buildLayerEdges(g, ranks, ranksAsc)
-	return countCrossings(order, ranksAsc, layerEdges)
+	var scratch []edgePos
+	return countCrossings(order, ranksAsc, layerEdges, &scratch)
 }
 
 // --- Trivial cases ---
@@ -122,7 +129,7 @@ func TestRunNoCrossingsInAcyclicFlow(t *testing.T) {
 	)
 	ranks := map[string]int{"a": 0, "b": 1, "c": 1, "d": 2}
 	order := Run(g, ranks)
-	if n := testCountCrossings(g, ranks, order); n != 0 {
+	if n := testCountCrossings(g, order); n != 0 {
 		t.Errorf("diamond should have 0 crossings, got %d", n)
 	}
 }
@@ -144,7 +151,7 @@ func TestRunFixesSimpleCrossing(t *testing.T) {
 	ranks := map[string]int{"a": 0, "c": 0, "b": 1, "d": 1}
 	order := Run(g, ranks)
 
-	if n := testCountCrossings(g, ranks, order); n != 0 {
+	if n := testCountCrossings(g, order); n != 0 {
 		t.Errorf("simple crossing should be fixed, got %d crossings", n)
 	}
 }
@@ -167,7 +174,7 @@ func TestRunReducesCrossingsOnLargerGraph(t *testing.T) {
 	order := Run(g, ranks)
 
 	// After ordering, crossings should be 0 (edges are parallel).
-	if n := testCountCrossings(g, ranks, order); n != 0 {
+	if n := testCountCrossings(g, order); n != 0 {
 		t.Errorf("expected 0 crossings after ordering, got %d", n)
 	}
 }
@@ -188,10 +195,10 @@ func TestRunMultiLayerReducesCrossings(t *testing.T) {
 
 	// Count initial crossings (alphabetical ordering).
 	initial := initOrder(g, ranks)
-	initialCross := testCountCrossings(g, ranks, initial)
+	initialCross := testCountCrossings(g, initial)
 
 	order := Run(g, ranks)
-	finalCross := testCountCrossings(g, ranks, order)
+	finalCross := testCountCrossings(g, order)
 
 	if finalCross > initialCross {
 		t.Errorf("Run should not increase crossings: %d → %d",
@@ -224,44 +231,55 @@ func TestRunDeterministic(t *testing.T) {
 
 // --- Cross-counting ---
 
-func TestCountCrossingsNoEdges(t *testing.T) {
-	g := graph.New()
-	g.SetNode("a", graph.NodeAttrs{})
-	g.SetNode("b", graph.NodeAttrs{})
-	order := Order{0: {"a"}, 1: {"b"}}
-	ranks := map[string]int{"a": 0, "b": 1}
-	if n := testCountCrossings(g, ranks, order); n != 0 {
-		t.Errorf("expected 0 crossings, got %d", n)
+func TestCountCrossings(t *testing.T) {
+	tests := []struct {
+		name  string
+		edges [][2]string
+		order Order
+		want  int
+	}{
+		{
+			name:  "no edges",
+			edges: nil,
+			order: Order{0: {"a"}, 1: {"b"}},
+			want:  0,
+		},
+		{
+			name:  "one crossing",
+			edges: [][2]string{{"a", "d"}, {"b", "c"}},
+			order: Order{0: {"a", "b"}, 1: {"c", "d"}},
+			want:  1,
+		},
+		{
+			// a→c, a→d, b→c
+			// a→c vs a→d: same source, never crosses
+			// a→c vs b→c: same target, never crosses
+			// a→d vs b→c: a<b and d>c, CROSS
+			name:  "one real crossing among fan-in/out",
+			edges: [][2]string{{"a", "c"}, {"a", "d"}, {"b", "c"}},
+			order: Order{0: {"a", "b"}, 1: {"c", "d"}},
+			want:  1,
+		},
 	}
-}
-
-func TestCountCrossingsOnePair(t *testing.T) {
-	// a→d, b→c with order {0: [a, b], 1: [c, d]} → one crossing
-	g := buildGraph([2]string{"a", "d"}, [2]string{"b", "c"})
-	order := Order{0: {"a", "b"}, 1: {"c", "d"}}
-	ranks := map[string]int{"a": 0, "b": 0, "c": 1, "d": 1}
-	if n := testCountCrossings(g, ranks, order); n != 1 {
-		t.Errorf("expected 1 crossing, got %d", n)
-	}
-}
-
-func TestCountCrossingsMultiple(t *testing.T) {
-	// Two parallel edges that don't cross, plus one cross.
-	// a→c, a→d, b→c
-	// Order {0: [a, b], 1: [c, d]}
-	// Crossings:
-	//   a→c vs a→d: same source, never crosses
-	//   a→c vs b→c: same target, never crosses
-	//   a→d vs b→c: a pos 0 < b pos 1, d pos 1 > c pos 0, CROSS
-	g := buildGraph(
-		[2]string{"a", "c"},
-		[2]string{"a", "d"},
-		[2]string{"b", "c"},
-	)
-	order := Order{0: {"a", "b"}, 1: {"c", "d"}}
-	ranks := map[string]int{"a": 0, "b": 0, "c": 1, "d": 1}
-	if n := testCountCrossings(g, ranks, order); n != 1 {
-		t.Errorf("expected 1 crossing, got %d", n)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			g := graph.New()
+			if len(tc.edges) == 0 {
+				// No edges — declare nodes explicitly.
+				for _, nodes := range tc.order {
+					for _, n := range nodes {
+						g.SetNode(n, graph.NodeAttrs{})
+					}
+				}
+			} else {
+				for _, e := range tc.edges {
+					g.SetEdge(e[0], e[1], graph.EdgeAttrs{})
+				}
+			}
+			if got := testCountCrossings(g, tc.order); got != tc.want {
+				t.Errorf("got %d crossings, want %d", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -279,12 +297,12 @@ func TestRunDisconnectedComponents(t *testing.T) {
 	if len(order[0]) != 2 || len(order[1]) != 2 {
 		t.Errorf("expected 2 nodes per layer: %v", order)
 	}
-	if testCountCrossings(g, ranks, order) != 0 {
+	if testCountCrossings(g, order) != 0 {
 		t.Error("disconnected components should have no crossings")
 	}
 }
 
-// --- Isolated node without adjacent-layer neighbors ---
+// --- buildLayerEdges internals ---
 
 // TestBuildLayerEdgesFiltersSelfLoops verifies the defensive branch that
 // skips self-loop edges when building the layer edge index.
@@ -336,6 +354,8 @@ func TestBuildLayerEdgesSkipsUnrankedNodes(t *testing.T) {
 		t.Errorf("expected 1 edge (a→b), got %d", len(le[0]))
 	}
 }
+
+// --- Isolated node without adjacent-layer neighbors ---
 
 func TestRunNodeWithoutNeighbors(t *testing.T) {
 	// Node "x" at rank 1 has no incoming or outgoing edges.
