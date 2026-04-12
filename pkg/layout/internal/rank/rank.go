@@ -54,6 +54,12 @@ func Run(g *graph.Graph) map[string]int {
 // longestPathState groups the mutable state for the recursive DFS.
 // Using a method on this struct avoids the `var dfs func; dfs = ...`
 // self-reference dance a free closure would require.
+//
+// Recursion depth is bounded by the length of the longest path in g.
+// Mermaid diagrams are typically tens to hundreds of nodes deep, well
+// within Go's default goroutine stack growth. If mmgo ever needs to
+// handle graphs with thousands of nodes on a single longest path, this
+// should be converted to an iterative postorder traversal.
 type longestPathState struct {
 	g       *graph.Graph
 	ranks   map[string]int
