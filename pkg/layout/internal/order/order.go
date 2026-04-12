@@ -12,7 +12,7 @@
 //  3. Sweep up: for each rank r from bottom to top, sort by successors
 //     in rank r+1.
 //  4. After each sweep, count total crossings; keep the best ordering seen.
-//  5. Stop after a fixed iteration cap.
+//  5. Stop after a fixed iteration cap or when crossings reach 0.
 //
 // Cross counting uses an O(E^2) pairwise comparison, adequate for the
 // target graph size (10-100 nodes typical, 500 worst case).
@@ -25,8 +25,7 @@
 package order
 
 import (
-	"math"
-	"sort"
+	"slices"
 
 	"github.com/julianshen/mmgo/pkg/layout/graph"
 )
@@ -51,29 +50,37 @@ func Run(g *graph.Graph, ranks map[string]int) Order {
 	}
 
 	order := initOrder(g, ranks)
-	best := copyOrder(order)
-	bestCross := countCrossings(g, best)
 
-	minR, maxR := rankRange(order)
+	// Precompute data that never changes during iteration:
+	//   - sortedRanks: the sorted list of rank numbers
+	//   - layerEdges: edges indexed by (upperRank -> edges to lowerRank)
+	// Rebuilding these every iteration would double the work.
+	ranksAsc := sortedRanks(order)
+	layerEdges := buildLayerEdges(g, ranks, ranksAsc)
+
+	best := copyOrder(order)
+	bestCross := countCrossings(order, ranksAsc, layerEdges)
+
+	minR, maxR := ranksAsc[0], ranksAsc[len(ranksAsc)-1]
 
 	for i := 0; i < maxIterations; i++ {
 		if i%2 == 0 {
 			// Down sweep: sort each rank by its predecessors.
 			for r := minR + 1; r <= maxR; r++ {
 				if nodes, ok := order[r]; ok {
-					order[r] = sortByBarycenter(g, order, nodes, r-1, true)
+					order[r] = sortByBarycenter(g, nodes, order[r-1], true)
 				}
 			}
 		} else {
 			// Up sweep: sort each rank by its successors.
 			for r := maxR - 1; r >= minR; r-- {
 				if nodes, ok := order[r]; ok {
-					order[r] = sortByBarycenter(g, order, nodes, r+1, false)
+					order[r] = sortByBarycenter(g, nodes, order[r+1], false)
 				}
 			}
 		}
 
-		cross := countCrossings(g, order)
+		cross := countCrossings(order, ranksAsc, layerEdges)
 		if cross < bestCross {
 			best = copyOrder(order)
 			bestCross = cross
@@ -95,7 +102,7 @@ func initOrder(g *graph.Graph, ranks map[string]int) Order {
 		result[r] = append(result[r], n)
 	}
 	for r := range result {
-		sort.Strings(result[r])
+		slices.Sort(result[r])
 	}
 	return result
 }
@@ -106,16 +113,13 @@ func initOrder(g *graph.Graph, ranks map[string]int) Order {
 //
 // If usePredecessors is true, neighbors are the node's predecessors
 // (typical for a down sweep). Otherwise they are successors.
-func sortByBarycenter(g *graph.Graph, order Order, nodes []string, sourceRank int, usePredecessors bool) []string {
-	sourcePos := positionMap(order[sourceRank])
+func sortByBarycenter(g *graph.Graph, nodes, source []string, usePredecessors bool) []string {
+	sourcePos := positionMap(source)
 
 	type entry struct {
 		id         string
 		barycenter float64
-		// origIdx is the node's current position in the target rank;
-		// used as the tie-breaker and as the default for nodes with no
-		// adjacent-rank neighbors.
-		origIdx int
+		origIdx    int
 	}
 	entries := make([]entry, len(nodes))
 	for i, n := range nodes {
@@ -142,11 +146,14 @@ func sortByBarycenter(g *graph.Graph, order Order, nodes []string, sourceRank in
 		entries[i] = entry{id: n, barycenter: bary, origIdx: i}
 	}
 
-	sort.SliceStable(entries, func(i, j int) bool {
-		if entries[i].barycenter != entries[j].barycenter {
-			return entries[i].barycenter < entries[j].barycenter
+	slices.SortStableFunc(entries, func(a, b entry) int {
+		if a.barycenter < b.barycenter {
+			return -1
 		}
-		return entries[i].origIdx < entries[j].origIdx
+		if a.barycenter > b.barycenter {
+			return 1
+		}
+		return a.origIdx - b.origIdx
 	})
 
 	result := make([]string, len(entries))
@@ -156,44 +163,83 @@ func sortByBarycenter(g *graph.Graph, order Order, nodes []string, sourceRank in
 	return result
 }
 
-// countCrossings returns the total number of edge crossings between all
-// adjacent rank pairs in order.
-func countCrossings(g *graph.Graph, order Order) int {
-	if len(order) < 2 {
-		return 0
-	}
-	ranks := sortedRanks(order)
-	total := 0
-	for i := 0; i < len(ranks)-1; i++ {
-		total += countCrossingsBetween(g, order, ranks[i], ranks[i+1])
-	}
-	return total
+// layerEdge is a precomputed edge between two adjacent ranks, stored as
+// the source and target node IDs. Positions are looked up from the live
+// order during countCrossings.
+type layerEdge struct {
+	from string
+	to   string
 }
 
-// countCrossingsBetween counts crossings for edges spanning the two
-// given adjacent ranks. O(E^2) pairwise comparison.
-func countCrossingsBetween(g *graph.Graph, order Order, upperRank, lowerRank int) int {
-	upperPos := positionMap(order[upperRank])
-	lowerPos := positionMap(order[lowerRank])
+// buildLayerEdges groups edges by (upperRank, lowerRank) pair. Called once
+// before the main loop; the result is immutable across iterations since
+// only positions change, not edges.
+func buildLayerEdges(g *graph.Graph, ranks map[string]int, ranksAsc []int) map[int][]layerEdge {
+	// Pre-size by the number of adjacent rank pairs.
+	result := make(map[int][]layerEdge, len(ranksAsc))
 
-	type edge struct{ u, l int }
-	var edges []edge
+	// Build a set of adjacent rank pairs we care about so we can filter
+	// edges that span more than one rank (which shouldn't happen after
+	// dummy node insertion in a later phase, but we're defensive).
+	adjacent := make(map[[2]int]bool, len(ranksAsc)-1)
+	for i := 0; i < len(ranksAsc)-1; i++ {
+		adjacent[[2]int{ranksAsc[i], ranksAsc[i+1]}] = true
+	}
+
 	for _, eid := range g.Edges() {
 		if eid.From == eid.To {
 			continue
 		}
-		uPos, okU := upperPos[eid.From]
-		lPos, okL := lowerPos[eid.To]
-		if !okU || !okL {
+		fromRank, okF := ranks[eid.From]
+		toRank, okT := ranks[eid.To]
+		if !okF || !okT {
 			continue
 		}
-		edges = append(edges, edge{u: uPos, l: lPos})
+		if !adjacent[[2]int{fromRank, toRank}] {
+			continue
+		}
+		result[fromRank] = append(result[fromRank], layerEdge{from: eid.From, to: eid.To})
+	}
+	return result
+}
+
+// countCrossings returns the total number of edge crossings between all
+// adjacent rank pairs in order, using precomputed layerEdges.
+func countCrossings(order Order, ranksAsc []int, layerEdges map[int][]layerEdge) int {
+	if len(ranksAsc) < 2 {
+		return 0
+	}
+	total := 0
+	for i := 0; i < len(ranksAsc)-1; i++ {
+		upperRank := ranksAsc[i]
+		lowerRank := ranksAsc[i+1]
+		total += countCrossingsInLayer(
+			order[upperRank], order[lowerRank], layerEdges[upperRank],
+		)
+	}
+	return total
+}
+
+// countCrossingsInLayer counts crossings for the given precomputed edges
+// using the current positions of nodes in upper and lower ranks.
+// O(E^2) pairwise comparison.
+func countCrossingsInLayer(upper, lower []string, edges []layerEdge) int {
+	if len(edges) < 2 {
+		return 0
+	}
+	upperPos := positionMap(upper)
+	lowerPos := positionMap(lower)
+
+	type edgePos struct{ u, l int }
+	positioned := make([]edgePos, 0, len(edges))
+	for _, e := range edges {
+		positioned = append(positioned, edgePos{u: upperPos[e.from], l: lowerPos[e.to]})
 	}
 
 	crossings := 0
-	for i := 0; i < len(edges); i++ {
-		for j := i + 1; j < len(edges); j++ {
-			e1, e2 := edges[i], edges[j]
+	for i := 0; i < len(positioned); i++ {
+		for j := i + 1; j < len(positioned); j++ {
+			e1, e2 := positioned[i], positioned[j]
 			if (e1.u < e2.u && e1.l > e2.l) || (e1.u > e2.u && e1.l < e2.l) {
 				crossings++
 			}
@@ -215,25 +261,9 @@ func positionMap(nodes []string) map[string]int {
 func copyOrder(src Order) Order {
 	dst := make(Order, len(src))
 	for r, nodes := range src {
-		clone := make([]string, len(nodes))
-		copy(clone, nodes)
-		dst[r] = clone
+		dst[r] = slices.Clone(nodes)
 	}
 	return dst
-}
-
-// rankRange returns the minimum and maximum rank numbers in order.
-func rankRange(order Order) (minR, maxR int) {
-	minR, maxR = math.MaxInt, math.MinInt
-	for r := range order {
-		if r < minR {
-			minR = r
-		}
-		if r > maxR {
-			maxR = r
-		}
-	}
-	return
 }
 
 // sortedRanks returns the rank numbers in ascending order.
@@ -242,6 +272,6 @@ func sortedRanks(order Order) []int {
 	for r := range order {
 		ranks = append(ranks, r)
 	}
-	sort.Ints(ranks)
+	slices.Sort(ranks)
 	return ranks
 }

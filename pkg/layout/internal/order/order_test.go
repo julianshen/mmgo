@@ -17,11 +17,6 @@ func buildGraph(edges ...[2]string) *graph.Graph {
 	return g
 }
 
-// ranksFromMap creates a rank map for the given node→rank pairs.
-func ranksFromMap(pairs map[string]int) map[string]int {
-	return pairs
-}
-
 // collectNodes returns the sorted set of all nodes across all ranks in order.
 func collectNodes(order Order) []string {
 	var all []string
@@ -30,6 +25,15 @@ func collectNodes(order Order) []string {
 	}
 	slices.Sort(all)
 	return all
+}
+
+// testCountCrossings is a convenience wrapper that rebuilds the precomputed
+// layer-edge map on every call. Tests don't run in a hot loop so the
+// per-call overhead is acceptable.
+func testCountCrossings(g *graph.Graph, ranks map[string]int, order Order) int {
+	ranksAsc := sortedRanks(order)
+	layerEdges := buildLayerEdges(g, ranks, ranksAsc)
+	return countCrossings(order, ranksAsc, layerEdges)
 }
 
 // --- Trivial cases ---
@@ -118,7 +122,7 @@ func TestRunNoCrossingsInAcyclicFlow(t *testing.T) {
 	)
 	ranks := map[string]int{"a": 0, "b": 1, "c": 1, "d": 2}
 	order := Run(g, ranks)
-	if n := countCrossings(g, order); n != 0 {
+	if n := testCountCrossings(g, ranks, order); n != 0 {
 		t.Errorf("diamond should have 0 crossings, got %d", n)
 	}
 }
@@ -140,7 +144,7 @@ func TestRunFixesSimpleCrossing(t *testing.T) {
 	ranks := map[string]int{"a": 0, "c": 0, "b": 1, "d": 1}
 	order := Run(g, ranks)
 
-	if n := countCrossings(g, order); n != 0 {
+	if n := testCountCrossings(g, ranks, order); n != 0 {
 		t.Errorf("simple crossing should be fixed, got %d crossings", n)
 	}
 }
@@ -163,7 +167,7 @@ func TestRunReducesCrossingsOnLargerGraph(t *testing.T) {
 	order := Run(g, ranks)
 
 	// After ordering, crossings should be 0 (edges are parallel).
-	if n := countCrossings(g, order); n != 0 {
+	if n := testCountCrossings(g, ranks, order); n != 0 {
 		t.Errorf("expected 0 crossings after ordering, got %d", n)
 	}
 }
@@ -184,10 +188,10 @@ func TestRunMultiLayerReducesCrossings(t *testing.T) {
 
 	// Count initial crossings (alphabetical ordering).
 	initial := initOrder(g, ranks)
-	initialCross := countCrossings(g, initial)
+	initialCross := testCountCrossings(g, ranks, initial)
 
 	order := Run(g, ranks)
-	finalCross := countCrossings(g, order)
+	finalCross := testCountCrossings(g, ranks, order)
 
 	if finalCross > initialCross {
 		t.Errorf("Run should not increase crossings: %d → %d",
@@ -225,7 +229,8 @@ func TestCountCrossingsNoEdges(t *testing.T) {
 	g.SetNode("a", graph.NodeAttrs{})
 	g.SetNode("b", graph.NodeAttrs{})
 	order := Order{0: {"a"}, 1: {"b"}}
-	if n := countCrossings(g, order); n != 0 {
+	ranks := map[string]int{"a": 0, "b": 1}
+	if n := testCountCrossings(g, ranks, order); n != 0 {
 		t.Errorf("expected 0 crossings, got %d", n)
 	}
 }
@@ -234,7 +239,8 @@ func TestCountCrossingsOnePair(t *testing.T) {
 	// a→d, b→c with order {0: [a, b], 1: [c, d]} → one crossing
 	g := buildGraph([2]string{"a", "d"}, [2]string{"b", "c"})
 	order := Order{0: {"a", "b"}, 1: {"c", "d"}}
-	if n := countCrossings(g, order); n != 1 {
+	ranks := map[string]int{"a": 0, "b": 0, "c": 1, "d": 1}
+	if n := testCountCrossings(g, ranks, order); n != 1 {
 		t.Errorf("expected 1 crossing, got %d", n)
 	}
 }
@@ -253,7 +259,8 @@ func TestCountCrossingsMultiple(t *testing.T) {
 		[2]string{"b", "c"},
 	)
 	order := Order{0: {"a", "b"}, 1: {"c", "d"}}
-	if n := countCrossings(g, order); n != 1 {
+	ranks := map[string]int{"a": 0, "b": 0, "c": 1, "d": 1}
+	if n := testCountCrossings(g, ranks, order); n != 1 {
 		t.Errorf("expected 1 crossing, got %d", n)
 	}
 }
@@ -272,12 +279,63 @@ func TestRunDisconnectedComponents(t *testing.T) {
 	if len(order[0]) != 2 || len(order[1]) != 2 {
 		t.Errorf("expected 2 nodes per layer: %v", order)
 	}
-	if countCrossings(g, order) != 0 {
+	if testCountCrossings(g, ranks, order) != 0 {
 		t.Error("disconnected components should have no crossings")
 	}
 }
 
 // --- Isolated node without adjacent-layer neighbors ---
+
+// TestBuildLayerEdgesFiltersSelfLoops verifies the defensive branch that
+// skips self-loop edges when building the layer edge index.
+func TestBuildLayerEdgesFiltersSelfLoops(t *testing.T) {
+	g := graph.New()
+	g.SetEdge("a", "a", graph.EdgeAttrs{}) // self-loop
+	g.SetEdge("a", "b", graph.EdgeAttrs{})
+	ranks := map[string]int{"a": 0, "b": 1}
+
+	le := buildLayerEdges(g, ranks, []int{0, 1})
+	// Should contain only the a→b edge, not the self-loop.
+	if len(le[0]) != 1 {
+		t.Errorf("expected 1 edge, got %d: %v", len(le[0]), le[0])
+	}
+	if le[0][0].from != "a" || le[0][0].to != "b" {
+		t.Errorf("unexpected edge: %v", le[0][0])
+	}
+}
+
+// TestBuildLayerEdgesSkipsNonAdjacentSpans verifies edges that span more
+// than one rank are skipped. (Dummy node insertion in a later phase
+// normally prevents this, but the builder is defensive.)
+func TestBuildLayerEdgesSkipsNonAdjacentSpans(t *testing.T) {
+	g := graph.New()
+	g.SetEdge("a", "c", graph.EdgeAttrs{}) // spans 2 ranks
+	g.SetEdge("a", "b", graph.EdgeAttrs{})
+	g.SetEdge("b", "c", graph.EdgeAttrs{})
+	ranks := map[string]int{"a": 0, "b": 1, "c": 2}
+
+	le := buildLayerEdges(g, ranks, []int{0, 1, 2})
+	if len(le[0]) != 1 || le[0][0].to != "b" {
+		t.Errorf("rank 0 should only have a→b, got %v", le[0])
+	}
+	if len(le[1]) != 1 || le[1][0].from != "b" {
+		t.Errorf("rank 1 should only have b→c, got %v", le[1])
+	}
+}
+
+// TestBuildLayerEdgesSkipsUnrankedNodes verifies the defensive branch that
+// skips edges whose endpoints aren't in the ranks map.
+func TestBuildLayerEdgesSkipsUnrankedNodes(t *testing.T) {
+	g := buildGraph([2]string{"a", "b"}, [2]string{"b", "c"})
+	// c is intentionally missing from the ranks map.
+	ranks := map[string]int{"a": 0, "b": 1}
+
+	le := buildLayerEdges(g, ranks, []int{0, 1})
+	// Only a→b should be present.
+	if len(le[0]) != 1 {
+		t.Errorf("expected 1 edge (a→b), got %d", len(le[0]))
+	}
+}
 
 func TestRunNodeWithoutNeighbors(t *testing.T) {
 	// Node "x" at rank 1 has no incoming or outgoing edges.
