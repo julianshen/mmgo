@@ -14,9 +14,20 @@ func TestSetAndGetNode(t *testing.T) {
 	if !g.HasNode("a") {
 		t.Fatal("expected node 'a' to exist")
 	}
-	attrs := g.NodeAttrs("a")
+	attrs, ok := g.NodeAttrs("a")
+	if !ok {
+		t.Fatal("expected NodeAttrs ok=true for existing node")
+	}
 	if attrs.Width != 100 || attrs.Height != 50 || attrs.Label != "Node A" {
 		t.Errorf("unexpected attrs: %+v", attrs)
+	}
+}
+
+func TestNodeAttrsNonExistent(t *testing.T) {
+	g := New()
+	_, ok := g.NodeAttrs("missing")
+	if ok {
+		t.Error("expected ok=false for non-existent node")
 	}
 }
 
@@ -36,7 +47,8 @@ func TestOverwriteNodeAttrs(t *testing.T) {
 	g := New()
 	g.SetNode("a", NodeAttrs{Width: 10})
 	g.SetNode("a", NodeAttrs{Width: 20})
-	if g.NodeAttrs("a").Width != 20 {
+	attrs, _ := g.NodeAttrs("a")
+	if attrs.Width != 20 {
 		t.Error("expected attrs to be overwritten")
 	}
 	if g.NodeCount() != 1 {
@@ -56,6 +68,26 @@ func TestRemoveNode(t *testing.T) {
 	}
 	if g.EdgeCount() != 0 {
 		t.Error("edges incident to removed node should be removed")
+	}
+}
+
+func TestRemoveNodeOrphansChildren(t *testing.T) {
+	g := New()
+	g.SetNode("parent", NodeAttrs{})
+	g.SetNode("child1", NodeAttrs{})
+	g.SetNode("child2", NodeAttrs{})
+	g.SetParent("child1", "parent")
+	g.SetParent("child2", "parent")
+	g.RemoveNode("parent")
+
+	if g.Parent("child1") != "" {
+		t.Error("child1 should be orphaned after parent removal")
+	}
+	if g.Parent("child2") != "" {
+		t.Error("child2 should be orphaned after parent removal")
+	}
+	if !g.HasNode("child1") || !g.HasNode("child2") {
+		t.Error("children should still exist after parent removal")
 	}
 }
 
@@ -93,9 +125,41 @@ func TestSetAndGetEdge(t *testing.T) {
 	if len(edges) != 1 {
 		t.Fatalf("expected 1 edge, got %d", len(edges))
 	}
-	attrs := g.EdgeAttrs(edges[0])
+	attrs, ok := g.EdgeAttrs(edges[0])
+	if !ok {
+		t.Fatal("expected EdgeAttrs ok=true")
+	}
 	if attrs.Weight != 2 || attrs.Label != "edge1" {
 		t.Errorf("unexpected edge attrs: %+v", attrs)
+	}
+}
+
+func TestEdgeAttrsNonExistent(t *testing.T) {
+	g := New()
+	_, ok := g.EdgeAttrs(EdgeID{From: "x", To: "y", ID: 999})
+	if ok {
+		t.Error("expected ok=false for non-existent edge")
+	}
+}
+
+func TestSetEdgeAttrs(t *testing.T) {
+	g := New()
+	eid := g.SetEdge("a", "b", EdgeAttrs{Weight: 1})
+	ok := g.SetEdgeAttrs(eid, EdgeAttrs{Weight: 5, Label: "updated"})
+	if !ok {
+		t.Fatal("SetEdgeAttrs should return true for existing edge")
+	}
+	attrs, _ := g.EdgeAttrs(eid)
+	if attrs.Weight != 5 || attrs.Label != "updated" {
+		t.Errorf("expected updated attrs, got %+v", attrs)
+	}
+}
+
+func TestSetEdgeAttrsNonExistent(t *testing.T) {
+	g := New()
+	ok := g.SetEdgeAttrs(EdgeID{From: "x", To: "y", ID: 999}, EdgeAttrs{Weight: 10})
+	if ok {
+		t.Error("SetEdgeAttrs should return false for non-existent edge")
 	}
 }
 
@@ -120,13 +184,67 @@ func TestRemoveEdge(t *testing.T) {
 	g := New()
 	g.SetEdge("a", "b", EdgeAttrs{})
 	edges := g.EdgesBetween("a", "b")
-	g.RemoveEdge(edges[0])
+	removed := g.RemoveEdge(edges[0])
 
+	if !removed {
+		t.Error("RemoveEdge should return true")
+	}
 	if g.HasEdge("a", "b") {
 		t.Error("edge should be removed")
 	}
 	if !g.HasNode("a") || !g.HasNode("b") {
 		t.Error("removing edge should not remove nodes")
+	}
+}
+
+func TestRemoveEdgeNonExistent(t *testing.T) {
+	g := New()
+	g.SetEdge("a", "b", EdgeAttrs{})
+	removed := g.RemoveEdge(EdgeID{From: "x", To: "y", ID: 999})
+	if removed {
+		t.Error("RemoveEdge should return false for non-existent edge")
+	}
+	if g.EdgeCount() != 1 {
+		t.Error("graph should be unchanged")
+	}
+}
+
+func TestRemoveEdgeMultiEdgeGraph(t *testing.T) {
+	// Regression test: removing an edge must not corrupt adjacency for other nodes.
+	g := New()
+	g.SetEdge("a", "b", EdgeAttrs{Label: "ab"})
+	g.SetEdge("c", "d", EdgeAttrs{Label: "cd"})
+	g.SetEdge("a", "d", EdgeAttrs{Label: "ad"})
+
+	// Remove the first edge.
+	edges := g.EdgesBetween("a", "b")
+	g.RemoveEdge(edges[0])
+
+	// Verify other edges are intact and queryable.
+	if !g.HasEdge("c", "d") {
+		t.Fatal("edge c->d should still exist")
+	}
+	if !g.HasEdge("a", "d") {
+		t.Fatal("edge a->d should still exist")
+	}
+	cdEdges := g.EdgesBetween("c", "d")
+	if len(cdEdges) != 1 {
+		t.Fatalf("expected 1 c->d edge, got %d", len(cdEdges))
+	}
+	attrs, _ := g.EdgeAttrs(cdEdges[0])
+	if attrs.Label != "cd" {
+		t.Errorf("expected label 'cd', got %q", attrs.Label)
+	}
+
+	// Verify adjacency queries work correctly.
+	succ := g.Successors("c")
+	if !slices.Equal(succ, []string{"d"}) {
+		t.Errorf("expected successors [d], got %v", succ)
+	}
+	pred := g.Predecessors("d")
+	slices.Sort(pred)
+	if !slices.Equal(pred, []string{"a", "c"}) {
+		t.Errorf("expected predecessors [a, c], got %v", pred)
 	}
 }
 
@@ -139,7 +257,9 @@ func TestMultiEdges(t *testing.T) {
 	if len(edges) != 2 {
 		t.Fatalf("expected 2 edges, got %d", len(edges))
 	}
-	labels := []string{g.EdgeAttrs(edges[0]).Label, g.EdgeAttrs(edges[1]).Label}
+	attrs0, _ := g.EdgeAttrs(edges[0])
+	attrs1, _ := g.EdgeAttrs(edges[1])
+	labels := []string{attrs0.Label, attrs1.Label}
 	slices.Sort(labels)
 	if !slices.Equal(labels, []string{"first", "second"}) {
 		t.Errorf("unexpected labels: %v", labels)
@@ -205,6 +325,17 @@ func TestNeighbors(t *testing.T) {
 	}
 }
 
+func TestNeighborsDeduplication(t *testing.T) {
+	g := New()
+	g.SetEdge("a", "b", EdgeAttrs{})
+	g.SetEdge("b", "a", EdgeAttrs{})
+
+	neighbors := g.Neighbors("a")
+	if len(neighbors) != 1 || neighbors[0] != "b" {
+		t.Errorf("expected [b] (deduplicated), got %v", neighbors)
+	}
+}
+
 func TestSuccessorsEmpty(t *testing.T) {
 	g := New()
 	g.SetNode("a", NodeAttrs{})
@@ -243,7 +374,9 @@ func TestSetParent(t *testing.T) {
 	g := New()
 	g.SetNode("parent", NodeAttrs{})
 	g.SetNode("child", NodeAttrs{})
-	g.SetParent("child", "parent")
+	if err := g.SetParent("child", "parent"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if p := g.Parent("child"); p != "parent" {
 		t.Errorf("expected parent 'parent', got %q", p)
@@ -254,11 +387,86 @@ func TestSetParent(t *testing.T) {
 	}
 }
 
+func TestSetParentReassign(t *testing.T) {
+	g := New()
+	g.SetNode("parentA", NodeAttrs{})
+	g.SetNode("parentB", NodeAttrs{})
+	g.SetNode("child", NodeAttrs{})
+	g.SetParent("child", "parentA")
+	g.SetParent("child", "parentB")
+
+	if p := g.Parent("child"); p != "parentB" {
+		t.Errorf("expected parent 'parentB', got %q", p)
+	}
+	if len(g.Children("parentA")) != 0 {
+		t.Error("parentA should have no children after reassignment")
+	}
+	children := g.Children("parentB")
+	if !slices.Equal(children, []string{"child"}) {
+		t.Errorf("unexpected children: %v", children)
+	}
+}
+
+func TestSetParentNonExistentChild(t *testing.T) {
+	g := New()
+	g.SetNode("parent", NodeAttrs{})
+	err := g.SetParent("ghost", "parent")
+	if err == nil {
+		t.Error("expected error for non-existent child")
+	}
+}
+
+func TestSetParentNonExistentParent(t *testing.T) {
+	g := New()
+	g.SetNode("child", NodeAttrs{})
+	err := g.SetParent("child", "ghost")
+	if err == nil {
+		t.Error("expected error for non-existent parent")
+	}
+}
+
+func TestSetParentSelfCycle(t *testing.T) {
+	g := New()
+	g.SetNode("a", NodeAttrs{})
+	err := g.SetParent("a", "a")
+	if err == nil {
+		t.Error("expected error for self-parenting")
+	}
+}
+
+func TestSetParentCycleDetection(t *testing.T) {
+	g := New()
+	g.SetNode("a", NodeAttrs{})
+	g.SetNode("b", NodeAttrs{})
+	g.SetNode("c", NodeAttrs{})
+	g.SetParent("b", "a")
+	g.SetParent("c", "b")
+	err := g.SetParent("a", "c") // would create a->b->c->a cycle
+	if err == nil {
+		t.Error("expected error for circular parent-child hierarchy")
+	}
+}
+
 func TestChildrenEmpty(t *testing.T) {
 	g := New()
 	g.SetNode("a", NodeAttrs{})
 	if len(g.Children("a")) != 0 {
 		t.Error("node with no children should return empty")
+	}
+}
+
+func TestChildrenReturnsCopy(t *testing.T) {
+	g := New()
+	g.SetNode("parent", NodeAttrs{})
+	g.SetNode("child", NodeAttrs{})
+	g.SetParent("child", "parent")
+
+	children := g.Children("parent")
+	children[0] = "hacked" // mutate the returned slice
+
+	actual := g.Children("parent")
+	if actual[0] != "child" {
+		t.Error("mutating returned Children slice should not affect graph")
 	}
 }
 
@@ -309,7 +517,6 @@ func TestTopologicalSort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// a must come before b and c; b must come before c.
 	indexOf := func(s string) int {
 		for i, v := range order {
 			if v == s {
@@ -363,6 +570,17 @@ func TestTopologicalSortDisconnected(t *testing.T) {
 	}
 }
 
+func TestTopologicalSortEmptyGraph(t *testing.T) {
+	g := New()
+	order, err := g.TopologicalSort()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(order) != 0 {
+		t.Errorf("expected empty order, got %v", order)
+	}
+}
+
 // --- Copy ---
 
 func TestCopy(t *testing.T) {
@@ -378,7 +596,8 @@ func TestCopy(t *testing.T) {
 	if g2.NodeCount() != 2 || g2.EdgeCount() != 1 {
 		t.Error("copy should have same node/edge counts")
 	}
-	if g2.NodeAttrs("a").Width != 10 {
+	attrs, _ := g2.NodeAttrs("a")
+	if attrs.Width != 10 {
 		t.Error("copy should preserve node attrs")
 	}
 	if g2.Parent("b") != "a" {
@@ -389,6 +608,12 @@ func TestCopy(t *testing.T) {
 	g2.SetNode("c", NodeAttrs{})
 	if g.HasNode("c") {
 		t.Error("mutating copy should not affect original")
+	}
+
+	// Verify edge independence.
+	g2.SetEdge("c", "a", EdgeAttrs{})
+	if g.EdgeCount() != 1 {
+		t.Error("adding edge to copy should not affect original")
 	}
 }
 
@@ -422,7 +647,10 @@ func TestReverseEdge(t *testing.T) {
 	g := New()
 	g.SetEdge("a", "b", EdgeAttrs{Label: "fwd"})
 	edges := g.EdgesBetween("a", "b")
-	g.ReverseEdge(edges[0])
+	newID, ok := g.ReverseEdge(edges[0])
+	if !ok {
+		t.Fatal("ReverseEdge should return ok=true")
+	}
 
 	if g.HasEdge("a", "b") {
 		t.Error("original direction should not exist")
@@ -430,8 +658,24 @@ func TestReverseEdge(t *testing.T) {
 	if !g.HasEdge("b", "a") {
 		t.Error("reversed edge should exist")
 	}
-	revEdges := g.EdgesBetween("b", "a")
-	if g.EdgeAttrs(revEdges[0]).Label != "fwd" {
+	attrs, _ := g.EdgeAttrs(newID)
+	if attrs.Label != "fwd" {
 		t.Error("reversed edge should preserve attrs")
+	}
+}
+
+func TestReverseEdgeNonExistent(t *testing.T) {
+	g := New()
+	g.SetEdge("a", "b", EdgeAttrs{})
+	_, ok := g.ReverseEdge(EdgeID{From: "x", To: "y", ID: 999})
+	if ok {
+		t.Error("ReverseEdge should return ok=false for non-existent edge")
+	}
+	// Verify no phantom edge was created.
+	if g.HasNode("x") || g.HasNode("y") {
+		t.Error("non-existent reverse should not create phantom nodes")
+	}
+	if g.EdgeCount() != 1 {
+		t.Error("graph should be unchanged")
 	}
 }

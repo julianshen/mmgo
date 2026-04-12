@@ -5,11 +5,12 @@ package graph
 
 import "fmt"
 
-// EdgeID uniquely identifies an edge in the graph.
+// EdgeID uniquely identifies an edge in the graph. The ID field is assigned
+// by Graph.SetEdge and must not be fabricated by callers.
 type EdgeID struct {
 	From string
 	To   string
-	ID   int // disambiguates multi-edges between the same pair
+	ID   int // assigned by Graph.SetEdge; disambiguates multi-edges between the same pair
 }
 
 // NodeAttrs holds attributes associated with a graph node.
@@ -27,21 +28,16 @@ type EdgeAttrs struct {
 	LabelPos string
 }
 
-type edgeEntry struct {
-	id    EdgeID
-	attrs EdgeAttrs
-}
-
 // Graph is a directed graph supporting multi-edges and compound (parent/child)
 // relationships. It is not safe for concurrent use.
 type Graph struct {
 	nodes    map[string]NodeAttrs
-	edges    []edgeEntry
+	edges    map[EdgeID]EdgeAttrs
 	nextEdge int // monotonic counter for edge IDs
 
-	// adjacency: node -> list of edge indices in edges slice
-	outEdges map[string][]int
-	inEdges  map[string][]int
+	// adjacency: node -> set of edge IDs
+	outEdges map[string][]EdgeID
+	inEdges  map[string][]EdgeID
 
 	// compound graph
 	parent   map[string]string   // child -> parent
@@ -52,8 +48,9 @@ type Graph struct {
 func New() *Graph {
 	return &Graph{
 		nodes:    make(map[string]NodeAttrs),
-		outEdges: make(map[string][]int),
-		inEdges:  make(map[string][]int),
+		edges:    make(map[EdgeID]EdgeAttrs),
+		outEdges: make(map[string][]EdgeID),
+		inEdges:  make(map[string][]EdgeID),
 		parent:   make(map[string]string),
 		children: make(map[string][]string),
 	}
@@ -72,10 +69,10 @@ func (g *Graph) HasNode(id string) bool {
 	return ok
 }
 
-// NodeAttrs returns the attributes for the given node.
-// Returns zero-value NodeAttrs if the node does not exist.
-func (g *Graph) NodeAttrs(id string) NodeAttrs {
-	return g.nodes[id]
+// NodeAttrs returns the attributes for the given node and whether it exists.
+func (g *Graph) NodeAttrs(id string) (NodeAttrs, bool) {
+	attrs, ok := g.nodes[id]
+	return attrs, ok
 }
 
 // NodeCount returns the number of nodes in the graph.
@@ -98,14 +95,10 @@ func (g *Graph) RemoveNode(id string) {
 	if !g.HasNode(id) {
 		return
 	}
-	// Remove all incident edges (collect indices first to avoid mutation during iteration).
+	// Remove all incident edges (collect first to avoid mutation during iteration).
 	toRemove := make([]EdgeID, 0)
-	for _, idx := range g.outEdges[id] {
-		toRemove = append(toRemove, g.edges[idx].id)
-	}
-	for _, idx := range g.inEdges[id] {
-		toRemove = append(toRemove, g.edges[idx].id)
-	}
+	toRemove = append(toRemove, g.outEdges[id]...)
+	toRemove = append(toRemove, g.inEdges[id]...)
 	for _, eid := range toRemove {
 		g.RemoveEdge(eid)
 	}
@@ -142,49 +135,44 @@ func (g *Graph) SetEdge(from, to string, attrs EdgeAttrs) EdgeID {
 	eid := EdgeID{From: from, To: to, ID: g.nextEdge}
 	g.nextEdge++
 
-	idx := len(g.edges)
-	g.edges = append(g.edges, edgeEntry{id: eid, attrs: attrs})
-	g.outEdges[from] = append(g.outEdges[from], idx)
-	g.inEdges[to] = append(g.inEdges[to], idx)
+	g.edges[eid] = attrs
+	g.outEdges[from] = append(g.outEdges[from], eid)
+	g.inEdges[to] = append(g.inEdges[to], eid)
 	return eid
 }
 
 // HasEdge reports whether at least one edge exists from -> to.
 func (g *Graph) HasEdge(from, to string) bool {
-	for _, idx := range g.outEdges[from] {
-		if g.edges[idx].id.To == to {
+	for _, eid := range g.outEdges[from] {
+		if eid.To == to {
 			return true
 		}
 	}
 	return false
 }
 
-// EdgeAttrs returns the attributes for the given edge.
-func (g *Graph) EdgeAttrs(eid EdgeID) EdgeAttrs {
-	for _, e := range g.edges {
-		if e.id == eid {
-			return e.attrs
-		}
-	}
-	return EdgeAttrs{}
+// EdgeAttrs returns the attributes for the given edge and whether it exists.
+func (g *Graph) EdgeAttrs(eid EdgeID) (EdgeAttrs, bool) {
+	attrs, ok := g.edges[eid]
+	return attrs, ok
 }
 
 // SetEdgeAttrs updates the attributes for an existing edge.
-func (g *Graph) SetEdgeAttrs(eid EdgeID, attrs EdgeAttrs) {
-	for i, e := range g.edges {
-		if e.id == eid {
-			g.edges[i].attrs = attrs
-			return
-		}
+// Returns false if the edge does not exist.
+func (g *Graph) SetEdgeAttrs(eid EdgeID, attrs EdgeAttrs) bool {
+	if _, ok := g.edges[eid]; !ok {
+		return false
 	}
+	g.edges[eid] = attrs
+	return true
 }
 
 // EdgesBetween returns all edge IDs from -> to.
 func (g *Graph) EdgesBetween(from, to string) []EdgeID {
 	var result []EdgeID
-	for _, idx := range g.outEdges[from] {
-		if g.edges[idx].id.To == to {
-			result = append(result, g.edges[idx].id)
+	for _, eid := range g.outEdges[from] {
+		if eid.To == to {
+			result = append(result, eid)
 		}
 	}
 	return result
@@ -197,59 +185,49 @@ func (g *Graph) EdgeCount() int {
 
 // Edges returns all edge IDs in the graph.
 func (g *Graph) Edges() []EdgeID {
-	result := make([]EdgeID, len(g.edges))
-	for i, e := range g.edges {
-		result[i] = e.id
+	result := make([]EdgeID, 0, len(g.edges))
+	for eid := range g.edges {
+		result = append(result, eid)
 	}
 	return result
 }
 
-// RemoveEdge removes an edge by its ID.
-func (g *Graph) RemoveEdge(eid EdgeID) {
-	idx := -1
-	for i, e := range g.edges {
-		if e.id == eid {
-			idx = i
-			break
-		}
+// RemoveEdge removes an edge by its ID. Returns true if the edge was found
+// and removed.
+func (g *Graph) RemoveEdge(eid EdgeID) bool {
+	if _, ok := g.edges[eid]; !ok {
+		return false
 	}
-	if idx < 0 {
-		return
-	}
-
-	from := g.edges[idx].id.From
-	to := g.edges[idx].id.To
-
-	// Remove from edges slice.
-	g.edges = append(g.edges[:idx], g.edges[idx+1:]...)
-
-	// Rebuild adjacency indices for affected nodes (indices shifted).
-	g.rebuildAdjacency(from)
-	g.rebuildAdjacency(to)
+	delete(g.edges, eid)
+	g.outEdges[eid.From] = removeEdgeID(g.outEdges[eid.From], eid)
+	g.inEdges[eid.To] = removeEdgeID(g.inEdges[eid.To], eid)
+	return true
 }
 
 // ReverseEdge reverses the direction of an edge, preserving its attributes.
-func (g *Graph) ReverseEdge(eid EdgeID) {
-	attrs := g.EdgeAttrs(eid)
+// Returns the new EdgeID and true, or a zero EdgeID and false if the original
+// edge does not exist.
+func (g *Graph) ReverseEdge(eid EdgeID) (EdgeID, bool) {
+	attrs, ok := g.EdgeAttrs(eid)
+	if !ok {
+		return EdgeID{}, false
+	}
 	g.RemoveEdge(eid)
-	g.SetEdge(eid.To, eid.From, attrs)
+	newID := g.SetEdge(eid.To, eid.From, attrs)
+	return newID, true
 }
 
 // InEdges returns all edge IDs pointing into the given node.
 func (g *Graph) InEdges(id string) []EdgeID {
-	var result []EdgeID
-	for _, idx := range g.inEdges[id] {
-		result = append(result, g.edges[idx].id)
-	}
+	result := make([]EdgeID, len(g.inEdges[id]))
+	copy(result, g.inEdges[id])
 	return result
 }
 
 // OutEdges returns all edge IDs going out of the given node.
 func (g *Graph) OutEdges(id string) []EdgeID {
-	var result []EdgeID
-	for _, idx := range g.outEdges[id] {
-		result = append(result, g.edges[idx].id)
-	}
+	result := make([]EdgeID, len(g.outEdges[id]))
+	copy(result, g.outEdges[id])
 	return result
 }
 
@@ -259,11 +237,10 @@ func (g *Graph) OutEdges(id string) []EdgeID {
 func (g *Graph) Successors(id string) []string {
 	seen := make(map[string]bool)
 	var result []string
-	for _, idx := range g.outEdges[id] {
-		to := g.edges[idx].id.To
-		if !seen[to] {
-			seen[to] = true
-			result = append(result, to)
+	for _, eid := range g.outEdges[id] {
+		if !seen[eid.To] {
+			seen[eid.To] = true
+			result = append(result, eid.To)
 		}
 	}
 	return result
@@ -273,11 +250,10 @@ func (g *Graph) Successors(id string) []string {
 func (g *Graph) Predecessors(id string) []string {
 	seen := make(map[string]bool)
 	var result []string
-	for _, idx := range g.inEdges[id] {
-		from := g.edges[idx].id.From
-		if !seen[from] {
-			seen[from] = true
-			result = append(result, from)
+	for _, eid := range g.inEdges[id] {
+		if !seen[eid.From] {
+			seen[eid.From] = true
+			result = append(result, eid.From)
 		}
 	}
 	return result
@@ -305,17 +281,38 @@ func (g *Graph) Neighbors(id string) []string {
 // --- Compound graph ---
 
 // SetParent sets the parent of a child node. Pass "" to remove the parent.
-func (g *Graph) SetParent(child, parent string) {
+// Both child and parent (if non-empty) must exist as nodes in the graph.
+// Returns an error if they don't, or if setting the parent would create a cycle.
+func (g *Graph) SetParent(child, parent string) error {
+	if !g.HasNode(child) {
+		return fmt.Errorf("child node %q does not exist", child)
+	}
+	if parent != "" && !g.HasNode(parent) {
+		return fmt.Errorf("parent node %q does not exist", parent)
+	}
+	if parent == child {
+		return fmt.Errorf("node %q cannot be its own parent", child)
+	}
+	// Check for cycles: walk up from parent to ensure child is not an ancestor.
+	if parent != "" {
+		for p := parent; p != ""; p = g.parent[p] {
+			if p == child {
+				return fmt.Errorf("setting %q as parent of %q would create a cycle", parent, child)
+			}
+		}
+	}
+
 	// Remove from old parent first.
 	if old := g.parent[child]; old != "" {
 		g.removeChild(old, child)
 	}
 	if parent == "" {
 		delete(g.parent, child)
-		return
+		return nil
 	}
 	g.parent[child] = parent
 	g.children[parent] = append(g.children[parent], child)
+	return nil
 }
 
 // Parent returns the parent node ID, or "" if the node has no parent.
@@ -324,12 +321,15 @@ func (g *Graph) Parent(id string) string {
 }
 
 // Children returns the child node IDs of the given parent.
+// Returns a copy; mutating the returned slice does not affect the graph.
 func (g *Graph) Children(id string) []string {
 	c := g.children[id]
-	if c == nil {
+	if len(c) == 0 {
 		return []string{}
 	}
-	return c
+	result := make([]string, len(c))
+	copy(result, c)
+	return result
 }
 
 // --- Topological sort ---
@@ -341,8 +341,8 @@ func (g *Graph) TopologicalSort() ([]string, error) {
 	for id := range g.nodes {
 		inDegree[id] = 0
 	}
-	for _, e := range g.edges {
-		inDegree[e.id.To]++
+	for eid := range g.edges {
+		inDegree[eid.To]++
 	}
 
 	// Seed queue with zero in-degree nodes.
@@ -359,11 +359,10 @@ func (g *Graph) TopologicalSort() ([]string, error) {
 		queue = queue[1:]
 		order = append(order, node)
 
-		for _, idx := range g.outEdges[node] {
-			to := g.edges[idx].id.To
-			inDegree[to]--
-			if inDegree[to] == 0 {
-				queue = append(queue, to)
+		for _, eid := range g.outEdges[node] {
+			inDegree[eid.To]--
+			if inDegree[eid.To] == 0 {
+				queue = append(queue, eid.To)
 			}
 		}
 	}
@@ -383,11 +382,11 @@ func (g *Graph) Copy() *Graph {
 	for id, attrs := range g.nodes {
 		g2.SetNode(id, attrs)
 	}
-	for _, e := range g.edges {
-		g2.SetEdge(e.id.From, e.id.To, e.attrs)
+	for eid, attrs := range g.edges {
+		g2.SetEdge(eid.From, eid.To, attrs)
 	}
 	for child, parent := range g.parent {
-		g2.SetParent(child, parent)
+		g2.SetParent(child, parent) //nolint:errcheck // nodes guaranteed to exist from loop above
 	}
 	return g2
 }
@@ -404,15 +403,11 @@ func (g *Graph) removeChild(parent, child string) {
 	}
 }
 
-func (g *Graph) rebuildAdjacency(id string) {
-	g.outEdges[id] = g.outEdges[id][:0]
-	g.inEdges[id] = g.inEdges[id][:0]
-	for i, e := range g.edges {
-		if e.id.From == id {
-			g.outEdges[id] = append(g.outEdges[id], i)
-		}
-		if e.id.To == id {
-			g.inEdges[id] = append(g.inEdges[id], i)
+func removeEdgeID(slice []EdgeID, eid EdgeID) []EdgeID {
+	for i, e := range slice {
+		if e == eid {
+			return append(slice[:i], slice[i+1:]...)
 		}
 	}
+	return slice
 }
