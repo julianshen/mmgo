@@ -79,9 +79,6 @@ type Message struct {
 	Lifeline  LifelineEffect
 }
 
-// itemKind discriminates the concrete type inside a SequenceItem.
-type itemKind int8
-
 // SequenceItem is one source-ordered element in a sequence diagram body.
 // Exactly one of Message, Block, or Note is populated. Use the Kind() method
 // to dispatch.
