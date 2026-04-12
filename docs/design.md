@@ -21,7 +21,7 @@ Build a pure-Go Mermaid diagram renderer that:
 
 ## 3. Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │                       CLI (cmd/mmdc)                    │
 │         Flag parsing, I/O, markdown processing          │
@@ -40,21 +40,20 @@ Build a pure-Go Mermaid diagram renderer that:
 │  └────┬─────┘  └────┬─────┘  └─────┬──────┘            │
 │       │              │              │                   │
 │  ┌────▼──────────────▼──────────────▼──────┐            │
-│  │              layout/                     │            │
-│  │  ┌────────┐ ┌──────┐ ┌───────┐ ┌─────┐ │            │
-│  │  │ graph/ │ │rank/ │ │order/ │ │pos/ │ │            │
-│  │  └────────┘ └──────┘ └───────┘ └─────┘ │            │
-│  └──────────────────┬──────────────────────┘            │
-│                     │                                   │
-│  ┌──────────────────▼──────────────────────┐            │
-│  │           textmeasure/                   │            │
+│  │          textmeasure/                    │            │
 │  │    golang.org/x/image/font               │            │
 │  │    Bundled font (Source Sans Pro)         │            │
 │  └──────────────────┬──────────────────────┘            │
 │                     │                                   │
 │  ┌──────────────────▼──────────────────────┐            │
 │  │            renderer/                     │            │
+│  │  (each type owns its layout + render)    │            │
 │  │  flowchart/ │ sequence/ │ pie/ │ ...    │            │
+│  │       ↕                                  │            │
+│  │   layout/ (used by graph-based types)    │            │
+│  │   ┌────────┐ ┌──────┐ ┌──────┐ ┌─────┐ │            │
+│  │   │ graph/ │ │rank/ │ │order/│ │pos/ │ │            │
+│  │   └────────┘ └──────┘ └──────┘ └─────┘ │            │
 │  └──────────────────┬──────────────────────┘            │
 │                     │                                   │
 │  ┌──────────────────▼──────────────────────┐            │
@@ -82,19 +81,19 @@ Mermaid's grammar is informal and ad-hoc. There is no BNF/EBNF specification. Ea
 ```go
 // pkg/parser/parser.go
 
-// Parse detects the diagram type from the input text and delegates
-// to the appropriate type-specific parser.
-func Parse(input string) (diagram.Diagram, error)
+// Parse reads diagram input from r, detects the diagram type,
+// and delegates to the appropriate type-specific parser.
+func Parse(r io.Reader) (diagram.Diagram, error)
 ```
 
 ```go
 // pkg/parser/flowchart/parser.go
 
-// Parse parses a flowchart/graph definition into a FlowchartDiagram.
-func Parse(input string) (*diagram.FlowchartDiagram, error)
+// Parse reads a flowchart/graph definition from r and returns a FlowchartDiagram.
+func Parse(r io.Reader) (*diagram.FlowchartDiagram, error)
 ```
 
-**Type detection:** The first non-comment line determines the diagram type:
+**Type detection:** The first non-empty, non-comment line determines the diagram type:
 - `graph LR`, `graph TD`, `flowchart LR`, etc. → flowchart
 - `sequenceDiagram` → sequence
 - `pie` → pie chart
@@ -333,10 +332,10 @@ Each diagram type owns its full render pipeline (layout + SVG generation), becau
 ```go
 // pkg/renderer/renderer.go
 
-// RenderPipeline takes a parsed diagram and produces SVG.
+// RenderPipeline takes a parsed diagram and writes SVG to w.
 // Each diagram type implements its own layout strategy internally.
 type RenderPipeline interface {
-    Render(d diagram.Diagram, ruler *textmeasure.Ruler, opts RenderOptions) (string, error)
+    Render(w io.Writer, d diagram.Diagram, ruler *textmeasure.Ruler, opts RenderOptions) error
 }
 ```
 
@@ -352,7 +351,7 @@ This design avoids a forced uniform `LayoutResult` that wouldn't fit all diagram
 **Sequence renderer** (uses custom column layout) generates:
 - Vertical `<line>` for lifelines
 - `<rect>` for participant boxes and activation bars
-- `<line>`/`<path>` for messages with arrow markers
+- `<line>`/`<path>` for messages with arrow markers for all 8 arrow types (`->>`, `->`, `-->>`, `-->`, `-x`, `--x`, `-)`, `--)`)
 - `<rect>` with `<text>` for block labels (alt, loop, etc.)
 - `<rect>` for notes
 
@@ -363,12 +362,13 @@ SVG is generated via string building (not a DOM library). Each renderer produces
 **SVG:** Native output format — the renderer already produces SVG strings.
 
 **PNG:** Rasterize SVG to PNG using a pure-Go approach:
-- Option A: Parse SVG and rasterize with `golang.org/x/image` + vector rasterizer
-- Option B: Use a Go SVG rasterizer library (e.g., `srwiley/oksvg` + `srwiley/rasterx`)
+- Primary: `tdewolff/canvas` — pure Go 2D canvas with comprehensive SVG support (filters, markers, complex CSS), outputs to PNG/PDF/SVG
+- Fallback: `srwiley/oksvg` + `srwiley/rasterx` — simpler but limited SVG feature coverage
 - The `--scale` flag controls device pixel ratio (DPR)
 
-**PDF:** Embed SVG or rasterized image in a PDF page:
-- Use `go-pdf/fpdf` or `jung-kurt/gofpdf`
+**PDF:** Embed diagram in a PDF page:
+- Use `go-pdf/fpdf` (actively maintained fork) or `tdewolff/canvas` (supports direct PDF output)
+- Note: `jung-kurt/gofpdf` is archived/unmaintained — do not use
 - `--pdfFit` scales the diagram to fit the page
 
 **Markdown rewriter:** Processes .md files, finds mermaid code blocks, renders each to a separate image file, and replaces the code block with an image reference (`![](diagram-1.svg)`).
@@ -421,10 +421,9 @@ Thin orchestrator that wires together the packages:
 |-----------|---------|---------------|
 | `golang.org/x/image/font` | Text measurement (font metrics) | No stdlib alternative for font metric computation |
 | `golang.org/x/image/math/fixed` | Fixed-point math for font metrics | Required by x/image/font |
-| `srwiley/oksvg` + `srwiley/rasterx` | SVG → PNG rasterization | Pure Go SVG rasterizer; avoids CGO |
+| `tdewolff/canvas` | SVG → PNG/PDF rendering | Pure Go 2D canvas with comprehensive SVG support |
+| `spf13/pflag` | CLI flag parsing | Stdlib `flag` does not support POSIX-style `--long-flag`; mermaid-cli uses POSIX flags |
 | Standard library only | Everything else | Minimize dependency tree |
-
-CLI flag parsing: Use stdlib `flag` package or evaluate `spf13/pflag` for POSIX-style `--long-flag` support (mermaid-cli uses POSIX flags).
 
 ## 6. Error Handling Strategy
 

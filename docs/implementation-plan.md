@@ -70,6 +70,7 @@ Build `pkg/textmeasure/` — font-based text bounding box computation.
 - Measure text width and height at a given font size
 - Handle multi-line text (split on `\n`, measure each line, return max width and total height)
 - Bundle a default font (Source Sans Pro or similar OFL-licensed font)
+- Include the OFL license text file alongside the bundled font (required by SIL Open Font License)
 - Expose `Ruler` type with `Measure(text string, fontSize float64) (w, h float64)`
 
 **Dependencies:** `golang.org/x/image/font`, `golang.org/x/image/font/sfnt`
@@ -240,7 +241,7 @@ Build `pkg/layout/layout.go` — the top-level `Layout()` function that orchestr
 Build `pkg/parser/flowchart/` — recursive descent parser for Mermaid flowchart syntax.
 
 **Supported syntax:**
-```
+```mermaid
 graph LR
     A[Rectangle] --> B(Rounded)
     B --> C{Diamond}
@@ -334,7 +335,7 @@ Build `pkg/output/svg/` and wire flowchart end-to-end.
 Build `pkg/parser/sequence/`.
 
 **Supported syntax:**
-```
+```mermaid
 sequenceDiagram
     participant A as Alice
     actor B as Bob
@@ -411,7 +412,7 @@ Sequence diagrams use a **custom layout** (not dagre). The layout is column-base
 Pie charts are simple — good for validating the full pipeline with minimal complexity.
 
 **Syntax:**
-```
+```mermaid
 pie title Pets
     "Dogs" : 386
     "Cats" : 85
@@ -450,12 +451,12 @@ Build `pkg/config/`.
 Build `cmd/mmdc/`.
 
 **Requirements:**
-- All CLI flags from the spec (see CLAUDE.md)
-- Input: file path, `-` for stdin, `.md` for markdown mode
-- Output: format inferred from file extension (.svg, .png, .pdf)
-- Markdown mode: extract mermaid blocks, render each, rewrite markdown
+- All CLI flags from the spec (see CLAUDE.md), using `spf13/pflag`
+- Input: file path or `-` for stdin
+- Output: SVG only in this step (format inferred from extension; error if `.png`/`.pdf` requested before Steps 17-18)
 - Quiet mode: suppress non-error output
 - Error reporting: clear messages with input line references
+- Markdown mode and PNG/PDF output are deferred to Steps 17-19 and wired into the CLI there
 
 **Tests:** Integration tests running the compiled binary on testdata fixtures.
 
@@ -469,7 +470,7 @@ Build `cmd/mmdc/`.
 
 Build `pkg/output/png/`.
 
-**Approach:** Use `srwiley/oksvg` + `srwiley/rasterx` (pure Go SVG rasterizer).
+**Approach:** Use `tdewolff/canvas` (pure Go 2D canvas with comprehensive SVG support). Fallback: `srwiley/oksvg` + `srwiley/rasterx` if canvas proves insufficient.
 
 **Requirements:**
 - Parse SVG string → rasterize to `image.Image` → encode as PNG

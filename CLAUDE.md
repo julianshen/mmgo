@@ -77,7 +77,7 @@ pkg/
 
 **Key data flow:**
 
-```
+```text
 Input (.mmd/markdown/stdin)
   → parser (text → diagram AST)
     → text measurer (computes node sizes from font metrics)
@@ -102,7 +102,7 @@ The `pkg/` packages are the public module surface. Follow these principles:
 
 3. **Dagre port for layout.** The layout engine is a Go port of [dagrejs/dagre](https://github.com/dagrejs/dagre) (~3,500 lines of TypeScript). It implements the Sugiyama method: cycle removal → rank assignment (network simplex) → crossing minimization (barycenter) → coordinate assignment (Brandes-Kopf). Reference papers: Gansner et al. 1993, Brandes & Kopf 2002.
 
-4. **Bundled fonts for text measurement.** We bundle a default font (e.g., Source Sans Pro) and use `golang.org/x/image/font` to compute text bounding boxes. This replaces the browser's `getBBox()` API that Mermaid.js relies on.
+4. **Bundled fonts for text measurement.** We bundle a default font (Source Sans Pro, SIL Open Font License) and use `golang.org/x/image/font` to compute text bounding boxes. This replaces the browser's `getBBox()` API that Mermaid.js relies on. The OFL license text must be included alongside the font files in the repository.
 
 5. **Phased diagram support.** Not all 26 Mermaid diagram types ship at once. Phase 1 targets flowchart + sequence + pie (~70% of real-world usage).
 
@@ -135,7 +135,7 @@ go tool cover -func=coverage.out | grep total
 
 - **Error handling:** Return errors early; let the happy path flow down. Use `fmt.Errorf("context: %w", err)` to wrap errors with context.
 - **Naming:** Exported identifiers use MixedCaps. Packages are single lowercase words. No `Get` prefix on getters.
-- **Dependencies:** Prefer the standard library. External deps require justification. Key allowed deps: `golang.org/x/image/font` (text measurement).
+- **Dependencies:** Prefer the standard library. External deps require justification. Key allowed deps: `golang.org/x/image/font` (text measurement), `tdewolff/canvas` (PNG/PDF rendering), `spf13/pflag` (POSIX CLI flags).
 - **Concurrency:** Keep it out of the public API. Use channels internally where needed; use quit channels to prevent goroutine leaks.
 - **`defer`:** Use for resource cleanup (file handles, temp dirs).
 
