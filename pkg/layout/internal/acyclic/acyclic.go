@@ -8,7 +8,8 @@
 package acyclic
 
 import (
-	"sort"
+	"fmt"
+	"slices"
 
 	"github.com/julianshen/mmgo/pkg/layout/graph"
 )
@@ -41,18 +42,28 @@ func Run(g *graph.Graph) []graph.EdgeID {
 
 	reversed := make([]graph.EdgeID, 0, len(backEdges))
 	for _, eid := range backEdges {
-		if newID, ok := g.ReverseEdge(eid); ok {
-			reversed = append(reversed, newID)
+		newID, ok := g.ReverseEdge(eid)
+		if !ok {
+			// Unreachable under normal Run flow: backEdges comes from
+			// g.Edges() with no intervening mutation. Defensive skip.
+			continue
 		}
+		reversed = append(reversed, newID)
 	}
 	return reversed
 }
 
 // Undo reverses the edges listed in reversed, restoring their original
 // directions. Safe to call with a nil or empty slice.
+//
+// Panics if any EdgeID in reversed no longer exists in g. This indicates
+// that g was mutated between Run and Undo — a programming error that would
+// otherwise produce silent, hard-to-diagnose layout bugs.
 func Undo(g *graph.Graph, reversed []graph.EdgeID) {
 	for _, eid := range reversed {
-		g.ReverseEdge(eid)
+		if _, ok := g.ReverseEdge(eid); !ok {
+			panic(fmt.Sprintf("acyclic.Undo: edge %v not found; graph was mutated between Run and Undo", eid))
+		}
 	}
 }
 
@@ -61,10 +72,10 @@ func Undo(g *graph.Graph, reversed []graph.EdgeID) {
 // ties are broken by alphabetical node ID.
 //
 // The algorithm repeatedly:
-//  1. Removes sinks (out-degree 0 excluding self-loops), prepending them
-//     to the right side of the result.
-//  2. Removes sources (in-degree 0 excluding self-loops), appending them
-//     to the left side.
+//  1. Removes all sinks (nodes with non-self out-degree 0), appending
+//     them to a list that will form the tail of the final ordering.
+//  2. Removes all sources (nodes with non-self in-degree 0), appending
+//     them to a list that forms the head.
 //  3. If neither exists, picks the node with the highest
 //     (out-degree - in-degree) and treats it as a source.
 //
@@ -73,70 +84,98 @@ func Undo(g *graph.Graph, reversed []graph.EdgeID) {
 func greedyOrdering(g *graph.Graph) []string {
 	work := g.Copy()
 
-	var left, right []string
+	var head []string      // sources in discovery order
+	var tailRev []string   // sinks in discovery order (reversed before emit)
 
 	for work.NodeCount() > 0 {
+		// Snapshot degrees once per iteration. Re-snapshotting after each
+		// drain batch keeps counts consistent as we remove nodes.
 		for {
-			sink := findSink(work)
-			if sink == "" {
-				break
+			degs := computeDegrees(work)
+			drained := false
+
+			// Drain all sinks.
+			for _, n := range sortedNodes(work) {
+				if degs[n].out == 0 {
+					tailRev = append(tailRev, n)
+					work.RemoveNode(n)
+					drained = true
+				}
 			}
-			right = append([]string{sink}, right...)
-			work.RemoveNode(sink)
+			if drained {
+				continue
+			}
+
+			// Drain all sources.
+			for _, n := range sortedNodes(work) {
+				if degs[n].in == 0 {
+					head = append(head, n)
+					work.RemoveNode(n)
+					drained = true
+				}
+			}
+			if drained {
+				continue
+			}
+
+			break
 		}
 
-		for {
-			src := findSource(work)
-			if src == "" {
-				break
-			}
-			left = append(left, src)
-			work.RemoveNode(src)
-		}
-
+		// If the graph still has nodes, pick the one with the highest
+		// out-in degree delta and treat it as a source.
 		if work.NodeCount() > 0 {
 			best := pickMaxDelta(work)
-			left = append(left, best)
+			head = append(head, best)
 			work.RemoveNode(best)
 		}
 	}
 
-	result := make([]string, 0, len(left)+len(right))
-	result = append(result, left...)
-	result = append(result, right...)
+	// Assemble the final order: head ++ reverse(tailRev).
+	result := make([]string, 0, len(head)+len(tailRev))
+	result = append(result, head...)
+	for i := len(tailRev) - 1; i >= 0; i-- {
+		result = append(result, tailRev[i])
+	}
 	return result
 }
 
-// findSink returns the alphabetically-first node with zero non-self-loop
-// out-degree, or "" if none exists.
-func findSink(g *graph.Graph) string {
-	for _, n := range sortedNodes(g) {
-		if outDegreeNoSelf(g, n) == 0 {
-			return n
-		}
-	}
-	return ""
+// degrees holds the non-self-loop in- and out-degree of a node.
+type degrees struct {
+	in  int
+	out int
 }
 
-// findSource returns the alphabetically-first node with zero non-self-loop
-// in-degree, or "" if none exists.
-func findSource(g *graph.Graph) string {
-	for _, n := range sortedNodes(g) {
-		if inDegreeNoSelf(g, n) == 0 {
-			return n
-		}
+// computeDegrees returns a map of non-self-loop in/out degrees for every
+// node in g. Self-loops are excluded so they don't interfere with source
+// and sink detection.
+func computeDegrees(g *graph.Graph) map[string]degrees {
+	result := make(map[string]degrees, g.NodeCount())
+	for _, n := range g.Nodes() {
+		result[n] = degrees{}
 	}
-	return ""
+	for _, eid := range g.Edges() {
+		if eid.From == eid.To {
+			continue
+		}
+		d := result[eid.From]
+		d.out++
+		result[eid.From] = d
+		d = result[eid.To]
+		d.in++
+		result[eid.To] = d
+	}
+	return result
 }
 
 // pickMaxDelta returns the node with the highest (out_degree - in_degree),
-// excluding self-loops. Ties break alphabetically. Panics if g is empty.
+// excluding self-loops. Ties break alphabetically.
 func pickMaxDelta(g *graph.Graph) string {
+	degs := computeDegrees(g)
 	nodes := sortedNodes(g)
 	best := nodes[0]
-	bestDelta := outDegreeNoSelf(g, best) - inDegreeNoSelf(g, best)
+	bestDelta := degs[best].out - degs[best].in
 	for _, n := range nodes[1:] {
-		d := outDegreeNoSelf(g, n) - inDegreeNoSelf(g, n)
+		d := degs[n].out - degs[n].in
 		if d > bestDelta {
 			best = n
 			bestDelta = d
@@ -145,30 +184,8 @@ func pickMaxDelta(g *graph.Graph) string {
 	return best
 }
 
-// outDegreeNoSelf counts outgoing edges from n excluding self-loops.
-func outDegreeNoSelf(g *graph.Graph, n string) int {
-	count := 0
-	for _, eid := range g.OutEdges(n) {
-		if eid.To != n {
-			count++
-		}
-	}
-	return count
-}
-
-// inDegreeNoSelf counts incoming edges to n excluding self-loops.
-func inDegreeNoSelf(g *graph.Graph, n string) int {
-	count := 0
-	for _, eid := range g.InEdges(n) {
-		if eid.From != n {
-			count++
-		}
-	}
-	return count
-}
-
 func sortedNodes(g *graph.Graph) []string {
 	nodes := g.Nodes()
-	sort.Strings(nodes)
+	slices.Sort(nodes)
 	return nodes
 }

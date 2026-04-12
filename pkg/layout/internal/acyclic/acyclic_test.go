@@ -30,7 +30,7 @@ func collectEdges(g *graph.Graph) []edgeRecord {
 	return out
 }
 
-func buildLinear(edges ...[2]string) *graph.Graph {
+func buildGraph(edges ...[2]string) *graph.Graph {
 	g := graph.New()
 	for _, e := range edges {
 		g.SetEdge(e[0], e[1], graph.EdgeAttrs{})
@@ -38,9 +38,15 @@ func buildLinear(edges ...[2]string) *graph.Graph {
 	return g
 }
 
+func assertAcyclic(t *testing.T, g *graph.Graph) {
+	t.Helper()
+	if _, err := g.TopologicalSort(); err != nil {
+		t.Errorf("graph not acyclic: %v", err)
+	}
+}
+
 // nonSelfLoopTopoSort returns a topological sort after temporarily removing
-// self-loops. Used to verify that Run produces an acyclic graph even when
-// self-loops are present (since self-loops always defeat TopologicalSort).
+// self-loops, for asserting acyclicity in the presence of self-loops.
 func nonSelfLoopTopoSort(g *graph.Graph) ([]string, error) {
 	h := g.Copy()
 	for _, eid := range h.Edges() {
@@ -55,8 +61,7 @@ func nonSelfLoopTopoSort(g *graph.Graph) ([]string, error) {
 
 func TestRunEmptyGraph(t *testing.T) {
 	g := graph.New()
-	reversed := Run(g)
-	if len(reversed) != 0 {
+	if reversed := Run(g); len(reversed) != 0 {
 		t.Errorf("expected no reversals, got %d", len(reversed))
 	}
 }
@@ -64,96 +69,71 @@ func TestRunEmptyGraph(t *testing.T) {
 func TestRunSingleNode(t *testing.T) {
 	g := graph.New()
 	g.SetNode("a", graph.NodeAttrs{})
-	reversed := Run(g)
-	if len(reversed) != 0 {
+	if reversed := Run(g); len(reversed) != 0 {
 		t.Errorf("expected no reversals, got %d", len(reversed))
 	}
 }
 
-func TestRunLinearChain(t *testing.T) {
-	g := buildLinear([2]string{"a", "b"}, [2]string{"b", "c"}, [2]string{"c", "d"})
-	reversed := Run(g)
-	if len(reversed) != 0 {
-		t.Errorf("expected no reversals for acyclic graph, got %d", len(reversed))
-	}
-	if _, err := g.TopologicalSort(); err != nil {
-		t.Errorf("graph should be acyclic: %v", err)
-	}
-}
+// --- Run: table-driven acyclic/cyclic cases ---
 
-func TestRunAlreadyAcyclic(t *testing.T) {
-	// Diamond: a -> b -> d; a -> c -> d
-	g := buildLinear(
-		[2]string{"a", "b"},
-		[2]string{"a", "c"},
-		[2]string{"b", "d"},
-		[2]string{"c", "d"},
-	)
-	reversed := Run(g)
-	if len(reversed) != 0 {
-		t.Errorf("already-acyclic graph should not be modified, got %d reversals", len(reversed))
+func TestRunCases(t *testing.T) {
+	tests := []struct {
+		name         string
+		edges        [][2]string
+		wantReversed int // -1 means "don't check count, only verify acyclic output"
+	}{
+		{
+			name:         "linear chain",
+			edges:        [][2]string{{"a", "b"}, {"b", "c"}, {"c", "d"}},
+			wantReversed: 0,
+		},
+		{
+			name:         "diamond (already acyclic)",
+			edges:        [][2]string{{"a", "b"}, {"a", "c"}, {"b", "d"}, {"c", "d"}},
+			wantReversed: 0,
+		},
+		{
+			name:         "simple 2-cycle",
+			edges:        [][2]string{{"a", "b"}, {"b", "a"}},
+			wantReversed: 1,
+		},
+		{
+			name:         "triangle",
+			edges:        [][2]string{{"a", "b"}, {"b", "c"}, {"c", "a"}},
+			wantReversed: 1,
+		},
+		{
+			name:         "5-node cycle",
+			edges:        [][2]string{{"a", "b"}, {"b", "c"}, {"c", "d"}, {"d", "e"}, {"e", "a"}},
+			wantReversed: 1,
+		},
+		{
+			name: "two overlapping cycles",
+			edges: [][2]string{
+				{"a", "b"}, {"b", "c"}, {"c", "a"},
+				{"c", "d"}, {"d", "e"}, {"e", "c"},
+			},
+			wantReversed: -1,
+		},
+		{
+			name: "disconnected (one cyclic, one acyclic)",
+			edges: [][2]string{
+				{"a", "b"}, {"b", "c"},
+				{"x", "y"}, {"y", "x"},
+			},
+			wantReversed: -1,
+		},
 	}
-}
 
-// --- Run: cycle cases ---
-
-func TestRunSimpleCycle(t *testing.T) {
-	// a -> b, b -> a
-	g := buildLinear([2]string{"a", "b"}, [2]string{"b", "a"})
-	reversed := Run(g)
-	if len(reversed) != 1 {
-		t.Errorf("expected 1 reversed edge, got %d", len(reversed))
-	}
-	if _, err := g.TopologicalSort(); err != nil {
-		t.Errorf("graph not acyclic after Run: %v", err)
-	}
-}
-
-func TestRunTriangleCycle(t *testing.T) {
-	// a -> b -> c -> a
-	g := buildLinear([2]string{"a", "b"}, [2]string{"b", "c"}, [2]string{"c", "a"})
-	reversed := Run(g)
-	if len(reversed) != 1 {
-		t.Errorf("expected 1 reversed edge, got %d", len(reversed))
-	}
-	if _, err := g.TopologicalSort(); err != nil {
-		t.Errorf("graph not acyclic after Run: %v", err)
-	}
-}
-
-func TestRunMultipleCycles(t *testing.T) {
-	// Two overlapping cycles:
-	//   a -> b -> c -> a   (cycle 1)
-	//   c -> d -> e -> c   (cycle 2)
-	g := buildLinear(
-		[2]string{"a", "b"},
-		[2]string{"b", "c"},
-		[2]string{"c", "a"},
-		[2]string{"c", "d"},
-		[2]string{"d", "e"},
-		[2]string{"e", "c"},
-	)
-	Run(g)
-	if _, err := g.TopologicalSort(); err != nil {
-		t.Errorf("graph not acyclic after Run: %v", err)
-	}
-}
-
-func TestRunLongCycle(t *testing.T) {
-	// a -> b -> c -> d -> e -> a
-	g := buildLinear(
-		[2]string{"a", "b"},
-		[2]string{"b", "c"},
-		[2]string{"c", "d"},
-		[2]string{"d", "e"},
-		[2]string{"e", "a"},
-	)
-	reversed := Run(g)
-	if len(reversed) != 1 {
-		t.Errorf("expected 1 reversed edge for a 5-node cycle, got %d", len(reversed))
-	}
-	if _, err := g.TopologicalSort(); err != nil {
-		t.Errorf("graph not acyclic after Run: %v", err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			g := buildGraph(tc.edges...)
+			reversed := Run(g)
+			if tc.wantReversed >= 0 && len(reversed) != tc.wantReversed {
+				t.Errorf("reversals: got %d, want %d", len(reversed), tc.wantReversed)
+			}
+			assertAcyclic(t, g)
+		})
 	}
 }
 
@@ -172,7 +152,6 @@ func TestRunSelfLoopPreservedAlone(t *testing.T) {
 }
 
 func TestRunSelfLoopWithOtherEdges(t *testing.T) {
-	// a has a self-loop plus two real edges; no cycles among real edges.
 	g := graph.New()
 	g.SetEdge("a", "a", graph.EdgeAttrs{})
 	g.SetEdge("a", "b", graph.EdgeAttrs{})
@@ -202,15 +181,12 @@ func TestRunSelfLoopWithBackEdge(t *testing.T) {
 	if !g.HasEdge("a", "a") {
 		t.Error("self-loop should be preserved")
 	}
-	// After reversal, we should have no b->a (it's been reversed) and
-	// two a->b edges (the original plus the reversed one).
 	if len(g.EdgesBetween("b", "a")) != 0 {
 		t.Error("back edge b->a should be reversed")
 	}
 	if len(g.EdgesBetween("a", "b")) != 2 {
 		t.Errorf("expected 2 a->b edges after reversal, got %d", len(g.EdgesBetween("a", "b")))
 	}
-	// Non-self-loop part should be acyclic.
 	if _, err := nonSelfLoopTopoSort(g); err != nil {
 		t.Errorf("non-self-loop graph should be acyclic: %v", err)
 	}
@@ -219,57 +195,23 @@ func TestRunSelfLoopWithBackEdge(t *testing.T) {
 // --- Run: determinism ---
 
 func TestRunDeterministic(t *testing.T) {
-	// Two identical triangles should produce the same result.
 	build := func() *graph.Graph {
-		return buildLinear(
-			[2]string{"a", "b"},
-			[2]string{"b", "c"},
-			[2]string{"c", "a"},
-		)
+		return buildGraph([2]string{"a", "b"}, [2]string{"b", "c"}, [2]string{"c", "a"})
 	}
-	g1 := build()
-	g2 := build()
-
+	g1, g2 := build(), build()
 	Run(g1)
 	Run(g2)
 
-	e1 := collectEdges(g1)
-	e2 := collectEdges(g2)
-	if len(e1) != len(e2) {
-		t.Fatalf("edge count mismatch: %d vs %d", len(e1), len(e2))
-	}
-	for i := range e1 {
-		if e1[i] != e2[i] {
-			t.Errorf("determinism broken at index %d: %v vs %v", i, e1[i], e2[i])
-		}
-	}
-}
-
-// --- Run: disconnected components ---
-
-func TestRunDisconnectedComponents(t *testing.T) {
-	// Two separate components: one acyclic, one with a cycle.
-	g := buildLinear(
-		[2]string{"a", "b"},
-		[2]string{"b", "c"},
-		[2]string{"x", "y"},
-		[2]string{"y", "x"}, // cycle in component 2
-	)
-	Run(g)
-	if _, err := g.TopologicalSort(); err != nil {
-		t.Errorf("graph not acyclic after Run: %v", err)
+	e1, e2 := collectEdges(g1), collectEdges(g2)
+	if !slices.Equal(e1, e2) {
+		t.Errorf("determinism broken\nrun1: %v\nrun2: %v", e1, e2)
 	}
 }
 
 // --- Undo ---
 
 func TestUndoRestoresDirections(t *testing.T) {
-	g := buildLinear(
-		[2]string{"a", "b"},
-		[2]string{"b", "c"},
-		[2]string{"c", "a"},
-	)
-	// Add distinguishing labels so we can verify edge identity.
+	g := buildGraph([2]string{"a", "b"}, [2]string{"b", "c"}, [2]string{"c", "a"})
 	for _, eid := range g.Edges() {
 		g.SetEdgeAttrs(eid, graph.EdgeAttrs{Label: eid.From + eid.To})
 	}
@@ -289,15 +231,15 @@ func TestUndoRestoresDirections(t *testing.T) {
 }
 
 func TestUndoEmpty(t *testing.T) {
-	g := buildLinear([2]string{"a", "b"}, [2]string{"b", "c"})
-	Undo(g, nil) // no reversals to undo — should be no-op
+	g := buildGraph([2]string{"a", "b"}, [2]string{"b", "c"})
+	Undo(g, nil)
 	if g.EdgeCount() != 2 {
 		t.Errorf("Undo with nil should not modify graph, got %d edges", g.EdgeCount())
 	}
 }
 
 func TestRunThenUndoLinearChainIsIdentity(t *testing.T) {
-	g := buildLinear([2]string{"a", "b"}, [2]string{"b", "c"})
+	g := buildGraph([2]string{"a", "b"}, [2]string{"b", "c"})
 	orig := collectEdges(g)
 
 	reversed := Run(g)
@@ -309,10 +251,20 @@ func TestRunThenUndoLinearChainIsIdentity(t *testing.T) {
 	}
 }
 
+func TestUndoPanicsOnMissingEdge(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Undo should panic when edge no longer exists in graph")
+		}
+	}()
+
+	g := graph.New()
+	Undo(g, []graph.EdgeID{{From: "a", To: "b", ID: 999}})
+}
+
 // --- Multi-edges ---
 
 func TestRunPreservesMultiEdges(t *testing.T) {
-	// Two parallel edges a -> b, plus a back edge b -> a.
 	g := graph.New()
 	g.SetEdge("a", "b", graph.EdgeAttrs{Label: "1"})
 	g.SetEdge("a", "b", graph.EdgeAttrs{Label: "2"})
@@ -320,11 +272,9 @@ func TestRunPreservesMultiEdges(t *testing.T) {
 
 	Run(g)
 
-	// After reversal we should still have 3 edges total.
 	if g.EdgeCount() != 3 {
 		t.Errorf("expected 3 edges, got %d", g.EdgeCount())
 	}
-	// Back edge should be reversed, giving three a->b edges.
 	if len(g.EdgesBetween("a", "b")) != 3 {
 		t.Errorf("expected 3 a->b edges, got %d", len(g.EdgesBetween("a", "b")))
 	}
