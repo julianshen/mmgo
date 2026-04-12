@@ -1,7 +1,7 @@
 package diagram
 
 // Direction is the layout direction of a flowchart.
-type Direction int
+type Direction int8
 
 const (
 	DirectionUnknown Direction = iota
@@ -11,24 +11,13 @@ const (
 	DirectionRL                // right to left
 )
 
-// String returns the Mermaid keyword for this direction.
-func (d Direction) String() string {
-	switch d {
-	case DirectionTB:
-		return "TB"
-	case DirectionBT:
-		return "BT"
-	case DirectionLR:
-		return "LR"
-	case DirectionRL:
-		return "RL"
-	default:
-		return "unknown"
-	}
-}
+var directionNames = []string{"unknown", "TB", "BT", "LR", "RL"}
+
+// String returns the Mermaid direction keyword ("TB", "LR", ...).
+func (d Direction) String() string { return enumString(d, directionNames) }
 
 // NodeShape describes the visual shape of a flowchart node.
-type NodeShape int
+type NodeShape int8
 
 const (
 	NodeShapeUnknown NodeShape = iota
@@ -48,44 +37,31 @@ const (
 	NodeShapeDoubleCircle
 )
 
-// String returns a human-readable name for this shape.
-func (s NodeShape) String() string {
-	switch s {
-	case NodeShapeRectangle:
-		return "rectangle"
-	case NodeShapeRoundedRectangle:
-		return "rounded-rectangle"
-	case NodeShapeStadium:
-		return "stadium"
-	case NodeShapeSubroutine:
-		return "subroutine"
-	case NodeShapeCylinder:
-		return "cylinder"
-	case NodeShapeCircle:
-		return "circle"
-	case NodeShapeAsymmetric:
-		return "asymmetric"
-	case NodeShapeDiamond:
-		return "diamond"
-	case NodeShapeHexagon:
-		return "hexagon"
-	case NodeShapeParallelogram:
-		return "parallelogram"
-	case NodeShapeParallelogramAlt:
-		return "parallelogram-alt"
-	case NodeShapeTrapezoid:
-		return "trapezoid"
-	case NodeShapeTrapezoidAlt:
-		return "trapezoid-alt"
-	case NodeShapeDoubleCircle:
-		return "double-circle"
-	default:
-		return "unknown"
-	}
+var nodeShapeNames = []string{
+	"unknown",
+	"rectangle",
+	"rounded-rectangle",
+	"stadium",
+	"subroutine",
+	"cylinder",
+	"circle",
+	"asymmetric",
+	"diamond",
+	"hexagon",
+	"parallelogram",
+	"parallelogram-alt",
+	"trapezoid",
+	"trapezoid-alt",
+	"double-circle",
 }
 
+// String returns a debug slug for the shape (e.g. "rounded-rectangle").
+// Note: this is a slug, not a Mermaid token — Mermaid has no textual
+// representation for shapes; they are expressed by delimiters like [], (), {}.
+func (s NodeShape) String() string { return enumString(s, nodeShapeNames) }
+
 // LineStyle describes the stroke style of a flowchart edge.
-type LineStyle int
+type LineStyle int8
 
 const (
 	LineStyleUnknown LineStyle = iota
@@ -94,22 +70,12 @@ const (
 	LineStyleThick
 )
 
-// String returns a human-readable name.
-func (ls LineStyle) String() string {
-	switch ls {
-	case LineStyleSolid:
-		return "solid"
-	case LineStyleDotted:
-		return "dotted"
-	case LineStyleThick:
-		return "thick"
-	default:
-		return "unknown"
-	}
-}
+var lineStyleNames = []string{"unknown", "solid", "dotted", "thick"}
+
+func (ls LineStyle) String() string { return enumString(ls, lineStyleNames) }
 
 // ArrowHead describes the head marker on a flowchart edge.
-type ArrowHead int
+type ArrowHead int8
 
 const (
 	ArrowHeadUnknown ArrowHead = iota
@@ -120,30 +86,16 @@ const (
 	ArrowHeadCircle
 )
 
-// String returns a human-readable name.
-func (a ArrowHead) String() string {
-	switch a {
-	case ArrowHeadNone:
-		return "none"
-	case ArrowHeadArrow:
-		return "arrow"
-	case ArrowHeadOpen:
-		return "open"
-	case ArrowHeadCross:
-		return "cross"
-	case ArrowHeadCircle:
-		return "circle"
-	default:
-		return "unknown"
-	}
-}
+var arrowHeadNames = []string{"unknown", "none", "arrow", "open", "cross", "circle"}
+
+func (a ArrowHead) String() string { return enumString(a, arrowHeadNames) }
 
 // Node is a single element in a flowchart.
 type Node struct {
 	ID    string
 	Label string
-	Shape NodeShape
 	Class string // optional class name for styling
+	Shape NodeShape
 }
 
 // Edge is a directed connection between two flowchart nodes.
@@ -167,18 +119,21 @@ type Subgraph struct {
 // StyleDef is an inline style directive applied to a node.
 type StyleDef struct {
 	NodeID string
-	CSS    string // raw CSS declarations, e.g. "fill:#f9f,stroke:#333"
+	// raw CSS declarations, e.g. "fill:#f9f,stroke:#333" — opaque and unvalidated.
+	CSS string
 }
 
 // FlowchartDiagram is the AST for a Mermaid flowchart/graph diagram.
 type FlowchartDiagram struct {
-	Direction Direction
 	Nodes     []Node
 	Edges     []Edge
 	Subgraphs []Subgraph
 	Styles    []StyleDef
-	Classes   map[string]string // class name -> CSS
+	Classes   map[string]string // class name -> raw CSS
+	Direction Direction
 }
 
-// Type implements the Diagram interface.
+// Type implements Diagram.
 func (*FlowchartDiagram) Type() DiagramType { return Flowchart }
+
+var _ Diagram = (*FlowchartDiagram)(nil)

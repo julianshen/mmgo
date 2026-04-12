@@ -2,10 +2,9 @@ package diagram
 
 import "testing"
 
-func TestSequenceImplementsDiagram(t *testing.T) {
-	var d Diagram = &SequenceDiagram{}
-	if d.Type() != Sequence {
-		t.Errorf("expected Type() = Sequence, got %v", d.Type())
+func TestSequenceType(t *testing.T) {
+	if (&SequenceDiagram{}).Type() != Sequence {
+		t.Error("SequenceDiagram.Type() != Sequence")
 	}
 }
 
@@ -29,21 +28,16 @@ func TestSequenceConstruction(t *testing.T) {
 }
 
 func TestParticipantKindString(t *testing.T) {
-	cases := map[ParticipantKind]string{
+	checkStringer(t, map[ParticipantKind]string{
 		ParticipantKindUnknown:     "unknown",
 		ParticipantKindParticipant: "participant",
 		ParticipantKindActor:       "actor",
-	}
-	for pk, want := range cases {
-		if got := pk.String(); got != want {
-			t.Errorf("ParticipantKind(%d).String() = %q, want %q", pk, got, want)
-		}
-	}
+	})
 }
 
 func TestArrowTypeAllEightVariants(t *testing.T) {
-	// The design doc requires all 8 Mermaid sequence arrow types.
-	types := []ArrowType{
+	// The design doc requires all 8 Mermaid sequence arrow types to be distinct.
+	checkUniqueStringers(t, []ArrowType{
 		ArrowTypeSolid,
 		ArrowTypeSolidNoHead,
 		ArrowTypeDashed,
@@ -52,21 +46,7 @@ func TestArrowTypeAllEightVariants(t *testing.T) {
 		ArrowTypeDashedCross,
 		ArrowTypeSolidOpen,
 		ArrowTypeDashedOpen,
-	}
-	seen := make(map[string]bool)
-	for _, at := range types {
-		str := at.String()
-		if str == "" || str == "unknown" {
-			t.Errorf("ArrowType(%d) should have a specific name", at)
-		}
-		if seen[str] {
-			t.Errorf("duplicate ArrowType String: %q", str)
-		}
-		seen[str] = true
-	}
-	if len(seen) != 8 {
-		t.Errorf("expected 8 distinct arrow types, got %d", len(seen))
-	}
+	})
 }
 
 func TestArrowTypeUnknown(t *testing.T) {
@@ -95,7 +75,7 @@ func TestBlockConstruction(t *testing.T) {
 }
 
 func TestBlockKindString(t *testing.T) {
-	kinds := []BlockKind{
+	checkUniqueStringers(t, []BlockKind{
 		BlockKindUnknown,
 		BlockKindAlt,
 		BlockKindOpt,
@@ -104,18 +84,7 @@ func TestBlockKindString(t *testing.T) {
 		BlockKindCritical,
 		BlockKindBreak,
 		BlockKindRect,
-	}
-	seen := make(map[string]bool)
-	for _, k := range kinds {
-		s := k.String()
-		if s == "" {
-			t.Errorf("BlockKind(%d) has empty String()", k)
-		}
-		if seen[s] {
-			t.Errorf("duplicate BlockKind String: %q", s)
-		}
-		seen[s] = true
-	}
+	})
 }
 
 func TestNoteConstruction(t *testing.T) {
@@ -130,15 +99,10 @@ func TestNoteConstruction(t *testing.T) {
 }
 
 func TestNotePositionString(t *testing.T) {
-	cases := map[NotePosition]string{
+	checkStringer(t, map[NotePosition]string{
 		NotePositionUnknown: "unknown",
 		NotePositionLeft:    "left",
 		NotePositionRight:   "right",
 		NotePositionOver:    "over",
-	}
-	for pos, want := range cases {
-		if got := pos.String(); got != want {
-			t.Errorf("NotePosition(%d).String() = %q, want %q", pos, got, want)
-		}
-	}
+	})
 }

@@ -2,10 +2,9 @@ package diagram
 
 import "testing"
 
-func TestFlowchartImplementsDiagram(t *testing.T) {
-	var d Diagram = &FlowchartDiagram{}
-	if d.Type() != Flowchart {
-		t.Errorf("expected Type() = Flowchart, got %v", d.Type())
+func TestFlowchartType(t *testing.T) {
+	if (&FlowchartDiagram{}).Type() != Flowchart {
+		t.Error("FlowchartDiagram.Type() != Flowchart")
 	}
 }
 
@@ -29,30 +28,23 @@ func TestFlowchartConstruction(t *testing.T) {
 }
 
 func TestDirectionString(t *testing.T) {
-	cases := map[Direction]string{
+	checkStringer(t, map[Direction]string{
 		DirectionUnknown: "unknown",
 		DirectionTB:      "TB",
 		DirectionBT:      "BT",
 		DirectionLR:      "LR",
 		DirectionRL:      "RL",
-	}
-	for d, want := range cases {
-		if got := d.String(); got != want {
-			t.Errorf("Direction(%d).String() = %q, want %q", d, got, want)
-		}
-	}
+	})
 }
 
-func TestDirectionStringInvalid(t *testing.T) {
-	d := Direction(999)
-	if got := d.String(); got == "" {
-		t.Error("invalid Direction should return non-empty string")
+func TestDirectionStringOutOfRange(t *testing.T) {
+	if Direction(127).String() != "unknown" {
+		t.Error("out-of-range Direction should return 'unknown'")
 	}
 }
 
 func TestNodeShapeString(t *testing.T) {
-	// Verify every defined NodeShape has a non-empty String() and they're unique.
-	shapes := []NodeShape{
+	checkUniqueStringers(t, []NodeShape{
 		NodeShapeUnknown,
 		NodeShapeRectangle,
 		NodeShapeRoundedRectangle,
@@ -68,48 +60,27 @@ func TestNodeShapeString(t *testing.T) {
 		NodeShapeTrapezoid,
 		NodeShapeTrapezoidAlt,
 		NodeShapeDoubleCircle,
-	}
-	seen := make(map[string]bool)
-	for _, s := range shapes {
-		str := s.String()
-		if str == "" {
-			t.Errorf("NodeShape(%d) has empty String()", s)
-		}
-		if seen[str] {
-			t.Errorf("duplicate String() value: %q", str)
-		}
-		seen[str] = true
-	}
+	})
 }
 
 func TestLineStyleString(t *testing.T) {
-	cases := map[LineStyle]string{
+	checkStringer(t, map[LineStyle]string{
 		LineStyleUnknown: "unknown",
 		LineStyleSolid:   "solid",
 		LineStyleDotted:  "dotted",
 		LineStyleThick:   "thick",
-	}
-	for ls, want := range cases {
-		if got := ls.String(); got != want {
-			t.Errorf("LineStyle(%d).String() = %q, want %q", ls, got, want)
-		}
-	}
+	})
 }
 
 func TestArrowHeadString(t *testing.T) {
-	cases := map[ArrowHead]string{
+	checkStringer(t, map[ArrowHead]string{
 		ArrowHeadUnknown: "unknown",
 		ArrowHeadNone:    "none",
 		ArrowHeadArrow:   "arrow",
 		ArrowHeadOpen:    "open",
 		ArrowHeadCross:   "cross",
 		ArrowHeadCircle:  "circle",
-	}
-	for ah, want := range cases {
-		if got := ah.String(); got != want {
-			t.Errorf("ArrowHead(%d).String() = %q, want %q", ah, got, want)
-		}
-	}
+	})
 }
 
 func TestSubgraphConstruction(t *testing.T) {

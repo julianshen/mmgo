@@ -1,7 +1,7 @@
 package diagram
 
 // ParticipantKind distinguishes between a box participant and a stick-figure actor.
-type ParticipantKind int
+type ParticipantKind int8
 
 const (
 	ParticipantKindUnknown ParticipantKind = iota
@@ -9,17 +9,9 @@ const (
 	ParticipantKindActor
 )
 
-// String returns a human-readable name.
-func (p ParticipantKind) String() string {
-	switch p {
-	case ParticipantKindParticipant:
-		return "participant"
-	case ParticipantKindActor:
-		return "actor"
-	default:
-		return "unknown"
-	}
-}
+var participantKindNames = []string{"unknown", "participant", "actor"}
+
+func (p ParticipantKind) String() string { return enumString(p, participantKindNames) }
 
 // Participant is a column in a sequence diagram.
 type Participant struct {
@@ -29,8 +21,11 @@ type Participant struct {
 }
 
 // ArrowType describes the visual style of a sequence message arrow.
-// Mermaid supports 8 distinct arrow types.
-type ArrowType int
+//
+// Unlike flowchart edges (which decompose cleanly into orthogonal LineStyle
+// and ArrowHead enums), sequence diagrams have a fixed set of 8 variants in
+// Mermaid's spec. Modeling them as a single enum keeps parser logic simple.
+type ArrowType int8
 
 const (
 	ArrowTypeUnknown      ArrowType = iota
@@ -44,29 +39,19 @@ const (
 	ArrowTypeDashedOpen             // --)  dashed line with open (async) arrow
 )
 
-// String returns a human-readable name.
-func (a ArrowType) String() string {
-	switch a {
-	case ArrowTypeSolid:
-		return "solid"
-	case ArrowTypeSolidNoHead:
-		return "solid-no-head"
-	case ArrowTypeDashed:
-		return "dashed"
-	case ArrowTypeDashedNoHead:
-		return "dashed-no-head"
-	case ArrowTypeSolidCross:
-		return "solid-cross"
-	case ArrowTypeDashedCross:
-		return "dashed-cross"
-	case ArrowTypeSolidOpen:
-		return "solid-open"
-	case ArrowTypeDashedOpen:
-		return "dashed-open"
-	default:
-		return "unknown"
-	}
+var arrowTypeNames = []string{
+	"unknown",
+	"solid",
+	"solid-no-head",
+	"dashed",
+	"dashed-no-head",
+	"solid-cross",
+	"dashed-cross",
+	"solid-open",
+	"dashed-open",
 }
+
+func (a ArrowType) String() string { return enumString(a, arrowTypeNames) }
 
 // Message is a single arrow/interaction in a sequence diagram.
 type Message struct {
@@ -79,53 +64,35 @@ type Message struct {
 }
 
 // BlockKind identifies the structural block type.
-type BlockKind int
+type BlockKind int8
 
 const (
-	BlockKindUnknown BlockKind = iota
-	BlockKindAlt              // alt/else alternative branches
-	BlockKindOpt              // opt conditional
-	BlockKindLoop             // loop iteration
-	BlockKindPar              // par parallel branches
-	BlockKindCritical         // critical section
-	BlockKindBreak            // break out of loop
-	BlockKindRect             // rectangular visual grouping
+	BlockKindUnknown  BlockKind = iota
+	BlockKindAlt                // alt/else alternative branches
+	BlockKindOpt                // opt conditional
+	BlockKindLoop               // loop iteration
+	BlockKindPar                // par parallel branches
+	BlockKindCritical           // critical section
+	BlockKindBreak              // break out of loop
+	BlockKindRect               // rectangular visual grouping
 )
 
-// String returns a human-readable name.
-func (b BlockKind) String() string {
-	switch b {
-	case BlockKindAlt:
-		return "alt"
-	case BlockKindOpt:
-		return "opt"
-	case BlockKindLoop:
-		return "loop"
-	case BlockKindPar:
-		return "par"
-	case BlockKindCritical:
-		return "critical"
-	case BlockKindBreak:
-		return "break"
-	case BlockKindRect:
-		return "rect"
-	default:
-		return "unknown"
-	}
-}
+var blockKindNames = []string{"unknown", "alt", "opt", "loop", "par", "critical", "break", "rect"}
+
+func (b BlockKind) String() string { return enumString(b, blockKindNames) }
 
 // Block is a nested structural element in a sequence diagram.
 // Else holds alternative branches for alt/par/critical blocks.
 type Block struct {
-	Kind     BlockKind
 	Label    string
 	Messages []Message
 	Blocks   []Block // nested blocks
 	Else     []Block // else/and/option branches
+	Kind     BlockKind
 }
 
 // NotePosition describes where a note is drawn relative to participants.
-type NotePosition int
+type NotePosition int8
 
 const (
 	NotePositionUnknown NotePosition = iota
@@ -134,25 +101,15 @@ const (
 	NotePositionOver
 )
 
-// String returns a human-readable name.
-func (n NotePosition) String() string {
-	switch n {
-	case NotePositionLeft:
-		return "left"
-	case NotePositionRight:
-		return "right"
-	case NotePositionOver:
-		return "over"
-	default:
-		return "unknown"
-	}
-}
+var notePositionNames = []string{"unknown", "left", "right", "over"}
+
+func (n NotePosition) String() string { return enumString(n, notePositionNames) }
 
 // Note is an annotation on one or more participants.
 type Note struct {
-	Position     NotePosition
 	Participants []string // participant IDs this note is attached to
 	Text         string
+	Position     NotePosition
 }
 
 // SequenceDiagram is the AST for a Mermaid sequence diagram.
@@ -164,5 +121,7 @@ type SequenceDiagram struct {
 	AutoNumber   bool
 }
 
-// Type implements the Diagram interface.
+// Type implements Diagram.
 func (*SequenceDiagram) Type() DiagramType { return Sequence }
+
+var _ Diagram = (*SequenceDiagram)(nil)

@@ -2,10 +2,9 @@ package diagram
 
 import "testing"
 
-func TestPieImplementsDiagram(t *testing.T) {
-	var d Diagram = &PieDiagram{}
-	if d.Type() != Pie {
-		t.Errorf("expected Type() = Pie, got %v", d.Type())
+func TestPieType(t *testing.T) {
+	if (&PieDiagram{}).Type() != Pie {
+		t.Error("PieDiagram.Type() != Pie")
 	}
 }
 
