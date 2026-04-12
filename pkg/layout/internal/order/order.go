@@ -25,6 +25,7 @@
 package order
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/julianshen/mmgo/pkg/layout/graph"
@@ -44,6 +45,9 @@ const maxIterations = 24
 // ranks must map every node in g to its rank (as produced by the rank
 // phase). The returned Order contains the same set of nodes grouped by
 // rank, in the order that minimizes crossings.
+//
+// Panics if any node in g is missing from ranks (a precondition violation
+// typically caused by skipping the rank phase or passing a stale map).
 func Run(g *graph.Graph, ranks map[string]int) Order {
 	if g.NodeCount() == 0 {
 		return Order{}
@@ -51,35 +55,31 @@ func Run(g *graph.Graph, ranks map[string]int) Order {
 
 	order := initOrder(g, ranks)
 
-	// Precompute data that never changes during iteration. These are
-	// built once before the main loop and reused on every sweep.
+	// Precompute data that never changes during iteration.
 	ranksAsc := sortedRanks(order)
 	layerEdges := buildLayerEdges(g, ranks, ranksAsc)
 	preds, succs := buildAdjacency(g)
 
-	// Scratch buffer for countCrossingsInLayer — allocated once and
-	// resized per call to avoid per-layer-pair allocations.
+	// Reusable scratch buffer for countCrossingsInLayer.
 	var scratch []edgePos
 
 	best := copyOrder(order)
 	bestCross := countCrossings(order, ranksAsc, layerEdges, &scratch)
 
-	minR, maxR := ranksAsc[0], ranksAsc[len(ranksAsc)-1]
-
 	for i := 0; i < maxIterations; i++ {
 		if i%2 == 0 {
-			// Down sweep: sort each rank by its predecessors.
-			for r := minR + 1; r <= maxR; r++ {
-				if nodes, ok := order[r]; ok {
-					order[r] = sortByBarycenter(nodes, order[r-1], preds)
-				}
+			// Down sweep: sort each rank by its predecessors. Iterate
+			// ranksAsc directly so that the "previous" rank is always
+			// the sorted neighbor, even if ranks are non-contiguous.
+			for idx := 1; idx < len(ranksAsc); idx++ {
+				r, prev := ranksAsc[idx], ranksAsc[idx-1]
+				order[r] = sortByBarycenter(order[r], order[prev], preds)
 			}
 		} else {
-			// Up sweep: sort each rank by its successors.
-			for r := maxR - 1; r >= minR; r-- {
-				if nodes, ok := order[r]; ok {
-					order[r] = sortByBarycenter(nodes, order[r+1], succs)
-				}
+			// Up sweep: sort by successors.
+			for idx := len(ranksAsc) - 2; idx >= 0; idx-- {
+				r, next := ranksAsc[idx], ranksAsc[idx+1]
+				order[r] = sortByBarycenter(order[r], order[next], succs)
 			}
 		}
 
@@ -97,11 +97,15 @@ func Run(g *graph.Graph, ranks map[string]int) Order {
 }
 
 // initOrder groups nodes by rank with alphabetical initial ordering
-// within each rank (for determinism).
+// within each rank (for determinism). Panics if any node is missing from
+// ranks — a precondition violation the caller must fix.
 func initOrder(g *graph.Graph, ranks map[string]int) Order {
 	result := make(Order)
 	for _, n := range g.Nodes() {
-		r := ranks[n]
+		r, ok := ranks[n]
+		if !ok {
+			panic(fmt.Sprintf("order: node %q has no rank (rank phase precondition violated)", n))
+		}
 		result[r] = append(result[r], n)
 	}
 	for r := range result {
@@ -189,12 +193,21 @@ type edgePos struct{ u, l int }
 // buildLayerEdges groups edges by (upperRank, lowerRank) pair. Called once
 // before the main loop; the result is immutable across iterations since
 // only positions change, not edges.
+//
+// Edges spanning more than one rank pair are silently dropped. This is
+// deliberate: a later layout phase (not yet implemented) inserts dummy
+// nodes on long-span edges so every edge spans exactly one rank pair.
+// Until that phase exists, cross-counting ignores long-span edges —
+// their crossings would otherwise be conflated with adjacent-rank
+// crossings. This is tracked as part of TODO(features) at the top of
+// this file.
+//
+// Panics if any edge references a node missing from ranks. This is a
+// caller precondition violation (the rank phase is expected to rank
+// every node that appears in any edge).
 func buildLayerEdges(g *graph.Graph, ranks map[string]int, ranksAsc []int) map[int][]layerEdge {
 	result := make(map[int][]layerEdge, len(ranksAsc))
 
-	// Adjacent rank pair set — edges spanning more than one rank are
-	// skipped. Dummy-node insertion in a later phase normally prevents
-	// this, but the builder is defensive.
 	adjacent := make(map[[2]int]bool, len(ranksAsc)-1)
 	for i := 0; i < len(ranksAsc)-1; i++ {
 		adjacent[[2]int{ranksAsc[i], ranksAsc[i+1]}] = true
@@ -205,12 +218,15 @@ func buildLayerEdges(g *graph.Graph, ranks map[string]int, ranksAsc []int) map[i
 			continue
 		}
 		fromRank, okF := ranks[eid.From]
+		if !okF {
+			panic(fmt.Sprintf("order: edge %v has unranked source %q", eid, eid.From))
+		}
 		toRank, okT := ranks[eid.To]
-		if !okF || !okT {
-			continue
+		if !okT {
+			panic(fmt.Sprintf("order: edge %v has unranked target %q", eid, eid.To))
 		}
 		if !adjacent[[2]int{fromRank, toRank}] {
-			continue
+			continue // long-span edge; see doc comment above
 		}
 		result[fromRank] = append(result[fromRank], layerEdge{from: eid.From, to: eid.To})
 	}

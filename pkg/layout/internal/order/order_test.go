@@ -209,6 +209,10 @@ func TestRunMultiLayerReducesCrossings(t *testing.T) {
 // --- Determinism ---
 
 func TestRunDeterministic(t *testing.T) {
+	// Run many times to stress Go's randomized map iteration (g.Nodes
+	// and g.Edges range over internal maps). Any nondeterminism in
+	// initOrder or sortByBarycenter tie-breaking will surface as
+	// varying output across the loop iterations.
 	build := func() *graph.Graph {
 		return buildGraph(
 			[2]string{"a", "d"},
@@ -219,13 +223,192 @@ func TestRunDeterministic(t *testing.T) {
 	}
 	ranks := map[string]int{"a": 0, "b": 0, "c": 0, "d": 1, "e": 1, "f": 1}
 
-	o1 := Run(build(), ranks)
-	o2 := Run(build(), ranks)
-
-	for r := range o1 {
-		if !slices.Equal(o1[r], o2[r]) {
-			t.Errorf("determinism broken at rank %d: %v vs %v", r, o1[r], o2[r])
+	reference := Run(build(), ranks)
+	for iter := 0; iter < 50; iter++ {
+		got := Run(build(), ranks)
+		for r := range reference {
+			if !slices.Equal(reference[r], got[r]) {
+				t.Fatalf("iter %d: determinism broken at rank %d: %v vs %v",
+					iter, r, reference[r], got[r])
+			}
 		}
+	}
+}
+
+// --- Non-contiguous ranks ---
+
+// TestRunNonContiguousRanks verifies that the sweep loop handles rank
+// numbers with gaps by iterating the sorted rank list rather than
+// integer arithmetic (regression for a bug where the down sweep used
+// order[r-1] and the up sweep used order[r+1], which silently broke
+// when ranks had gaps).
+func TestRunNonContiguousRanks(t *testing.T) {
+	g := buildGraph(
+		[2]string{"a", "x"}, // a rank 0 → x rank 5
+		[2]string{"b", "y"}, // b rank 0 → y rank 5
+	)
+	// Ranks deliberately skip 1, 2, 3, 4 — normally the dummy-node phase
+	// would fill the gap, but that phase is not yet implemented.
+	// Edges a→x and b→y are treated as adjacent-rank edges by
+	// buildLayerEdges since they span the two ranks in ranksAsc.
+	ranks := map[string]int{"a": 0, "b": 0, "x": 5, "y": 5}
+
+	order := Run(g, ranks)
+
+	if len(order[0]) != 2 || len(order[5]) != 2 {
+		t.Fatalf("expected 2 nodes at ranks 0 and 5, got %v", order)
+	}
+
+	// Initial alphabetical order produces [a, b] / [x, y] which has
+	// no crossings. The algorithm should preserve this.
+	if n := testCountCrossings(g, order); n != 0 {
+		t.Errorf("expected 0 crossings, got %d: %v", n, order)
+	}
+}
+
+// TestRunNonContiguousRanksCrossingFix verifies the sweep actually runs
+// across non-contiguous ranks and fixes crossings (not just preserves
+// the initial state).
+func TestRunNonContiguousRanksCrossingFix(t *testing.T) {
+	// Pessimal alphabetical order: a→y, b→x. Alphabetical init gives
+	// [a, b] / [x, y] which has one crossing (a→y crosses b→x).
+	// Sweeping by barycenter should swap rank 5 to [y, x].
+	g := buildGraph(
+		[2]string{"a", "y"},
+		[2]string{"b", "x"},
+	)
+	ranks := map[string]int{"a": 0, "b": 0, "x": 5, "y": 5}
+
+	order := Run(g, ranks)
+	if n := testCountCrossings(g, order); n != 0 {
+		t.Errorf("sweep should have fixed crossings across non-contiguous ranks, got %d", n)
+	}
+}
+
+// --- Preconditions ---
+
+func TestRunPanicsOnUnrankedNode(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic on unranked node")
+		}
+	}()
+
+	g := graph.New()
+	g.SetNode("a", graph.NodeAttrs{})
+	g.SetNode("b", graph.NodeAttrs{})
+	// b is missing from ranks.
+	Run(g, map[string]int{"a": 0})
+}
+
+// --- Monotonicity regression ---
+
+// TestRunNeverIncreasesCrossings exercises the "best-so-far" latch
+// across several graphs, asserting the result is never worse than the
+// initial alphabetical ordering. This is the core correctness guarantee
+// of the barycenter-with-best-tracking approach.
+func TestRunNeverIncreasesCrossings(t *testing.T) {
+	tests := []struct {
+		name  string
+		edges [][2]string
+		ranks map[string]int
+	}{
+		{
+			name: "dense 3x3 bipartite",
+			edges: [][2]string{
+				{"a", "x"}, {"a", "y"}, {"a", "z"},
+				{"b", "x"}, {"b", "y"}, {"b", "z"},
+				{"c", "x"}, {"c", "y"}, {"c", "z"},
+			},
+			ranks: map[string]int{
+				"a": 0, "b": 0, "c": 0,
+				"x": 1, "y": 1, "z": 1,
+			},
+		},
+		{
+			name: "4-layer zigzag",
+			edges: [][2]string{
+				{"a", "p"}, {"a", "q"},
+				{"b", "p"}, {"b", "r"},
+				{"p", "x"}, {"q", "x"}, {"q", "y"},
+				{"r", "y"}, {"r", "z"},
+				{"x", "m"}, {"y", "n"}, {"z", "m"},
+			},
+			ranks: map[string]int{
+				"a": 0, "b": 0,
+				"p": 1, "q": 1, "r": 1,
+				"x": 2, "y": 2, "z": 2,
+				"m": 3, "n": 3,
+			},
+		},
+		{
+			name: "star fan-out",
+			edges: [][2]string{
+				{"root", "c1"}, {"root", "c2"}, {"root", "c3"},
+				{"root", "c4"}, {"root", "c5"}, {"root", "c6"},
+			},
+			ranks: map[string]int{
+				"root": 0,
+				"c1":   1, "c2": 1, "c3": 1, "c4": 1, "c5": 1, "c6": 1,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			g := buildGraph(tc.edges...)
+			initial := initOrder(g, tc.ranks)
+			initialCross := testCountCrossings(g, initial)
+
+			order := Run(g, tc.ranks)
+			finalCross := testCountCrossings(g, order)
+
+			if finalCross > initialCross {
+				t.Errorf("Run increased crossings: initial=%d final=%d",
+					initialCross, finalCross)
+			}
+		})
+	}
+}
+
+// TestCountCrossingsSharedEndpoints verifies that edges sharing an
+// endpoint (same source or same target) are correctly handled by the
+// pairwise comparison — they should never count as crossings even when
+// other edges in the same layer DO cross. Guards against a bug where
+// changing strict `<` to `<=` would over-count shared-endpoint edges.
+func TestCountCrossingsSharedEndpoints(t *testing.T) {
+	// a has fan-out to x, y, z. b crosses through to x (between y and z).
+	// Order: [a, b] / [x, y, z]
+	//
+	// Edge positions (upper, lower):
+	//   a→x: (0, 0)
+	//   a→y: (0, 1)
+	//   a→z: (0, 2)
+	//   b→x: (1, 0) — no wait, this goes from b to x at the START
+	//
+	// Let me reconsider. With order [a, b] and [x, y, z]:
+	//   a at 0, b at 1, x at 0, y at 1, z at 2
+	//   a→x: (0,0), a→y: (0,1), a→z: (0,2), b→y: (1,1)
+	//
+	// Crossings:
+	//   a→x vs a→y: same source → no cross
+	//   a→x vs a→z: same source → no cross
+	//   a→x vs b→y: (0,0) vs (1,1) → 0<1 && 0<1 → no cross
+	//   a→y vs a→z: same source → no cross
+	//   a→y vs b→y: (0,1) vs (1,1) → 0<1 && 1<1 is false && 1>1 is false → no cross
+	//   a→z vs b→y: (0,2) vs (1,1) → 0<1 && 2>1 → CROSS
+	//
+	// Expected: exactly 1 crossing despite 4 edges. A ≤ bug would count
+	// the shared-target pair (a→y, b→y) as a crossing too, giving 2.
+	g := buildGraph(
+		[2]string{"a", "x"},
+		[2]string{"a", "y"},
+		[2]string{"a", "z"},
+		[2]string{"b", "y"},
+	)
+	order := Order{0: {"a", "b"}, 1: {"x", "y", "z"}}
+	if n := testCountCrossings(g, order); n != 1 {
+		t.Errorf("expected exactly 1 crossing (shared endpoints don't cross), got %d", n)
 	}
 }
 
@@ -341,18 +524,32 @@ func TestBuildLayerEdgesSkipsNonAdjacentSpans(t *testing.T) {
 	}
 }
 
-// TestBuildLayerEdgesSkipsUnrankedNodes verifies the defensive branch that
-// skips edges whose endpoints aren't in the ranks map.
-func TestBuildLayerEdgesSkipsUnrankedNodes(t *testing.T) {
-	g := buildGraph([2]string{"a", "b"}, [2]string{"b", "c"})
-	// c is intentionally missing from the ranks map.
-	ranks := map[string]int{"a": 0, "b": 1}
+// TestBuildLayerEdgesPanicsOnUnrankedTarget verifies that unranked
+// edge targets panic loudly rather than silently dropping.
+func TestBuildLayerEdgesPanicsOnUnrankedTarget(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic on unranked target")
+		}
+	}()
 
-	le := buildLayerEdges(g, ranks, []int{0, 1})
-	// Only a→b should be present.
-	if len(le[0]) != 1 {
-		t.Errorf("expected 1 edge (a→b), got %d", len(le[0]))
-	}
+	g := buildGraph([2]string{"a", "b"}, [2]string{"b", "c"})
+	ranks := map[string]int{"a": 0, "b": 1} // c missing
+	buildLayerEdges(g, ranks, []int{0, 1})
+}
+
+// TestBuildLayerEdgesPanicsOnUnrankedSource verifies that unranked
+// edge sources panic loudly rather than silently dropping.
+func TestBuildLayerEdgesPanicsOnUnrankedSource(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic on unranked source")
+		}
+	}()
+
+	g := buildGraph([2]string{"x", "a"}) // x unranked
+	ranks := map[string]int{"a": 1}
+	buildLayerEdges(g, ranks, []int{0, 1})
 }
 
 // --- Isolated node without adjacent-layer neighbors ---
