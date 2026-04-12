@@ -524,20 +524,72 @@ Each additional diagram type follows the same pattern: parser → renderer → t
 ### Step 20 — Class Diagram
 **Branch:** `feature/class-diagram`
 
+**Key syntax:** `classDiagram`, class definitions with fields/methods (`+String name`, `-int age`), visibility markers (`+`/`-`/`#`/`~`), relationships (`<|--` inheritance, `*--` composition, `o--` aggregation, `..>` dependency), multiplicity (`"1"`, `"0..*"`), annotations (`<<interface>>`, `<<abstract>>`).
+
+**Layout:** Uses dagre (graph-based). Nodes are class boxes with compartments (name, fields, methods). Edges use relationship-specific arrow markers.
+
+**Estimated size:** Parser ~500-600 lines, renderer ~400-500 lines + tests.
+
+---
+
 ### Step 21 — State Diagram
 **Branch:** `feature/state-diagram`
+
+**Key syntax:** `stateDiagram-v2`, state declarations, transitions (`-->` with labels), composite/nested states (`state "name" { ... }`), `[*]` for start/end, fork/join (`<<fork>>`/`<<join>>`), choice (`<<choice>>`), notes.
+
+**Layout:** Uses dagre (graph-based). Composite states render as nested subgraphs with rounded-rect containers. Start/end nodes are filled/hollow circles.
+
+**Estimated size:** Parser ~500-700 lines (nesting is the hard part), renderer ~400-500 lines + tests.
+
+---
 
 ### Step 22 — ER Diagram
 **Branch:** `feature/er-diagram`
 
+**Key syntax:** `erDiagram`, entity definitions with attributes (`string name PK`), relationships with cardinality (`||--o{` one-to-many, `}|--|{` many-to-many), relationship labels.
+
+**Layout:** Uses dagre (graph-based). Entities are rectangles with attribute lists. Edges use crow's foot notation markers (||, |{, o{, }o, }|).
+
+**Estimated size:** Parser ~400-500 lines, renderer ~400-500 lines (crow's foot markers are the complexity) + tests.
+
+---
+
 ### Step 23 — Gantt Chart
 **Branch:** `feature/gantt-chart`
+
+**Key syntax:** `gantt`, `title`, `dateFormat`, `section`, tasks with status/dates (`task1 :done, a1, 2024-01-01, 30d`), dependencies (`after a1`), milestones, excludes.
+
+**Layout:** Custom axis-based layout (not dagre). Horizontal time axis with tasks as bars. Sections group tasks vertically. Requires date parsing and duration computation.
+
+**Estimated size:** Parser ~400-500 lines (date format handling), renderer ~500-600 lines (time axis, bars, dependencies) + tests.
+
+---
 
 ### Step 24 — Mindmap
 **Branch:** `feature/mindmap`
 
+**Key syntax:** `mindmap`, indentation-based hierarchy (no explicit edges), node shapes (`(round)`, `[square]`, `{{bang}}`), icons, markdown in nodes.
+
+**Layout:** Custom radial/tree layout (not dagre). Root node centered, children branch outward. Requires tree layout algorithm (Reingold-Tilford or similar).
+
+**Estimated size:** Parser ~300-400 lines (indentation parsing), renderer ~400-500 lines (radial positioning, curved branches) + tests.
+
+---
+
 ### Step 25+ — Remaining Types
-GitGraph, Timeline, Sankey, XY Chart, C4, Quadrant, etc.
+
+Additional diagram types, roughly ordered by demand:
+
+| Type | Parser est. | Renderer est. | Layout |
+|------|------------|---------------|--------|
+| GitGraph | ~400 lines | ~400 lines | Custom (commit DAG) |
+| Timeline | ~200 lines | ~300 lines | Custom (axis-based) |
+| Sankey | ~300 lines | ~400 lines | Custom (flow layout) |
+| XY Chart | ~200 lines | ~300 lines | Custom (axis-based) |
+| C4 (all 5 types) | ~500 lines | ~500 lines | Dagre |
+| Quadrant | ~200 lines | ~200 lines | Custom (2D grid) |
+| Kanban | ~200 lines | ~300 lines | Custom (columns) |
+| Block | ~300 lines | ~300 lines | Dagre |
 
 ---
 

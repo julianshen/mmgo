@@ -335,7 +335,14 @@ Each diagram type owns its full render pipeline (layout + SVG generation), becau
 // RenderPipeline takes a parsed diagram and writes SVG to w.
 // Each diagram type implements its own layout strategy internally.
 type RenderPipeline interface {
+    // Render writes SVG output for the given diagram. Returns an error if the
+    // diagram type is not supported by this renderer.
     Render(w io.Writer, d diagram.Diagram, ruler *textmeasure.Ruler, opts RenderOptions) error
+
+    // Supports reports whether this renderer handles the given diagram type.
+    // The top-level dispatcher calls Supports before Render to fail fast
+    // with a clear error instead of a type-assertion panic.
+    Supports(dt DiagramType) bool
 }
 ```
 

@@ -35,7 +35,7 @@ gofmt -w .
 
 ## Architecture
 
-```
+```text
 cmd/mmdc/              CLI entry point — flag parsing, I/O orchestration
 
 pkg/
