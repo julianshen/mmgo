@@ -20,6 +20,8 @@ import (
 // The returned slice contains the current EdgeIDs of the reversed edges
 // (i.e., their direction after reversal). Pass this slice to Undo to
 // restore the original edge directions.
+//
+// Panics if the graph mutates during reversal (internal invariant violation).
 func Run(g *graph.Graph) []graph.EdgeID {
 	order := greedyOrdering(g)
 	orderIdx := make(map[string]int, len(order))
@@ -44,9 +46,7 @@ func Run(g *graph.Graph) []graph.EdgeID {
 	for _, eid := range backEdges {
 		newID, ok := g.ReverseEdge(eid)
 		if !ok {
-			// Unreachable under normal Run flow: backEdges comes from
-			// g.Edges() with no intervening mutation. Defensive skip.
-			continue
+			panic(fmt.Sprintf("acyclic.Run: ReverseEdge failed for %v; graph invariant violated", eid))
 		}
 		reversed = append(reversed, newID)
 	}
@@ -72,62 +72,59 @@ func Undo(g *graph.Graph, reversed []graph.EdgeID) {
 // ties are broken by alphabetical node ID.
 //
 // The algorithm repeatedly:
-//  1. Removes all sinks (nodes with non-self out-degree 0), appending
-//     them to a list that will form the tail of the final ordering.
-//  2. Removes all sources (nodes with non-self in-degree 0), appending
-//     them to a list that forms the head.
-//  3. If neither exists, picks the node with the highest
-//     (out-degree - in-degree) and treats it as a source.
+//  1. Drains all sinks and sources using a single degree snapshot (sinks
+//     go to the tail, sources to the head).
+//  2. If the graph still contains a strongly connected component, picks
+//     the node with the highest (out-degree - in-degree) from the same
+//     snapshot and treats it as a source.
 //
 // Edges going "backward" in the final ordering approximate a minimum
 // feedback arc set.
 func greedyOrdering(g *graph.Graph) []string {
 	work := g.Copy()
 
-	var head []string      // sources in discovery order
-	var tailRev []string   // sinks in discovery order (reversed before emit)
+	total := work.NodeCount()
+	head := make([]string, 0, total)
+	tailRev := make([]string, 0, total)
 
 	for work.NodeCount() > 0 {
-		// Snapshot degrees once per iteration. Re-snapshotting after each
-		// drain batch keeps counts consistent as we remove nodes.
+		// Drain all sinks and sources that exist under the current
+		// degree snapshot. Loop until neither drains anything.
+		var degs map[string]degrees
+		var nodes []string
 		for {
-			degs := computeDegrees(work)
+			degs = computeDegrees(work)
+			nodes = sortedNodes(work)
 			drained := false
-
-			// Drain all sinks.
-			for _, n := range sortedNodes(work) {
-				if degs[n].out == 0 {
+			for _, n := range nodes {
+				// Sink check comes first so isolated nodes (both 0) go
+				// to the tail, matching dagre's behavior.
+				switch {
+				case degs[n].out == 0:
 					tailRev = append(tailRev, n)
 					work.RemoveNode(n)
 					drained = true
-				}
-			}
-			if drained {
-				continue
-			}
-
-			// Drain all sources.
-			for _, n := range sortedNodes(work) {
-				if degs[n].in == 0 {
+				case degs[n].in == 0:
 					head = append(head, n)
 					work.RemoveNode(n)
 					drained = true
 				}
 			}
-			if drained {
-				continue
+			if !drained {
+				break
 			}
+		}
 
+		if work.NodeCount() == 0 {
 			break
 		}
 
-		// If the graph still has nodes, pick the one with the highest
-		// out-in degree delta and treat it as a source.
-		if work.NodeCount() > 0 {
-			best := pickMaxDelta(work)
-			head = append(head, best)
-			work.RemoveNode(best)
-		}
+		// A strongly connected component remains. Pick the node with the
+		// highest out-in delta from the fresh snapshot above and treat
+		// it as a source.
+		best := pickMaxDelta(nodes, degs)
+		head = append(head, best)
+		work.RemoveNode(best)
 	}
 
 	// Assemble the final order: head ++ reverse(tailRev).
@@ -167,11 +164,10 @@ func computeDegrees(g *graph.Graph) map[string]degrees {
 	return result
 }
 
-// pickMaxDelta returns the node with the highest (out_degree - in_degree),
-// excluding self-loops. Ties break alphabetically.
-func pickMaxDelta(g *graph.Graph) string {
-	degs := computeDegrees(g)
-	nodes := sortedNodes(g)
+// pickMaxDelta returns the node in nodes with the highest
+// (out_degree - in_degree) according to degs. Ties break by the order of
+// nodes, which the caller is expected to pass sorted for determinism.
+func pickMaxDelta(nodes []string, degs map[string]degrees) string {
 	best := nodes[0]
 	bestDelta := degs[best].out - degs[best].in
 	for _, n := range nodes[1:] {
