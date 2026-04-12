@@ -28,6 +28,17 @@ type EdgeAttrs struct {
 	LabelPos string
 }
 
+// EffectiveMinLen returns the minimum edge length, defaulting to 1 when
+// MinLen is zero or negative. This is the single source of truth for the
+// project-wide "unset MinLen means 1" convention used across the layout
+// engine.
+func (a EdgeAttrs) EffectiveMinLen() int {
+	if a.MinLen <= 0 {
+		return 1
+	}
+	return a.MinLen
+}
+
 // Graph is a directed graph supporting multi-edges and compound (parent/child)
 // relationships. It is not safe for concurrent use.
 type Graph struct {
