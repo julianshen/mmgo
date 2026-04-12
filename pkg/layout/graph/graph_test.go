@@ -5,6 +5,14 @@ import (
 	"testing"
 )
 
+// mustSetParent calls SetParent and fails the test if it returns an error.
+func mustSetParent(t *testing.T, g *Graph, child, parent string) {
+	t.Helper()
+	if err := g.SetParent(child, parent); err != nil {
+		t.Fatalf("SetParent(%q, %q) unexpected error: %v", child, parent, err)
+	}
+}
+
 // --- Node CRUD ---
 
 func TestSetAndGetNode(t *testing.T) {
@@ -76,8 +84,8 @@ func TestRemoveNodeOrphansChildren(t *testing.T) {
 	g.SetNode("parent", NodeAttrs{})
 	g.SetNode("child1", NodeAttrs{})
 	g.SetNode("child2", NodeAttrs{})
-	g.SetParent("child1", "parent")
-	g.SetParent("child2", "parent")
+	mustSetParent(t, g, "child1", "parent")
+	mustSetParent(t, g, "child2", "parent")
 	g.RemoveNode("parent")
 
 	if g.Parent("child1") != "" {
@@ -393,8 +401,8 @@ func TestSetParentReassign(t *testing.T) {
 	g.SetNode("parentA", NodeAttrs{})
 	g.SetNode("parentB", NodeAttrs{})
 	g.SetNode("child", NodeAttrs{})
-	g.SetParent("child", "parentA")
-	g.SetParent("child", "parentB")
+	mustSetParent(t, g, "child", "parentA")
+	mustSetParent(t, g, "child", "parentB")
 
 	if p := g.Parent("child"); p != "parentB" {
 		t.Errorf("expected parent 'parentB', got %q", p)
@@ -440,8 +448,8 @@ func TestSetParentCycleDetection(t *testing.T) {
 	g.SetNode("a", NodeAttrs{})
 	g.SetNode("b", NodeAttrs{})
 	g.SetNode("c", NodeAttrs{})
-	g.SetParent("b", "a")
-	g.SetParent("c", "b")
+	mustSetParent(t, g, "b", "a")
+	mustSetParent(t, g, "c", "b")
 	err := g.SetParent("a", "c") // would create a->b->c->a cycle
 	if err == nil {
 		t.Error("expected error for circular parent-child hierarchy")
@@ -460,7 +468,7 @@ func TestChildrenReturnsCopy(t *testing.T) {
 	g := New()
 	g.SetNode("parent", NodeAttrs{})
 	g.SetNode("child", NodeAttrs{})
-	g.SetParent("child", "parent")
+	mustSetParent(t, g, "child", "parent")
 
 	children := g.Children("parent")
 	children[0] = "hacked" // mutate the returned slice
@@ -483,8 +491,8 @@ func TestRemoveParent(t *testing.T) {
 	g := New()
 	g.SetNode("parent", NodeAttrs{})
 	g.SetNode("child", NodeAttrs{})
-	g.SetParent("child", "parent")
-	g.SetParent("child", "") // remove parent
+	mustSetParent(t, g, "child", "parent")
+	mustSetParent(t, g, "child", "") // remove parent
 
 	if p := g.Parent("child"); p != "" {
 		t.Errorf("expected no parent, got %q", p)
@@ -498,7 +506,7 @@ func TestRemoveNodeClearsParentChild(t *testing.T) {
 	g := New()
 	g.SetNode("parent", NodeAttrs{})
 	g.SetNode("child", NodeAttrs{})
-	g.SetParent("child", "parent")
+	mustSetParent(t, g, "child", "parent")
 	g.RemoveNode("child")
 
 	if len(g.Children("parent")) != 0 {
@@ -589,7 +597,7 @@ func TestCopy(t *testing.T) {
 	g.SetNode("a", NodeAttrs{Width: 10})
 	g.SetNode("b", NodeAttrs{Width: 20})
 	g.SetEdge("a", "b", EdgeAttrs{Weight: 5})
-	g.SetParent("b", "a")
+	mustSetParent(t, g, "b", "a")
 
 	g2 := g.Copy()
 
