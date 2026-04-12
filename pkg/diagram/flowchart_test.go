@@ -39,27 +39,32 @@ func TestDirectionString(t *testing.T) {
 
 func TestDirectionStringOutOfRange(t *testing.T) {
 	if Direction(127).String() != "unknown" {
-		t.Error("out-of-range Direction should return 'unknown'")
+		t.Error("positive out-of-range Direction should return 'unknown'")
+	}
+	// Exercise the i < 0 branch of enumString explicitly.
+	if Direction(-1).String() != "unknown" {
+		t.Error("negative out-of-range Direction should return 'unknown'")
 	}
 }
 
 func TestNodeShapeString(t *testing.T) {
-	checkUniqueStringers(t, []NodeShape{
-		NodeShapeUnknown,
-		NodeShapeRectangle,
-		NodeShapeRoundedRectangle,
-		NodeShapeStadium,
-		NodeShapeSubroutine,
-		NodeShapeCylinder,
-		NodeShapeCircle,
-		NodeShapeAsymmetric,
-		NodeShapeDiamond,
-		NodeShapeHexagon,
-		NodeShapeParallelogram,
-		NodeShapeParallelogramAlt,
-		NodeShapeTrapezoid,
-		NodeShapeTrapezoidAlt,
-		NodeShapeDoubleCircle,
+	// Pin exact string values — catches name-swap regressions in nodeShapeNames.
+	checkStringer(t, map[NodeShape]string{
+		NodeShapeUnknown:          "unknown",
+		NodeShapeRectangle:        "rectangle",
+		NodeShapeRoundedRectangle: "rounded-rectangle",
+		NodeShapeStadium:          "stadium",
+		NodeShapeSubroutine:       "subroutine",
+		NodeShapeCylinder:         "cylinder",
+		NodeShapeCircle:           "circle",
+		NodeShapeAsymmetric:       "asymmetric",
+		NodeShapeDiamond:          "diamond",
+		NodeShapeHexagon:          "hexagon",
+		NodeShapeParallelogram:    "parallelogram",
+		NodeShapeParallelogramAlt: "parallelogram-alt",
+		NodeShapeTrapezoid:        "trapezoid",
+		NodeShapeTrapezoidAlt:     "trapezoid-alt",
+		NodeShapeDoubleCircle:     "double-circle",
 	})
 }
 
@@ -102,12 +107,19 @@ func TestSubgraphConstruction(t *testing.T) {
 
 func TestFlowchartStylesAndClasses(t *testing.T) {
 	f := &FlowchartDiagram{
+		Nodes: []Node{
+			{ID: "a", Classes: []string{"highlight", "big"}},
+		},
 		Styles: []StyleDef{
 			{NodeID: "a", CSS: "fill:#f9f"},
 		},
 		Classes: map[string]string{
 			"highlight": "fill:#ff0,stroke:#000",
+			"big":       "font-size:20px",
 		},
+	}
+	if len(f.Nodes[0].Classes) != 2 {
+		t.Errorf("expected 2 classes on node, got %d", len(f.Nodes[0].Classes))
 	}
 	if f.Styles[0].CSS != "fill:#f9f" {
 		t.Error("style not preserved")

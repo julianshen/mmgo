@@ -55,9 +55,10 @@ var nodeShapeNames = []string{
 	"double-circle",
 }
 
-// String returns a debug slug for the shape (e.g. "rounded-rectangle").
-// Note: this is a slug, not a Mermaid token — Mermaid has no textual
-// representation for shapes; they are expressed by delimiters like [], (), {}.
+// String returns a stable debug slug for the shape (e.g. "rounded-rectangle").
+// It is intentionally not a Mermaid token: Mermaid expresses shapes through
+// multiple surface forms (delimiters like [], (), {} and the @{shape: ...}
+// extended syntax), and this enum is deliberately decoupled from any one form.
 func (s NodeShape) String() string { return enumString(s, nodeShapeNames) }
 
 // LineStyle describes the stroke style of a flowchart edge.
@@ -94,8 +95,11 @@ func (a ArrowHead) String() string { return enumString(a, arrowHeadNames) }
 type Node struct {
 	ID    string
 	Label string
-	Class string // optional class name for styling
-	Shape NodeShape
+	// Classes is the list of class names referenced by this node (e.g. via
+	// Mermaid's `class nodeId classA,classB`). Each name should be a key
+	// in FlowchartDiagram.Classes.
+	Classes []string
+	Shape   NodeShape
 }
 
 // Edge is a directed connection between two flowchart nodes.
@@ -119,17 +123,26 @@ type Subgraph struct {
 // StyleDef is an inline style directive applied to a node.
 type StyleDef struct {
 	NodeID string
-	// raw CSS declarations, e.g. "fill:#f9f,stroke:#333" — opaque and unvalidated.
+	// CSS holds raw CSS declarations (e.g. "fill:#f9f,stroke:#333").
+	// The AST stores this opaquely; validation is the renderer's concern.
 	CSS string
 }
 
 // FlowchartDiagram is the AST for a Mermaid flowchart/graph diagram.
+//
+// Node ownership: a node appearing inside a Subgraph is stored only in that
+// Subgraph's Nodes slice, not also at the top level. Top-level Nodes is for
+// nodes outside any subgraph. To iterate all nodes, walk subgraphs recursively.
+// Edges may cross subgraph boundaries; an edge lives in the scope where it
+// is declared in the source.
 type FlowchartDiagram struct {
 	Nodes     []Node
 	Edges     []Edge
 	Subgraphs []Subgraph
 	Styles    []StyleDef
-	Classes   map[string]string // class name -> raw CSS
+	// Classes maps class name -> raw CSS declarations, referenced by
+	// Node.Classes. May be nil if no classDef directives were parsed.
+	Classes   map[string]string
 	Direction Direction
 }
 

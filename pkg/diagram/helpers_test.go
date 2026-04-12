@@ -17,19 +17,3 @@ func checkStringer[T interface {
 		}
 	}
 }
-
-// checkUniqueStringers verifies that each value has a non-empty, unique String().
-func checkUniqueStringers[T fmt.Stringer](t *testing.T, values []T) {
-	t.Helper()
-	seen := make(map[string]bool)
-	for _, v := range values {
-		s := v.String()
-		if s == "" {
-			t.Errorf("%T(%v) has empty String()", v, v)
-		}
-		if seen[s] {
-			t.Errorf("duplicate String(): %q", s)
-		}
-		seen[s] = true
-	}
-}
