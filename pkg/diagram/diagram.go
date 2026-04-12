@@ -6,7 +6,8 @@ package diagram
 type DiagramType int
 
 const (
-	Flowchart DiagramType = iota
+	Unknown   DiagramType = iota // zero-value; prevents uninitialized vars from being a valid type
+	Flowchart
 	Sequence
 	Pie
 	Class

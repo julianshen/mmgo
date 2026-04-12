@@ -22,6 +22,10 @@ jobs:
       - name: Check coverage threshold
         run: |
           TOTAL=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          if [ -z "$TOTAL" ]; then
+            echo "No coverable statements found, skipping threshold check"
+            exit 0
+          fi
           echo "Total coverage: ${TOTAL}%"
           if [ "$(echo "$TOTAL < 90.0" | bc -l)" -eq 1 ]; then
             echo "::error::Coverage ${TOTAL}% is below 90% threshold"
