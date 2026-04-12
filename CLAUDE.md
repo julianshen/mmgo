@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**mmgo** is a Go reimplementation of [mermaid-cli](https://github.com/mermaid-js/mermaid-cli) — a tool that renders Mermaid diagram definitions into SVG, PNG, and PDF output. It provides both a **public Go module** (`pkg/`) for programmatic use and a **CLI** (`cmd/mmdc/`).
+**mmgo** is a pure-Go reimplementation of [mermaid-cli](https://github.com/mermaid-js/mermaid-cli) — a tool that renders Mermaid diagram definitions into SVG, PNG, and PDF output. It provides both a **public Go module** (`pkg/`) for programmatic use and a **CLI** (`cmd/mmdc/`).
 
-The rendering pipeline uses headless Chromium (via chromedp) to execute the Mermaid JavaScript library and capture output — mirroring the original's Puppeteer-based approach.
+Unlike the original (which requires Node.js + headless Chromium), mmgo compiles to a **single static binary with zero runtime dependencies**. It achieves this through a native Go rendering pipeline: hand-rolled Mermaid parser, a Go port of dagre for graph layout, font-based text measurement, and direct SVG generation.
 
 ## Build & Development Commands
 
@@ -18,10 +18,10 @@ go build ./cmd/mmdc
 go test ./... -cover -race
 
 # Run a single test
-go test ./pkg/renderer -run TestRenderSVG -v
+go test ./pkg/parser/flowchart -run TestParseSubgraph -v
 
 # Run tests for a specific package
-go test ./pkg/renderer/... -v
+go test ./pkg/layout/... -v
 
 # Generate coverage report
 go test ./... -coverprofile=coverage.out && go tool cover -html=coverage.out
@@ -35,20 +35,56 @@ gofmt -w .
 
 ## Architecture
 
-```
-cmd/mmdc/          CLI entry point — flag parsing, I/O orchestration
+```text
+cmd/mmdc/              CLI entry point — flag parsing, I/O orchestration
+
 pkg/
-  renderer/        Core rendering engine — manages headless Chromium, executes
-                   Mermaid JS, captures SVG/PNG/PDF output
-  parser/          Input parsing — reads .mmd files, extracts mermaid blocks
-                   from markdown, handles stdin
-  config/          Configuration loading — JSON config files, theme settings,
-                   CSS injection, Puppeteer-equivalent browser options
-  output/          Output writers — file writing, format conversion,
-                   markdown rewriting with image references
+  parser/              Mermaid syntax parsers (one sub-package per diagram type)
+    flowchart/         Flowchart/graph parser → AST
+    sequence/          Sequence diagram parser → AST
+    pie/               Pie chart parser → AST
+    ...                (additional diagram types added per phase)
+
+  diagram/             Diagram AST types and interfaces shared across parsers
+                       Defines the common Diagram interface and per-type structs
+
+  layout/              Graph layout engine (Go port of dagre)
+    graph/             Graph data structure (nodes, edges, adjacency) — public
+    internal/          Algorithmic internals (not part of public API)
+      acyclic/         Cycle removal — greedy feedback arc set
+      rank/            Rank assignment — network simplex algorithm
+      order/           Crossing minimization — barycenter heuristic
+      position/        Coordinate assignment — Brandes-Kopf algorithm
+      edge/            Edge routing — orthogonal polyline and spline paths
+
+  textmeasure/         Font metrics and text bounding box measurement
+                       Uses golang.org/x/image/font with bundled fonts
+
+  renderer/            Diagram-type-specific SVG renderers
+    flowchart/         Renders flowchart nodes, edges, subgraphs to SVG
+    sequence/          Renders lifelines, messages, activation boxes to SVG
+    pie/               Renders pie slices, labels to SVG
+    ...
+
+  output/              Output format converters and file writers
+    svg/               SVG output (native)
+    png/               SVG-to-PNG rasterization (pure Go)
+    pdf/               SVG/diagram-to-PDF conversion
+    markdown/          Markdown rewriter — replaces mermaid blocks with images
+
+  config/              Configuration loading — JSON config, themes, CSS
 ```
 
-**Key data flow:** Input (.mmd/markdown/stdin) → Parser → Renderer (chromedp + mermaid.js) → Output (SVG/PNG/PDF/rewritten markdown)
+**Key data flow:**
+
+```text
+Input (.mmd/markdown/stdin)
+  → parser (text → diagram AST)
+    → text measurer (computes node sizes from font metrics)
+      → layout engine (sized nodes → positioned graph with coordinates)
+        → renderer (positioned graph → SVG elements)
+          → output (SVG/PNG/PDF/rewritten markdown)
+```
 
 ### Public API Design
 
@@ -58,16 +94,17 @@ The `pkg/` packages are the public module surface. Follow these principles:
 - Expose synchronous APIs; let callers add concurrency
 - Return errors as values; never panic in library code
 
-### Renderer Architecture
+### Key Design Decisions
 
-The renderer embeds the Mermaid JS library and uses chromedp to:
-1. Launch a headless Chromium context
-2. Load an HTML page with the Mermaid library
-3. Inject the diagram definition and configuration
-4. Wait for Mermaid to render the SVG in the DOM
-5. Capture output (SVG text, PNG screenshot, or PDF print)
+1. **No browser dependency.** The original mermaid-cli requires Puppeteer + headless Chromium (~300MB). mmgo achieves rendering through native Go code: parsing, layout algorithms, text measurement via font metrics, and direct SVG string generation.
 
-The Chromium context should be reusable across multiple renders (batch mode).
+2. **Hand-rolled parsers.** Mermaid's grammar is ad-hoc (JISON-based, migrating to Langium). No formal BNF exists. We implement recursive descent parsers per diagram type, tested against the Mermaid syntax docs and real-world .mmd files.
+
+3. **Dagre port for layout.** The layout engine is a Go port of [dagrejs/dagre](https://github.com/dagrejs/dagre) (~3,500 lines of TypeScript). It implements the Sugiyama method: cycle removal → rank assignment (network simplex) → crossing minimization (barycenter) → coordinate assignment (Brandes-Kopf). Reference papers: Gansner et al. 1993, Brandes & Kopf 2002.
+
+4. **Bundled fonts for text measurement.** We bundle a default font (Source Sans Pro, SIL Open Font License) and use `golang.org/x/image/font` to compute text bounding boxes. This replaces the browser's `getBBox()` API that Mermaid.js relies on. The OFL license text must be included alongside the font files in the repository.
+
+5. **Phased diagram support.** Not all 26 Mermaid diagram types ship at once. Phase 1 targets flowchart + sequence + pie (~70% of real-world usage).
 
 ## Development Workflow
 
@@ -98,9 +135,9 @@ go tool cover -func=coverage.out | grep total
 
 - **Error handling:** Return errors early; let the happy path flow down. Use `fmt.Errorf("context: %w", err)` to wrap errors with context.
 - **Naming:** Exported identifiers use MixedCaps. Packages are single lowercase words. No `Get` prefix on getters.
-- **Dependencies:** Prefer the standard library. External deps require justification (chromedp is the notable exception).
+- **Dependencies:** Prefer the standard library. External deps require justification. Key allowed deps: `golang.org/x/image/font` (text measurement), `tdewolff/canvas` (PNG/PDF rendering), `spf13/pflag` (POSIX CLI flags).
 - **Concurrency:** Keep it out of the public API. Use channels internally where needed; use quit channels to prevent goroutine leaks.
-- **`defer`:** Use for resource cleanup (Chromium contexts, file handles, temp dirs).
+- **`defer`:** Use for resource cleanup (file handles, temp dirs).
 
 ## CLI Flags (target parity with mermaid-cli)
 
@@ -121,7 +158,8 @@ go tool cover -func=coverage.out | grep total
 ## Testing Patterns
 
 - Use `testdata/` directories for fixture .mmd files and expected outputs.
-- Table-driven tests for flag parsing and config loading.
-- Integration tests for the renderer require Chrome/Chromium installed — guard with `testing.Short()` to skip in CI-light environments.
+- Table-driven tests for parsers and config loading.
+- Golden file tests for SVG output — compare rendered SVG against known-good snapshots.
 - Use `t.TempDir()` for test output files.
-- Mock the browser interface for unit-testing renderer logic without Chromium.
+- For layout engine: validate node coordinates against dagre.js output on identical graphs.
+- For text measurement: test against known font metric values.
