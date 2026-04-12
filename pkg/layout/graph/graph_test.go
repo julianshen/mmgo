@@ -272,7 +272,8 @@ func TestSelfLoop(t *testing.T) {
 	if !g.HasEdge("a", "a") {
 		t.Error("self-loop should exist")
 	}
-	if len(g.Successors("a")) != 1 || g.Successors("a")[0] != "a" {
+	succ := g.Successors("a")
+	if len(succ) != 1 || succ[0] != "a" {
 		t.Error("self-loop should appear in successors")
 	}
 }
@@ -614,6 +615,20 @@ func TestCopy(t *testing.T) {
 	g2.SetEdge("c", "a", EdgeAttrs{})
 	if g.EdgeCount() != 1 {
 		t.Error("adding edge to copy should not affect original")
+	}
+
+	// Verify edge IDs are preserved.
+	origEdges := g.Edges()
+	copyEdges := g2.EdgesBetween(origEdges[0].From, origEdges[0].To)
+	found := false
+	for _, ce := range copyEdges {
+		if ce.ID == origEdges[0].ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("copy should preserve original edge IDs")
 	}
 }
 

@@ -96,7 +96,7 @@ func (g *Graph) RemoveNode(id string) {
 		return
 	}
 	// Remove all incident edges (collect first to avoid mutation during iteration).
-	toRemove := make([]EdgeID, 0)
+	toRemove := make([]EdgeID, 0, len(g.outEdges[id])+len(g.inEdges[id]))
 	toRemove = append(toRemove, g.outEdges[id]...)
 	toRemove = append(toRemove, g.inEdges[id]...)
 	for _, eid := range toRemove {
@@ -354,9 +354,8 @@ func (g *Graph) TopologicalSort() ([]string, error) {
 	}
 
 	var order []string
-	for len(queue) > 0 {
-		node := queue[0]
-		queue = queue[1:]
+	for head := 0; head < len(queue); head++ {
+		node := queue[head]
 		order = append(order, node)
 
 		for _, eid := range g.outEdges[node] {
@@ -375,15 +374,21 @@ func (g *Graph) TopologicalSort() ([]string, error) {
 
 // --- Copy ---
 
-// Copy returns a deep copy of the graph. Mutations to the copy do not affect
-// the original.
+// Copy returns a deep copy of the graph. Edge IDs are preserved so that
+// references held by callers remain valid on the copy. Mutations to the copy
+// do not affect the original.
 func (g *Graph) Copy() *Graph {
 	g2 := New()
+	g2.nextEdge = g.nextEdge
+
 	for id, attrs := range g.nodes {
 		g2.SetNode(id, attrs)
 	}
+	// Copy edges directly to preserve IDs (SetEdge would assign new IDs).
 	for eid, attrs := range g.edges {
-		g2.SetEdge(eid.From, eid.To, attrs)
+		g2.edges[eid] = attrs
+		g2.outEdges[eid.From] = append(g2.outEdges[eid.From], eid)
+		g2.inEdges[eid.To] = append(g2.inEdges[eid.To], eid)
 	}
 	for child, parent := range g.parent {
 		g2.SetParent(child, parent) //nolint:errcheck // nodes guaranteed to exist from loop above
