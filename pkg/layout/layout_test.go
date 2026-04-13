@@ -10,16 +10,10 @@ import (
 
 // --- Helpers ---
 
-var buildGraph = graphtest.BuildGraph
-
-func setWidths(g *graph.Graph, w, h float64) {
-	for _, n := range g.Nodes() {
-		attrs, _ := g.NodeAttrs(n)
-		attrs.Width = w
-		attrs.Height = h
-		g.SetNode(n, attrs)
-	}
-}
+var (
+	buildGraph = graphtest.BuildGraph
+	setWidths  = graphtest.SetWidths
+)
 
 func approxEqual(a, b float64) bool {
 	return math.Abs(a-b) < 0.001
@@ -136,25 +130,92 @@ func TestLayoutCyclicGraphHandled(t *testing.T) {
 	}
 }
 
+// graphSnapshot captures enough of a graph's state to detect any mutation
+// Layout might perform via aliasing. Used to strengthen the non-mutation
+// invariant check beyond simple node/edge counts.
+type graphSnapshot struct {
+	nodes map[string]graph.NodeAttrs
+	edges map[graph.EdgeID]graph.EdgeAttrs
+}
+
+func snapshotGraph(g *graph.Graph) graphSnapshot {
+	s := graphSnapshot{
+		nodes: make(map[string]graph.NodeAttrs),
+		edges: make(map[graph.EdgeID]graph.EdgeAttrs),
+	}
+	for _, n := range g.Nodes() {
+		attrs, _ := g.NodeAttrs(n)
+		s.nodes[n] = attrs
+	}
+	for _, eid := range g.Edges() {
+		attrs, _ := g.EdgeAttrs(eid)
+		s.edges[eid] = attrs
+	}
+	return s
+}
+
+func (a graphSnapshot) equal(b graphSnapshot) bool {
+	if len(a.nodes) != len(b.nodes) || len(a.edges) != len(b.edges) {
+		return false
+	}
+	for n, av := range a.nodes {
+		if bv, ok := b.nodes[n]; !ok || av != bv {
+			return false
+		}
+	}
+	for eid, av := range a.edges {
+		if bv, ok := b.edges[eid]; !ok || av != bv {
+			return false
+		}
+	}
+	return true
+}
+
 func TestLayoutDoesNotMutateInput(t *testing.T) {
-	g := buildGraph([2]string{"a", "b"}, [2]string{"b", "a"}) // cycle
-	setWidths(g, 100, 50)
-
-	origEdgeCount := g.EdgeCount()
-	origNodes := g.NodeCount()
-	origHasAB := g.HasEdge("a", "b")
-	origHasBA := g.HasEdge("b", "a")
-
-	Layout(g, defaultOpts())
-
-	if g.EdgeCount() != origEdgeCount {
-		t.Errorf("edge count changed: %d → %d", origEdgeCount, g.EdgeCount())
+	tests := []struct {
+		name  string
+		build func() *graph.Graph
+	}{
+		{
+			name: "cycle",
+			build: func() *graph.Graph {
+				g := buildGraph([2]string{"a", "b"}, [2]string{"b", "a"})
+				setWidths(g, 100, 50)
+				return g
+			},
+		},
+		{
+			name: "diamond with varied attrs",
+			build: func() *graph.Graph {
+				g := buildGraph(
+					[2]string{"a", "b"},
+					[2]string{"a", "c"},
+					[2]string{"b", "d"},
+					[2]string{"c", "d"},
+				)
+				// Set distinct attrs per node so aliasing shows up clearly.
+				for i, n := range []string{"a", "b", "c", "d"} {
+					g.SetNode(n, graph.NodeAttrs{
+						Label:  n,
+						Width:  float64(100 + i*10),
+						Height: float64(50 + i*5),
+					})
+				}
+				return g
+			},
+		},
 	}
-	if g.NodeCount() != origNodes {
-		t.Errorf("node count changed: %d → %d", origNodes, g.NodeCount())
-	}
-	if g.HasEdge("a", "b") != origHasAB || g.HasEdge("b", "a") != origHasBA {
-		t.Error("input graph edges mutated")
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			g := tc.build()
+			before := snapshotGraph(g)
+			Layout(g, defaultOpts())
+			after := snapshotGraph(g)
+			if !before.equal(after) {
+				t.Errorf("input graph mutated during Layout")
+			}
+		})
 	}
 }
 
@@ -201,62 +262,76 @@ func TestLayoutResultBounds(t *testing.T) {
 
 // --- Rank directions ---
 
-func TestLayoutRankDirTB(t *testing.T) {
-	g := buildGraph([2]string{"a", "b"}, [2]string{"b", "c"})
-	setWidths(g, 100, 50)
+func TestLayoutRankDirs(t *testing.T) {
+	// For a→b→c, each direction should produce a consistent ordering
+	// along one axis.
+	tests := []struct {
+		name  string
+		dir   RankDir
+		check func(a, b, c NodeLayout) (ok bool, msg string)
+	}{
+		{
+			name: "TB",
+			dir:  RankDirTB,
+			check: func(a, b, c NodeLayout) (bool, string) {
+				return a.Y < b.Y && b.Y < c.Y, "a should be above b above c (Y ascending)"
+			},
+		},
+		{
+			name: "BT",
+			dir:  RankDirBT,
+			check: func(a, b, c NodeLayout) (bool, string) {
+				return a.Y > b.Y && b.Y > c.Y, "a should be below b below c (Y descending)"
+			},
+		},
+		{
+			name: "LR",
+			dir:  RankDirLR,
+			check: func(a, b, c NodeLayout) (bool, string) {
+				return a.X < b.X && b.X < c.X, "a should be left of b left of c (X ascending)"
+			},
+		},
+		{
+			name: "RL",
+			dir:  RankDirRL,
+			check: func(a, b, c NodeLayout) (bool, string) {
+				return a.X > b.X && b.X > c.X, "a should be right of b right of c (X descending)"
+			},
+		},
+	}
 
-	opts := defaultOpts()
-	opts.RankDir = RankDirTB
-	result := Layout(g, opts)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			g := buildGraph([2]string{"a", "b"}, [2]string{"b", "c"})
+			setWidths(g, 100, 50)
 
-	// TB: a above b above c.
-	if !(result.Nodes["a"].Y < result.Nodes["b"].Y && result.Nodes["b"].Y < result.Nodes["c"].Y) {
-		t.Error("TB: a should be above b should be above c")
+			opts := defaultOpts()
+			opts.RankDir = tc.dir
+			result := Layout(g, opts)
+
+			ok, msg := tc.check(result.Nodes["a"], result.Nodes["b"], result.Nodes["c"])
+			if !ok {
+				t.Errorf("%s: %s — got a=%+v b=%+v c=%+v",
+					tc.dir, msg, result.Nodes["a"], result.Nodes["b"], result.Nodes["c"])
+			}
+		})
 	}
 }
 
-func TestLayoutRankDirBT(t *testing.T) {
-	g := buildGraph([2]string{"a", "b"}, [2]string{"b", "c"})
-	setWidths(g, 100, 50)
-
-	opts := defaultOpts()
-	opts.RankDir = RankDirBT
-	result := Layout(g, opts)
-
-	// BT: a below b below c (rank 0 at the bottom).
-	if !(result.Nodes["a"].Y > result.Nodes["b"].Y && result.Nodes["b"].Y > result.Nodes["c"].Y) {
-		t.Errorf("BT: a should be below b should be below c, got a=%f b=%f c=%f",
-			result.Nodes["a"].Y, result.Nodes["b"].Y, result.Nodes["c"].Y)
+func TestRankDirString(t *testing.T) {
+	cases := map[RankDir]string{
+		RankDirTB: "TB",
+		RankDirBT: "BT",
+		RankDirLR: "LR",
+		RankDirRL: "RL",
 	}
-}
-
-func TestLayoutRankDirLR(t *testing.T) {
-	g := buildGraph([2]string{"a", "b"}, [2]string{"b", "c"})
-	setWidths(g, 100, 50)
-
-	opts := defaultOpts()
-	opts.RankDir = RankDirLR
-	result := Layout(g, opts)
-
-	// LR: a to the left of b to the left of c.
-	if !(result.Nodes["a"].X < result.Nodes["b"].X && result.Nodes["b"].X < result.Nodes["c"].X) {
-		t.Errorf("LR: a should be left of b left of c, got a=%f b=%f c=%f",
-			result.Nodes["a"].X, result.Nodes["b"].X, result.Nodes["c"].X)
+	for d, want := range cases {
+		if got := d.String(); got != want {
+			t.Errorf("RankDir(%d).String() = %q, want %q", d, got, want)
+		}
 	}
-}
-
-func TestLayoutRankDirRL(t *testing.T) {
-	g := buildGraph([2]string{"a", "b"}, [2]string{"b", "c"})
-	setWidths(g, 100, 50)
-
-	opts := defaultOpts()
-	opts.RankDir = RankDirRL
-	result := Layout(g, opts)
-
-	// RL: a to the right of b to the right of c.
-	if !(result.Nodes["a"].X > result.Nodes["b"].X && result.Nodes["b"].X > result.Nodes["c"].X) {
-		t.Errorf("RL: a should be right of b right of c, got a=%f b=%f c=%f",
-			result.Nodes["a"].X, result.Nodes["b"].X, result.Nodes["c"].X)
+	if RankDir(99).String() != "unknown" {
+		t.Error("out-of-range RankDir should stringify as 'unknown'")
 	}
 }
 

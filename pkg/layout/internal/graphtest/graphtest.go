@@ -14,3 +14,15 @@ func BuildGraph(edges ...[2]string) *graph.Graph {
 	}
 	return g
 }
+
+// SetWidths sets Width and Height on every existing node in g. Used
+// by layout tests to provide uniform node dimensions without hand-
+// writing a SetNode call per node.
+func SetWidths(g *graph.Graph, width, height float64) {
+	for _, n := range g.Nodes() {
+		attrs, _ := g.NodeAttrs(n)
+		attrs.Width = width
+		attrs.Height = height
+		g.SetNode(n, attrs)
+	}
+}
