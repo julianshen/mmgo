@@ -10,8 +10,8 @@ current state without relying on chat history.
 
 - **Current milestone:** working toward v0.1.0 (Flowchart SVG rendering)
 - **Current phase:** Phase 1 (core infrastructure)
-- **Completed:** 7 of 25 steps
-- **Next:** Step 7 — Layout engine: coordinate assignment (Brandes-Kopf)
+- **Completed:** 8 of 25 steps
+- **Next:** Step 8 — Layout engine integration
 
 ## Phase 0: Project Scaffold
 
@@ -29,7 +29,7 @@ current state without relying on chat history.
 | ✅ | 4. Layout — cycle removal (`pkg/layout/internal/acyclic/`) | #6 | 96.1% | Greedy feedback arc set (Eades-Lin-Smyth) |
 | ✅ | 5. Layout — rank assignment (`pkg/layout/internal/rank/`) | #7 | 100% | Longest-path ranking; TODO(perf) for network simplex |
 | ✅ | 6. Layout — crossing minimization (`pkg/layout/internal/order/`) | #8 | 100% | Barycenter heuristic with 24-iter up/down sweep |
-| ⏳ | 7. Layout — coordinate assignment (`pkg/layout/internal/position/`) | — | — | Brandes-Kopf algorithm; hardest phase (~526 lines in dagre) |
+| ✅ | 7. Layout — coordinate assignment (`pkg/layout/internal/position/`) | #10 | 97.1% | Median-based alignment + centered compact; TODO(perf) for Brandes-Kopf |
 | ⏳ | 8. Layout engine integration (`pkg/layout/`) | — | — | Top-level Layout() wiring all phases together |
 
 ## Phase 2: Flowchart (First Diagram Type)
@@ -78,7 +78,7 @@ current state without relying on chat history.
 
 | Milestone | Steps | Status |
 |-----------|-------|--------|
-| v0.1.0 — Flowchart SVG + Go module API | 0–11 | 🚧 Phase 1 in progress (7/11 done) |
+| v0.1.0 — Flowchart SVG + Go module API | 0–11 | 🚧 Phase 1 in progress (8/11 done) |
 | v0.2.0 — + Sequence, pie, themes | 12–15 | ⏳ Not started |
 | v0.3.0 — + CLI, PNG/PDF, markdown | 16–19 | ⏳ Not started |
 | v0.4.0 — + Class, state, ER | 20–22 | ⏳ Not started |

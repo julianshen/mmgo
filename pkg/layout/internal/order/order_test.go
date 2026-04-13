@@ -5,17 +5,13 @@ import (
 	"testing"
 
 	"github.com/julianshen/mmgo/pkg/layout/graph"
+	"github.com/julianshen/mmgo/pkg/layout/internal/graphtest"
+	"github.com/julianshen/mmgo/pkg/layout/internal/layoututil"
 )
 
 // --- Helpers ---
 
-func buildGraph(edges ...[2]string) *graph.Graph {
-	g := graph.New()
-	for _, e := range edges {
-		g.SetEdge(e[0], e[1], graph.EdgeAttrs{})
-	}
-	return g
-}
+var buildGraph = graphtest.BuildGraph
 
 // collectNodes returns the sorted set of all nodes across all ranks in order.
 func collectNodes(order Order) []string {
@@ -37,7 +33,7 @@ func testCountCrossings(g *graph.Graph, order Order) int {
 			ranks[n] = r
 		}
 	}
-	ranksAsc := sortedRanks(order)
+	ranksAsc := layoututil.SortedRanks(order)
 	layerEdges := buildLayerEdges(g, ranks, ranksAsc)
 	var scratch []edgePos
 	return countCrossings(order, ranksAsc, layerEdges, &scratch)

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/julianshen/mmgo/pkg/layout/graph"
+	"github.com/julianshen/mmgo/pkg/layout/internal/graphtest"
 )
 
 // --- Helpers ---
@@ -30,13 +31,7 @@ func collectEdges(g *graph.Graph) []edgeRecord {
 	return out
 }
 
-func buildGraph(edges ...[2]string) *graph.Graph {
-	g := graph.New()
-	for _, e := range edges {
-		g.SetEdge(e[0], e[1], graph.EdgeAttrs{})
-	}
-	return g
-}
+var buildGraph = graphtest.BuildGraph
 
 func assertAcyclic(t *testing.T, g *graph.Graph) {
 	t.Helper()
