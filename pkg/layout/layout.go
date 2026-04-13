@@ -31,6 +31,8 @@
 package layout
 
 import (
+	"math"
+
 	"github.com/julianshen/mmgo/pkg/layout/graph"
 	"github.com/julianshen/mmgo/pkg/layout/internal/acyclic"
 	"github.com/julianshen/mmgo/pkg/layout/internal/order"
@@ -139,7 +141,7 @@ func effectiveSize(attrs graph.NodeAttrs) (w, h float64) {
 // graph is not mutated.
 //
 // Each node's width and height are read from graph.NodeAttrs. Unset
-// dimensions default to defaultNodeWidth × defaultNodeHeight.
+// dimensions default to 100 × 50.
 func Layout(g *graph.Graph, opts Options) *Result {
 	if opts.NodeSep <= 0 {
 		opts.NodeSep = DefaultNodeSep
@@ -148,24 +150,13 @@ func Layout(g *graph.Graph, opts Options) *Result {
 		opts.RankSep = DefaultRankSep
 	}
 
-	if g.NodeCount() == 0 {
-		return &Result{
-			Nodes: map[string]NodeLayout{},
-			Edges: map[graph.EdgeID]EdgeLayout{},
-		}
-	}
-
 	work := g.Copy()
 
-	// Precompute widths once so the position phase isn't calling
-	// NodeAttrs in its hot loop.
-	widths := make(map[string]float64, work.NodeCount())
-	for _, id := range work.Nodes() {
-		attrs, _ := work.NodeAttrs(id)
-		w, _ := effectiveSize(attrs)
-		widths[id] = w
-	}
-	widthFn := func(id string) float64 { return widths[id] }
+	// Precompute node sizes once. widthFn is handed to the position
+	// phase and must be callable per node; heights are reused later
+	// when building NodeLayout.
+	sizes := precomputeSizes(work)
+	widthFn := func(id string) float64 { return sizes[id].width }
 
 	acyclic.Run(work)
 	ranks := rank.Run(work)
@@ -175,14 +166,8 @@ func Layout(g *graph.Graph, opts Options) *Result {
 		RankSep: opts.RankSep,
 	})
 
-	applyRankDir(coords, opts.RankDir)
-
-	// Build the output from the original graph g so the caller sees
-	// their node IDs and original edge directions — not the internals
-	// of the work copy.
-	nodes := buildNodeLayouts(g, coords)
-	edges := buildEdgeLayouts(g, coords)
-	width, height := computeBounds(nodes)
+	nodes, width, height := buildNodesAndBounds(g, coords, sizes, opts.RankDir)
+	edges := buildEdges(g, nodes)
 
 	return &Result{
 		Nodes:  nodes,
@@ -192,96 +177,136 @@ func Layout(g *graph.Graph, opts Options) *Result {
 	}
 }
 
-// buildNodeLayouts creates the public NodeLayout map from the original
-// graph and the computed coordinates.
-func buildNodeLayouts(g *graph.Graph, coords position.Result) map[string]NodeLayout {
-	nodes := make(map[string]NodeLayout, g.NodeCount())
+// nodeSize bundles a node's width and height after default resolution.
+type nodeSize struct{ width, height float64 }
+
+// precomputeSizes returns the effective (width, height) for every node
+// in g, resolving defaults once. Both the position phase (via widthFn)
+// and the final NodeLayout construction consume this map.
+func precomputeSizes(g *graph.Graph) map[string]nodeSize {
+	sizes := make(map[string]nodeSize, g.NodeCount())
 	for _, id := range g.Nodes() {
 		attrs, _ := g.NodeAttrs(id)
 		w, h := effectiveSize(attrs)
-		p := coords[id]
-		nodes[id] = NodeLayout{X: p.X, Y: p.Y, Width: w, Height: h}
+		sizes[id] = nodeSize{width: w, height: h}
 	}
-	return nodes
+	return sizes
 }
 
-// buildEdgeLayouts creates the public EdgeLayout map from the original
-// graph and the computed coordinates. Uses straight-line routing from
-// source center to target center; the label position is the midpoint.
+// buildNodesAndBounds fuses three former passes into one walk:
+//  1. apply the rank-direction transform to each coord
+//  2. build the public NodeLayout map
+//  3. compute a proper min/max bounding box and translate so the
+//     top-left corner is (0, 0)
+//
+// The bounding box is a real min/max scan rather than "max(X+W/2)"
+// on the assumption that coords start at (0,0). That assumption was
+// implicit before and would silently break if any future layout phase
+// produced negative coordinates.
+func buildNodesAndBounds(
+	g *graph.Graph,
+	coords position.Result,
+	sizes map[string]nodeSize,
+	dir RankDir,
+) (nodes map[string]NodeLayout, width, height float64) {
+	nodes = make(map[string]NodeLayout, g.NodeCount())
+	if g.NodeCount() == 0 {
+		return nodes, 0, 0
+	}
+
+	// For BT and RL the direction transform needs the post-TB max Y to
+	// flip around. LR and TB don't need a pre-scan.
+	var flipAround float64
+	if dir == RankDirBT || dir == RankDirRL {
+		for _, p := range coords {
+			if p.Y > flipAround {
+				flipAround = p.Y
+			}
+		}
+	}
+
+	// First pass: apply direction transform, record min/max for bounds.
+	minX, minY := math.Inf(1), math.Inf(1)
+	maxX, maxY := math.Inf(-1), math.Inf(-1)
+	transformed := make(map[string]Point, len(sizes))
+	for id, sz := range sizes {
+		p := transformPoint(coords[id], dir, flipAround)
+		transformed[id] = p
+		left := p.X - sz.width/2
+		right := p.X + sz.width/2
+		top := p.Y - sz.height/2
+		bottom := p.Y + sz.height/2
+		if left < minX {
+			minX = left
+		}
+		if right > maxX {
+			maxX = right
+		}
+		if top < minY {
+			minY = top
+		}
+		if bottom > maxY {
+			maxY = bottom
+		}
+	}
+
+	// Translate so the top-left is (0,0) and emit NodeLayouts.
+	for id, sz := range sizes {
+		p := transformed[id]
+		nodes[id] = NodeLayout{
+			X:      p.X - minX,
+			Y:      p.Y - minY,
+			Width:  sz.width,
+			Height: sz.height,
+		}
+	}
+	return nodes, maxX - minX, maxY - minY
+}
+
+// transformPoint applies the rank-direction coordinate transform to a
+// single point. TB is the identity. Geometry:
+//   - BT: flip the Y axis (rank 0 ends at the bottom).
+//   - LR: swap X and Y (rank progression runs horizontally).
+//   - RL: swap and flip X (rank 0 ends at the right).
+func transformPoint(p position.Point, dir RankDir, flipAround float64) Point {
+	switch dir {
+	case RankDirBT:
+		return Point{X: p.X, Y: flipAround - p.Y}
+	case RankDirLR:
+		return Point{X: p.Y, Y: p.X}
+	case RankDirRL:
+		return Point{X: flipAround - p.Y, Y: p.X}
+	default:
+		// RankDirTB or any unknown value — identity.
+		return p
+	}
+}
+
+// buildEdges produces the public EdgeLayout map using the already-
+// positioned nodes as the coordinate source. Uses straight-line routing
+// from source center to target center; the label position is the
+// midpoint.
+//
+// Iterating g (the original graph) rather than the work copy ensures
+// the returned EdgeIDs exactly match the caller's input — including
+// edges that were reversed internally during the acyclic phase.
 //
 // TODO(features): orthogonal polyline routing, curve fitting, self-loop
-// geometry, and collision avoidance are not implemented. See package doc.
-func buildEdgeLayouts(g *graph.Graph, coords position.Result) map[graph.EdgeID]EdgeLayout {
+// geometry, and collision avoidance are not implemented.
+func buildEdges(g *graph.Graph, nodes map[string]NodeLayout) map[graph.EdgeID]EdgeLayout {
 	edges := make(map[graph.EdgeID]EdgeLayout, g.EdgeCount())
 	for _, eid := range g.Edges() {
-		src := coords[eid.From]
-		dst := coords[eid.To]
+		src := nodes[eid.From]
+		dst := nodes[eid.To]
+		srcPt := Point{X: src.X, Y: src.Y}
+		dstPt := Point{X: dst.X, Y: dst.Y}
 		edges[eid] = EdgeLayout{
-			Points: []Point{src, dst},
+			Points: []Point{srcPt, dstPt},
 			LabelPos: Point{
-				X: (src.X + dst.X) / 2,
-				Y: (src.Y + dst.Y) / 2,
+				X: (srcPt.X + dstPt.X) / 2,
+				Y: (srcPt.Y + dstPt.Y) / 2,
 			},
 		}
 	}
 	return edges
-}
-
-// applyRankDir transforms coordinates produced by the position phase
-// (which always lays out in TB form) into the requested rank direction.
-// TB and zero value are no-ops.
-//
-// Geometry:
-//   - BT: flip the Y axis so rank 0 ends up at the bottom.
-//   - LR: swap X and Y so rank progression runs horizontally.
-//   - RL: like LR but with X flipped so rank 0 ends up at the right.
-func applyRankDir(coords position.Result, dir RankDir) {
-	if dir == RankDirTB || len(coords) == 0 {
-		return
-	}
-
-	// LR is a pure axis swap; no bounds scan needed.
-	if dir == RankDirLR {
-		for n, p := range coords {
-			coords[n] = position.Point{X: p.Y, Y: p.X}
-		}
-		return
-	}
-
-	// BT and RL both need the post-TB maxY to flip around.
-	var maxY float64
-	for _, p := range coords {
-		if p.Y > maxY {
-			maxY = p.Y
-		}
-	}
-
-	switch dir {
-	case RankDirBT:
-		for n, p := range coords {
-			coords[n] = position.Point{X: p.X, Y: maxY - p.Y}
-		}
-	case RankDirRL:
-		// After swapping axes (LR), the old Y range becomes the new X
-		// range. Flipping that range puts rank 0 on the right.
-		for n, p := range coords {
-			coords[n] = position.Point{X: maxY - p.Y, Y: p.X}
-		}
-	}
-}
-
-// computeBounds returns the overall width and height of the laid-out
-// graph, including each node's half-dimensions beyond its center point.
-func computeBounds(nodes map[string]NodeLayout) (width, height float64) {
-	for _, nl := range nodes {
-		right := nl.X + nl.Width/2
-		bottom := nl.Y + nl.Height/2
-		if right > width {
-			width = right
-		}
-		if bottom > height {
-			height = bottom
-		}
-	}
-	return width, height
 }

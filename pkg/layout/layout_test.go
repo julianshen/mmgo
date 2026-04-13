@@ -111,7 +111,8 @@ func TestLayoutDiamond(t *testing.T) {
 
 func TestLayoutCyclicGraphHandled(t *testing.T) {
 	// Triangle cycle: a → b → c → a. The acyclic phase should break
-	// one edge and lay out the rest successfully.
+	// one edge internally; the result must still expose all three
+	// edges with their ORIGINAL directions and EdgeIDs.
 	g := buildGraph(
 		[2]string{"a", "b"},
 		[2]string{"b", "c"},
@@ -119,14 +120,33 @@ func TestLayoutCyclicGraphHandled(t *testing.T) {
 	)
 	setWidths(g, 100, 50)
 
+	// Capture the original (From, To) pairs — these are what the
+	// caller passed in and what the output must preserve regardless
+	// of any internal reversal.
+	want := map[[2]string]bool{
+		{"a", "b"}: true,
+		{"b", "c"}: true,
+		{"c", "a"}: true,
+	}
+
 	result := Layout(g, defaultOpts())
 
 	if len(result.Nodes) != 3 {
 		t.Errorf("expected 3 nodes, got %d", len(result.Nodes))
 	}
-	// All edges should be present in the result (original direction restored).
 	if len(result.Edges) != 3 {
 		t.Errorf("expected 3 edges, got %d", len(result.Edges))
+	}
+
+	for eid := range result.Edges {
+		key := [2]string{eid.From, eid.To}
+		if !want[key] {
+			t.Errorf("edge %v is not in the original input; acyclic reversal leaked into output", eid)
+		}
+		delete(want, key)
+	}
+	if len(want) > 0 {
+		t.Errorf("missing original edges: %v", want)
 	}
 }
 
@@ -185,20 +205,25 @@ func TestLayoutDoesNotMutateInput(t *testing.T) {
 			},
 		},
 		{
-			name: "diamond with varied attrs",
+			name: "diamond with distinct node and edge attrs",
 			build: func() *graph.Graph {
-				g := buildGraph(
-					[2]string{"a", "b"},
-					[2]string{"a", "c"},
-					[2]string{"b", "d"},
-					[2]string{"c", "d"},
-				)
-				// Set distinct attrs per node so aliasing shows up clearly.
+				g := graph.New()
+				// Set distinct node attrs so aliasing shows up clearly.
 				for i, n := range []string{"a", "b", "c", "d"} {
 					g.SetNode(n, graph.NodeAttrs{
 						Label:  n,
 						Width:  float64(100 + i*10),
 						Height: float64(50 + i*5),
+					})
+				}
+				// Distinct edge attrs so edge-attr aliasing is caught.
+				pairs := [][2]string{
+					{"a", "b"}, {"a", "c"}, {"b", "d"}, {"c", "d"},
+				}
+				for i, p := range pairs {
+					g.SetEdge(p[0], p[1], graph.EdgeAttrs{
+						Label:  p[0] + "→" + p[1],
+						Weight: float64(i + 1),
 					})
 				}
 				return g
