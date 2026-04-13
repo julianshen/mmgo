@@ -29,6 +29,7 @@ import (
 	"slices"
 
 	"github.com/julianshen/mmgo/pkg/layout/graph"
+	"github.com/julianshen/mmgo/pkg/layout/internal/layoututil"
 )
 
 // Order maps a rank number to the left-to-right ordered list of nodes in
@@ -56,9 +57,9 @@ func Run(g *graph.Graph, ranks map[string]int) Order {
 	order := initOrder(g, ranks)
 
 	// Precompute data that never changes during iteration.
-	ranksAsc := sortedRanks(order)
+	ranksAsc := layoututil.SortedRanks(order)
 	layerEdges := buildLayerEdges(g, ranks, ranksAsc)
-	preds, succs := buildAdjacency(g)
+	preds, succs := layoututil.BuildAdjacency(g)
 
 	// Reusable scratch buffer for countCrossingsInLayer.
 	var scratch []edgePos
@@ -112,21 +113,6 @@ func initOrder(g *graph.Graph, ranks map[string]int) Order {
 		slices.Sort(result[r])
 	}
 	return result
-}
-
-// buildAdjacency returns deduped predecessor and successor lists for every
-// node in g. Called once before the main loop to avoid repeatedly calling
-// g.Predecessors / g.Successors (which allocate fresh maps and slices on
-// every invocation).
-func buildAdjacency(g *graph.Graph) (preds, succs map[string][]string) {
-	nodes := g.Nodes()
-	preds = make(map[string][]string, len(nodes))
-	succs = make(map[string][]string, len(nodes))
-	for _, n := range nodes {
-		preds[n] = g.Predecessors(n)
-		succs[n] = g.Successors(n)
-	}
-	return preds, succs
 }
 
 // sortByBarycenter reorders nodes in the target rank by the average
@@ -301,12 +287,3 @@ func copyOrder(src Order) Order {
 	return dst
 }
 
-// sortedRanks returns the rank numbers in ascending order.
-func sortedRanks(order Order) []int {
-	ranks := make([]int, 0, len(order))
-	for r := range order {
-		ranks = append(ranks, r)
-	}
-	slices.Sort(ranks)
-	return ranks
-}

@@ -5,18 +5,13 @@ import (
 	"testing"
 
 	"github.com/julianshen/mmgo/pkg/layout/graph"
+	"github.com/julianshen/mmgo/pkg/layout/internal/graphtest"
 	"github.com/julianshen/mmgo/pkg/layout/internal/order"
 )
 
 // --- Helpers ---
 
-func buildGraph(edges ...[2]string) *graph.Graph {
-	g := graph.New()
-	for _, e := range edges {
-		g.SetEdge(e[0], e[1], graph.EdgeAttrs{})
-	}
-	return g
-}
+var buildGraph = graphtest.BuildGraph
 
 // uniformWidth returns a fixed-width function for tests.
 func uniformWidth(w float64) NodeWidth {
@@ -27,18 +22,37 @@ func defaultOpts() Options {
 	return Options{NodeSep: 50, RankSep: 80}
 }
 
-// assertNoOverlaps checks that no two nodes in the same rank of ord overlap
-// horizontally given the computed positions and a width function.
+// assertNoOverlaps checks that no two nodes in the same rank overlap
+// and that the X ordering matches the slice order (i.e., the order
+// phase's chosen ordering is preserved by the position phase).
 func assertNoOverlaps(t *testing.T, ord order.Order, widthFn NodeWidth, result Result) {
 	t.Helper()
 	for r, nodes := range ord {
+		// Check X ordering matches slice order and adjacent pairs don't overlap.
 		for i := 0; i < len(nodes)-1; i++ {
 			a, b := nodes[i], nodes[i+1]
+			if result[a].X > result[b].X {
+				t.Errorf("rank %d: X order does not match slice order: %s(%f) > %s(%f)",
+					r, a, result[a].X, b, result[b].X)
+			}
 			aRight := result[a].X + widthFn(a)/2
 			bLeft := result[b].X - widthFn(b)/2
 			if aRight > bLeft {
 				t.Errorf("rank %d: %s (right=%f) overlaps %s (left=%f)",
 					r, a, aRight, b, bLeft)
+			}
+		}
+		// Also check non-adjacent pairs don't overlap (defense against bugs
+		// where slice order and X order diverge).
+		for i := 0; i < len(nodes); i++ {
+			for j := i + 2; j < len(nodes); j++ {
+				a, b := nodes[i], nodes[j]
+				aRight := result[a].X + widthFn(a)/2
+				bLeft := result[b].X - widthFn(b)/2
+				if aRight > bLeft {
+					t.Errorf("rank %d: non-adjacent %s (right=%f) overlaps %s (left=%f)",
+						r, a, aRight, b, bLeft)
+				}
 			}
 		}
 	}
@@ -277,7 +291,7 @@ func TestRunIsolatedRank(t *testing.T) {
 
 // --- Internal helpers ---
 
-func TestMedian(t *testing.T) {
+func TestMedianInPlace(t *testing.T) {
 	cases := []struct {
 		name string
 		in   []float64
@@ -292,8 +306,10 @@ func TestMedian(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := median(tc.in); got != tc.want {
-				t.Errorf("median(%v) = %f, want %f", tc.in, got, tc.want)
+			// Clone because medianInPlace sorts in place.
+			in := append([]float64(nil), tc.in...)
+			if got := medianInPlace(in); got != tc.want {
+				t.Errorf("medianInPlace(%v) = %f, want %f", tc.in, got, tc.want)
 			}
 		})
 	}

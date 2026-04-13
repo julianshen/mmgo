@@ -23,9 +23,9 @@ package position
 import (
 	"math"
 	"slices"
-	"sort"
 
 	"github.com/julianshen/mmgo/pkg/layout/graph"
+	"github.com/julianshen/mmgo/pkg/layout/internal/layoututil"
 	"github.com/julianshen/mmgo/pkg/layout/internal/order"
 )
 
@@ -53,26 +53,18 @@ type Options struct {
 
 // alignmentPasses is the number of top-down/bottom-up median alignment
 // passes. Typically converges within 2-3 iterations; 4 is a safe default.
+// Brandes-Kopf (tracked above as TODO) would replace this iterative
+// approach with a closed-form solution.
 const alignmentPasses = 4
 
 // Run computes x,y coordinates for every node in ord.
-//
-// The algorithm:
-//  1. Initial packing: each rank is laid out left-to-right with width +
-//     NodeSep gaps, centered horizontally at x=0.
-//  2. Alignment passes: alternately top-down (using predecessors) and
-//     bottom-up (using successors), each node's x is shifted toward
-//     the median of its neighbors' x in the adjacent rank.
-//  3. Compaction: after each shift, enforce the order constraint with
-//     a left-to-right pass that pushes overlapping nodes apart.
-//  4. Normalize: shift all coordinates so the minimum x,y is 0.
 func Run(g *graph.Graph, ord order.Order, widthFn NodeWidth, opts Options) Result {
 	if len(ord) == 0 {
 		return Result{}
 	}
 
-	ranksAsc := sortedRanks(ord)
-	preds, succs := buildAdjacency(g)
+	ranksAsc := layoututil.SortedRanks(ord)
+	preds, succs := layoututil.BuildAdjacency(g)
 
 	result := initialPacking(ord, ranksAsc, widthFn, opts)
 
@@ -129,12 +121,15 @@ func initialPacking(ord order.Order, ranksAsc []int, widthFn NodeWidth, opts Opt
 // neighbors' x. Nodes with no neighbors in the adjacent rank are left
 // unchanged. Order is not enforced here; compact handles that.
 func alignByMedian(result Result, nodes []string, neighbors map[string][]string) {
+	// Scratch buffer reused across nodes in this rank — one allocation
+	// per rank instead of per node.
+	var xs []float64
 	for _, n := range nodes {
 		nbrs := neighbors[n]
 		if len(nbrs) == 0 {
 			continue
 		}
-		xs := make([]float64, 0, len(nbrs))
+		xs = xs[:0]
 		for _, nbr := range nbrs {
 			if p, ok := result[nbr]; ok {
 				xs = append(xs, p.X)
@@ -144,7 +139,7 @@ func alignByMedian(result Result, nodes []string, neighbors map[string][]string)
 			continue
 		}
 		p := result[n]
-		p.X = median(xs)
+		p.X = medianInPlace(xs)
 		result[n] = p
 	}
 }
@@ -164,38 +159,38 @@ func compact(result Result, nodes []string, widthFn NodeWidth, nodeSep float64) 
 	}
 
 	// Capture target positions (the x values set by alignByMedian)
-	// before we start pushing nodes around.
-	targets := make([]float64, len(nodes))
+	// before we start pushing nodes around. The same scratch buffer is
+	// reused below to capture compacted positions — medianInPlace sorts
+	// in place, so we compute targetMedian first, then reuse the backing
+	// array.
+	scratch := make([]float64, len(nodes))
 	for i, n := range nodes {
-		targets[i] = result[n].X
+		scratch[i] = result[n].X
 	}
-	targetMedian := median(targets)
+	targetMedian := medianInPlace(scratch)
 
 	// Left-to-right compact: enforce the minimum gap between adjacent
-	// nodes. The first node stays at its target; subsequent nodes move
-	// right only if they would overlap.
-	prevRight := math.Inf(-1)
-	for _, n := range nodes {
+	// nodes. The first node stays at its target.
+	first := result[nodes[0]]
+	prevRight := first.X + widthFn(nodes[0])/2
+	for _, n := range nodes[1:] {
 		w := widthFn(n)
 		p := result[n]
 		halfW := w / 2
-		if prevRight != math.Inf(-1) {
-			minLeft := prevRight + nodeSep
-			if p.X-halfW < minLeft {
-				p.X = minLeft + halfW
-				result[n] = p
-			}
+		minLeft := prevRight + nodeSep
+		if p.X-halfW < minLeft {
+			p.X = minLeft + halfW
+			result[n] = p
 		}
 		prevRight = p.X + halfW
 	}
 
-	// Recenter the compacted block so its median aligns with the
-	// original target median. This cancels the rightward drift.
-	compacted := make([]float64, len(nodes))
+	// Recompute median and shift the whole block so the compacted
+	// median aligns with the original target median.
 	for i, n := range nodes {
-		compacted[i] = result[n].X
+		scratch[i] = result[n].X
 	}
-	delta := targetMedian - median(compacted)
+	delta := targetMedian - medianInPlace(scratch)
 	if delta != 0 {
 		for _, n := range nodes {
 			p := result[n]
@@ -205,19 +200,18 @@ func compact(result Result, nodes []string, widthFn NodeWidth, nodeSep float64) 
 	}
 }
 
-// median returns the median of a slice of floats. Uses lower-median for
-// even counts (average of the two middle values).
-func median(xs []float64) float64 {
+// medianInPlace sorts xs and returns its median. xs is mutated. Callers
+// pass a scratch slice they no longer need.
+func medianInPlace(xs []float64) float64 {
 	if len(xs) == 0 {
 		return 0
 	}
-	sorted := slices.Clone(xs)
-	sort.Float64s(sorted)
-	n := len(sorted)
+	slices.Sort(xs)
+	n := len(xs)
 	if n%2 == 1 {
-		return sorted[n/2]
+		return xs[n/2]
 	}
-	return (sorted[n/2-1] + sorted[n/2]) / 2
+	return (xs[n/2-1] + xs[n/2]) / 2
 }
 
 // normalize shifts all coordinates so the minimum x and minimum y are 0.
@@ -234,32 +228,10 @@ func normalize(result Result) {
 			minY = p.Y
 		}
 	}
+	if minX == 0 && minY == 0 {
+		return
+	}
 	for n, p := range result {
 		result[n] = Point{X: p.X - minX, Y: p.Y - minY}
 	}
-}
-
-// buildAdjacency returns deduped predecessor and successor lists for every
-// node in g. Called once before the alignment loop to avoid repeatedly
-// calling g.Predecessors / g.Successors (which allocate fresh maps and
-// slices on every invocation).
-func buildAdjacency(g *graph.Graph) (preds, succs map[string][]string) {
-	nodes := g.Nodes()
-	preds = make(map[string][]string, len(nodes))
-	succs = make(map[string][]string, len(nodes))
-	for _, n := range nodes {
-		preds[n] = g.Predecessors(n)
-		succs[n] = g.Successors(n)
-	}
-	return preds, succs
-}
-
-// sortedRanks returns the rank numbers in ord in ascending order.
-func sortedRanks(ord order.Order) []int {
-	ranks := make([]int, 0, len(ord))
-	for r := range ord {
-		ranks = append(ranks, r)
-	}
-	slices.Sort(ranks)
-	return ranks
 }
