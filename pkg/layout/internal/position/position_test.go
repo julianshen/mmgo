@@ -1,6 +1,7 @@
 package position
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -320,6 +321,89 @@ func TestNormalizeEmpty(t *testing.T) {
 	normalize(result) // must not panic
 	if len(result) != 0 {
 		t.Error("normalize should leave empty result unchanged")
+	}
+}
+
+// --- Tall graph ---
+
+// TestRunTallChain verifies that Y spacing scales linearly with rank
+// and X stays stable along a straight chain. Complement to the wide
+// fan-out test.
+func TestRunTallChain(t *testing.T) {
+	const depth = 20
+	edges := make([][2]string, 0, depth-1)
+	for i := 0; i < depth-1; i++ {
+		edges = append(edges, [2]string{fmt.Sprintf("n%d", i), fmt.Sprintf("n%d", i+1)})
+	}
+	g := buildGraph(edges...)
+
+	ord := make(order.Order, depth)
+	for i := 0; i < depth; i++ {
+		ord[i] = []string{fmt.Sprintf("n%d", i)}
+	}
+
+	opts := Options{NodeSep: 50, RankSep: 80}
+	result := Run(g, ord, uniformWidth(100), opts)
+
+	// All nodes should be vertically aligned (same X since each has one parent).
+	firstX := result["n0"].X
+	for i := 0; i < depth; i++ {
+		n := fmt.Sprintf("n%d", i)
+		if !approxEqual(result[n].X, firstX) {
+			t.Errorf("%s x=%f should match n0.x=%f (straight chain)",
+				n, result[n].X, firstX)
+		}
+		wantY := float64(i) * 80
+		if !approxEqual(result[n].Y, wantY) {
+			t.Errorf("%s y=%f, want %f (rank %d * RankSep 80)",
+				n, result[n].Y, wantY, i)
+		}
+	}
+}
+
+// --- Large graph stress ---
+
+// TestRunLargeGraph exercises the algorithm on a 100+ node DAG to catch
+// scaling regressions. The graph is a grid where each node connects to
+// its same-index neighbor in the next rank plus one cross-edge. Only
+// asserts invariants (no overlaps, valid coords), not specific positions.
+func TestRunLargeGraph(t *testing.T) {
+	const ranks = 10
+	const perRank = 12 // 120 nodes total
+	g := graph.New()
+	ord := make(order.Order)
+
+	for r := 0; r < ranks; r++ {
+		nodes := make([]string, perRank)
+		for i := 0; i < perRank; i++ {
+			n := fmt.Sprintf("r%d_%d", r, i)
+			nodes[i] = n
+			g.SetNode(n, graph.NodeAttrs{})
+			if r > 0 {
+				parent := fmt.Sprintf("r%d_%d", r-1, i)
+				g.SetEdge(parent, n, graph.EdgeAttrs{})
+				crossParent := fmt.Sprintf("r%d_%d", r-1, (i+1)%perRank)
+				g.SetEdge(crossParent, n, graph.EdgeAttrs{})
+			}
+		}
+		ord[r] = nodes
+	}
+
+	result := Run(g, ord, uniformWidth(100), defaultOpts())
+
+	if len(result) != ranks*perRank {
+		t.Errorf("expected %d positions, got %d", ranks*perRank, len(result))
+	}
+	assertNoOverlaps(t, ord, uniformWidth(100), result)
+
+	// Verify coordinates are finite and non-negative.
+	for n, p := range result {
+		if math.IsNaN(p.X) || math.IsInf(p.X, 0) {
+			t.Errorf("%s has invalid x: %v", n, p.X)
+		}
+		if p.X < 0 || p.Y < 0 {
+			t.Errorf("%s has negative coord: %v", n, p)
+		}
 	}
 }
 
