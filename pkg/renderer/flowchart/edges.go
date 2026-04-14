@@ -2,9 +2,12 @@ package flowchart
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
+	"github.com/julianshen/mmgo/pkg/layout/graph"
+	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
 func markerID(ah diagram.ArrowHead, ls diagram.LineStyle) string {
@@ -45,14 +48,14 @@ func buildMarker(id string, ah diagram.ArrowHead, th Theme) Marker {
 		m.Children = []any{
 			&Polyline{
 				Points: "0,1 10,5 0,9",
-				Style:  fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke),
+				Style:  fmt.Sprintf("stroke:%s;stroke-width:%g;fill:none", th.EdgeStroke, defaultStrokeWidth),
 			},
 		}
 	case diagram.ArrowHeadCross:
 		m.Children = []any{
 			&Polyline{
 				Points: "0,0 10,5 0,10 10,5",
-				Style:  fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke),
+				Style:  fmt.Sprintf("stroke:%s;stroke-width:%g;fill:none", th.EdgeStroke, defaultStrokeWidth),
 			},
 		}
 	case diagram.ArrowHeadCircle:
@@ -60,26 +63,34 @@ func buildMarker(id string, ah diagram.ArrowHead, th Theme) Marker {
 		m.Children = []any{
 			&Circle{
 				CX: 5, CY: 5, R: 4,
-				Style: fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke),
+				Style: fmt.Sprintf("stroke:%s;stroke-width:%g;fill:none", th.EdgeStroke, defaultStrokeWidth),
 			},
 		}
 	}
 	return m
 }
 
-func renderEdges(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th Theme, fontSize float64) []any {
-	type indexed struct {
-		diagram.Edge
-		idx int
-	}
-	fromTo := map[string][]indexed{}
-	for i, e := range d.Edges {
+func renderEdges(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th Theme, fontSize float64, ruler *textmeasure.Ruler) []any {
+	fromTo := map[string][]diagram.Edge{}
+	for _, e := range d.Edges {
 		key := e.From + "->" + e.To
-		fromTo[key] = append(fromTo[key], indexed{Edge: e, idx: i})
+		fromTo[key] = append(fromTo[key], e)
 	}
 
+	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
+	for eid := range l.Edges {
+		edgeKeys = append(edgeKeys, eid)
+	}
+	sort.Slice(edgeKeys, func(i, j int) bool {
+		if edgeKeys[i].From != edgeKeys[j].From {
+			return edgeKeys[i].From < edgeKeys[j].From
+		}
+		return edgeKeys[i].To < edgeKeys[j].To
+	})
+
 	var elems []any
-	for eid, elayout := range l.Edges {
+	for _, eid := range edgeKeys {
+		elayout := l.Edges[eid]
 		key := eid.From + "->" + eid.To
 		candidates := fromTo[key]
 		if len(candidates) == 0 {
@@ -88,13 +99,14 @@ func renderEdges(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th 
 		ae := candidates[0]
 		fromTo[key] = candidates[1:]
 
-		elems = append(elems, renderEdge(ae.Edge, elayout, pad, th, fontSize)...)
+		elems = append(elems, renderEdge(ae, elayout, pad, th, fontSize, ruler)...)
 	}
 	return elems
 }
 
-func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fontSize float64) []any {
-	pts := el.Points
+func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fontSize float64, ruler *textmeasure.Ruler) []any {
+	pts := make([]layout.Point, len(el.Points))
+	copy(pts, el.Points)
 	if len(pts) == 0 {
 		return nil
 	}
@@ -130,9 +142,20 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 		ly := el.LabelPos.Y + pad
 		textStyle := fmt.Sprintf("fill:%s;font-size:%gpx", th.EdgeText, fontSize)
 
+		var labelW, labelH float64
+		if ruler != nil {
+			labelW, labelH = ruler.Measure(e.Label, fontSize)
+		}
+		if labelW == 0 {
+			labelW = 40
+		}
+		if labelH == 0 {
+			labelH = 20
+		}
+		const labelPad = 4.0
 		elems = append(elems, &Rect{
-			X: lx - 20, Y: ly - 10,
-			Width: 40, Height: 20,
+			X: lx - labelW/2 - labelPad, Y: ly - labelH/2 - labelPad,
+			Width: labelW + 2*labelPad, Height: labelH + 2*labelPad,
 			Style: "fill:white;stroke:none",
 		})
 		elems = append(elems, &Text{
@@ -153,7 +176,7 @@ func edgeStyle(th Theme, ls diagram.LineStyle) string {
 	case diagram.LineStyleThick:
 		extra = "stroke-width:3;"
 	}
-	return fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none;%s", th.EdgeStroke, extra)
+	return fmt.Sprintf("stroke:%s;stroke-width:%g;fill:none;%s", th.EdgeStroke, defaultStrokeWidth, extra)
 }
 
 func buildCurvePath(pts []layout.Point) string {

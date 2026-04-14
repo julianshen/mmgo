@@ -6,6 +6,7 @@ import (
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
+	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
 func TestBuildMarkers(t *testing.T) {
@@ -64,7 +65,7 @@ func TestRenderEdgeStraightLine(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
-	elems := renderEdge(e, el, 10, DefaultTheme(), 16)
+	elems := renderEdge(e, el, 10, DefaultTheme(), 16, nil)
 	if len(elems) < 1 {
 		t.Fatal("expected at least 1 element")
 	}
@@ -89,7 +90,7 @@ func TestRenderEdgeWithLabel(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16)
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil)
 	hasLabel := false
 	for _, elem := range elems {
 		if txt, ok := elem.(*Text); ok && txt.Content == "yes" {
@@ -107,7 +108,7 @@ func TestRenderEdgeLabelBackgroundRect(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16)
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil)
 	hasBgRect := false
 	for _, elem := range elems {
 		if r, ok := elem.(*Rect); ok && strings.Contains(r.Style, "fill:white") {
@@ -119,13 +120,40 @@ func TestRenderEdgeLabelBackgroundRect(t *testing.T) {
 	}
 }
 
+func TestRenderEdgeLabelBackgroundRectWithRuler(t *testing.T) {
+	ruler, err := newTestRuler(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ruler.Close()
+
+	e := diagram.Edge{From: "A", To: "B", Label: "a very long label", ArrowHead: diagram.ArrowHeadArrow}
+	el := layout.EdgeLayout{
+		Points:   []layout.Point{{X: 0, Y: 0}, {X: 200, Y: 0}},
+		LabelPos: layout.Point{X: 100, Y: 0},
+	}
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, ruler)
+	var bgRect *Rect
+	for _, elem := range elems {
+		if r, ok := elem.(*Rect); ok && strings.Contains(r.Style, "fill:white") {
+			bgRect = r
+		}
+	}
+	if bgRect == nil {
+		t.Fatal("edge label should have a white background rect")
+	}
+	if bgRect.Width <= 40 {
+		t.Errorf("long label rect width should exceed fallback 40, got %.2f", bgRect.Width)
+	}
+}
+
 func TestRenderEdgeDotted(t *testing.T) {
 	e := diagram.Edge{From: "A", To: "B", LineStyle: diagram.LineStyleDotted, ArrowHead: diagram.ArrowHeadArrow}
 	el := layout.EdgeLayout{
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16)
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil)
 	line, ok := elems[0].(*Line)
 	if !ok {
 		t.Fatalf("expected *Line, got %T", elems[0])
@@ -141,7 +169,7 @@ func TestRenderEdgeNoMarker(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16)
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil)
 	line, ok := elems[0].(*Line)
 	if !ok {
 		t.Fatalf("expected *Line, got %T", elems[0])
@@ -157,7 +185,7 @@ func TestRenderEdgeCurve(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 50, Y: 50}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 25},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16)
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil)
 	path, ok := elems[0].(*Path)
 	if !ok {
 		t.Fatalf("expected *Path for 3-point edge, got %T", elems[0])
@@ -165,4 +193,9 @@ func TestRenderEdgeCurve(t *testing.T) {
 	if !strings.Contains(path.D, " C") {
 		t.Errorf("curve path should contain cubic bezier, got: %s", path.D)
 	}
+}
+
+func newTestRuler(t *testing.T) (*textmeasure.Ruler, error) {
+	t.Helper()
+	return textmeasure.NewDefaultRuler()
 }

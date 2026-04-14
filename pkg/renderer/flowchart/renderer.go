@@ -7,6 +7,7 @@ import (
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
+	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
 func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byte, error) {
@@ -22,6 +23,11 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 	fontSize := resolveFontSize(opts)
 	bg := resolveBackground(opts, th)
 
+	ruler, _ := textmeasure.NewDefaultRuler()
+	if ruler != nil {
+		defer ruler.Close()
+	}
+
 	viewBoxW := l.Width + 2*pad
 	viewBoxH := l.Height + 2*pad
 
@@ -30,12 +36,19 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 	}
 
 	classCSS := buildClassCSS(d)
-	if classCSS != "" || (opts != nil && opts.CSSFile != "") {
-		cssContent := classCSS
-		if opts != nil {
-			cssContent += opts.CSSFile
+	extraCSS := ""
+	if opts != nil {
+		extraCSS = opts.ExtraCSS
+	}
+	if classCSS != "" || extraCSS != "" {
+		parts := []string{}
+		if classCSS != "" {
+			parts = append(parts, classCSS)
 		}
-		children = append(children, &StyleEl{Content: cssContent})
+		if extraCSS != "" {
+			parts = append(parts, extraCSS)
+		}
+		children = append(children, &StyleEl{Content: strings.Join(parts, "\n")})
 	}
 
 	children = append(children, &Rect{
@@ -46,7 +59,7 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 	})
 
 	children = append(children, renderSubgraphs(d, l, pad, th, fontSize)...)
-	children = append(children, renderEdges(d, l, pad, th, fontSize)...)
+	children = append(children, renderEdges(d, l, pad, th, fontSize, ruler)...)
 	children = append(children, renderNodes(d, l, pad, th, fontSize)...)
 
 	svg := SVG{
@@ -85,34 +98,39 @@ func renderNodes(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th 
 
 func applyStyleOverrides(elems []any, n diagram.Node, styles []diagram.StyleDef) {
 	css := nodeStyleCSS(n, styles)
-	if css == "" || len(elems) == 0 {
+	if css == "" {
 		return
 	}
-	switch e := elems[0].(type) {
-	case *Rect:
-		e.Style = css
-	case *Polygon:
-		e.Style = css
-	case *Circle:
-		e.Style = css
-	case *Path:
-		e.Style = css
-	}
+	setFirstElement(elems, func(s styleClassSetter) { s.setStyle(css) })
 }
 
 func applyClassAttr(elems []any, n diagram.Node) {
-	if len(n.Classes) == 0 || len(elems) == 0 {
+	if len(n.Classes) == 0 {
 		return
 	}
 	classVal := strings.Join(n.Classes, " ")
-	switch e := elems[0].(type) {
-	case *Rect:
-		e.Class = classVal
-	case *Polygon:
-		e.Class = classVal
-	case *Circle:
-		e.Class = classVal
-	case *Path:
-		e.Class = classVal
+	setFirstElement(elems, func(s styleClassSetter) { s.setClass(classVal) })
+}
+
+type styleClassSetter interface {
+	setStyle(string)
+	setClass(string)
+}
+
+func setFirstElement(elems []any, fn func(styleClassSetter)) {
+	if len(elems) == 0 {
+		return
+	}
+	if s, ok := elems[0].(styleClassSetter); ok {
+		fn(s)
 	}
 }
+
+func (r *Rect) setStyle(v string)    { r.Style = v }
+func (r *Rect) setClass(v string)    { r.Class = v }
+func (p *Polygon) setStyle(v string) { p.Style = v }
+func (p *Polygon) setClass(v string) { p.Class = v }
+func (c *Circle) setStyle(v string)  { c.Style = v }
+func (c *Circle) setClass(v string)  { c.Class = v }
+func (p *Path) setStyle(v string)    { p.Style = v }
+func (p *Path) setClass(v string)    { p.Class = v }

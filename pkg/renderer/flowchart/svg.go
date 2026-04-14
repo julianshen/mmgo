@@ -57,6 +57,7 @@ type Polyline struct {
 	XMLName xml.Name `xml:"polyline"`
 	Points  string   `xml:"points,attr"`
 	Style   string   `xml:"style,attr,omitempty"`
+	Class   string   `xml:"class,attr,omitempty"`
 }
 
 type Path struct {

@@ -9,8 +9,16 @@ import (
 	"github.com/julianshen/mmgo/pkg/layout"
 )
 
+const (
+	polygonSkew        = 0.15
+	cylinderEllipseRY  = 0.1
+	defaultStrokeWidth = 1.5
+	doubleCircleGap    = 3.0
+	subroutineBand     = 0.1
+)
+
 func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fontSize float64) []any {
-	shapeStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.NodeFill, th.NodeStroke)
+	shapeStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%g", th.NodeFill, th.NodeStroke, defaultStrokeWidth)
 	textStyle := fmt.Sprintf("fill:%s;font-size:%gpx", th.NodeText, fontSize)
 
 	cx := nl.X + pad
@@ -40,21 +48,21 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 		r := math.Min(w, h) / 2
 		elems = append(elems, &Circle{CX: cx, CY: cy, R: r, Style: shapeStyle})
 		elems = append(elems, &Circle{
-			CX: cx, CY: cy, R: r + 3,
-			Style: fmt.Sprintf("fill:none;stroke:%s;stroke-width:1.5", th.NodeStroke),
+			CX: cx, CY: cy, R: r + doubleCircleGap,
+			Style: fmt.Sprintf("fill:none;stroke:%s;stroke-width:%g", th.NodeStroke, defaultStrokeWidth),
 		})
 	case diagram.NodeShapeDiamond:
 		elems = append(elems, &Polygon{Points: diamondPoints(cx, cy, w, h), Style: shapeStyle})
 	case diagram.NodeShapeHexagon:
 		elems = append(elems, &Polygon{Points: hexagonPoints(cx, cy, w, h), Style: shapeStyle})
 	case diagram.NodeShapeParallelogram:
-		elems = append(elems, &Polygon{Points: parallelogramPoints(cx, cy, w, h, 0.15, false), Style: shapeStyle})
+		elems = append(elems, &Polygon{Points: parallelogramPoints(cx, cy, w, h, polygonSkew, false), Style: shapeStyle})
 	case diagram.NodeShapeParallelogramAlt:
-		elems = append(elems, &Polygon{Points: parallelogramPoints(cx, cy, w, h, 0.15, true), Style: shapeStyle})
+		elems = append(elems, &Polygon{Points: parallelogramPoints(cx, cy, w, h, polygonSkew, true), Style: shapeStyle})
 	case diagram.NodeShapeTrapezoid:
-		elems = append(elems, &Polygon{Points: trapezoidPoints(cx, cy, w, h, 0.15, false), Style: shapeStyle})
+		elems = append(elems, &Polygon{Points: trapezoidPoints(cx, cy, w, h, polygonSkew, false), Style: shapeStyle})
 	case diagram.NodeShapeTrapezoidAlt:
-		elems = append(elems, &Polygon{Points: trapezoidPoints(cx, cy, w, h, 0.15, true), Style: shapeStyle})
+		elems = append(elems, &Polygon{Points: trapezoidPoints(cx, cy, w, h, polygonSkew, true), Style: shapeStyle})
 	case diagram.NodeShapeAsymmetric:
 		elems = append(elems, &Polygon{Points: asymmetricPoints(cx, cy, w, h), Style: shapeStyle})
 	case diagram.NodeShapeCylinder:
@@ -63,9 +71,9 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 		elems = append(elems, &Rect{
 			X: cx - w/2, Y: cy - h/2, Width: w, Height: h, Style: shapeStyle,
 		})
-		bandX1 := cx - w/2 + w*0.1
-		bandX2 := cx + w/2 - w*0.1
-		lineStyle := fmt.Sprintf("stroke:%s;stroke-width:1.5", th.NodeStroke)
+		bandX1 := cx - w/2 + w*subroutineBand
+		bandX2 := cx + w/2 - w*subroutineBand
+		lineStyle := fmt.Sprintf("stroke:%s;stroke-width:%g", th.NodeStroke, defaultStrokeWidth)
 		elems = append(elems, &Line{X1: bandX1, Y1: cy - h/2, X2: bandX1, Y2: cy + h/2, Style: lineStyle})
 		elems = append(elems, &Line{X1: bandX2, Y1: cy - h/2, X2: bandX2, Y2: cy + h/2, Style: lineStyle})
 	default:
@@ -94,7 +102,7 @@ func diamondPoints(cx, cy, w, h float64) string {
 }
 
 func hexagonPoints(cx, cy, w, h float64) string {
-	d := w * 0.15
+	d := w * polygonSkew
 	return fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
 		cx-w/2+d, cy-h/2, cx+w/2-d, cy-h/2, cx+w/2, cy,
 		cx+w/2-d, cy+h/2, cx-w/2+d, cy+h/2, cx-w/2, cy)
@@ -125,14 +133,14 @@ func trapezoidPoints(cx, cy, w, h float64, indent float64, alt bool) string {
 }
 
 func asymmetricPoints(cx, cy, w, h float64) string {
-	s := w * 0.15
+	s := w * polygonSkew
 	return fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
 		cx-w/2, cy-h/2, cx+w/2-s, cy-h/2,
 		cx+w/2, cy+h/2, cx-w/2, cy+h/2)
 }
 
 func cylinderPath(cx, cy, w, h float64) string {
-	ry := h * 0.1
+	ry := h * cylinderEllipseRY
 	top := cy - h/2 + ry
 	bot := cy + h/2 - ry
 	return fmt.Sprintf("M%.2f,%.2f L%.2f,%.2f A%.2f,%.2f 0 0,0 %.2f,%.2f "+

@@ -9,7 +9,7 @@ type Options struct {
 	FontSize   float64
 	Padding    float64
 	Theme      Theme
-	CSSFile    string
+	ExtraCSS   string
 	Background string
 }
 

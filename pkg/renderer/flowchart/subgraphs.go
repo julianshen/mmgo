@@ -19,24 +19,28 @@ func subgraphBBox(nodes []diagram.Node, layoutNodes map[string]layout.NodeLayout
 		if !ok {
 			continue
 		}
-		left := nl.X - nl.Width/2
-		right := nl.X + nl.Width/2
-		top := nl.Y - nl.Height/2
-		bottom := nl.Y + nl.Height/2
-		if left < b.MinX {
-			b.MinX = left
-		}
-		if right > b.MaxX {
-			b.MaxX = right
-		}
-		if top < b.MinY {
-			b.MinY = top
-		}
-		if bottom > b.MaxY {
-			b.MaxY = bottom
-		}
+		b.expand(nl.X, nl.Y, nl.Width, nl.Height)
 	}
 	return b
+}
+
+func (b *bbox) expand(cx, cy, w, h float64) {
+	left := cx - w/2
+	right := cx + w/2
+	top := cy - h/2
+	bottom := cy + h/2
+	if left < b.MinX {
+		b.MinX = left
+	}
+	if right > b.MaxX {
+		b.MaxX = right
+	}
+	if top < b.MinY {
+		b.MinY = top
+	}
+	if bottom > b.MaxY {
+		b.MaxY = bottom
+	}
 }
 
 func allDescendantNodes(sg *diagram.Subgraph) []diagram.Node {
@@ -64,7 +68,7 @@ func renderSubgraphGroup(sg diagram.Subgraph, l *layout.Result, pad float64, th 
 			&Rect{
 				X: rx, Y: ry, Width: rw, Height: rh,
 				RX: 5, RY: 5,
-				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.SubgraphFill, th.SubgraphStroke),
+				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%g", th.SubgraphFill, th.SubgraphStroke, defaultStrokeWidth),
 			},
 			&Text{
 				X: rx + 10, Y: ry + 18,
