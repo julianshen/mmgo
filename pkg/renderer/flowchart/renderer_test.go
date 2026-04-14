@@ -196,7 +196,9 @@ func TestGoldenSimple(t *testing.T) {
 
 	goldenPath := filepath.Join("testdata", "simple.golden.svg")
 	if *updateGolden {
-		os.WriteFile(goldenPath, svgBytes, 0644)
+		if err := os.WriteFile(goldenPath, svgBytes, 0644); err != nil {
+			t.Fatalf("write golden: %v", err)
+		}
 		t.Logf("updated golden file: %s", goldenPath)
 		return
 	}
