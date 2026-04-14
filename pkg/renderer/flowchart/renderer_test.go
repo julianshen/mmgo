@@ -2,12 +2,17 @@ package flowchart
 
 import (
 	"encoding/xml"
+	"flag"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
+
+	fcparser "github.com/julianshen/mmgo/pkg/parser/flowchart"
 )
 
 func TestRenderNilInputs(t *testing.T) {
@@ -112,5 +117,95 @@ func TestRenderEmptyDiagramProducesValidSVG(t *testing.T) {
 	}
 	if svg.ViewBox == "" {
 		t.Error("viewBox should be set")
+	}
+}
+
+func TestRenderStyledNode(t *testing.T) {
+	d := &diagram.FlowchartDiagram{
+		Nodes: []diagram.Node{
+			{ID: "A", Label: "Styled", Shape: diagram.NodeShapeRectangle},
+		},
+		Styles: []diagram.StyleDef{
+			{NodeID: "A", CSS: "fill:#ff0000;stroke:#00ff00"},
+		},
+	}
+	g := graph.New()
+	g.SetNode("A", graph.NodeAttrs{Label: "Styled", Width: 80, Height: 40})
+	l := layout.Layout(g, layout.Options{})
+
+	svgBytes, err := Render(d, l, nil)
+	if err != nil {
+		t.Fatalf("Render error: %v", err)
+	}
+	raw := string(svgBytes)
+	if !strings.Contains(raw, "fill:#ff0000") {
+		t.Errorf("styled node should have custom fill:\n%s", raw)
+	}
+}
+
+func TestRenderClassNode(t *testing.T) {
+	d := &diagram.FlowchartDiagram{
+		Nodes: []diagram.Node{
+			{ID: "A", Label: "Classy", Shape: diagram.NodeShapeRectangle, Classes: []string{"highlight"}},
+		},
+		Classes: map[string]string{"highlight": "fill:#ffff00"},
+	}
+	g := graph.New()
+	g.SetNode("A", graph.NodeAttrs{Label: "Classy", Width: 80, Height: 40})
+	l := layout.Layout(g, layout.Options{})
+
+	svgBytes, err := Render(d, l, nil)
+	if err != nil {
+		t.Fatalf("Render error: %v", err)
+	}
+	raw := string(svgBytes)
+	if !strings.Contains(raw, `class="highlight"`) {
+		t.Errorf("class node should have class attr:\n%s", raw)
+	}
+	if !strings.Contains(raw, ".highlight") {
+		t.Errorf("CSS should include class rule:\n%s", raw)
+	}
+}
+
+var updateGolden = flag.Bool("update", false, "update golden files")
+
+func TestGoldenSimple(t *testing.T) {
+	input, err := os.ReadFile(filepath.Join("testdata", "simple.mmd"))
+	if err != nil {
+		t.Skip("testdata/simple.mmd not found")
+	}
+
+	d, err := fcparser.Parse(strings.NewReader(string(input)))
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	g := graph.New()
+	for _, n := range d.Nodes {
+		g.SetNode(n.ID, graph.NodeAttrs{Label: n.Label, Width: 100, Height: 50})
+	}
+	for _, e := range d.Edges {
+		g.SetEdge(e.From, e.To, graph.EdgeAttrs{Label: e.Label})
+	}
+	l := layout.Layout(g, layout.Options{})
+
+	svgBytes, err := Render(d, l, nil)
+	if err != nil {
+		t.Fatalf("Render error: %v", err)
+	}
+
+	goldenPath := filepath.Join("testdata", "simple.golden.svg")
+	if *updateGolden {
+		os.WriteFile(goldenPath, svgBytes, 0644)
+		t.Logf("updated golden file: %s", goldenPath)
+		return
+	}
+
+	golden, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("read golden: %v (run with -update to create)", err)
+	}
+	if string(svgBytes) != string(golden) {
+		t.Errorf("output does not match golden file")
 	}
 }
