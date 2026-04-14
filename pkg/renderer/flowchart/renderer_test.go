@@ -28,6 +28,63 @@ func TestRenderNilInputs(t *testing.T) {
 	}
 }
 
+func TestRenderSingleNode(t *testing.T) {
+	g := graph.New()
+	g.SetNode("A", graph.NodeAttrs{Label: "Hello", Width: 100, Height: 50})
+	l := layout.Layout(g, layout.Options{})
+	d := &diagram.FlowchartDiagram{
+		Nodes: []diagram.Node{{ID: "A", Label: "Hello", Shape: diagram.NodeShapeRectangle}},
+	}
+
+	svgBytes, err := Render(d, l, nil)
+	if err != nil {
+		t.Fatalf("Render error: %v", err)
+	}
+
+	raw := string(svgBytes)
+	if !strings.Contains(raw, "<rect") {
+		t.Errorf("SVG should contain <rect>:\n%s", raw)
+	}
+	if !strings.Contains(raw, ">Hello<") {
+		t.Errorf("SVG should contain label text:\n%s", raw)
+	}
+}
+
+func TestRenderRectangleNodeGeometry(t *testing.T) {
+	n := diagram.Node{ID: "A", Label: "Hello", Shape: diagram.NodeShapeRectangle}
+	nl := layout.NodeLayout{X: 100, Y: 50, Width: 80, Height: 40}
+	pad := 10.0
+
+	elems := renderNode(n, nl, pad, DefaultTheme(), 16)
+	if len(elems) < 2 {
+		t.Fatalf("expected at least 2 elements (rect + text), got %d", len(elems))
+	}
+
+	rect, ok := elems[0].(*Rect)
+	if !ok {
+		t.Fatalf("first element should be *Rect, got %T", elems[0])
+	}
+	wantX := nl.X - nl.Width/2 + pad
+	wantY := nl.Y - nl.Height/2 + pad
+	if rect.X != wantX {
+		t.Errorf("rect.X = %f, want %f", rect.X, wantX)
+	}
+	if rect.Y != wantY {
+		t.Errorf("rect.Y = %f, want %f", rect.Y, wantY)
+	}
+
+	txt, ok := elems[1].(*Text)
+	if !ok {
+		t.Fatalf("second element should be *Text, got %T", elems[1])
+	}
+	if txt.Content != "Hello" {
+		t.Errorf("text.Content = %q, want %q", txt.Content, "Hello")
+	}
+	if txt.Anchor != "middle" {
+		t.Errorf("text-anchor = %q, want middle", txt.Anchor)
+	}
+}
+
 func TestRenderEmptyDiagramProducesValidSVG(t *testing.T) {
 	d := &diagram.FlowchartDiagram{}
 	l := layout.Layout(graph.New(), layout.Options{})
