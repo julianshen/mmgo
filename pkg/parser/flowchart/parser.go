@@ -15,17 +15,24 @@
 // trapezoid [/\], trapezoid-alt [\/], double-circle ((())).
 //
 // Supported edges:
-//   - solid:  -->, ---
-//   - dotted: -.->, -.-
-//   - thick:  ==>, ===
+//   - solid:  -->, ---, and long-dash variants (--->, ---->, ---- ...)
+//   - dotted: -.->, -.-, and extended-dot variants (-..->, -...-  ...)
+//   - thick:  ==>, ===, and long variants (===>, ====>, ==== ...)
 //
-// Edge labels use the pipe form: A -->|label| B
+// Edge labels:
+//   - pipe form:   A -->|label| B
+//   - inline form: A -- label --> B     (solid family)
+//                  A == label ==> B     (thick family)
+//
+// Chained edges (`A --> B --> C`) emit one edge per segment in order.
+// Arrow detection skips bracketed regions and double-quoted strings,
+// so labels like `A[--> not an arrow] --> B` parse correctly.
 //
 // TODO(features): subgraphs (nested `subgraph` ... `end` blocks),
 // style/classDef/class directives, init directives (%%{init: ...}%%),
-// additional arrow variants (-x, -o, longer forms), and inline edge
-// labels (-- label -->). These are planned for a follow-up PR once
-// the renderer lands and we can eyeball parser output end-to-end.
+// additional arrow endpoints (-x, -o), dotted inline labels
+// (`-. label .->`), and Unicode node IDs. These are planned for a
+// follow-up PR once the renderer lands.
 package flowchart
 
 import (
@@ -175,11 +182,11 @@ func (p *parser) parseLine(line string) error {
 			if trimmed == "" {
 				return nil
 			}
-			if err := detectInlineEdgeLabel(trimmed); err != nil {
-				return err
-			}
 			id, shape, label, err := parseNodeDef(trimmed)
 			if err != nil {
+				if detErr := diagnoseMalformedArrow(trimmed); detErr != nil {
+					return detErr
+				}
 				return err
 			}
 			p.upsertNode(id, shape, label)
@@ -201,9 +208,6 @@ func (p *parser) parseLine(line string) error {
 
 		leftID, leftShape, leftLabel, err := parseNodeDef(leftText)
 		if err != nil {
-			if detErr := detectInlineEdgeLabel(leftText); detErr != nil {
-				return fmt.Errorf("left side: %w", detErr)
-			}
 			return fmt.Errorf("left side: %w", err)
 		}
 		rightID, rightShape, rightLabel, err := parseNodeDef(rightText)
@@ -231,15 +235,13 @@ func (p *parser) parseLine(line string) error {
 	}
 }
 
-// detectInlineEdgeLabel returns a helpful error when the user writes an
-// inline-label edge (`A -- text --> B`), which is a common Mermaid form
-// that the MVP parser does not yet support. Without this, the failure
-// surfaces as a cryptic "unrecognized shape" or "invalid node ID".
-// TODO(features): support inline edge labels; until then, keep this
-// detection in sync with the tokens that would signal the intent.
-func detectInlineEdgeLabel(segment string) error {
+// diagnoseMalformedArrow returns a helpful error for common malformed
+// arrow forms that parseNodeDef's "unrecognized shape" wouldn't
+// pinpoint. The main case is an inline edge label without a closing
+// terminator: `A -- text` (missing `-->` / `---`).
+func diagnoseMalformedArrow(segment string) error {
 	if strings.Contains(segment, " -- ") || strings.Contains(segment, " == ") {
-		return fmt.Errorf("inline edge labels (`A -- text --> B`) are not yet supported; use the pipe form `A -->|text| B`")
+		return fmt.Errorf("unterminated inline edge label: expected `-->` / `---` / `==>` / `===` terminator")
 	}
 	return nil
 }
@@ -367,86 +369,216 @@ func isIDChar(c byte) bool {
 		c == '_'
 }
 
-// arrowMatch describes one arrow operator found in a line.
+// arrowMatch describes one arrow operator found in a line. If the
+// arrow carries an inline label (`A -- text --> B`) the label is
+// captured during scanning and label/start/end span the whole
+// opener+text+terminator. Pipe-form labels (`A -->|text| B`) are
+// attached after scanning by attachPipeLabel.
 type arrowMatch struct {
-	start, end    int               // byte offsets of the arrow token within the line
+	start, end    int               // byte offsets of the arrow span within the line
 	lineStyle     diagram.LineStyle // solid/dotted/thick
 	arrowHead     diagram.ArrowHead // arrow/none
-	label         string            // label between pipes, or ""
+	label         string            // inline or pipe-form label, or ""
 	labelUnclosed bool              // saw opening `|` with no closing `|`
 }
 
-// arrowToken is a static definition of an arrow operator we recognize.
-type arrowToken struct {
-	token     string
-	lineStyle diagram.LineStyle
-	arrowHead diagram.ArrowHead
-}
-
-// arrowTokens lists the recognized arrow operators. Order is
-// load-bearing for two reasons:
-//  1. Prefix-conflict avoidance: `-.->` must appear before plain-solid
-//     arrows so that a dotted-arrow line isn't scanned as `-->` at a
-//     later index.
-//  2. Tie-breaking: findArrow uses strict `<` when updating `best`, so
-//     the FIRST entry wins if two tokens match at the same index. In
-//     practice this matters for dotted-vs-solid prefixes like `-.-`.
-var arrowTokens = []arrowToken{
-	// Dotted variants (must come before plain solid so `-.->` isn't
-	// mistaken for `-->`).
-	{"-.->", diagram.LineStyleDotted, diagram.ArrowHeadArrow},
-	{"-.-", diagram.LineStyleDotted, diagram.ArrowHeadNone},
-	// Thick variants.
-	{"==>", diagram.LineStyleThick, diagram.ArrowHeadArrow},
-	{"===", diagram.LineStyleThick, diagram.ArrowHeadNone},
-	// Solid variants.
-	{"-->", diagram.LineStyleSolid, diagram.ArrowHeadArrow},
-	{"---", diagram.LineStyleSolid, diagram.ArrowHeadNone},
-}
-
-// findArrow scans line for the leftmost arrow operator. Returns nil
-// if none is found. If the arrow is followed by `|label|`, the label
-// is captured and the match's end index points past the closing pipe.
+// findArrow returns the leftmost arrow in line, or nil. Arrow detection
+// skips content inside bracketed regions (`[...]`, `(...)`, `{...}`)
+// and double-quoted strings so labels like `A[--> not an arrow] --> B`
+// work correctly. On success, a pipe-form `|label|` immediately after
+// the arrow is attached to the match (unless an inline label was
+// already captured inside the arrow span).
 func findArrow(line string) *arrowMatch {
-	best := -1
-	var bestTok arrowToken
-	for _, at := range arrowTokens {
-		if i := strings.Index(line, at.token); i >= 0 {
-			if best < 0 || i < best {
-				best = i
-				bestTok = at
+	depth := 0
+	inQuote := false
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if inQuote {
+			if c == '"' {
+				inQuote = false
 			}
+			continue
+		}
+		switch c {
+		case '"':
+			inQuote = true
+			continue
+		case '[', '(', '{':
+			depth++
+			continue
+		case ']', ')', '}':
+			if depth > 0 {
+				depth--
+			}
+			continue
+		}
+		if depth > 0 {
+			continue
+		}
+		if m, ok := matchArrowAt(line, i); ok {
+			if m.label == "" {
+				attachPipeLabel(&m, line)
+			}
+			return &m
 		}
 	}
-	if best < 0 {
-		return nil
-	}
+	return nil
+}
 
-	start := best
-	end := best + len(bestTok.token)
-
-	// Check for an edge label: `|text|` immediately (optional space)
-	// after the arrow.
-	label := ""
-	unclosed := false
-	trailing := strings.TrimLeft(line[end:], " \t")
-	if strings.HasPrefix(trailing, "|") {
-		consumed := len(line[end:]) - len(trailing) // spaces skipped
-		rest := trailing[1:]                        // drop opening pipe
-		if closeIdx := strings.Index(rest, "|"); closeIdx >= 0 {
-			label = rest[:closeIdx]
-			end += consumed + 1 + closeIdx + 1 // spaces + "|" + inner + "|"
-		} else {
-			unclosed = true
+// matchArrowAt tries to recognize an arrow token starting at line[i].
+// Dispatches on the first byte to the appropriate family.
+func matchArrowAt(line string, i int) (arrowMatch, bool) {
+	switch line[i] {
+	case '-':
+		if i+1 < len(line) && line[i+1] == '.' {
+			return matchDottedAt(line, i)
 		}
+		return matchDashAt(line, i, '-', diagram.LineStyleSolid)
+	case '=':
+		return matchDashAt(line, i, '=', diagram.LineStyleThick)
 	}
+	return arrowMatch{}, false
+}
 
-	return &arrowMatch{
-		start:         start,
-		end:           end,
-		lineStyle:     bestTok.lineStyle,
-		arrowHead:     bestTok.arrowHead,
-		label:         label,
-		labelUnclosed: unclosed,
+// matchDashAt handles the solid (`-`) and thick (`=`) arrow families,
+// including long-dash variants (`--->`, `---->`, `====>`, `-----`, ...)
+// and the `--`/`==` inline-label opener. dash is the repeated char.
+//
+// Grammar:
+//
+//	arrow-with-head := dash{2,} ">"
+//	arrow-no-head   := dash{3,}
+//	inline-label    := dash dash whitespace text whitespace terminator
+//
+// Two dashes/equals with no `>` is reserved for the inline-label opener
+// (otherwise `A -- text --> B` would scan as an unterminated `--`).
+func matchDashAt(line string, i int, dash byte, style diagram.LineStyle) (arrowMatch, bool) {
+	j := i + 1
+	for j < len(line) && line[j] == dash {
+		j++
 	}
+	count := j - i
+	if count < 2 {
+		return arrowMatch{}, false
+	}
+	if j < len(line) && line[j] == '>' {
+		return arrowMatch{
+			start:     i,
+			end:       j + 1,
+			lineStyle: style,
+			arrowHead: diagram.ArrowHeadArrow,
+		}, true
+	}
+	if count >= 3 {
+		return arrowMatch{
+			start:     i,
+			end:       j,
+			lineStyle: style,
+			arrowHead: diagram.ArrowHeadNone,
+		}, true
+	}
+	return matchInlineLabelAt(line, i, j, dash, style)
+}
+
+// matchDottedAt handles `-.->` / `-..->` / ... (with-head) and
+// `-.-` / `-..-` / ... (no-head). Entry precondition: line[i]='-' and
+// line[i+1]='.'. Extra dots extend the arrow's visual length.
+func matchDottedAt(line string, i int) (arrowMatch, bool) {
+	j := i + 1 // pointing at the first '.'
+	for j < len(line) && line[j] == '.' {
+		j++
+	}
+	if j >= len(line) || line[j] != '-' {
+		return arrowMatch{}, false
+	}
+	j++
+	if j < len(line) && line[j] == '>' {
+		return arrowMatch{
+			start:     i,
+			end:       j + 1,
+			lineStyle: diagram.LineStyleDotted,
+			arrowHead: diagram.ArrowHeadArrow,
+		}, true
+	}
+	return arrowMatch{
+		start:     i,
+		end:       j,
+		lineStyle: diagram.LineStyleDotted,
+		arrowHead: diagram.ArrowHeadNone,
+	}, true
+}
+
+// matchInlineLabelAt handles `A -- text -->B` and the thick analog
+// `A == text ==>B`. openerEnd points at the byte after the opening
+// `--`/`==`. The terminator is the next run of the same dash char
+// followed by optional `>`; the label is the whitespace-trimmed text
+// between. Mermaid requires whitespace between the opener and label.
+//
+// Labels containing the dash char itself (e.g. `-- a--b --`) are not
+// supported — the first subsequent run wins.
+func matchInlineLabelAt(line string, openerStart, openerEnd int, dash byte, style diagram.LineStyle) (arrowMatch, bool) {
+	if openerEnd >= len(line) || (line[openerEnd] != ' ' && line[openerEnd] != '\t') {
+		return arrowMatch{}, false
+	}
+	k := openerEnd + 1
+	for k < len(line) {
+		if line[k] != dash {
+			k++
+			continue
+		}
+		m := k + 1
+		for m < len(line) && line[m] == dash {
+			m++
+		}
+		count := m - k
+		if count < 2 {
+			k = m
+			continue
+		}
+		label := strings.TrimSpace(line[openerEnd:k])
+		if label == "" {
+			return arrowMatch{}, false
+		}
+		if m < len(line) && line[m] == '>' {
+			return arrowMatch{
+				start:     openerStart,
+				end:       m + 1,
+				lineStyle: style,
+				arrowHead: diagram.ArrowHeadArrow,
+				label:     label,
+			}, true
+		}
+		if count >= 3 {
+			return arrowMatch{
+				start:     openerStart,
+				end:       m,
+				lineStyle: style,
+				arrowHead: diagram.ArrowHeadNone,
+				label:     label,
+			}, true
+		}
+		k = m
+	}
+	return arrowMatch{}, false
+}
+
+// attachPipeLabel captures a pipe-form edge label `|text|` that
+// immediately follows the arrow (after optional whitespace), advancing
+// m.end past the closing pipe. If the opening pipe has no closing pipe
+// on the line, labelUnclosed is set so parseLine can raise a clear
+// error. No-op when m.label was already captured inline.
+func attachPipeLabel(m *arrowMatch, line string) {
+	trailing := strings.TrimLeft(line[m.end:], " \t")
+	if !strings.HasPrefix(trailing, "|") {
+		return
+	}
+	consumed := len(line[m.end:]) - len(trailing)
+	rest := trailing[1:]
+	closeIdx := strings.Index(rest, "|")
+	if closeIdx < 0 {
+		m.labelUnclosed = true
+		return
+	}
+	m.label = rest[:closeIdx]
+	m.end += consumed + 1 + closeIdx + 1
 }

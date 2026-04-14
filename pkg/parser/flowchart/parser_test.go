@@ -183,6 +183,138 @@ func TestParseEdgeLabelWithSpaces(t *testing.T) {
 	}
 }
 
+// --- Inline edge labels (I1) ---
+
+func TestParseInlineEdgeLabels(t *testing.T) {
+	cases := []struct {
+		name      string
+		input     string
+		label     string
+		lineStyle diagram.LineStyle
+		arrowHead diagram.ArrowHead
+	}{
+		{"solid arrow", "graph LR\n    A -- yes --> B", "yes", diagram.LineStyleSolid, diagram.ArrowHeadArrow},
+		{"solid no-head", "graph LR\n    A -- no --- B", "no", diagram.LineStyleSolid, diagram.ArrowHeadNone},
+		{"thick arrow", "graph LR\n    A == go ==> B", "go", diagram.LineStyleThick, diagram.ArrowHeadArrow},
+		{"thick no-head", "graph LR\n    A == stop === B", "stop", diagram.LineStyleThick, diagram.ArrowHeadNone},
+		{"multi-word label", "graph LR\n    A -- hello world --> B", "hello world", diagram.LineStyleSolid, diagram.ArrowHeadArrow},
+		{"long-dash terminator", "graph LR\n    A -- foo ----> B", "foo", diagram.LineStyleSolid, diagram.ArrowHeadArrow},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := mustParse(t, tc.input)
+			if len(f.Edges) != 1 {
+				t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+			}
+			e := f.Edges[0]
+			if e.From != "A" || e.To != "B" {
+				t.Errorf("edge = %s→%s", e.From, e.To)
+			}
+			if e.Label != tc.label {
+				t.Errorf("label = %q, want %q", e.Label, tc.label)
+			}
+			if e.LineStyle != tc.lineStyle {
+				t.Errorf("line style = %v, want %v", e.LineStyle, tc.lineStyle)
+			}
+			if e.ArrowHead != tc.arrowHead {
+				t.Errorf("arrow head = %v, want %v", e.ArrowHead, tc.arrowHead)
+			}
+		})
+	}
+}
+
+// --- Arrow inside a label (I2) ---
+
+func TestParseArrowInsideLabel(t *testing.T) {
+	// `-->` inside a node label must not be confused with an edge.
+	f := mustParse(t, "graph LR\n    A[contains --> text] --> B")
+	if len(f.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+	}
+	if f.Edges[0].From != "A" || f.Edges[0].To != "B" {
+		t.Errorf("edge = %s→%s", f.Edges[0].From, f.Edges[0].To)
+	}
+	a := mustNode(t, f, "A")
+	if a.Label != "contains --> text" {
+		t.Errorf("A.Label = %q", a.Label)
+	}
+}
+
+func TestParseArrowInsideQuotedLabel(t *testing.T) {
+	// Arrow-like text inside a double-quoted region is also skipped.
+	f := mustParse(t, `graph LR`+"\n"+`    A["has --> inside"] --> B`)
+	if len(f.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+	}
+}
+
+// --- Inline label rejection paths ---
+
+func TestParseInlineLabelRejections(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string // substring
+	}{
+		// Opener `--` not followed by whitespace: not an inline label,
+		// falls through to "unrecognized shape".
+		{"no space after opener", "graph LR\n    A --text --> B", "shape"},
+		// Empty label between opener and terminator: the `--` is not
+		// recognized as an inline opener (no label text), so findArrow
+		// picks the later `-->` and the `A --` leftover fails as an
+		// unrecognized shape.
+		{"empty inline label", "graph LR\n    A --  --> B", "shape"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(strings.NewReader(tc.input))
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %q, want substring %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+// --- Long-dash arrow variants (I3) ---
+
+func TestParseLongArrows(t *testing.T) {
+	cases := []struct {
+		name      string
+		arrow     string
+		lineStyle diagram.LineStyle
+		arrowHead diagram.ArrowHead
+	}{
+		{"solid 3-dash", "--->", diagram.LineStyleSolid, diagram.ArrowHeadArrow},
+		{"solid 4-dash", "---->", diagram.LineStyleSolid, diagram.ArrowHeadArrow},
+		{"solid 5-dash no-head", "-----", diagram.LineStyleSolid, diagram.ArrowHeadNone},
+		{"thick 3-eq", "===>", diagram.LineStyleThick, diagram.ArrowHeadArrow},
+		{"thick 4-eq no-head", "====", diagram.LineStyleThick, diagram.ArrowHeadNone},
+		{"dotted 2-dot", "-..->", diagram.LineStyleDotted, diagram.ArrowHeadArrow},
+		{"dotted 3-dot no-head", "-...-", diagram.LineStyleDotted, diagram.ArrowHeadNone},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := mustParse(t, "graph LR\n    A "+tc.arrow+" B")
+			if len(f.Edges) != 1 {
+				t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+			}
+			e := f.Edges[0]
+			if e.From != "A" || e.To != "B" {
+				t.Errorf("edge = %s→%s", e.From, e.To)
+			}
+			if e.LineStyle != tc.lineStyle {
+				t.Errorf("line style = %v, want %v", e.LineStyle, tc.lineStyle)
+			}
+			if e.ArrowHead != tc.arrowHead {
+				t.Errorf("arrow head = %v, want %v", e.ArrowHead, tc.arrowHead)
+			}
+		})
+	}
+}
+
 // --- Chained edges ---
 
 func TestParseChainedEdges(t *testing.T) {
@@ -424,9 +556,8 @@ func TestParseErrorCases(t *testing.T) {
 		{"unclosed bracket", "graph LR\n    A[unclosed", "unclosed"},
 		{"unclosed pipe label", "graph LR\n    A -->|Yes B", "unclosed edge label"},
 		{"non-header first line", "A --> B", "expected 'graph' or 'flowchart'"},
-		// Deferred feature — pin the failure mode so a future
-		// implementation doesn't silently change the error.
-		{"inline edge label deferred", "graph LR\n    A -- yes --> B", "inline edge labels"},
+		// Unterminated inline label (missing closing `-->`/`---`).
+		{"unterminated inline label", "graph LR\n    A -- text", "unterminated inline edge label"},
 		// Unicode IDs — pinned as a clearer error until supported.
 		{"non-ASCII id", "graph LR\n    日本 --> B", "non-ASCII"},
 	}
