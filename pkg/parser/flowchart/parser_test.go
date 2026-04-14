@@ -183,6 +183,113 @@ func TestParseEdgeLabelWithSpaces(t *testing.T) {
 	}
 }
 
+// --- Chained edges ---
+
+func TestParseChainedEdges(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A --> B --> C")
+	if len(f.Nodes) != 3 {
+		t.Errorf("expected 3 nodes, got %d", len(f.Nodes))
+	}
+	if len(f.Edges) != 2 {
+		t.Fatalf("expected 2 edges, got %d", len(f.Edges))
+	}
+	if f.Edges[0].From != "A" || f.Edges[0].To != "B" {
+		t.Errorf("edge[0] = %s→%s, want A→B", f.Edges[0].From, f.Edges[0].To)
+	}
+	if f.Edges[1].From != "B" || f.Edges[1].To != "C" {
+		t.Errorf("edge[1] = %s→%s, want B→C", f.Edges[1].From, f.Edges[1].To)
+	}
+}
+
+func TestParseChainedEdgesWithShapes(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A[Start] --> B{Check} --> C((End))")
+	if len(f.Edges) != 2 {
+		t.Fatalf("expected 2 edges, got %d", len(f.Edges))
+	}
+	if mustNode(t, f, "B").Shape != diagram.NodeShapeDiamond {
+		t.Errorf("B should be diamond")
+	}
+	if mustNode(t, f, "C").Shape != diagram.NodeShapeCircle {
+		t.Errorf("C should be circle")
+	}
+}
+
+func TestParseChainedEdgesMixedStyles(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A --> B -.-> C ==> D")
+	if len(f.Edges) != 3 {
+		t.Fatalf("expected 3 edges, got %d", len(f.Edges))
+	}
+	if f.Edges[0].LineStyle != diagram.LineStyleSolid {
+		t.Errorf("edge[0] style = %v, want solid", f.Edges[0].LineStyle)
+	}
+	if f.Edges[1].LineStyle != diagram.LineStyleDotted {
+		t.Errorf("edge[1] style = %v, want dotted", f.Edges[1].LineStyle)
+	}
+	if f.Edges[2].LineStyle != diagram.LineStyleThick {
+		t.Errorf("edge[2] style = %v, want thick", f.Edges[2].LineStyle)
+	}
+}
+
+// --- Comments inside labels ---
+
+func TestParseCommentNotStrippedInsideLabel(t *testing.T) {
+	// %% without preceding whitespace is not a comment — preserves
+	// labels like `100%%` (two-percent literal).
+	f := mustParse(t, "graph LR\n    A[100%%]")
+	n := mustNode(t, f, "A")
+	if n.Label != "100%%" {
+		t.Errorf("label = %q, want %q", n.Label, "100%%")
+	}
+}
+
+// --- Tight spacing around arrows ---
+
+func TestParseTightArrowSpacing(t *testing.T) {
+	// No space around the arrow should still parse.
+	f := mustParse(t, "graph LR\n    A-->B")
+	if len(f.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+	}
+	if f.Edges[0].From != "A" || f.Edges[0].To != "B" {
+		t.Errorf("edge = %s→%s", f.Edges[0].From, f.Edges[0].To)
+	}
+}
+
+func TestParseTightArrowWithShapes(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A[x]-->B[y]")
+	if len(f.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+	}
+	if mustNode(t, f, "A").Label != "x" {
+		t.Errorf("A.Label = %q", mustNode(t, f, "A").Label)
+	}
+	if mustNode(t, f, "B").Label != "y" {
+		t.Errorf("B.Label = %q", mustNode(t, f, "B").Label)
+	}
+}
+
+// --- Header-only and blank-leading-lines ---
+
+func TestParseHeaderOnly(t *testing.T) {
+	f := mustParse(t, "graph LR")
+	if len(f.Nodes) != 0 || len(f.Edges) != 0 {
+		t.Errorf("expected empty diagram, got %d nodes, %d edges", len(f.Nodes), len(f.Edges))
+	}
+	if f.Direction != diagram.DirectionLR {
+		t.Errorf("direction = %v, want LR", f.Direction)
+	}
+}
+
+func TestParseBlankLinesBeforeHeader(t *testing.T) {
+	f := mustParse(t, "\n\n\ngraph LR\n    A --> B")
+	if f.Direction != diagram.DirectionLR {
+		t.Errorf("direction = %v", f.Direction)
+	}
+	if len(f.Edges) != 1 {
+		t.Errorf("expected 1 edge, got %d", len(f.Edges))
+	}
+}
+
 // --- Combined node+edge on one line ---
 
 func TestParseNodesAndEdgeOnOneLine(t *testing.T) {
@@ -311,9 +418,17 @@ func TestParseErrorCases(t *testing.T) {
 		want  string // substring expected in error
 	}{
 		{"unknown direction", "graph XY", "unknown direction"},
+		{"extra tokens after direction", "graph LR foo", "extra tokens"},
+		{"graph word boundary", "grapha LR", "expected 'graph' or 'flowchart'"},
+		{"flowchart word boundary", "flowchartfoo TB", "expected 'graph' or 'flowchart'"},
 		{"unclosed bracket", "graph LR\n    A[unclosed", "unclosed"},
 		{"unclosed pipe label", "graph LR\n    A -->|Yes B", "unclosed edge label"},
 		{"non-header first line", "A --> B", "expected 'graph' or 'flowchart'"},
+		// Deferred feature — pin the failure mode so a future
+		// implementation doesn't silently change the error.
+		{"inline edge label deferred", "graph LR\n    A -- yes --> B", "inline edge labels"},
+		// Unicode IDs — pinned as a clearer error until supported.
+		{"non-ASCII id", "graph LR\n    日本 --> B", "non-ASCII"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

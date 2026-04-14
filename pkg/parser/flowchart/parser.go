@@ -45,6 +45,9 @@ func Parse(r io.Reader) (*diagram.FlowchartDiagram, error) {
 		nodeIndex: make(map[string]int),
 	}
 	scanner := bufio.NewScanner(r)
+	// Bump the line buffer past the 64 KB default so generated diagrams
+	// with long inline labels (HTML, rich text) don't hit ErrTooLong.
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	lineNum := 0
 	headerSeen := false
 	for scanner.Scan() {
@@ -86,24 +89,30 @@ type parser struct {
 }
 
 // stripComment removes the "%%" to-end-of-line comment from a raw line.
-// Everything from the first "%%" onward is dropped.
+// `%%` is only treated as a comment when it appears at the start of the
+// line or is preceded by whitespace; this keeps `%%` inside a node
+// label like `A[100%%]` intact.
 func stripComment(line string) string {
-	if i := strings.Index(line, "%%"); i >= 0 {
-		return line[:i]
+	for i := 0; i+1 < len(line); i++ {
+		if line[i] != '%' || line[i+1] != '%' {
+			continue
+		}
+		if i == 0 || line[i-1] == ' ' || line[i-1] == '\t' {
+			return line[:i]
+		}
 	}
 	return line
 }
 
 // parseHeader recognizes the "graph <DIR>" / "flowchart <DIR>" header
-// and initializes the diagram. DIR defaults to TB if omitted.
+// and initializes the diagram. DIR defaults to TB if omitted. The
+// keyword match requires a word boundary so `grapha LR` is rejected.
 func (p *parser) parseHeader(line string) error {
-	var rest string
-	switch {
-	case strings.HasPrefix(line, "flowchart"):
-		rest = strings.TrimSpace(line[len("flowchart"):])
-	case strings.HasPrefix(line, "graph"):
-		rest = strings.TrimSpace(line[len("graph"):])
-	default:
+	rest, ok := matchKeyword(line, "flowchart")
+	if !ok {
+		rest, ok = matchKeyword(line, "graph")
+	}
+	if !ok {
 		return fmt.Errorf("expected 'graph' or 'flowchart', got %q", line)
 	}
 
@@ -115,9 +124,31 @@ func (p *parser) parseHeader(line string) error {
 	return nil
 }
 
+// matchKeyword reports whether line starts with kw followed by either
+// end-of-string or whitespace, and returns the trimmed remainder. This
+// prevents matching `grapha` / `flowchartfoo` as the header keyword.
+func matchKeyword(line, kw string) (rest string, ok bool) {
+	if !strings.HasPrefix(line, kw) {
+		return "", false
+	}
+	if len(line) == len(kw) {
+		return "", true
+	}
+	c := line[len(kw)]
+	if c != ' ' && c != '\t' {
+		return "", false
+	}
+	return strings.TrimSpace(line[len(kw):]), true
+}
+
 // parseDirection converts a Mermaid direction keyword to a Direction.
-// An empty string defaults to TB, matching Mermaid's default.
+// An empty string defaults to TB, matching Mermaid's default. Extra
+// tokens after a valid direction (e.g. `LR foo`) are reported as a
+// separate error from "unknown direction".
 func parseDirection(s string) (diagram.Direction, error) {
+	if i := strings.IndexAny(s, " \t"); i >= 0 {
+		return diagram.DirectionUnknown, fmt.Errorf("extra tokens after direction %q", s)
+	}
 	switch s {
 	case "", "TB", "TD":
 		return diagram.DirectionTB, nil
@@ -132,49 +163,84 @@ func parseDirection(s string) (diagram.Direction, error) {
 	}
 }
 
-// parseLine dispatches a non-header, non-comment, non-empty line to
-// either the edge parser (if it contains an arrow) or the node parser.
+// parseLine dispatches a non-header, non-comment, non-empty line. It
+// walks through chained edges left-to-right: `A --> B --> C` produces
+// A→B and B→C edges in order.
 func (p *parser) parseLine(line string) error {
-	if arrow := findArrow(line); arrow != nil {
-		return p.parseEdge(line, arrow)
+	for {
+		arrow := findArrow(line)
+		if arrow == nil {
+			// No arrow: final segment is a standalone node (or nothing).
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				return nil
+			}
+			if err := detectInlineEdgeLabel(trimmed); err != nil {
+				return err
+			}
+			id, shape, label, err := parseNodeDef(trimmed)
+			if err != nil {
+				return err
+			}
+			p.upsertNode(id, shape, label)
+			return nil
+		}
+		if arrow.labelUnclosed {
+			return fmt.Errorf("unclosed edge label: missing %q", "|")
+		}
+		leftText := strings.TrimSpace(line[:arrow.start])
+
+		// The right side extends to the next arrow (chained edges) or EOL.
+		rightStart := arrow.end
+		nextArrow := findArrow(line[rightStart:])
+		rightEnd := len(line)
+		if nextArrow != nil {
+			rightEnd = rightStart + nextArrow.start
+		}
+		rightText := strings.TrimSpace(line[rightStart:rightEnd])
+
+		leftID, leftShape, leftLabel, err := parseNodeDef(leftText)
+		if err != nil {
+			if detErr := detectInlineEdgeLabel(leftText); detErr != nil {
+				return fmt.Errorf("left side: %w", detErr)
+			}
+			return fmt.Errorf("left side: %w", err)
+		}
+		rightID, rightShape, rightLabel, err := parseNodeDef(rightText)
+		if err != nil {
+			return fmt.Errorf("right side: %w", err)
+		}
+
+		p.upsertNode(leftID, leftShape, leftLabel)
+		p.upsertNode(rightID, rightShape, rightLabel)
+		p.diagram.Edges = append(p.diagram.Edges, diagram.Edge{
+			From:      leftID,
+			To:        rightID,
+			Label:     arrow.label,
+			LineStyle: arrow.lineStyle,
+			ArrowHead: arrow.arrowHead,
+		})
+
+		if nextArrow == nil {
+			return nil
+		}
+		// Advance: the right node becomes the next left. The remainder
+		// of the line starts at nextArrow, so rebuild with rightText as
+		// the new left-hand segment.
+		line = rightText + " " + line[rightEnd:]
 	}
-	// No arrow → standalone node definition.
-	id, shape, label, err := parseNodeDef(line)
-	if err != nil {
-		return err
-	}
-	p.upsertNode(id, shape, label)
-	return nil
 }
 
-// parseEdge handles lines like `A[Start] --> B[End]` or `A -->|yes| B`.
-// The arrow parameter is the match found by findArrow.
-func (p *parser) parseEdge(line string, arrow *arrowMatch) error {
-	if arrow.labelUnclosed {
-		return fmt.Errorf("unclosed edge label: missing %q", "|")
+// detectInlineEdgeLabel returns a helpful error when the user writes an
+// inline-label edge (`A -- text --> B`), which is a common Mermaid form
+// that the MVP parser does not yet support. Without this, the failure
+// surfaces as a cryptic "unrecognized shape" or "invalid node ID".
+// TODO(features): support inline edge labels; until then, keep this
+// detection in sync with the tokens that would signal the intent.
+func detectInlineEdgeLabel(segment string) error {
+	if strings.Contains(segment, " -- ") || strings.Contains(segment, " == ") {
+		return fmt.Errorf("inline edge labels (`A -- text --> B`) are not yet supported; use the pipe form `A -->|text| B`")
 	}
-	leftText := strings.TrimSpace(line[:arrow.start])
-	rightText := strings.TrimSpace(line[arrow.end:])
-
-	leftID, leftShape, leftLabel, err := parseNodeDef(leftText)
-	if err != nil {
-		return fmt.Errorf("left side: %w", err)
-	}
-	rightID, rightShape, rightLabel, err := parseNodeDef(rightText)
-	if err != nil {
-		return fmt.Errorf("right side: %w", err)
-	}
-
-	p.upsertNode(leftID, leftShape, leftLabel)
-	p.upsertNode(rightID, rightShape, rightLabel)
-
-	p.diagram.Edges = append(p.diagram.Edges, diagram.Edge{
-		From:      leftID,
-		To:        rightID,
-		Label:     arrow.label,
-		LineStyle: arrow.lineStyle,
-		ArrowHead: arrow.arrowHead,
-	})
 	return nil
 }
 
@@ -253,6 +319,9 @@ func parseNodeDef(s string) (id string, shape diagram.NodeShape, label string, e
 		i++
 	}
 	if i == 0 {
+		if s[0] >= 0x80 {
+			return "", diagram.NodeShapeUnknown, "", fmt.Errorf("non-ASCII node IDs are not yet supported (got %q)", s)
+		}
 		return "", diagram.NodeShapeUnknown, "", fmt.Errorf("invalid node ID in %q", s)
 	}
 	id = s[:i]
