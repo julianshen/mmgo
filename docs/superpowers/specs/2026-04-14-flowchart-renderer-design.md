@@ -18,6 +18,8 @@ package flowchart
 func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byte, error)
 ```
 
+**Nil handling:** `opts` may be `nil`; it is treated as zero-value `Options` (all defaults apply). `d` and `l` must not be `nil`.
+
 ### Options
 
 ```go
