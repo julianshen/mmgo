@@ -26,7 +26,7 @@ type Options struct {
     Padding    float64  // SVG padding around diagram, default 20
     Theme      Theme    // colors; zero value uses DefaultTheme()
     CSSFile    string   // optional raw CSS to embed in <style>
-    Background string   // background color override (e.g. "transparent", "#fff")
+    Background string   // if set, overrides Theme.Background
 }
 
 type Theme struct {
@@ -42,7 +42,18 @@ type Theme struct {
 }
 ```
 
-`DefaultTheme()` returns the Mermaid "default" theme colors. Future themes (dark, forest, neutral) will be added when `pkg/config/` is built in Step 15.
+**Background precedence:** `opts.Background` (highest) > `opts.Theme.Background` > `DefaultTheme().Background`.
+
+**Default values:** `DefaultTheme()` returns the Mermaid "default" theme colors. Future themes (dark, forest, neutral) will be added when `pkg/config/` is built in Step 15.
+
+### Error Returns
+
+`Render` returns errors for:
+- `nil` diagram or layout result: `fmt.Errorf("flowchart render: diagram is nil")` / `fmt.Errorf("flowchart render: layout is nil")`
+- Node ID in diagram not found in layout result: `fmt.Errorf("flowchart render: node %q not in layout result", id)` — this indicates a bug in the caller (mismatched diagram and layout inputs)
+- `encoding/xml` marshaling failure: wrapped error (should never occur with well-formed structs)
+
+The `Render` function never panics.
 
 ## SVG Generation with encoding/xml
 
@@ -52,15 +63,12 @@ Each SVG element is a Go struct with `xml:` tags, marshaled via `encoding/xml.Ma
 
 ```go
 type SVG struct {
-    XMLName    xml.Name `xml:"svg"`
-    XMLNS      string   `xml:"xmlns,attr"`
-    ViewBox    string   `xml:"viewBox,attr"`
-    Width      string   `xml:"width,attr,omitempty"`
-    Height     string   `xml:"height,attr,omitempty"`
-    Defs       *Defs    `xml:"defs,omitempty"`
-    Style      string   `xml:"style,omitempty"`
-    Groups     []Group  `xml:"g,omitempty"`
-    Elements   []any    `xml:",any"`  // mixed content: rect, circle, polygon, path, text, line
+    XMLName  xml.Name `xml:"svg"`
+    XMLNS    string   `xml:"xmlns,attr"`
+    ViewBox  string   `xml:"viewBox,attr"`
+    Width    string   `xml:"width,attr,omitempty"`
+    Height   string   `xml:"height,attr,omitempty"`
+    Children []any    `xml:",any"` // ordered: Defs, Group(subgraphs), edges, nodes
 }
 
 type Group struct {
@@ -179,10 +187,18 @@ For multi-line labels, each line gets its own `<text>` element with vertical off
 
 ## Edge Rendering (`edges.go`)
 
+### AST-to-Layout Edge Matching
+
+The layout engine's `Result.Edges` is keyed by `graph.EdgeID{From, To, ID}` where `ID` is auto-assigned. The renderer cannot directly look up an AST edge by constructing an `EdgeID` because the integer `ID` is unknown outside the layout graph.
+
+**Solution:** The renderer iterates `layout.Result.Edges` (which provides all edge geometry) and matches each layout edge back to the AST edge by `(From, To)` pair. For multi-edges (same From→To), the renderer matches them in order — the Nth layout edge with the same (From, To) corresponds to the Nth AST edge with the same (From, To). This is correct because `Graph.SetEdge` assigns IDs monotonically and the layout engine preserves insertion order.
+
+The `renderEdge` function accepts a `diagram.Edge` (for style/label/arrow) and an `EdgeLayout` (for geometry), paired by the caller.
+
 ### Path Construction
 
 - **2 points** (straight line): `<line>` element from points[0] to points[1]
-- **3+ points** (polyline/curve): `<path>` with cubic bezier segments. Convert the polyline through catmull-rom to bezier conversion for smooth curves.
+- **3+ points** (polyline/curve): `<path>` with cubic bezier segments. Convert the polyline through catmull-rom to bezier conversion (tension 0.5) for smooth curves.
 
 ### Arrow Markers
 
@@ -207,7 +223,7 @@ Applied via `style` attribute:
 
 ### Edge Labels
 
-Rendered as `<text>` at `EdgeLayout.LabelPos` with a white background `<rect>` behind the text for readability.
+Rendered as `<text>` at `EdgeLayout.LabelPos` with a white background `<rect>` behind the text for readability. The background rect dimensions are: text width + 6px horizontal padding, text height + 4px vertical padding, positioned centered on `LabelPos`.
 
 ## Subgraph Rendering (`subgraphs.go`)
 
@@ -218,10 +234,13 @@ Each subgraph becomes a `<g>` group containing:
 
 Subgraphs are rendered before (behind) top-level nodes and edges to ensure proper layering.
 
-When the parser adds subgraph support, the renderer will:
-1. Walk `FlowchartDiagram.Subgraphs` recursively
-2. Compute bounding boxes from child `NodeLayout` positions
-3. Render nested groups for nested subgraphs
+The renderer fully implements subgraph rendering using the existing `FlowchartDiagram.Subgraphs` and `Subgraph.Children` types:
+
+1. **Recursive walk:** Walk `FlowchartDiagram.Subgraphs` depth-first. Outer subgraphs render before inner ones.
+2. **Bounding box computation:** For each subgraph, collect all descendant node IDs (including those in nested subgraphs), look up their positions in `layout.Result.Nodes`, compute the axis-aligned bounding box. Add 15px padding on all sides.
+3. **Background rect:** `<rect>` with `SubgraphFill` fill, `SubgraphStroke` stroke, rounded corners (rx=5).
+4. **Title:** `<text>` positioned at (bbox.x + 10, bbox.y + 18) using the subgraph's `Label` field.
+5. **Nested groups:** Each subgraph's `<g>` contains its background rect, title, and nested subgraph groups.
 
 ## Style/Class Application
 
@@ -233,15 +252,20 @@ When the parser adds subgraph support, the renderer will:
 
 ```go
 func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byte, error) {
-    // 1. Merge opts with defaults
-    // 2. Compute SVG viewBox from layout.Width/Height + padding
-    // 3. Build <defs> with arrow markers
-    // 4. Render subgraph backgrounds (behind everything)
-    // 5. Render edges (behind nodes, above subgraph backgrounds)
-    // 6. Render nodes (top layer)
-    // 7. Assemble SVG root and marshal to bytes
+    // 1. Validate inputs, merge opts with defaults
+    // 2. Compute padding offset (pad = opts.Padding); all coordinates shift by +pad
+    // 3. Compute SVG viewBox: "0 0 (layout.Width + 2*pad) (layout.Height + 2*pad)"
+    // 4. Build <defs> with arrow markers
+    // 5. Render subgraph backgrounds (behind everything), coordinates offset by +pad
+    // 6. Render edges (behind nodes, above subgraph backgrounds), coordinates offset by +pad
+    // 7. Render nodes (top layer), coordinates offset by +pad
+    // 8. Assemble SVG.Children in layering order: [Defs, background rect, subgraph groups, edge elements, node elements]
+    // 9. Prepend XML declaration: "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    // 10. Marshal via encoding/xml and return
 }
 ```
+
+**Coordinate offset:** The layout engine positions nodes starting at (0,0). The renderer adds `opts.Padding` to all X and Y coordinates so content is inset from the SVG edges. This is done once at the point where layout coordinates are read, not as a transform.
 
 Layering order (bottom to top): background → subgraphs → edges → nodes → labels.
 
@@ -266,13 +290,13 @@ pkg/renderer/flowchart/
 - **Edge tests**: straight line, multi-point curve, each arrow head type, each line style
 - **Subgraph tests**: background rect dimensions, label positioning
 - **Theme tests**: default theme applied, custom colors override, style/class application
-- **Edge cases**: empty diagram, self-loops, multi-edges, zero-dimension nodes
+- **Edge cases**: empty diagram, self-loops (rendered as a small circular arc path centered on the node), multi-edges, zero-dimension nodes
 
 ### Golden File Tests
 - Simple flowchart (3 nodes, 2 edges) → `testdata/simple.svg`
 - All shapes diagram → `testdata/all-shapes.svg`
 - Styled nodes → `testdata/styled.svg`
-- Subgraph grouping → `testdata/subgraph.svg` (when parser supports it)
+- Subgraph grouping → `testdata/subgraph.svg`
 
 ### XML Validity
 Every test case validates output parses as well-formed XML via `xml.Unmarshal`.
