@@ -365,12 +365,94 @@ func TestParseChainedEdgesMixedStyles(t *testing.T) {
 // --- Comments inside labels ---
 
 func TestParseCommentNotStrippedInsideLabel(t *testing.T) {
-	// %% without preceding whitespace is not a comment — preserves
-	// labels like `100%%` (two-percent literal).
-	f := mustParse(t, "graph LR\n    A[100%%]")
-	n := mustNode(t, f, "A")
-	if n.Label != "100%%" {
-		t.Errorf("label = %q, want %q", n.Label, "100%%")
+	cases := []struct {
+		name  string
+		input string
+		check func(t *testing.T, f *diagram.FlowchartDiagram)
+	}{
+		{
+			"percent literal no space",
+			"graph LR\n    A[100%%]",
+			func(t *testing.T, f *diagram.FlowchartDiagram) {
+				if got := mustNode(t, f, "A").Label; got != "100%%" {
+					t.Errorf("label = %q", got)
+				}
+			},
+		},
+		{
+			"percent with space inside rectangle",
+			"graph LR\n    A[foo %% bar]",
+			func(t *testing.T, f *diagram.FlowchartDiagram) {
+				if got := mustNode(t, f, "A").Label; got != "foo %% bar" {
+					t.Errorf("label = %q", got)
+				}
+			},
+		},
+		{
+			"percent inside pipe edge label",
+			"graph LR\n    A -->|foo %% bar| B",
+			func(t *testing.T, f *diagram.FlowchartDiagram) {
+				if len(f.Edges) != 1 || f.Edges[0].Label != "foo %% bar" {
+					t.Errorf("edge label = %q", f.Edges[0].Label)
+				}
+			},
+		},
+		{
+			"percent inside quoted label",
+			`graph LR` + "\n" + `    A["foo %% bar"] --> B`,
+			func(t *testing.T, f *diagram.FlowchartDiagram) {
+				if got := mustNode(t, f, "A").Label; got != `"foo %% bar"` {
+					t.Errorf("label = %q", got)
+				}
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := mustParse(t, tc.input)
+			tc.check(t, f)
+		})
+	}
+}
+
+// --- Hyphens in node IDs ---
+
+func TestParseHyphenInID(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		from  string
+		to    string
+	}{
+		{"spaced arrow", "graph LR\n    node-1 --> node-2", "node-1", "node-2"},
+		{"tight arrow", "graph LR\n    node-1-->node-2", "node-1", "node-2"},
+		{"with shapes", "graph LR\n    first-step[Start] --> last-step[End]", "first-step", "last-step"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := mustParse(t, tc.input)
+			if len(f.Edges) != 1 {
+				t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+			}
+			e := f.Edges[0]
+			if e.From != tc.from || e.To != tc.to {
+				t.Errorf("edge = %s→%s, want %s→%s", e.From, e.To, tc.from, tc.to)
+			}
+		})
+	}
+}
+
+// --- Whitespace between ID and shape ---
+
+func TestParseSpaceBetweenIDAndShape(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A [Label] --> B (Rounded)")
+	a := mustNode(t, f, "A")
+	if a.Label != "Label" || a.Shape != diagram.NodeShapeRectangle {
+		t.Errorf("A = %+v", a)
+	}
+	b := mustNode(t, f, "B")
+	if b.Label != "Rounded" || b.Shape != diagram.NodeShapeRoundedRectangle {
+		t.Errorf("B = %+v", b)
 	}
 }
 
@@ -559,7 +641,8 @@ func TestParseErrorCases(t *testing.T) {
 		// Unterminated inline label (missing closing `-->`/`---`).
 		{"unterminated inline label", "graph LR\n    A -- text", "unterminated inline edge label"},
 		// Unicode IDs — pinned as a clearer error until supported.
-		{"non-ASCII id", "graph LR\n    日本 --> B", "non-ASCII"},
+		{"non-ASCII id leading", "graph LR\n    日本 --> B", "non-ASCII"},
+		{"non-ASCII id after ASCII", "graph LR\n    A日 --> B", "non-ASCII"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

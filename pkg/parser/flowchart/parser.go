@@ -95,13 +95,45 @@ type parser struct {
 	nodeIndex map[string]int
 }
 
-// stripComment removes the "%%" to-end-of-line comment from a raw line.
-// `%%` is only treated as a comment when it appears at the start of the
-// line or is preceded by whitespace; this keeps `%%` inside a node
-// label like `A[100%%]` intact.
+// stripComment removes the "%%" to-end-of-line comment from a raw
+// line. Bracket-aware: `%%` is not treated as a comment when it
+// appears inside `[]`/`()`/`{}`, inside a `|...|` pipe label, or
+// inside a double-quoted string. Outside those regions, `%%` is only a
+// comment when it's at the start of the line or preceded by whitespace
+// (so `A[100%%]` — had it somehow escaped the bracket check — would
+// still be preserved).
 func stripComment(line string) string {
+	depth := 0
+	inQuote := false
+	inPipe := false
 	for i := 0; i+1 < len(line); i++ {
-		if line[i] != '%' || line[i+1] != '%' {
+		c := line[i]
+		if inQuote {
+			if c == '"' {
+				inQuote = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inQuote = true
+			continue
+		case '[', '(', '{':
+			depth++
+			continue
+		case ']', ')', '}':
+			if depth > 0 {
+				depth--
+			}
+			continue
+		case '|':
+			inPipe = !inPipe
+			continue
+		}
+		if depth > 0 || inPipe {
+			continue
+		}
+		if c != '%' || line[i+1] != '%' {
 			continue
 		}
 		if i == 0 || line[i-1] == ' ' || line[i-1] == '\t' {
@@ -315,10 +347,22 @@ func parseNodeDef(s string) (id string, shape diagram.NodeShape, label string, e
 		return "", diagram.NodeShapeUnknown, "", fmt.Errorf("empty node definition")
 	}
 
-	// Read the ID: a run of word characters (letters, digits, underscore).
+	// Read the ID: a run of word characters (letters, digits, underscore)
+	// plus internal hyphens. A hyphen is consumed only when it's not the
+	// start of an arrow token (`--` or `->`), so `node-1 --> node-2` and
+	// `node-1-->node-2` both parse correctly.
 	i := 0
-	for i < len(s) && isIDChar(s[i]) {
-		i++
+	for i < len(s) {
+		c := s[i]
+		if isIDChar(c) {
+			i++
+			continue
+		}
+		if c == '-' && i+1 < len(s) && s[i+1] != '-' && s[i+1] != '>' && i > 0 {
+			i++
+			continue
+		}
+		break
 	}
 	if i == 0 {
 		if s[0] >= 0x80 {
@@ -327,7 +371,14 @@ func parseNodeDef(s string) (id string, shape diagram.NodeShape, label string, e
 		return "", diagram.NodeShapeUnknown, "", fmt.Errorf("invalid node ID in %q", s)
 	}
 	id = s[:i]
-	rest := s[i:]
+	// A trailing non-ASCII byte means the caller wrote something like
+	// `A日` — surface the deferred-feature error instead of falling
+	// through to "unrecognized shape".
+	if i < len(s) && s[i] >= 0x80 {
+		return "", diagram.NodeShapeUnknown, "", fmt.Errorf("non-ASCII node IDs are not yet supported (got %q)", s)
+	}
+	// Optional whitespace between the ID and its shape: `A [Label]`.
+	rest := strings.TrimLeft(s[i:], " \t")
 
 	if rest == "" {
 		// Bare reference.
