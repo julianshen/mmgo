@@ -142,6 +142,9 @@ func effectiveSize(attrs graph.NodeAttrs) (w, h float64) {
 //
 // Each node's width and height are read from graph.NodeAttrs. Unset
 // dimensions default to 100 × 50.
+//
+// Layout(nil, opts) returns an empty Result rather than panicking, so
+// callers can treat "no graph" uniformly with "empty graph".
 func Layout(g *graph.Graph, opts Options) *Result {
 	if opts.NodeSep <= 0 {
 		opts.NodeSep = DefaultNodeSep
@@ -149,19 +152,36 @@ func Layout(g *graph.Graph, opts Options) *Result {
 	if opts.RankSep <= 0 {
 		opts.RankSep = DefaultRankSep
 	}
+	if g == nil {
+		return &Result{
+			Nodes: map[string]NodeLayout{},
+			Edges: map[graph.EdgeID]EdgeLayout{},
+		}
+	}
 
 	work := g.Copy()
 
-	// Precompute node sizes once. widthFn is handed to the position
-	// phase and must be callable per node; heights are reused later
-	// when building NodeLayout.
+	// Precompute node sizes once. packingDim is handed to the position
+	// phase; the other dimension is reused later when building NodeLayout.
 	sizes := precomputeSizes(work)
-	widthFn := func(id string) float64 { return sizes[id].width }
+
+	// Position uses "width" to space nodes along its X axis. For LR/RL
+	// rank directions, that axis becomes the final Y axis after
+	// transformPoint swaps the coordinates, so we must pack by HEIGHT to
+	// avoid vertical overlap of tall-narrow nodes in vertical columns.
+	// For TB/BT the packing axis is horizontal and width is correct.
+	packingDim := func(id string) float64 {
+		sz := sizes[id]
+		if opts.RankDir == RankDirLR || opts.RankDir == RankDirRL {
+			return sz.height
+		}
+		return sz.width
+	}
 
 	acyclic.Run(work)
 	ranks := rank.Run(work)
 	ord := order.Run(work, ranks)
-	coords := position.Run(work, ord, widthFn, position.Options{
+	coords := position.Run(work, ord, packingDim, position.Options{
 		NodeSep: opts.NodeSep,
 		RankSep: opts.RankSep,
 	})
@@ -291,8 +311,16 @@ func transformPoint(p position.Point, dir RankDir, flipAround float64) Point {
 // the returned EdgeIDs exactly match the caller's input — including
 // edges that were reversed internally during the acyclic phase.
 //
+// Precondition: every eid.From and eid.To in g.Edges() must exist in
+// nodes. This holds because buildNodesAndBounds populates nodes from
+// g.Nodes() (same graph), and graph.Graph guarantees edges only
+// reference existing nodes. A missing node would silently yield the
+// zero Point, which would be a programming error in the caller.
+//
 // TODO(features): orthogonal polyline routing, curve fitting, self-loop
-// geometry, and collision avoidance are not implemented.
+// geometry, and collision avoidance are not implemented. Self-loops
+// currently collapse to a degenerate 2-point polyline where both
+// endpoints are the node's center.
 func buildEdges(g *graph.Graph, nodes map[string]NodeLayout) map[graph.EdgeID]EdgeLayout {
 	edges := make(map[graph.EdgeID]EdgeLayout, g.EdgeCount())
 	for _, eid := range g.Edges() {

@@ -447,7 +447,107 @@ func TestLayoutDeterministic(t *testing.T) {
 
 	for n, nl := range r1.Nodes {
 		if nl != r2.Nodes[n] {
-			t.Errorf("determinism broken for %s: %+v vs %+v", n, nl, r2.Nodes[n])
+			t.Errorf("determinism broken for node %s: %+v vs %+v", n, nl, r2.Nodes[n])
 		}
+	}
+	// Edge control points and label positions must also be deterministic.
+	for eid, el := range r1.Edges {
+		other, ok := r2.Edges[eid]
+		if !ok {
+			t.Errorf("edge %v missing from r2", eid)
+			continue
+		}
+		if len(el.Points) != len(other.Points) {
+			t.Errorf("edge %v point count differs: %d vs %d",
+				eid, len(el.Points), len(other.Points))
+			continue
+		}
+		for i := range el.Points {
+			if el.Points[i] != other.Points[i] {
+				t.Errorf("edge %v point %d differs: %+v vs %+v",
+					eid, i, el.Points[i], other.Points[i])
+			}
+		}
+		if el.LabelPos != other.LabelPos {
+			t.Errorf("edge %v label pos differs: %+v vs %+v",
+				eid, el.LabelPos, other.LabelPos)
+		}
+	}
+}
+
+// --- Nil safety ---
+
+// TestLayoutNilGraph verifies that Layout(nil, opts) degrades
+// gracefully to an empty Result rather than panicking on g.Copy().
+func TestLayoutNilGraph(t *testing.T) {
+	result := Layout(nil, defaultOpts())
+	if result == nil {
+		t.Fatal("Layout(nil) should return non-nil empty Result")
+	}
+	if len(result.Nodes) != 0 || len(result.Edges) != 0 {
+		t.Errorf("expected empty Result, got nodes=%d edges=%d",
+			len(result.Nodes), len(result.Edges))
+	}
+}
+
+// --- Self-loops ---
+
+// TestLayoutSelfLoop documents the current straight-line routing
+// behavior for self-loops: the edge collapses to two identical points
+// (the node's center). This is a known limitation tracked in the
+// buildEdges TODO(features) comment. When orthogonal/spline routing
+// is added, self-loops should become proper loop-back arcs; this test
+// will then need to be updated.
+func TestLayoutSelfLoop(t *testing.T) {
+	g := graph.New()
+	g.SetEdge("a", "a", graph.EdgeAttrs{})
+	setWidths(g, 100, 50)
+
+	result := Layout(g, defaultOpts())
+
+	if len(result.Nodes) != 1 {
+		t.Errorf("expected 1 node, got %d", len(result.Nodes))
+	}
+	if len(result.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(result.Edges))
+	}
+	// Current behavior: 2-point polyline where both endpoints are
+	// the same as the node's center.
+	for _, el := range result.Edges {
+		if len(el.Points) != 2 {
+			t.Errorf("expected 2 points, got %d", len(el.Points))
+		}
+		if el.Points[0] != el.Points[1] {
+			t.Errorf("self-loop currently collapses to 2 identical points, got %+v", el.Points)
+		}
+	}
+}
+
+// --- LR/RL dimension packing ---
+
+// TestLayoutLRUsesHeightForPacking verifies that in LR rank direction,
+// tall-narrow nodes in the same column don't overlap vertically. This
+// is a regression guard for the bug where position.Run was always
+// packed by width, causing vertical overlap for tall nodes in LR/RL
+// layouts.
+func TestLayoutLRUsesHeightForPacking(t *testing.T) {
+	// Two tall, narrow nodes in the same rank (column after LR rotation).
+	g := buildGraph([2]string{"root", "a"}, [2]string{"root", "b"})
+	g.SetNode("root", graph.NodeAttrs{Width: 20, Height: 20})
+	g.SetNode("a", graph.NodeAttrs{Width: 20, Height: 200})
+	g.SetNode("b", graph.NodeAttrs{Width: 20, Height: 200})
+
+	opts := defaultOpts()
+	opts.RankDir = RankDirLR
+	result := Layout(g, opts)
+
+	// In LR, a and b are in the same column (rank 1) stacked vertically.
+	// With heights of 200 each and NodeSep of 50, their centers should
+	// be at least 250 apart vertically to avoid overlap.
+	aY := result.Nodes["a"].Y
+	bY := result.Nodes["b"].Y
+	if math.Abs(aY-bY) < 200 {
+		t.Errorf("a and b should not overlap vertically in LR mode (need gap >= 200, got %f)",
+			math.Abs(aY-bY))
 	}
 }
