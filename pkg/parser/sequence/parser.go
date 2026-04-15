@@ -101,6 +101,9 @@ func (p *parser) parseLine(line string) error {
 		p.diagram.AutoNumber = true
 		return nil
 	}
+	if rest, ok := trimKeyword(line, "Note"); ok {
+		return p.parseNote(rest)
+	}
 	if m, ok := parseMessage(line); ok {
 		p.ensureParticipant(m.From)
 		p.ensureParticipant(m.To)
@@ -108,6 +111,62 @@ func (p *parser) parseLine(line string) error {
 		return nil
 	}
 	return fmt.Errorf("unrecognized statement: %q", line)
+}
+
+// parseNote handles `Note left of X: text`, `Note right of X: text`,
+// `Note over X: text`, and `Note over X, Y: text`. left/right take
+// exactly one participant; over may take one or two.
+func (p *parser) parseNote(rest string) error {
+	var pos diagram.NotePosition
+	var after string
+	switch {
+	case strings.HasPrefix(rest, "left of "):
+		pos = diagram.NotePositionLeft
+		after = rest[len("left of "):]
+	case strings.HasPrefix(rest, "right of "):
+		pos = diagram.NotePositionRight
+		after = rest[len("right of "):]
+	case strings.HasPrefix(rest, "over "):
+		pos = diagram.NotePositionOver
+		after = rest[len("over "):]
+	default:
+		return fmt.Errorf("note position must be 'left of', 'right of', or 'over': %q", rest)
+	}
+	colon := strings.IndexByte(after, ':')
+	if colon < 0 {
+		return fmt.Errorf("note missing ':' before text: %q", rest)
+	}
+	who := strings.TrimSpace(after[:colon])
+	text := strings.TrimSpace(after[colon+1:])
+	parts := splitParticipantList(who)
+	if pos != diagram.NotePositionOver && len(parts) != 1 {
+		return fmt.Errorf("'left of'/'right of' note takes exactly one participant, got %d", len(parts))
+	}
+	if len(parts) == 0 || len(parts) > 2 {
+		return fmt.Errorf("note expects 1 or 2 participants, got %d", len(parts))
+	}
+	for _, id := range parts {
+		p.ensureParticipant(id)
+	}
+	p.diagram.Items = append(p.diagram.Items, diagram.NewNoteItem(diagram.Note{
+		Participants: parts,
+		Text:         text,
+		Position:     pos,
+	}))
+	return nil
+}
+
+// splitParticipantList splits a comma-separated list and trims each
+// entry, dropping empties so trailing commas are tolerated.
+func splitParticipantList(s string) []string {
+	raw := strings.Split(s, ",")
+	out := make([]string, 0, len(raw))
+	for _, r := range raw {
+		if t := strings.TrimSpace(r); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func (p *parser) parseParticipant(rest string, kind diagram.ParticipantKind) error {
@@ -192,6 +251,14 @@ func parseMessage(line string) (diagram.Message, bool) {
 	from := strings.TrimSpace(line[:bestIdx])
 	to, label := splitMessageLabel(line[bestIdx+len(best.lit):])
 	to = strings.TrimSpace(to)
+	lifeline := diagram.LifelineEffectNone
+	if strings.HasPrefix(to, "+") {
+		lifeline = diagram.LifelineEffectActivate
+		to = strings.TrimSpace(to[1:])
+	} else if strings.HasPrefix(to, "-") {
+		lifeline = diagram.LifelineEffectDeactivate
+		to = strings.TrimSpace(to[1:])
+	}
 	if from == "" || to == "" {
 		return diagram.Message{}, false
 	}
@@ -200,6 +267,7 @@ func parseMessage(line string) (diagram.Message, bool) {
 		To:        to,
 		Label:     label,
 		ArrowType: best.typ,
+		Lifeline:  lifeline,
 	}, true
 }
 
