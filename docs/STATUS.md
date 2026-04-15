@@ -9,9 +9,9 @@ current state without relying on chat history.
 ## Overall
 
 - **Current milestone:** working toward v0.1.0 (Flowchart SVG rendering)
-- **Current phase:** Phase 2 (Flowchart) — in progress
-- **Completed:** 10 of 25 steps
-- **Next:** Step 10 — Flowchart renderer
+- **Current phase:** Phase 2 (Flowchart) — renderer done, SVG output next
+- **Completed:** 11 of 25 steps
+- **Next:** Step 11 — SVG output and end-to-end
 
 ## Phase 0: Project Scaffold
 
@@ -37,7 +37,7 @@ current state without relying on chat history.
 | Status | Step | PR | Coverage | Notes |
 |--------|------|----|----|---|
 | ✅ | 9. Flowchart parser (`pkg/parser/flowchart/`) | #12 | 95.9% | 14 shapes, 6 edge ops (+ long-dash variants), inline + pipe edge labels, chained edges, bracket-aware arrow scanning, hyphen IDs |
-| ⏳ | 10. Flowchart renderer (`pkg/renderer/flowchart/`) | — |  |  |
+| ✅ | 10. Flowchart renderer (`pkg/renderer/flowchart/`) | — | 91.8% | All 14 shapes, bezier curves, 4 arrow markers, subgraph groups, style/class, encoding/xml SVG structs |
 | ⏳ | 11. SVG output and end-to-end | — |  |  |
 
 ## Phase 3: Sequence Diagram
@@ -78,7 +78,7 @@ current state without relying on chat history.
 
 | Milestone | Steps | Status |
 |-----------|-------|--------|
-| v0.1.0 — Flowchart SVG + Go module API | 0–11 | 🚧 Phase 2 in progress (10/12 done) |
+| v0.1.0 — Flowchart SVG + Go module API | 0–11 | 🚧 Phase 2 in progress (11/12 done) |
 | v0.2.0 — + Sequence, pie, themes | 12–15 | ⏳ Not started |
 | v0.3.0 — + CLI, PNG/PDF, markdown | 16–19 | ⏳ Not started |
 | v0.4.0 — + Class, state, ER | 20–22 | ⏳ Not started |
