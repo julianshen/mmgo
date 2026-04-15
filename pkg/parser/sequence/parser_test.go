@@ -75,8 +75,6 @@ func TestParseParticipants(t *testing.T) {
 }
 
 func TestParseAutoImpliedParticipants(t *testing.T) {
-	// Mermaid convention: participants referenced in messages without
-	// an explicit declaration are auto-registered in first-seen order.
 	input := `sequenceDiagram
     A->>B: hi
     C->>A: there`
@@ -106,9 +104,6 @@ func TestParseExplicitDeclarationWinsOverImplicit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	// B was implicitly registered as a participant by the message, then
-	// re-declared as actor with alias Bob. The declaration should
-	// upgrade the existing entry, not create a duplicate.
 	if len(d.Participants) != 2 {
 		t.Fatalf("got %d participants, want 2: %+v", len(d.Participants), d.Participants)
 	}
