@@ -14,19 +14,39 @@ func markerID(ah diagram.ArrowHead, ls diagram.LineStyle) string {
 	return fmt.Sprintf("arrow-%s-%s", ah, ls)
 }
 
+// buildMarkers walks every edge in d (including subgraph-scoped edges)
+// and returns one Marker per distinct (arrowhead, line-style) pair, in
+// deterministic order. Markers must be sorted because Go map iteration
+// is randomized — without sorting, multi-arrow diagrams produce
+// byte-different SVG output across runs and break golden tests.
 func buildMarkers(d *diagram.FlowchartDiagram, th Theme) []Marker {
 	needed := map[string]diagram.ArrowHead{}
-	for _, e := range d.Edges {
-		if e.ArrowHead == diagram.ArrowHeadNone || e.ArrowHead == diagram.ArrowHeadUnknown {
-			continue
+	collect := func(edges []diagram.Edge) {
+		for _, e := range edges {
+			if e.ArrowHead == diagram.ArrowHeadNone || e.ArrowHead == diagram.ArrowHeadUnknown {
+				continue
+			}
+			needed[markerID(e.ArrowHead, e.LineStyle)] = e.ArrowHead
 		}
-		id := markerID(e.ArrowHead, e.LineStyle)
-		needed[id] = e.ArrowHead
 	}
+	collect(d.Edges)
+	var walk func(sgs []diagram.Subgraph)
+	walk = func(sgs []diagram.Subgraph) {
+		for i := range sgs {
+			collect(sgs[i].Edges)
+			walk(sgs[i].Children)
+		}
+	}
+	walk(d.Subgraphs)
 
-	var markers []Marker
-	for id, ah := range needed {
-		markers = append(markers, buildMarker(id, ah, th))
+	ids := make([]string, 0, len(needed))
+	for id := range needed {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	markers := make([]Marker, 0, len(ids))
+	for _, id := range ids {
+		markers = append(markers, buildMarker(id, needed[id], th))
 	}
 	return markers
 }
@@ -70,9 +90,16 @@ func buildMarker(id string, ah diagram.ArrowHead, th Theme) Marker {
 	return m
 }
 
+// renderEdges joins the AST edges (`d.Edges` plus every subgraph's
+// Edges) with their layout geometry. Parallel edges between the same
+// (from, to) pair are matched by stable order: layout EdgeIDs are
+// sorted by (From, To, ID), and AST edges are popped FIFO from a
+// per-key queue. The ID tiebreaker prevents the previous bug where
+// sort.Slice's undefined ordering for ties could swap labels and
+// arrowheads between parallel edges.
 func renderEdges(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th Theme, fontSize float64, ruler *textmeasure.Ruler) []any {
 	fromTo := map[string][]diagram.Edge{}
-	for _, e := range d.Edges {
+	for _, e := range allEdges(d) {
 		key := e.From + "->" + e.To
 		fromTo[key] = append(fromTo[key], e)
 	}
@@ -85,7 +112,10 @@ func renderEdges(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th 
 		if edgeKeys[i].From != edgeKeys[j].From {
 			return edgeKeys[i].From < edgeKeys[j].From
 		}
-		return edgeKeys[i].To < edgeKeys[j].To
+		if edgeKeys[i].To != edgeKeys[j].To {
+			return edgeKeys[i].To < edgeKeys[j].To
+		}
+		return edgeKeys[i].ID < edgeKeys[j].ID
 	})
 
 	var elems []any
@@ -142,16 +172,7 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 		ly := el.LabelPos.Y + pad
 		textStyle := fmt.Sprintf("fill:%s;font-size:%gpx", th.EdgeText, fontSize)
 
-		var labelW, labelH float64
-		if ruler != nil {
-			labelW, labelH = ruler.Measure(e.Label, fontSize)
-		}
-		if labelW == 0 {
-			labelW = 40
-		}
-		if labelH == 0 {
-			labelH = 20
-		}
+		labelW, labelH := ruler.Measure(e.Label, fontSize)
 		const labelPad = 4.0
 		elems = append(elems, &Rect{
 			X: lx - labelW/2 - labelPad, Y: ly - labelH/2 - labelPad,

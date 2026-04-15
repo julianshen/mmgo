@@ -1,10 +1,12 @@
 package flowchart
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
+	"github.com/julianshen/mmgo/pkg/layout/graph"
 )
 
 func TestRenderSubgraph(t *testing.T) {
@@ -63,10 +65,97 @@ func TestSubgraphBBox(t *testing.T) {
 		"A": {X: 100, Y: 100, Width: 60, Height: 40},
 		"B": {X: 300, Y: 200, Width: 60, Height: 40},
 	}
-	bb := subgraphBBox(nodes, layoutNodes)
+	bb, ok := subgraphBBox(nodes, layoutNodes)
+	if !ok {
+		t.Fatal("subgraphBBox ok=false")
+	}
 	wantMinX := 100.0 - 60.0/2
 	if bb.MinX != wantMinX {
 		t.Errorf("MinX = %f, want %f", bb.MinX, wantMinX)
+	}
+	wantMaxX := 300.0 + 60.0/2
+	if bb.MaxX != wantMaxX {
+		t.Errorf("MaxX = %f, want %f", bb.MaxX, wantMaxX)
+	}
+	wantMinY := 100.0 - 40.0/2
+	if bb.MinY != wantMinY {
+		t.Errorf("MinY = %f, want %f", bb.MinY, wantMinY)
+	}
+	wantMaxY := 200.0 + 40.0/2
+	if bb.MaxY != wantMaxY {
+		t.Errorf("MaxY = %f, want %f", bb.MaxY, wantMaxY)
+	}
+}
+
+func TestSubgraphBBoxEmpty(t *testing.T) {
+	_, ok := subgraphBBox(nil, map[string]layout.NodeLayout{})
+	if ok {
+		t.Error("expected ok=false for empty input")
+	}
+	_, ok = subgraphBBox([]diagram.Node{{ID: "missing"}}, map[string]layout.NodeLayout{})
+	if ok {
+		t.Error("expected ok=false when all nodes missing from layout")
+	}
+}
+
+func TestRenderEmptySubgraphProducesNoNaN(t *testing.T) {
+	// A subgraph whose nodes are all missing from the layout (or that
+	// contains no nodes at all) must NOT emit a `<rect>` with NaN/Inf
+	// coordinates. Regression for the ±Inf bbox bug.
+	d := &diagram.FlowchartDiagram{
+		Subgraphs: []diagram.Subgraph{
+			{ID: "empty", Label: "Empty", Nodes: []diagram.Node{{ID: "ghost"}}},
+		},
+	}
+	l := &layout.Result{Nodes: map[string]layout.NodeLayout{}, Width: 100, Height: 100}
+	out, err := Render(d, l, nil)
+	if err != nil {
+		t.Fatalf("Render err: %v", err)
+	}
+	if strings.Contains(string(out), "NaN") || strings.Contains(string(out), "Inf") {
+		t.Errorf("output contains NaN or Inf:\n%s", out)
+	}
+}
+
+func TestRenderSubgraphContents(t *testing.T) {
+	// A subgraph-contained node MUST appear in the rendered SVG. Per
+	// the AST contract, nodes inside a subgraph are stored only in
+	// Subgraph.Nodes — top-level renderNodes won't see them.
+	d := &diagram.FlowchartDiagram{
+		Subgraphs: []diagram.Subgraph{
+			{
+				ID: "sg1", Label: "Group",
+				Nodes: []diagram.Node{
+					{ID: "A", Label: "Inside", Shape: diagram.NodeShapeRectangle},
+				},
+				Edges: []diagram.Edge{
+					{From: "A", To: "B", ArrowHead: diagram.ArrowHeadArrow, Label: "scoped"},
+				},
+			},
+		},
+		Nodes: []diagram.Node{
+			{ID: "B", Label: "Outside", Shape: diagram.NodeShapeRectangle},
+		},
+	}
+	g := graph.New()
+	g.SetNode("A", graph.NodeAttrs{Label: "Inside", Width: 80, Height: 40})
+	g.SetNode("B", graph.NodeAttrs{Label: "Outside", Width: 80, Height: 40})
+	g.SetEdge("A", "B", graph.EdgeAttrs{Label: "scoped"})
+	l := layout.Layout(g, layout.Options{})
+
+	out, err := Render(d, l, nil)
+	if err != nil {
+		t.Fatalf("Render err: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">Inside<") {
+		t.Errorf("subgraph-contained node label 'Inside' missing from SVG:\n%s", raw)
+	}
+	if !strings.Contains(raw, ">Outside<") {
+		t.Errorf("top-level node 'Outside' missing")
+	}
+	if !strings.Contains(raw, ">scoped<") {
+		t.Errorf("subgraph-scoped edge label 'scoped' missing")
 	}
 }
 

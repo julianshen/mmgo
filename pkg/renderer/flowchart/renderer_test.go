@@ -143,6 +143,68 @@ func TestRenderStyledNode(t *testing.T) {
 	}
 }
 
+func TestRenderStyledNodePreservesBaseStyle(t *testing.T) {
+	// User `style` overrides must MERGE into the base shape style, not
+	// REPLACE it. After applying `fill:#f9f`, the rect should still
+	// have its theme stroke and stroke-width.
+	d := &diagram.FlowchartDiagram{
+		Nodes: []diagram.Node{
+			{ID: "A", Label: "Pink", Shape: diagram.NodeShapeRectangle},
+		},
+		Styles: []diagram.StyleDef{
+			{NodeID: "A", CSS: "fill:#f9f"},
+		},
+	}
+	g := graph.New()
+	g.SetNode("A", graph.NodeAttrs{Label: "Pink", Width: 80, Height: 40})
+	l := layout.Layout(g, layout.Options{})
+
+	out, err := Render(d, l, nil)
+	if err != nil {
+		t.Fatalf("Render err: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "fill:#f9f") {
+		t.Errorf("override missing:\n%s", raw)
+	}
+	if !strings.Contains(raw, "stroke:") {
+		t.Errorf("base stroke clobbered by override:\n%s", raw)
+	}
+	if !strings.Contains(raw, "stroke-width:") {
+		t.Errorf("base stroke-width clobbered by override:\n%s", raw)
+	}
+}
+
+func TestRenderMultipleStyleDirectivesAccumulate(t *testing.T) {
+	// Mermaid permits multiple `style` directives on the same node;
+	// the renderer must concatenate them all (later wins per CSS) and
+	// must NOT silently drop subsequent directives.
+	d := &diagram.FlowchartDiagram{
+		Nodes: []diagram.Node{
+			{ID: "A", Label: "Multi", Shape: diagram.NodeShapeRectangle},
+		},
+		Styles: []diagram.StyleDef{
+			{NodeID: "A", CSS: "fill:#aaa"},
+			{NodeID: "A", CSS: "stroke-dasharray:4,4"},
+		},
+	}
+	g := graph.New()
+	g.SetNode("A", graph.NodeAttrs{Label: "Multi", Width: 80, Height: 40})
+	l := layout.Layout(g, layout.Options{})
+
+	out, err := Render(d, l, nil)
+	if err != nil {
+		t.Fatalf("Render err: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "fill:#aaa") {
+		t.Errorf("first directive missing:\n%s", raw)
+	}
+	if !strings.Contains(raw, "stroke-dasharray:4,4") {
+		t.Errorf("second directive dropped:\n%s", raw)
+	}
+}
+
 func TestRenderClassNode(t *testing.T) {
 	d := &diagram.FlowchartDiagram{
 		Nodes: []diagram.Node{
@@ -164,6 +226,50 @@ func TestRenderClassNode(t *testing.T) {
 	}
 	if !strings.Contains(raw, ".highlight") {
 		t.Errorf("CSS should include class rule:\n%s", raw)
+	}
+}
+
+func TestRenderEscapesXMLSpecialCharsInLabels(t *testing.T) {
+	// Node, edge, and subgraph labels with `&`, `<`, `>`, `"` and a
+	// literal `<script>` tag must be escaped by encoding/xml. Pinned so
+	// a future refactor can't accidentally introduce a manual string
+	// builder that bypasses the escaper.
+	d := &diagram.FlowchartDiagram{
+		Nodes: []diagram.Node{
+			{ID: "A", Label: `Tom & Jerry <script>x</script>`, Shape: diagram.NodeShapeRectangle},
+		},
+		Edges: []diagram.Edge{
+			{From: "A", To: "B", Label: `if x < y && y > "z"`, ArrowHead: diagram.ArrowHeadArrow},
+		},
+		Subgraphs: []diagram.Subgraph{
+			{
+				ID:    "sg1",
+				Label: `Group "<one>"`,
+				Nodes: []diagram.Node{{ID: "B", Label: "B", Shape: diagram.NodeShapeRectangle}},
+			},
+		},
+	}
+	g := graph.New()
+	g.SetNode("A", graph.NodeAttrs{Width: 80, Height: 40})
+	g.SetNode("B", graph.NodeAttrs{Width: 80, Height: 40})
+	g.SetEdge("A", "B", graph.EdgeAttrs{})
+	l := layout.Layout(g, layout.Options{})
+
+	out, err := Render(d, l, nil)
+	if err != nil {
+		t.Fatalf("Render err: %v", err)
+	}
+	raw := string(out)
+
+	// Forbidden: any literal angle-bracket script tag must NOT survive.
+	if strings.Contains(raw, "<script>") {
+		t.Errorf("literal <script> tag in output (XML escaping bypassed):\n%s", raw)
+	}
+	// Required: the escaped forms must be present for the special chars.
+	for _, want := range []string{"&amp;", "&lt;", "&gt;"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected escaped sequence %q in output", want)
+		}
 	}
 }
 
