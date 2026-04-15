@@ -4,7 +4,7 @@ Dashboard view of progress against [implementation-plan.md](implementation-plan.
 Updated at each step boundary and committed to git, so any client can read
 current state without relying on chat history.
 
-**Last updated:** 2026-04-14
+**Last updated:** 2026-04-15
 
 ## Overall
 
@@ -37,7 +37,7 @@ current state without relying on chat history.
 | Status | Step | PR | Coverage | Notes |
 |--------|------|----|----|---|
 | ✅ | 9. Flowchart parser (`pkg/parser/flowchart/`) | #12 | 95.9% | 14 shapes, 6 edge ops (+ long-dash variants), inline + pipe edge labels, chained edges, bracket-aware arrow scanning, hyphen IDs |
-| ✅ | 10. Flowchart renderer (`pkg/renderer/flowchart/`) | — | 91.8% | All 14 shapes, bezier curves, 4 arrow markers, subgraph groups, style/class, encoding/xml SVG structs |
+| ✅ | 10. Flowchart renderer (`pkg/renderer/flowchart/`) | #14 | 92.1% | All 14 shapes, bezier curves, 4 arrow markers, subgraph contents (recursive), style merging, deterministic markers/CSS, encoding/xml SVG structs |
 | ⏳ | 11. SVG output and end-to-end | — |  |  |
 
 ## Phase 3: Sequence Diagram
