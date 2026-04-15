@@ -2,6 +2,7 @@ package flowchart
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
@@ -11,9 +12,14 @@ func buildClassCSS(d *diagram.FlowchartDiagram) string {
 	if len(d.Classes) == 0 {
 		return ""
 	}
+	names := make([]string, 0, len(d.Classes))
+	for name := range d.Classes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	var sb strings.Builder
-	for name, css := range d.Classes {
-		sb.WriteString(fmt.Sprintf(".%s { %s }\n", name, css))
+	for _, name := range names {
+		sb.WriteString(fmt.Sprintf(".%s { %s }\n", name, d.Classes[name]))
 	}
 	return sb.String()
 }
