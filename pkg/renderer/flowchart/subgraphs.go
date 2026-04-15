@@ -48,49 +48,10 @@ func (b *bbox) expand(cx, cy, w, h float64) {
 	}
 }
 
-func allDescendantNodes(sg *diagram.Subgraph) []diagram.Node {
-	var nodes []diagram.Node
-	nodes = append(nodes, sg.Nodes...)
-	for i := range sg.Children {
-		nodes = append(nodes, allDescendantNodes(&sg.Children[i])...)
-	}
-	return nodes
-}
-
-// allNodes walks the diagram and returns every node — top-level plus
-// every node nested in a subgraph. Per the AST contract
-// (pkg/diagram/flowchart.go), a node inside a subgraph is stored
-// ONLY in that subgraph's Nodes slice, never duplicated at the top.
-func allNodes(d *diagram.FlowchartDiagram) []diagram.Node {
-	nodes := append([]diagram.Node(nil), d.Nodes...)
-	for i := range d.Subgraphs {
-		nodes = append(nodes, allDescendantNodes(&d.Subgraphs[i])...)
-	}
-	return nodes
-}
-
-// allEdges walks the diagram and returns every edge. Subgraph-scoped
-// edges (declared inside a `subgraph ... end` block) live in the
-// containing Subgraph.Edges and would otherwise be silently dropped by
-// the renderer.
-func allEdges(d *diagram.FlowchartDiagram) []diagram.Edge {
-	edges := append([]diagram.Edge(nil), d.Edges...)
-	var walk func(sgs []diagram.Subgraph)
-	walk = func(sgs []diagram.Subgraph) {
-		for i := range sgs {
-			edges = append(edges, sgs[i].Edges...)
-			walk(sgs[i].Children)
-		}
-	}
-	walk(d.Subgraphs)
-	return edges
-}
-
 func renderSubgraphGroup(sg diagram.Subgraph, l *layout.Result, pad float64, th Theme, fontSize float64) *Group {
 	g := &Group{ID: sg.ID}
 
-	allNodes := allDescendantNodes(&sg)
-	bb, ok := subgraphBBox(allNodes, l.Nodes)
+	bb, ok := subgraphBBox(sg.AllNodes(), l.Nodes)
 	if ok {
 		const sgPad = 15.0
 		rx := bb.MinX - sgPad + pad

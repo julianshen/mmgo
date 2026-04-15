@@ -14,31 +14,18 @@ func markerID(ah diagram.ArrowHead, ls diagram.LineStyle) string {
 	return fmt.Sprintf("arrow-%s-%s", ah, ls)
 }
 
-// buildMarkers walks every edge in d (including subgraph-scoped edges)
-// and returns one Marker per distinct (arrowhead, line-style) pair, in
-// deterministic order. Markers must be sorted because Go map iteration
-// is randomized — without sorting, multi-arrow diagrams produce
-// byte-different SVG output across runs and break golden tests.
+// buildMarkers returns one Marker per distinct (arrowhead, line-style)
+// pair used by any edge in d, in deterministic alphabetic order.
+// Sorting is mandatory: Go map iteration is randomized, so without it
+// multi-arrow diagrams produce byte-different SVG across runs.
 func buildMarkers(d *diagram.FlowchartDiagram, th Theme) []Marker {
 	needed := map[string]diagram.ArrowHead{}
-	collect := func(edges []diagram.Edge) {
-		for _, e := range edges {
-			if e.ArrowHead == diagram.ArrowHeadNone || e.ArrowHead == diagram.ArrowHeadUnknown {
-				continue
-			}
-			needed[markerID(e.ArrowHead, e.LineStyle)] = e.ArrowHead
+	for _, e := range d.AllEdges() {
+		if e.ArrowHead == diagram.ArrowHeadNone || e.ArrowHead == diagram.ArrowHeadUnknown {
+			continue
 		}
+		needed[markerID(e.ArrowHead, e.LineStyle)] = e.ArrowHead
 	}
-	collect(d.Edges)
-	var walk func(sgs []diagram.Subgraph)
-	walk = func(sgs []diagram.Subgraph) {
-		for i := range sgs {
-			collect(sgs[i].Edges)
-			walk(sgs[i].Children)
-		}
-	}
-	walk(d.Subgraphs)
-
 	ids := make([]string, 0, len(needed))
 	for id := range needed {
 		ids = append(ids, id)
@@ -99,7 +86,7 @@ func buildMarker(id string, ah diagram.ArrowHead, th Theme) Marker {
 // arrowheads between parallel edges.
 func renderEdges(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th Theme, fontSize float64, ruler *textmeasure.Ruler) []any {
 	fromTo := map[string][]diagram.Edge{}
-	for _, e := range allEdges(d) {
+	for _, e := range d.AllEdges() {
 		key := e.From + "->" + e.To
 		fromTo[key] = append(fromTo[key], e)
 	}

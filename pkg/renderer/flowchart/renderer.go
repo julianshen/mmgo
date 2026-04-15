@@ -98,7 +98,7 @@ func buildDefs(d *diagram.FlowchartDiagram, th Theme) *Defs {
 
 func renderNodes(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th Theme, fontSize float64) []any {
 	var elems []any
-	for _, n := range allNodes(d) {
+	for _, n := range d.AllNodes() {
 		nl, ok := l.Nodes[n.ID]
 		if !ok {
 			continue

@@ -1,15 +1,15 @@
-// Package svg is the end-to-end Mermaid → SVG entry point. It ties
-// together the parser, layout engine, and renderer so callers don't
-// need to orchestrate the individual phases:
+// Package svg is the end-to-end Mermaid → SVG entry point. It wires
+// the parser, layout engine, and renderer behind a single Render call:
 //
 //	svgBytes, err := svg.Render(strings.NewReader(input), nil)
 //
-// Currently supports flowchart/graph diagrams. Sequence and pie support
-// will be added in the corresponding renderer steps.
+// Currently supports flowchart/graph diagrams; sequence and pie land
+// alongside their renderers.
 package svg
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"strings"
@@ -22,36 +22,35 @@ import (
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
-// Options configures the end-to-end pipeline.
+// Options configures the end-to-end pipeline. All fields are optional;
+// nil opts uses defaults end-to-end.
 type Options struct {
-	// Layout configures the layout engine (rank direction, spacing).
-	// If RankDir is the zero value, it is auto-derived from the parsed
-	// diagram's Direction header (`graph LR` → RankDirLR, etc).
+	// Layout forwards spacing knobs (NodeSep, RankSep) to the layout
+	// engine. RankDir is intentionally ignored — direction comes from
+	// the parsed diagram header (`graph LR`, `flowchart TB`, ...) so
+	// the rendered output matches the input verbatim.
 	Layout layout.Options
-	// Flowchart is forwarded to the flowchart renderer when the input
-	// is a flowchart diagram. Nil uses renderer defaults.
+	// Flowchart is forwarded to the flowchart renderer (theme, padding,
+	// font size, ExtraCSS). Nil uses renderer defaults.
 	Flowchart *flowchartrenderer.Options
-	// FontSize sets the default font size for node labels (used both
-	// for sizing nodes and for the renderer's text metrics). When 0 it
-	// falls back to defaultFontSize.
-	FontSize float64
 }
 
-// Default sizing constants. Node dimensions are computed from the
-// label's measured bounding box plus padding, then clamped to a
-// readable minimum.
+// Sizing constants for nodes when no caller-specified theme overrides
+// are present. Padding chosen to leave breathing room around the
+// label; minimums chosen so empty/short labels still render at a
+// readable size.
 const (
-	defaultFontSize  = 16.0
-	nodePaddingX     = 30.0
-	nodePaddingY     = 20.0
-	minNodeWidth     = 60.0
-	minNodeHeight    = 40.0
-	nodeLineHeightK  = 1.2
+	defaultFontSize = 16.0
+	nodePaddingX    = 30.0
+	nodePaddingY    = 20.0
+	minNodeWidth    = 60.0
+	minNodeHeight   = 40.0
+	lineHeightFactor = 1.2
 )
 
 // Render reads a Mermaid diagram from r, runs the full
 // parse → measure → layout → render pipeline, and returns the SVG
-// document bytes. The diagram type is detected from the first
+// document bytes. The diagram type is sniffed from the first
 // non-comment, non-blank line.
 func Render(r io.Reader, opts *Options) ([]byte, error) {
 	if r == nil {
@@ -70,26 +69,25 @@ func Render(r io.Reader, opts *Options) ([]byte, error) {
 	case kindFlowchart:
 		return renderFlowchart(src, opts)
 	default:
-		return nil, fmt.Errorf("svg render: %s diagrams are not yet supported", kind)
+		return nil, fmt.Errorf("svg render: %v diagrams are not yet supported", kind)
 	}
 }
 
 // diagramKind is a coarse classification of supported Mermaid headers.
-// More entries land alongside their renderer (sequence in Step 13, pie
-// in Step 14, etc.).
-type diagramKind string
+// More entries land alongside their renderer.
+type diagramKind int8
 
 const (
-	kindFlowchart diagramKind = "flowchart"
-	kindUnknown   diagramKind = "unknown"
+	kindUnknown diagramKind = iota
+	kindFlowchart
 )
 
-// detectDiagramKind scans the first non-blank, non-comment line of src
-// for a recognized header keyword. This avoids the cost of trying to
-// fully parse with each parser to find the matching one.
+// detectDiagramKind sniffs the first non-blank, non-comment line of
+// src for a recognized header keyword. This pre-check exists so we
+// can return a clean "X diagrams not yet supported" error before
+// invoking a parser that doesn't know about X.
 func detectDiagramKind(src []byte) (diagramKind, error) {
-	scanner := bufio.NewScanner(strings.NewReader(string(src)))
-	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	scanner := bufio.NewScanner(bytes.NewReader(src))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "%%") {
@@ -107,8 +105,8 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 }
 
 // hasHeaderKeyword reports whether line begins with kw followed by
-// either end-of-string or whitespace. Mirrors the parser's word-
-// boundary rule so `grapha` is not misread as `graph`.
+// either end-of-string or whitespace, mirroring the parser's
+// word-boundary rule so `grapha` is not mis-matched as `graph`.
 func hasHeaderKeyword(line, kw string) bool {
 	if !strings.HasPrefix(line, kw) {
 		return false
@@ -120,13 +118,12 @@ func hasHeaderKeyword(line, kw string) bool {
 	return c == ' ' || c == '\t'
 }
 
-// renderFlowchart runs the flowchart pipeline: parse, build the layout
-// graph (sizing nodes via textmeasure), layout, render. The ruler is
-// initialized once and shared between node sizing and the renderer's
-// edge-label measurement, so a font init failure is reported exactly
-// once with a clean error.
+// renderFlowchart runs parse → size → layout → render for a flowchart
+// diagram. The font size used for node sizing is read from the
+// flowchart renderer's Options so node boxes and rendered text always
+// agree, even when the caller customizes it.
 func renderFlowchart(src []byte, opts *Options) ([]byte, error) {
-	d, err := flowchartparser.Parse(strings.NewReader(string(src)))
+	d, err := flowchartparser.Parse(bytes.NewReader(src))
 	if err != nil {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
@@ -137,21 +134,16 @@ func renderFlowchart(src []byte, opts *Options) ([]byte, error) {
 	}
 	defer ruler.Close()
 
-	fontSize := defaultFontSize
-	if opts != nil && opts.FontSize > 0 {
-		fontSize = opts.FontSize
-	}
-
+	fontSize := flowchartFontSize(opts)
 	g := buildFlowchartGraph(d, ruler, fontSize)
 
 	lopts := layout.Options{}
 	if opts != nil {
 		lopts = opts.Layout
 	}
-	if lopts.RankDir == layout.RankDirTB && d.Direction != diagram.DirectionTB {
-		// Caller didn't pin a RankDir; honor the diagram header.
-		lopts.RankDir = directionToRankDir(d.Direction)
-	}
+	// Direction always comes from the diagram header — ignore any
+	// caller-supplied RankDir to keep the output faithful to the input.
+	lopts.RankDir = directionToRankDir(d.Direction)
 
 	l := layout.Layout(g, lopts)
 
@@ -166,59 +158,43 @@ func renderFlowchart(src []byte, opts *Options) ([]byte, error) {
 	return out, nil
 }
 
+// flowchartFontSize returns the font size used for both node sizing
+// and the renderer. Reads from opts.Flowchart.FontSize so a single
+// caller setting flows end-to-end; falls back to defaultFontSize when
+// the caller hasn't specified one.
+func flowchartFontSize(opts *Options) float64 {
+	if opts != nil && opts.Flowchart != nil && opts.Flowchart.FontSize > 0 {
+		return opts.Flowchart.FontSize
+	}
+	return defaultFontSize
+}
+
 // buildFlowchartGraph converts a parsed flowchart AST into a layout
-// graph. It walks d.Subgraphs recursively so that nodes nested inside
-// `subgraph ... end` blocks (which the AST stores ONLY in the
-// Subgraph.Nodes slice) are included, and so are their scoped edges.
-//
-// Node dimensions come from textmeasure: the label's widest line
-// drives width, the line count drives height, and both are clamped to
-// a readable minimum. This produces SVG output where a node always
-// fits its label without truncation.
+// graph. Uses the AST walkers in pkg/diagram so subgraph-nested nodes
+// and scoped edges (which the AST stores ONLY in Subgraph.Nodes /
+// Subgraph.Edges) are included automatically.
 func buildFlowchartGraph(d *diagram.FlowchartDiagram, ruler *textmeasure.Ruler, fontSize float64) *graph.Graph {
 	g := graph.New()
-
-	addNode := func(n diagram.Node) {
+	for _, n := range d.AllNodes() {
 		w, h := nodeSize(n.Label, ruler, fontSize)
 		g.SetNode(n.ID, graph.NodeAttrs{Label: n.Label, Width: w, Height: h})
 	}
-	addEdge := func(e diagram.Edge) {
+	for _, e := range d.AllEdges() {
 		g.SetEdge(e.From, e.To, graph.EdgeAttrs{Label: e.Label})
 	}
-
-	for _, n := range d.Nodes {
-		addNode(n)
-	}
-	for _, e := range d.Edges {
-		addEdge(e)
-	}
-	var walk func(sgs []diagram.Subgraph)
-	walk = func(sgs []diagram.Subgraph) {
-		for i := range sgs {
-			for _, n := range sgs[i].Nodes {
-				addNode(n)
-			}
-			for _, e := range sgs[i].Edges {
-				addEdge(e)
-			}
-			walk(sgs[i].Children)
-		}
-	}
-	walk(d.Subgraphs)
-
 	return g
 }
 
-// nodeSize measures label and returns padded (width, height) for the
-// layout engine. Empty labels still get a readable minimum box so
-// bare `A --> B` style references render visibly.
+// nodeSize returns the padded (width, height) for a node label,
+// clamped to a readable minimum so empty/short labels still render
+// visibly.
 func nodeSize(label string, ruler *textmeasure.Ruler, fontSize float64) (w, h float64) {
 	if label == "" {
 		return minNodeWidth, minNodeHeight
 	}
 	mw, mh := ruler.Measure(label, fontSize)
 	w = mw + nodePaddingX
-	h = mh*nodeLineHeightK + nodePaddingY
+	h = mh*lineHeightFactor + nodePaddingY
 	if w < minNodeWidth {
 		w = minNodeWidth
 	}
@@ -228,10 +204,9 @@ func nodeSize(label string, ruler *textmeasure.Ruler, fontSize float64) (w, h fl
 	return w, h
 }
 
-// directionToRankDir maps the parsed diagram's Direction enum to the
-// layout engine's RankDir. The two enums are intentionally separate
-// (one is a parser concept, one is a layout concept), so we need a
-// translation here.
+// directionToRankDir maps the parsed Direction enum to the layout
+// RankDir enum. They are intentionally separate types (parser concept
+// vs. layout concept) so this translator is the seam.
 func directionToRankDir(d diagram.Direction) layout.RankDir {
 	switch d {
 	case diagram.DirectionBT:

@@ -1,6 +1,7 @@
 package svg
 
 import (
+	"bytes"
 	"encoding/xml"
 	"errors"
 	"flag"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
+	flowchartrenderer "github.com/julianshen/mmgo/pkg/renderer/flowchart"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -38,12 +40,34 @@ func TestRenderEmptyInput(t *testing.T) {
 }
 
 func TestRenderUnknownDiagramKind(t *testing.T) {
-	_, err := Render(strings.NewReader("sequenceDiagram\nA->>B: hi"), nil)
+	// Use a clearly bogus header so this test stays valid even after
+	// sequence/pie/etc. headers are recognized.
+	_, err := Render(strings.NewReader("fooDiagram\nA --> B"), nil)
 	if err == nil {
 		t.Fatal("expected error for unsupported diagram type")
 	}
 	if !strings.Contains(err.Error(), "unrecognized diagram header") {
 		t.Errorf("error = %v", err)
+	}
+}
+
+func TestRenderParseError(t *testing.T) {
+	_, err := Render(strings.NewReader("graph LR\n    A[unclosed"), nil)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if !strings.Contains(err.Error(), "parse") {
+		t.Errorf("error should mention parse: %v", err)
+	}
+}
+
+func TestRenderReaderError(t *testing.T) {
+	_, err := Render(errReader{}, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "read input") {
+		t.Errorf("error should mention read input: %v", err)
 	}
 }
 
@@ -60,7 +84,7 @@ func TestDetectDiagramKind(t *testing.T) {
 		{"flowchart", "flowchart TB\nA --> B", kindFlowchart, false},
 		{"with leading comment", "%% header comment\ngraph LR\nA --> B", kindFlowchart, false},
 		{"with leading blank lines", "\n\n\ngraph LR\nA --> B", kindFlowchart, false},
-		{"unknown header", "stateDiagram\nA --> B", kindUnknown, true},
+		{"unknown header", "fooDiagram\nA --> B", kindUnknown, true},
 		{"empty", "", kindUnknown, true},
 		{"only comments", "%% one\n%% two\n", kindUnknown, true},
 		// Word-boundary check: `grapha` must not match `graph`.
@@ -96,20 +120,7 @@ func TestRenderSimpleFlowchartProducesValidSVG(t *testing.T) {
 	if !strings.HasPrefix(raw, "<?xml") {
 		t.Errorf("output should start with XML decl, got: %q", raw[:min(60, len(raw))])
 	}
-
-	// The output must round-trip through encoding/xml as a valid
-	// document — catches any malformed bytes the renderer emits.
-	xmlStart := strings.Index(raw, "<svg")
-	if xmlStart < 0 {
-		t.Fatalf("no <svg> element:\n%s", raw)
-	}
-	var doc struct {
-		XMLName xml.Name `xml:"svg"`
-		ViewBox string   `xml:"viewBox,attr"`
-	}
-	if err := xml.Unmarshal([]byte(raw[xmlStart:]), &doc); err != nil {
-		t.Fatalf("invalid XML: %v\n%s", err, raw)
-	}
+	doc := unmarshalSVG(t, out)
 	if doc.ViewBox == "" {
 		t.Error("viewBox attribute missing")
 	}
@@ -119,10 +130,10 @@ func TestRenderSimpleFlowchartProducesValidSVG(t *testing.T) {
 }
 
 func TestRenderHonorsDirectionHeader(t *testing.T) {
-	// `graph LR` should produce a wider-than-tall layout (LR puts
-	// nodes on the horizontal axis), and `graph TB` should be
-	// taller-than-wide. We assert the relationship between viewBox
-	// width and height to verify direction was honored end-to-end.
+	// `graph LR` should produce a wider-than-tall layout, and `graph
+	// TB` should be taller-than-wide. Asserting the relationship
+	// between viewBox width and height verifies direction was honored
+	// end-to-end without coupling to exact coordinates.
 	lr, err := Render(strings.NewReader("graph LR\n    A --> B --> C --> D"), nil)
 	if err != nil {
 		t.Fatalf("LR render: %v", err)
@@ -132,8 +143,8 @@ func TestRenderHonorsDirectionHeader(t *testing.T) {
 		t.Fatalf("TB render: %v", err)
 	}
 
-	lrW, lrH := parseViewBox(t, lr)
-	tbW, tbH := parseViewBox(t, tb)
+	lrW, lrH := viewBoxWH(t, lr)
+	tbW, tbH := viewBoxWH(t, tb)
 
 	if !(lrW > lrH) {
 		t.Errorf("LR viewBox should be wider than tall: w=%v h=%v", lrW, lrH)
@@ -143,21 +154,21 @@ func TestRenderHonorsDirectionHeader(t *testing.T) {
 	}
 }
 
-func TestRenderOptsLayoutOverridesDirection(t *testing.T) {
-	// If the caller pins a non-default RankDir, it must override the
-	// header's direction. This protects callers from surprise when
-	// they explicitly opt in to a layout direction.
+func TestRenderIgnoresCallerRankDir(t *testing.T) {
+	// Direction always comes from the diagram header; an
+	// opts.Layout.RankDir value must NOT override it. This pins the
+	// "header is source of truth" contract.
 	out, err := Render(
-		strings.NewReader("graph LR\n    A --> B"),
+		strings.NewReader("graph LR\n    A --> B --> C --> D"),
 		&Options{Layout: layout.Options{RankDir: layout.RankDirBT}},
 	)
 	if err != nil {
 		t.Fatalf("Render err: %v", err)
 	}
-	w, h := parseViewBox(t, out)
-	// BT is vertical (taller than wide for a 2-node chain).
-	if !(h > w) {
-		t.Errorf("BT viewBox should be taller than wide: w=%v h=%v", w, h)
+	w, h := viewBoxWH(t, out)
+	// LR should still be wider than tall — caller's BT was ignored.
+	if !(w > h) {
+		t.Errorf("expected LR layout regardless of RankDir override: w=%v h=%v", w, h)
 	}
 }
 
@@ -204,7 +215,6 @@ func TestNodeSizeRespectsMinimum(t *testing.T) {
 	if w < minNodeWidth || h < minNodeHeight {
 		t.Errorf("empty label should clamp to minimum: w=%v h=%v", w, h)
 	}
-	// A long label must produce a proportionally wider box.
 	wLong, _ := nodeSize("a very wide label that should expand the box", ruler, defaultFontSize)
 	if wLong <= minNodeWidth {
 		t.Errorf("long label width %v should exceed min %v", wLong, minNodeWidth)
@@ -228,49 +238,33 @@ func TestDirectionToRankDir(t *testing.T) {
 	}
 }
 
-// --- Error paths and option forwarding ---
+// --- Font size threading ---
 
-func TestRenderParseError(t *testing.T) {
-	// Unclosed bracket — parser should error and Render should
-	// surface that with a "parse:" prefix.
-	_, err := Render(strings.NewReader("graph LR\n    A[unclosed"), nil)
-	if err == nil {
-		t.Fatal("expected parse error")
-	}
-	if !strings.Contains(err.Error(), "parse") {
-		t.Errorf("error should mention parse: %v", err)
-	}
-}
-
-func TestRenderReaderError(t *testing.T) {
-	// io.ReadAll error path: a reader that always errors.
-	_, err := Render(errReader{}, nil)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "read input") {
-		t.Errorf("error should mention read input: %v", err)
-	}
-}
-
-func TestRenderHonorsCustomFontSize(t *testing.T) {
-	// A larger font should produce larger node boxes (since width is
-	// driven by the measured label width).
+func TestRenderHonorsFlowchartFontSize(t *testing.T) {
+	// FontSize set on the flowchart sub-options must drive both node
+	// sizing AND the rendered text. A larger font produces a larger
+	// viewBox because nodes grow with the measured label.
 	defaultOut, err := Render(strings.NewReader("graph LR\n    A[Hello]"), nil)
 	if err != nil {
 		t.Fatalf("default: %v", err)
 	}
 	bigOut, err := Render(
 		strings.NewReader("graph LR\n    A[Hello]"),
-		&Options{FontSize: 48},
+		&Options{Flowchart: &flowchartrenderer.Options{FontSize: 48}},
 	)
 	if err != nil {
 		t.Fatalf("big: %v", err)
 	}
-	dw, _ := parseViewBox(t, defaultOut)
-	bw, _ := parseViewBox(t, bigOut)
+	dw, _ := viewBoxWH(t, defaultOut)
+	bw, _ := viewBoxWH(t, bigOut)
 	if !(bw > dw) {
 		t.Errorf("48px font viewBox %v should exceed default %v", bw, dw)
+	}
+	// And the rendered text must also be 48px (font-size in the
+	// emitted style attribute) — this is what the previous
+	// top-level FontSize bug missed.
+	if !strings.Contains(string(bigOut), "font-size:48px") {
+		t.Errorf("expected font-size:48px in output, got:\n%s", bigOut)
 	}
 }
 
@@ -287,8 +281,6 @@ var errIOFailure = errors.New("forced read failure")
 // --- Determinism ---
 
 func TestRenderDeterministic(t *testing.T) {
-	// Same input must produce byte-identical output across many
-	// invocations. Catches any new map-iteration leaks.
 	input := `graph LR
     A[Start] --> B{Check}
     B -->|yes| C[Ok]
@@ -327,7 +319,7 @@ func TestGoldenFiles(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read input: %v", err)
 			}
-			got, err := Render(strings.NewReader(string(input)), nil)
+			got, err := Render(bytes.NewReader(input), nil)
 			if err != nil {
 				t.Fatalf("Render err: %v", err)
 			}
@@ -362,24 +354,38 @@ func mustRuler(t *testing.T) *textmeasure.Ruler {
 	return ruler
 }
 
-// parseViewBox extracts the width and height from the SVG viewBox
-// attribute ("0 0 W H"). Used by direction-honoring tests to assert
-// orientation without comparing exact coordinates.
-func parseViewBox(t *testing.T, svgBytes []byte) (w, h float64) {
+// unmarshalSVG parses svgBytes as XML and returns just the SVG root's
+// viewBox. Round-tripping through encoding/xml validates the document
+// structure as a side effect.
+func unmarshalSVG(t *testing.T, svgBytes []byte) struct {
+	XMLName xml.Name `xml:"svg"`
+	ViewBox string   `xml:"viewBox,attr"`
+} {
 	t.Helper()
-	raw := string(svgBytes)
-	i := strings.Index(raw, `viewBox="`)
-	if i < 0 {
-		t.Fatalf("no viewBox attribute in:\n%s", raw)
+	var doc struct {
+		XMLName xml.Name `xml:"svg"`
+		ViewBox string   `xml:"viewBox,attr"`
 	}
-	i += len(`viewBox="`)
-	end := strings.Index(raw[i:], `"`)
-	if end < 0 {
-		t.Fatalf("unterminated viewBox attribute")
+	// Skip the <?xml ?> declaration when present.
+	body := svgBytes
+	if i := bytes.Index(body, []byte("<svg")); i >= 0 {
+		body = body[i:]
 	}
-	parts := strings.Fields(raw[i : i+end])
+	if err := xml.Unmarshal(body, &doc); err != nil {
+		t.Fatalf("invalid SVG XML: %v\n%s", err, svgBytes)
+	}
+	return doc
+}
+
+// viewBoxWH parses the four-field viewBox ("minX minY width height")
+// and returns just the width and height. Tests only care about the
+// orientation, not the corner coordinates.
+func viewBoxWH(t *testing.T, svgBytes []byte) (w, h float64) {
+	t.Helper()
+	doc := unmarshalSVG(t, svgBytes)
+	parts := strings.Fields(doc.ViewBox)
 	if len(parts) != 4 {
-		t.Fatalf("viewBox should have 4 fields, got %d: %q", len(parts), parts)
+		t.Fatalf("viewBox should have 4 fields, got %d: %q", len(parts), doc.ViewBox)
 	}
 	pw, err := strconv.ParseFloat(parts[2], 64)
 	if err != nil {
@@ -391,4 +397,3 @@ func parseViewBox(t *testing.T, svgBytes []byte) (w, h float64) {
 	}
 	return pw, ph
 }
-
