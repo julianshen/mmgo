@@ -165,26 +165,42 @@ var arrowTokens = []struct {
 	{"-)", diagram.ArrowTypeSolidOpen},
 }
 
+// parseMessage finds the LEFTMOST arrow token in line and splits
+// From/To around it. Leftmost-wins is correctness-critical when a
+// message label contains an arrow-like substring — e.g.,
+// `A->>B: send --> response` must split on the leading `->>`, not the
+// `-->` inside the label. When two tokens start at the same position
+// the longer one wins so `-->>` beats `-->`, `--x` beats `-x`, etc.
 func parseMessage(line string) (diagram.Message, bool) {
+	bestIdx := -1
+	var best struct {
+		lit string
+		typ diagram.ArrowType
+	}
 	for _, tok := range arrowTokens {
 		idx := strings.Index(line, tok.lit)
 		if idx <= 0 {
 			continue
 		}
-		from := strings.TrimSpace(line[:idx])
-		to, label := splitMessageLabel(line[idx+len(tok.lit):])
-		to = strings.TrimSpace(to)
-		if from == "" || to == "" {
-			return diagram.Message{}, false
+		if bestIdx == -1 || idx < bestIdx || (idx == bestIdx && len(tok.lit) > len(best.lit)) {
+			bestIdx, best = idx, tok
 		}
-		return diagram.Message{
-			From:      from,
-			To:        to,
-			Label:     label,
-			ArrowType: tok.typ,
-		}, true
 	}
-	return diagram.Message{}, false
+	if bestIdx == -1 {
+		return diagram.Message{}, false
+	}
+	from := strings.TrimSpace(line[:bestIdx])
+	to, label := splitMessageLabel(line[bestIdx+len(best.lit):])
+	to = strings.TrimSpace(to)
+	if from == "" || to == "" {
+		return diagram.Message{}, false
+	}
+	return diagram.Message{
+		From:      from,
+		To:        to,
+		Label:     label,
+		ArrowType: best.typ,
+	}, true
 }
 
 // splitMessageLabel splits on the FIRST colon so labels containing

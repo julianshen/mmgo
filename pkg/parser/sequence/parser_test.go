@@ -171,6 +171,25 @@ func TestParseMessageLabelTrimmingAndColons(t *testing.T) {
 	}
 }
 
+func TestParseMessageLabelContainingArrow(t *testing.T) {
+	input := `sequenceDiagram
+    A->>B: send --> response`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	m := d.Items[0].Message
+	if m.From != "A" || m.To != "B" {
+		t.Errorf("From/To = %q/%q, want A/B", m.From, m.To)
+	}
+	if m.ArrowType != diagram.ArrowTypeSolid {
+		t.Errorf("ArrowType = %v, want solid", m.ArrowType)
+	}
+	if m.Label != "send --> response" {
+		t.Errorf("Label = %q, want %q", m.Label, "send --> response")
+	}
+}
+
 func TestParseMessageNoLabel(t *testing.T) {
 	input := `sequenceDiagram
     A->>B`
