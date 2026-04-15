@@ -172,7 +172,7 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 		ly := el.LabelPos.Y + pad
 		textStyle := fmt.Sprintf("fill:%s;font-size:%gpx", th.EdgeText, fontSize)
 
-		labelW, labelH := ruler.Measure(e.Label, fontSize)
+		labelW, labelH := measureLabel(ruler, e.Label, fontSize)
 		const labelPad = 4.0
 		elems = append(elems, &Rect{
 			X: lx - labelW/2 - labelPad, Y: ly - labelH/2 - labelPad,
@@ -187,6 +187,19 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 	}
 
 	return elems
+}
+
+// measureLabel returns the rendered (width, height) of label at the
+// given font size. ruler is the production text measurer; when nil
+// (test helpers that don't initialize a real ruler) it returns a small
+// fallback box. Render() always passes a non-nil ruler — this guard
+// exists purely so renderEdge cannot panic on a nil passed in by
+// internal test code.
+func measureLabel(ruler *textmeasure.Ruler, label string, fontSize float64) (w, h float64) {
+	if ruler == nil {
+		return 40, 20
+	}
+	return ruler.Measure(label, fontSize)
 }
 
 func edgeStyle(th Theme, ls diagram.LineStyle) string {

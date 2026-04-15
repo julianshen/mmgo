@@ -236,6 +236,26 @@ func TestRenderEdgeLabelBackgroundRectWithRuler(t *testing.T) {
 	}
 }
 
+func TestRenderEdgeNilRulerWithLabelDoesNotPanic(t *testing.T) {
+	// renderEdge is reachable from tests with a nil ruler. Production
+	// callers always pass a real ruler via Render(), but the internal
+	// helper must not panic when called directly with nil + a label.
+	e := diagram.Edge{From: "A", To: "B", Label: "fallback", ArrowHead: diagram.ArrowHeadArrow}
+	el := layout.EdgeLayout{
+		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
+		LabelPos: layout.Point{X: 50, Y: 0},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("renderEdge panicked with nil ruler: %v", r)
+		}
+	}()
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil)
+	if len(elems) == 0 {
+		t.Error("expected fallback elements")
+	}
+}
+
 func TestRenderEdgeDotted(t *testing.T) {
 	e := diagram.Edge{From: "A", To: "B", LineStyle: diagram.LineStyleDotted, ArrowHead: diagram.ArrowHeadArrow}
 	el := layout.EdgeLayout{
