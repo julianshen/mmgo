@@ -128,3 +128,53 @@ func TestFlowchartStylesAndClasses(t *testing.T) {
 		t.Error("class not preserved")
 	}
 }
+
+func TestFlowchartAllNodesAndAllEdges(t *testing.T) {
+	d := &FlowchartDiagram{
+		Nodes: []Node{{ID: "Top"}},
+		Edges: []Edge{{From: "Top", To: "A"}},
+		Subgraphs: []Subgraph{
+			{
+				ID:    "outer",
+				Nodes: []Node{{ID: "A"}},
+				Edges: []Edge{{From: "A", To: "B"}},
+				Children: []Subgraph{
+					{
+						ID:    "inner",
+						Nodes: []Node{{ID: "B"}, {ID: "C"}},
+						Edges: []Edge{{From: "B", To: "C"}},
+					},
+				},
+			},
+		},
+	}
+
+	allN := d.AllNodes()
+	if len(allN) != 4 {
+		t.Errorf("AllNodes() len = %d, want 4 (Top, A, B, C)", len(allN))
+	}
+	wantNodes := map[string]bool{"Top": true, "A": true, "B": true, "C": true}
+	for _, n := range allN {
+		if !wantNodes[n.ID] {
+			t.Errorf("unexpected node %q", n.ID)
+		}
+		delete(wantNodes, n.ID)
+	}
+	if len(wantNodes) > 0 {
+		t.Errorf("missing nodes: %v", wantNodes)
+	}
+
+	allE := d.AllEdges()
+	if len(allE) != 3 {
+		t.Errorf("AllEdges() len = %d, want 3", len(allE))
+	}
+
+	// Subgraph methods.
+	sg := d.Subgraphs[0]
+	if got := len(sg.AllNodes()); got != 3 {
+		t.Errorf("Subgraph.AllNodes() = %d, want 3 (A, B, C)", got)
+	}
+	if got := len(sg.AllEdges()); got != 2 {
+		t.Errorf("Subgraph.AllEdges() = %d, want 2", got)
+	}
+}

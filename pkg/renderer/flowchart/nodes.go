@@ -18,8 +18,8 @@ const (
 )
 
 func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fontSize float64) []any {
-	shapeStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%g", th.NodeFill, th.NodeStroke, defaultStrokeWidth)
-	textStyle := fmt.Sprintf("fill:%s;font-size:%gpx", th.NodeText, fontSize)
+	shapeStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.2f", th.NodeFill, th.NodeStroke, defaultStrokeWidth)
+	textStyle := fmt.Sprintf("fill:%s;font-size:%.2fpx", th.NodeText, fontSize)
 
 	cx := nl.X + pad
 	cy := nl.Y + pad
@@ -31,25 +31,25 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 	switch n.Shape {
 	case diagram.NodeShapeRectangle:
 		elems = append(elems, &Rect{
-			X: cx - w/2, Y: cy - h/2, Width: w, Height: h, Style: shapeStyle,
+			X: svgFloat(cx - w/2), Y: svgFloat(cy - h/2), Width: svgFloat(w), Height: svgFloat(h), Style: shapeStyle,
 		})
 	case diagram.NodeShapeRoundedRectangle:
 		elems = append(elems, &Rect{
-			X: cx - w/2, Y: cy - h/2, Width: w, Height: h, RX: 5, RY: 5, Style: shapeStyle,
+			X: svgFloat(cx - w/2), Y: svgFloat(cy - h/2), Width: svgFloat(w), Height: svgFloat(h), RX: 5, RY: 5, Style: shapeStyle,
 		})
 	case diagram.NodeShapeStadium:
 		elems = append(elems, &Rect{
-			X: cx - w/2, Y: cy - h/2, Width: w, Height: h, RX: h / 2, RY: h / 2, Style: shapeStyle,
+			X: svgFloat(cx - w/2), Y: svgFloat(cy - h/2), Width: svgFloat(w), Height: svgFloat(h), RX: svgFloat(h / 2), RY: svgFloat(h / 2), Style: shapeStyle,
 		})
 	case diagram.NodeShapeCircle:
 		r := math.Min(w, h) / 2
-		elems = append(elems, &Circle{CX: cx, CY: cy, R: r, Style: shapeStyle})
+		elems = append(elems, &Circle{CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(r), Style: shapeStyle})
 	case diagram.NodeShapeDoubleCircle:
 		r := math.Min(w, h) / 2
-		elems = append(elems, &Circle{CX: cx, CY: cy, R: r, Style: shapeStyle})
+		elems = append(elems, &Circle{CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(r), Style: shapeStyle})
 		elems = append(elems, &Circle{
-			CX: cx, CY: cy, R: r + doubleCircleGap,
-			Style: fmt.Sprintf("fill:none;stroke:%s;stroke-width:%g", th.NodeStroke, defaultStrokeWidth),
+			CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(r + doubleCircleGap),
+			Style: fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.2f", th.NodeStroke, defaultStrokeWidth),
 		})
 	case diagram.NodeShapeDiamond:
 		elems = append(elems, &Polygon{Points: diamondPoints(cx, cy, w, h), Style: shapeStyle})
@@ -69,16 +69,16 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 		elems = append(elems, &Path{D: cylinderPath(cx, cy, w, h), Style: shapeStyle})
 	case diagram.NodeShapeSubroutine:
 		elems = append(elems, &Rect{
-			X: cx - w/2, Y: cy - h/2, Width: w, Height: h, Style: shapeStyle,
+			X: svgFloat(cx - w/2), Y: svgFloat(cy - h/2), Width: svgFloat(w), Height: svgFloat(h), Style: shapeStyle,
 		})
 		bandX1 := cx - w/2 + w*subroutineBand
 		bandX2 := cx + w/2 - w*subroutineBand
-		lineStyle := fmt.Sprintf("stroke:%s;stroke-width:%g", th.NodeStroke, defaultStrokeWidth)
-		elems = append(elems, &Line{X1: bandX1, Y1: cy - h/2, X2: bandX1, Y2: cy + h/2, Style: lineStyle})
-		elems = append(elems, &Line{X1: bandX2, Y1: cy - h/2, X2: bandX2, Y2: cy + h/2, Style: lineStyle})
+		lineStyle := fmt.Sprintf("stroke:%s;stroke-width:%.2f", th.NodeStroke, defaultStrokeWidth)
+		elems = append(elems, &Line{X1: svgFloat(bandX1), Y1: svgFloat(cy - h/2), X2: svgFloat(bandX1), Y2: svgFloat(cy + h/2), Style: lineStyle})
+		elems = append(elems, &Line{X1: svgFloat(bandX2), Y1: svgFloat(cy - h/2), X2: svgFloat(bandX2), Y2: svgFloat(cy + h/2), Style: lineStyle})
 	default:
 		elems = append(elems, &Rect{
-			X: cx - w/2, Y: cy - h/2, Width: w, Height: h, Style: shapeStyle,
+			X: svgFloat(cx - w/2), Y: svgFloat(cy - h/2), Width: svgFloat(w), Height: svgFloat(h), Style: shapeStyle,
 		})
 	}
 
@@ -87,8 +87,8 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 	startY := cy - float64(len(lines)-1)*lineHeight/2
 	for i, line := range lines {
 		elems = append(elems, &Text{
-			X: cx, Y: startY + float64(i)*lineHeight,
-			Anchor: "middle", Dominant: "central", FontSize: fontSize,
+			X: svgFloat(cx), Y: svgFloat(startY + float64(i)*lineHeight),
+			Anchor: "middle", Dominant: "central", FontSize: svgFloat(fontSize),
 			Style: textStyle, Content: line,
 		})
 	}

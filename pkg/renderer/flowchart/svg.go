@@ -1,6 +1,27 @@
 package flowchart
 
-import "encoding/xml"
+import (
+	"encoding/xml"
+	"fmt"
+	"math"
+)
+
+// svgFloat is a float64 that marshals to XML rounded to 2 decimal
+// places. This eliminates cross-platform differences in float
+// formatting (macOS emits "41.099999999999994" while Linux emits
+// "41.1") so golden-file tests are byte-identical everywhere.
+type svgFloat float64
+
+func (v svgFloat) MarshalXMLAttr(name xml.Name) (xml.Attr, error) {
+	return xml.Attr{Name: name, Value: fmt.Sprintf("%.2f", round2(float64(v)))}, nil
+}
+
+func round2(v float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0
+	}
+	return math.Round(v*100) / 100
+}
 
 type SVG struct {
 	XMLName  xml.Name `xml:"svg"`
@@ -27,21 +48,21 @@ type Group struct {
 
 type Rect struct {
 	XMLName xml.Name `xml:"rect"`
-	X       float64  `xml:"x,attr"`
-	Y       float64  `xml:"y,attr"`
-	Width   float64  `xml:"width,attr"`
-	Height  float64  `xml:"height,attr"`
-	RX      float64  `xml:"rx,attr,omitempty"`
-	RY      float64  `xml:"ry,attr,omitempty"`
+	X       svgFloat `xml:"x,attr"`
+	Y       svgFloat `xml:"y,attr"`
+	Width   svgFloat `xml:"width,attr"`
+	Height  svgFloat `xml:"height,attr"`
+	RX      svgFloat `xml:"rx,attr,omitempty"`
+	RY      svgFloat `xml:"ry,attr,omitempty"`
 	Style   string   `xml:"style,attr,omitempty"`
 	Class   string   `xml:"class,attr,omitempty"`
 }
 
 type Circle struct {
 	XMLName xml.Name `xml:"circle"`
-	CX      float64  `xml:"cx,attr"`
-	CY      float64  `xml:"cy,attr"`
-	R       float64  `xml:"r,attr"`
+	CX      svgFloat `xml:"cx,attr"`
+	CY      svgFloat `xml:"cy,attr"`
+	R       svgFloat `xml:"r,attr"`
 	Style   string   `xml:"style,attr,omitempty"`
 	Class   string   `xml:"class,attr,omitempty"`
 }
@@ -72,10 +93,10 @@ type Path struct {
 
 type Line struct {
 	XMLName     xml.Name `xml:"line"`
-	X1          float64  `xml:"x1,attr"`
-	Y1          float64  `xml:"y1,attr"`
-	X2          float64  `xml:"x2,attr"`
-	Y2          float64  `xml:"y2,attr"`
+	X1          svgFloat `xml:"x1,attr"`
+	Y1          svgFloat `xml:"y1,attr"`
+	X2          svgFloat `xml:"x2,attr"`
+	Y2          svgFloat `xml:"y2,attr"`
 	Style       string   `xml:"style,attr,omitempty"`
 	Class       string   `xml:"class,attr,omitempty"`
 	MarkerEnd   string   `xml:"marker-end,attr,omitempty"`
@@ -84,11 +105,11 @@ type Line struct {
 
 type Text struct {
 	XMLName    xml.Name `xml:"text"`
-	X          float64  `xml:"x,attr"`
-	Y          float64  `xml:"y,attr"`
+	X          svgFloat `xml:"x,attr"`
+	Y          svgFloat `xml:"y,attr"`
 	Anchor     string   `xml:"text-anchor,attr,omitempty"`
 	Dominant   string   `xml:"dominant-baseline,attr,omitempty"`
-	FontSize   float64  `xml:"font-size,attr,omitempty"`
+	FontSize   svgFloat `xml:"font-size,attr,omitempty"`
 	FontFamily string   `xml:"font-family,attr,omitempty"`
 	Style      string   `xml:"style,attr,omitempty"`
 	Class      string   `xml:"class,attr,omitempty"`
@@ -104,10 +125,10 @@ type Marker struct {
 	XMLName  xml.Name `xml:"marker"`
 	ID       string   `xml:"id,attr"`
 	ViewBox  string   `xml:"viewBox,attr"`
-	RefX     float64  `xml:"refX,attr"`
-	RefY     float64  `xml:"refY,attr"`
-	Width    float64  `xml:"markerWidth,attr"`
-	Height   float64  `xml:"markerHeight,attr"`
+	RefX     svgFloat `xml:"refX,attr"`
+	RefY     svgFloat `xml:"refY,attr"`
+	Width    svgFloat `xml:"markerWidth,attr"`
+	Height   svgFloat `xml:"markerHeight,attr"`
 	Orient   string   `xml:"orient,attr"`
 	Children []any    `xml:",any"`
 }

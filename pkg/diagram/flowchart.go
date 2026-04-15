@@ -150,3 +150,44 @@ type FlowchartDiagram struct {
 func (*FlowchartDiagram) Type() DiagramType { return Flowchart }
 
 var _ Diagram = (*FlowchartDiagram)(nil)
+
+// AllNodes returns every node in d — top-level plus every node nested
+// in a subgraph (recursively). Per the AST contract, a node inside a
+// subgraph is stored ONLY in its containing Subgraph.Nodes slice; this
+// is the canonical iteration helper so consumers don't duplicate the
+// recursion.
+func (d *FlowchartDiagram) AllNodes() []Node {
+	nodes := append([]Node(nil), d.Nodes...)
+	for i := range d.Subgraphs {
+		nodes = append(nodes, d.Subgraphs[i].AllNodes()...)
+	}
+	return nodes
+}
+
+// AllEdges returns every edge in d, including edges declared inside a
+// `subgraph ... end` block.
+func (d *FlowchartDiagram) AllEdges() []Edge {
+	edges := append([]Edge(nil), d.Edges...)
+	for i := range d.Subgraphs {
+		edges = append(edges, d.Subgraphs[i].AllEdges()...)
+	}
+	return edges
+}
+
+// AllNodes returns every node owned by sg or any of its descendants.
+func (sg *Subgraph) AllNodes() []Node {
+	nodes := append([]Node(nil), sg.Nodes...)
+	for i := range sg.Children {
+		nodes = append(nodes, sg.Children[i].AllNodes()...)
+	}
+	return nodes
+}
+
+// AllEdges returns every edge owned by sg or any of its descendants.
+func (sg *Subgraph) AllEdges() []Edge {
+	edges := append([]Edge(nil), sg.Edges...)
+	for i := range sg.Children {
+		edges = append(edges, sg.Children[i].AllEdges()...)
+	}
+	return edges
+}

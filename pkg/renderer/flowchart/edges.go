@@ -14,31 +14,18 @@ func markerID(ah diagram.ArrowHead, ls diagram.LineStyle) string {
 	return fmt.Sprintf("arrow-%s-%s", ah, ls)
 }
 
-// buildMarkers walks every edge in d (including subgraph-scoped edges)
-// and returns one Marker per distinct (arrowhead, line-style) pair, in
-// deterministic order. Markers must be sorted because Go map iteration
-// is randomized — without sorting, multi-arrow diagrams produce
-// byte-different SVG output across runs and break golden tests.
+// buildMarkers returns one Marker per distinct (arrowhead, line-style)
+// pair used by any edge in d, in deterministic alphabetic order.
+// Sorting is mandatory: Go map iteration is randomized, so without it
+// multi-arrow diagrams produce byte-different SVG across runs.
 func buildMarkers(d *diagram.FlowchartDiagram, th Theme) []Marker {
 	needed := map[string]diagram.ArrowHead{}
-	collect := func(edges []diagram.Edge) {
-		for _, e := range edges {
-			if e.ArrowHead == diagram.ArrowHeadNone || e.ArrowHead == diagram.ArrowHeadUnknown {
-				continue
-			}
-			needed[markerID(e.ArrowHead, e.LineStyle)] = e.ArrowHead
+	for _, e := range d.AllEdges() {
+		if e.ArrowHead == diagram.ArrowHeadNone || e.ArrowHead == diagram.ArrowHeadUnknown {
+			continue
 		}
+		needed[markerID(e.ArrowHead, e.LineStyle)] = e.ArrowHead
 	}
-	collect(d.Edges)
-	var walk func(sgs []diagram.Subgraph)
-	walk = func(sgs []diagram.Subgraph) {
-		for i := range sgs {
-			collect(sgs[i].Edges)
-			walk(sgs[i].Children)
-		}
-	}
-	walk(d.Subgraphs)
-
 	ids := make([]string, 0, len(needed))
 	for id := range needed {
 		ids = append(ids, id)
@@ -68,14 +55,14 @@ func buildMarker(id string, ah diagram.ArrowHead, th Theme) Marker {
 		m.Children = []any{
 			&Polyline{
 				Points: "0,1 10,5 0,9",
-				Style:  fmt.Sprintf("stroke:%s;stroke-width:%g;fill:none", th.EdgeStroke, defaultStrokeWidth),
+				Style:  fmt.Sprintf("stroke:%s;stroke-width:%.2f;fill:none", th.EdgeStroke, defaultStrokeWidth),
 			},
 		}
 	case diagram.ArrowHeadCross:
 		m.Children = []any{
 			&Polyline{
 				Points: "0,0 10,5 0,10 10,5",
-				Style:  fmt.Sprintf("stroke:%s;stroke-width:%g;fill:none", th.EdgeStroke, defaultStrokeWidth),
+				Style:  fmt.Sprintf("stroke:%s;stroke-width:%.2f;fill:none", th.EdgeStroke, defaultStrokeWidth),
 			},
 		}
 	case diagram.ArrowHeadCircle:
@@ -83,7 +70,7 @@ func buildMarker(id string, ah diagram.ArrowHead, th Theme) Marker {
 		m.Children = []any{
 			&Circle{
 				CX: 5, CY: 5, R: 4,
-				Style: fmt.Sprintf("stroke:%s;stroke-width:%g;fill:none", th.EdgeStroke, defaultStrokeWidth),
+				Style: fmt.Sprintf("stroke:%s;stroke-width:%.2f;fill:none", th.EdgeStroke, defaultStrokeWidth),
 			},
 		}
 	}
@@ -99,7 +86,7 @@ func buildMarker(id string, ah diagram.ArrowHead, th Theme) Marker {
 // arrowheads between parallel edges.
 func renderEdges(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th Theme, fontSize float64, ruler *textmeasure.Ruler) []any {
 	fromTo := map[string][]diagram.Edge{}
-	for _, e := range allEdges(d) {
+	for _, e := range d.AllEdges() {
 		key := e.From + "->" + e.To
 		fromTo[key] = append(fromTo[key], e)
 	}
@@ -151,8 +138,8 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 
 	if len(pts) == 2 {
 		line := &Line{
-			X1: pts[0].X, Y1: pts[0].Y,
-			X2: pts[1].X, Y2: pts[1].Y,
+			X1: svgFloat(pts[0].X), Y1: svgFloat(pts[0].Y),
+			X2: svgFloat(pts[1].X), Y2: svgFloat(pts[1].Y),
 			Style: style,
 		}
 		if e.ArrowHead != diagram.ArrowHeadNone && e.ArrowHead != diagram.ArrowHeadUnknown {
@@ -170,19 +157,19 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 	if e.Label != "" {
 		lx := el.LabelPos.X + pad
 		ly := el.LabelPos.Y + pad
-		textStyle := fmt.Sprintf("fill:%s;font-size:%gpx", th.EdgeText, fontSize)
+		textStyle := fmt.Sprintf("fill:%s;font-size:%.2fpx", th.EdgeText, fontSize)
 
 		labelW, labelH := measureLabel(ruler, e.Label, fontSize)
 		const labelPad = 4.0
 		elems = append(elems, &Rect{
-			X: lx - labelW/2 - labelPad, Y: ly - labelH/2 - labelPad,
-			Width: labelW + 2*labelPad, Height: labelH + 2*labelPad,
+			X: svgFloat(lx - labelW/2 - labelPad), Y: svgFloat(ly - labelH/2 - labelPad),
+			Width: svgFloat(labelW + 2*labelPad), Height: svgFloat(labelH + 2*labelPad),
 			Style: "fill:white;stroke:none",
 		})
 		elems = append(elems, &Text{
-			X: lx, Y: ly,
+			X: svgFloat(lx), Y: svgFloat(ly),
 			Anchor: "middle", Dominant: "central",
-			FontSize: fontSize, Style: textStyle, Content: e.Label,
+			FontSize: svgFloat(fontSize), Style: textStyle, Content: e.Label,
 		})
 	}
 
@@ -210,7 +197,7 @@ func edgeStyle(th Theme, ls diagram.LineStyle) string {
 	case diagram.LineStyleThick:
 		extra = "stroke-width:3;"
 	}
-	return fmt.Sprintf("stroke:%s;stroke-width:%g;fill:none;%s", th.EdgeStroke, defaultStrokeWidth, extra)
+	return fmt.Sprintf("stroke:%s;stroke-width:%.2f;fill:none;%s", th.EdgeStroke, defaultStrokeWidth, extra)
 }
 
 func buildCurvePath(pts []layout.Point) string {

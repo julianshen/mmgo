@@ -34,11 +34,15 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 	fontSize := resolveFontSize(opts)
 	bg := resolveBackground(opts, th)
 
-	ruler, err := textmeasure.NewDefaultRuler()
-	if err != nil {
-		return nil, fmt.Errorf("flowchart render: text measurer init: %w", err)
+	ruler := rulerFromOpts(opts)
+	if ruler == nil {
+		r, err := textmeasure.NewDefaultRuler()
+		if err != nil {
+			return nil, fmt.Errorf("flowchart render: text measurer init: %w", err)
+		}
+		defer r.Close()
+		ruler = r
 	}
-	defer ruler.Close()
 
 	// A nil/zero/negative layout size still produces a valid SVG: clamp
 	// to a non-negative minimum so a NaN/Inf layout (degenerate input)
@@ -68,8 +72,8 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 
 	children = append(children, &Rect{
 		X: 0, Y: 0,
-		Width:  viewBoxW,
-		Height: viewBoxH,
+		Width:  svgFloat(viewBoxW),
+		Height: svgFloat(viewBoxH),
 		Style:  fmt.Sprintf("fill:%s;stroke:none", bg),
 	})
 
@@ -98,7 +102,7 @@ func buildDefs(d *diagram.FlowchartDiagram, th Theme) *Defs {
 
 func renderNodes(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th Theme, fontSize float64) []any {
 	var elems []any
-	for _, n := range allNodes(d) {
+	for _, n := range d.AllNodes() {
 		nl, ok := l.Nodes[n.ID]
 		if !ok {
 			continue

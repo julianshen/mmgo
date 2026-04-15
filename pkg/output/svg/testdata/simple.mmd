@@ -1,0 +1,6 @@
+graph LR
+    A[Start] --> B{Decide}
+    B -->|yes| C[Ok]
+    B -->|no| D[Fail]
+    C --> E((End))
+    D --> E
