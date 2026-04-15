@@ -3,7 +3,7 @@ package flowchart
 import "github.com/julianshen/mmgo/pkg/textmeasure"
 
 const (
-	defaultFontSize = 16.0
+	DefaultFontSize = 16.0
 	defaultPadding  = 20.0
 )
 
@@ -91,7 +91,7 @@ func resolveFontSize(opts *Options) float64 {
 	if opts != nil && opts.FontSize > 0 {
 		return opts.FontSize
 	}
-	return defaultFontSize
+	return DefaultFontSize
 }
 
 func rulerFromOpts(opts *Options) *textmeasure.Ruler {

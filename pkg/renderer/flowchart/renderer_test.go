@@ -71,10 +71,10 @@ func TestRenderRectangleNodeGeometry(t *testing.T) {
 	}
 	wantX := nl.X - nl.Width/2 + pad
 	wantY := nl.Y - nl.Height/2 + pad
-	if rect.X != wantX {
+	if float64(rect.X) != wantX {
 		t.Errorf("rect.X = %f, want %f", rect.X, wantX)
 	}
-	if rect.Y != wantY {
+	if float64(rect.Y) != wantY {
 		t.Errorf("rect.Y = %f, want %f", rect.Y, wantY)
 	}
 

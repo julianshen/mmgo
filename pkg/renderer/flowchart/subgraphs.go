@@ -60,14 +60,14 @@ func renderSubgraphGroup(sg diagram.Subgraph, l *layout.Result, pad float64, th 
 		rh := bb.MaxY - bb.MinY + 2*sgPad
 		g.Children = append(g.Children,
 			&Rect{
-				X: rx, Y: ry, Width: rw, Height: rh,
+				X: svgFloat(rx), Y: svgFloat(ry), Width: svgFloat(rw), Height: svgFloat(rh),
 				RX: 5, RY: 5,
-				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%g", th.SubgraphFill, th.SubgraphStroke, defaultStrokeWidth),
+				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.2f", th.SubgraphFill, th.SubgraphStroke, defaultStrokeWidth),
 			},
 			&Text{
-				X: rx + 10, Y: ry + 18,
-				FontSize: fontSize,
-				Style:    fmt.Sprintf("fill:%s;font-size:%gpx", th.SubgraphText, fontSize),
+				X: svgFloat(rx + 10), Y: svgFloat(ry + 18),
+				FontSize: svgFloat(fontSize),
+				Style:    fmt.Sprintf("fill:%s;font-size:%.2fpx", th.SubgraphText, fontSize),
 				Content:  sg.Label,
 			},
 		)

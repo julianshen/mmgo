@@ -40,11 +40,10 @@ type Options struct {
 // label; minimums chosen so empty/short labels still render at a
 // readable size.
 const (
-	defaultFontSize = 16.0
-	nodePaddingX    = 30.0
-	nodePaddingY    = 20.0
-	minNodeWidth    = 60.0
-	minNodeHeight   = 40.0
+	nodePaddingX     = 30.0
+	nodePaddingY     = 20.0
+	minNodeWidth     = 60.0
+	minNodeHeight    = 40.0
 	lineHeightFactor = 1.2
 )
 
@@ -81,6 +80,15 @@ const (
 	kindUnknown diagramKind = iota
 	kindFlowchart
 )
+
+func (k diagramKind) String() string {
+	switch k {
+	case kindFlowchart:
+		return "flowchart"
+	default:
+		return "unknown"
+	}
+}
 
 // detectDiagramKind sniffs the first non-blank, non-comment line of
 // src for a recognized header keyword. This pre-check exists so we
@@ -170,7 +178,7 @@ func flowchartFontSize(opts *Options) float64 {
 	if opts != nil && opts.Flowchart != nil && opts.Flowchart.FontSize > 0 {
 		return opts.Flowchart.FontSize
 	}
-	return defaultFontSize
+	return flowchartrenderer.DefaultFontSize
 }
 
 // buildFlowchartGraph converts a parsed flowchart AST into a layout
@@ -211,6 +219,8 @@ func nodeSize(label string, ruler *textmeasure.Ruler, fontSize float64) (w, h fl
 // directionToRankDir maps the parsed Direction enum to the layout
 // RankDir enum. They are intentionally separate types (parser concept
 // vs. layout concept) so this translator is the seam.
+// DirectionUnknown and DirectionTB both map to RankDirTB (top-to-bottom)
+// because TB is the Mermaid default when no direction is specified.
 func directionToRankDir(d diagram.Direction) layout.RankDir {
 	switch d {
 	case diagram.DirectionBT:

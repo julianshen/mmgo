@@ -196,7 +196,7 @@ func TestBuildFlowchartGraphIncludesNestedNodes(t *testing.T) {
 	}
 	ruler := mustRuler(t)
 	defer ruler.Close()
-	g := buildFlowchartGraph(d, ruler, defaultFontSize)
+	g := buildFlowchartGraph(d, ruler, flowchartrenderer.DefaultFontSize)
 
 	for _, want := range []string{"Top", "Nested", "Deep"} {
 		if !g.HasNode(want) {
@@ -211,11 +211,11 @@ func TestBuildFlowchartGraphIncludesNestedNodes(t *testing.T) {
 func TestNodeSizeRespectsMinimum(t *testing.T) {
 	ruler := mustRuler(t)
 	defer ruler.Close()
-	w, h := nodeSize("", ruler, defaultFontSize)
+	w, h := nodeSize("", ruler, flowchartrenderer.DefaultFontSize)
 	if w < minNodeWidth || h < minNodeHeight {
 		t.Errorf("empty label should clamp to minimum: w=%v h=%v", w, h)
 	}
-	wLong, _ := nodeSize("a very wide label that should expand the box", ruler, defaultFontSize)
+	wLong, _ := nodeSize("a very wide label that should expand the box", ruler, flowchartrenderer.DefaultFontSize)
 	if wLong <= minNodeWidth {
 		t.Errorf("long label width %v should exceed min %v", wLong, minNodeWidth)
 	}
@@ -263,7 +263,7 @@ func TestRenderHonorsFlowchartFontSize(t *testing.T) {
 	// And the rendered text must also be 48px (font-size in the
 	// emitted style attribute) — this is what the previous
 	// top-level FontSize bug missed.
-	if !strings.Contains(string(bigOut), "font-size:48px") {
+	if !strings.Contains(string(bigOut), "font-size:48.00px") {
 		t.Errorf("expected font-size:48px in output, got:\n%s", bigOut)
 	}
 }

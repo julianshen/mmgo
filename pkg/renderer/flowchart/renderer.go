@@ -72,8 +72,8 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 
 	children = append(children, &Rect{
 		X: 0, Y: 0,
-		Width:  viewBoxW,
-		Height: viewBoxH,
+		Width:  svgFloat(viewBoxW),
+		Height: svgFloat(viewBoxH),
 		Style:  fmt.Sprintf("fill:%s;stroke:none", bg),
 	})
 
