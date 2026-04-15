@@ -147,10 +147,14 @@ func renderFlowchart(src []byte, opts *Options) ([]byte, error) {
 
 	l := layout.Layout(g, lopts)
 
-	var fcopts *flowchartrenderer.Options
-	if opts != nil {
-		fcopts = opts.Flowchart
+	fcopts := &flowchartrenderer.Options{}
+	if opts != nil && opts.Flowchart != nil {
+		clone := *opts.Flowchart
+		fcopts = &clone
 	}
+	// Share the ruler we already built for node sizing so the renderer
+	// doesn't re-parse the bundled TTF.
+	fcopts.Ruler = ruler
 	out, err := flowchartrenderer.Render(d, l, fcopts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)

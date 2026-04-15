@@ -1,5 +1,7 @@
 package flowchart
 
+import "github.com/julianshen/mmgo/pkg/textmeasure"
+
 const (
 	defaultFontSize = 16.0
 	defaultPadding  = 20.0
@@ -11,6 +13,10 @@ type Options struct {
 	Theme      Theme
 	ExtraCSS   string
 	Background string
+	// Ruler lets the caller share a pre-built text measurer so Render
+	// doesn't re-parse the bundled TTF on every call. When nil, Render
+	// creates one and closes it internally.
+	Ruler *textmeasure.Ruler
 }
 
 type Theme struct {
@@ -86,6 +92,13 @@ func resolveFontSize(opts *Options) float64 {
 		return opts.FontSize
 	}
 	return defaultFontSize
+}
+
+func rulerFromOpts(opts *Options) *textmeasure.Ruler {
+	if opts == nil {
+		return nil
+	}
+	return opts.Ruler
 }
 
 func resolvePadding(opts *Options) float64 {

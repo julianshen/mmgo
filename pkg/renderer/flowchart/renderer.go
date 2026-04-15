@@ -34,11 +34,15 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 	fontSize := resolveFontSize(opts)
 	bg := resolveBackground(opts, th)
 
-	ruler, err := textmeasure.NewDefaultRuler()
-	if err != nil {
-		return nil, fmt.Errorf("flowchart render: text measurer init: %w", err)
+	ruler := rulerFromOpts(opts)
+	if ruler == nil {
+		r, err := textmeasure.NewDefaultRuler()
+		if err != nil {
+			return nil, fmt.Errorf("flowchart render: text measurer init: %w", err)
+		}
+		defer r.Close()
+		ruler = r
 	}
-	defer ruler.Close()
 
 	// A nil/zero/negative layout size still produces a valid SVG: clamp
 	// to a non-negative minimum so a NaN/Inf layout (degenerate input)
