@@ -113,23 +113,16 @@ func (p *parser) parseLine(line string) error {
 	return fmt.Errorf("unrecognized statement: %q", line)
 }
 
-// parseNote handles `Note left of X: text`, `Note right of X: text`,
-// `Note over X: text`, and `Note over X, Y: text`. left/right take
-// exactly one participant; over may take one or two.
 func (p *parser) parseNote(rest string) error {
 	var pos diagram.NotePosition
 	var after string
-	switch {
-	case strings.HasPrefix(rest, "left of "):
-		pos = diagram.NotePositionLeft
-		after = rest[len("left of "):]
-	case strings.HasPrefix(rest, "right of "):
-		pos = diagram.NotePositionRight
-		after = rest[len("right of "):]
-	case strings.HasPrefix(rest, "over "):
-		pos = diagram.NotePositionOver
-		after = rest[len("over "):]
-	default:
+	if r, ok := strings.CutPrefix(rest, "left of "); ok {
+		pos, after = diagram.NotePositionLeft, r
+	} else if r, ok := strings.CutPrefix(rest, "right of "); ok {
+		pos, after = diagram.NotePositionRight, r
+	} else if r, ok := strings.CutPrefix(rest, "over "); ok {
+		pos, after = diagram.NotePositionOver, r
+	} else {
 		return fmt.Errorf("note position must be 'left of', 'right of', or 'over': %q", rest)
 	}
 	colon := strings.IndexByte(after, ':')
@@ -156,8 +149,6 @@ func (p *parser) parseNote(rest string) error {
 	return nil
 }
 
-// splitParticipantList splits a comma-separated list and trims each
-// entry, dropping empties so trailing commas are tolerated.
 func splitParticipantList(s string) []string {
 	raw := strings.Split(s, ",")
 	out := make([]string, 0, len(raw))
@@ -252,12 +243,10 @@ func parseMessage(line string) (diagram.Message, bool) {
 	to, label := splitMessageLabel(line[bestIdx+len(best.lit):])
 	to = strings.TrimSpace(to)
 	lifeline := diagram.LifelineEffectNone
-	if strings.HasPrefix(to, "+") {
-		lifeline = diagram.LifelineEffectActivate
-		to = strings.TrimSpace(to[1:])
-	} else if strings.HasPrefix(to, "-") {
-		lifeline = diagram.LifelineEffectDeactivate
-		to = strings.TrimSpace(to[1:])
+	if r, ok := strings.CutPrefix(to, "+"); ok {
+		lifeline, to = diagram.LifelineEffectActivate, strings.TrimSpace(r)
+	} else if r, ok := strings.CutPrefix(to, "-"); ok {
+		lifeline, to = diagram.LifelineEffectDeactivate, strings.TrimSpace(r)
 	}
 	if from == "" || to == "" {
 		return diagram.Message{}, false
