@@ -1,5 +1,4 @@
-// Package png converts SVG bytes to PNG by parsing the SVG into a
-// canvas and rasterizing it.
+// Package png rasterizes SVG bytes to PNG.
 package png
 
 import (
@@ -35,6 +34,9 @@ func Render(svgBytes []byte, opts *Options) ([]byte, error) {
 	}
 
 	cw, _ := c.Size()
+	if cw <= 0 {
+		cw = 1
+	}
 
 	dpi := canvas.DPI(96 * scale)
 	if opts != nil && opts.Width > 0 && opts.Height > 0 {
@@ -44,9 +46,12 @@ func Render(svgBytes []byte, opts *Options) ([]byte, error) {
 	img := rasterizer.Draw(c, dpi, canvas.DefaultColorSpace)
 
 	var out image.Image = img
-	if opts != nil && opts.Width > 0 && opts.Height > 0 {
+	if opts != nil && opts.Width > 0 && opts.Height > 0 &&
+		(img.Bounds().Dx() != opts.Width || img.Bounds().Dy() != opts.Height) {
 		dst := image.NewRGBA(image.Rect(0, 0, opts.Width, opts.Height))
-		xdraw.CatmullRom.Scale(dst, dst.Bounds(), img, img.Bounds(), xdraw.Over, nil)
+		// NearestNeighbor preserves sharp edges in diagram line art.
+		xdraw.NearestNeighbor.Scale(dst, dst.Bounds(), img, img.Bounds(), xdraw.Over, nil)
+		img = nil // free the original before encoding
 		out = dst
 	}
 
