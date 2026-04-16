@@ -4,14 +4,14 @@ Dashboard view of progress against [implementation-plan.md](implementation-plan.
 Updated at each step boundary and committed to git, so any client can read
 current state without relying on chat history.
 
-**Last updated:** 2026-04-16 (post Step 14 merge)
+**Last updated:** 2026-04-16 (post Step 15 merge)
 
 ## Overall
 
-- **Current milestone:** working toward v0.2.0 (+ Sequence, pie, themes)
-- **Current phase:** Phase 4 — Pie done; Config & themes next
-- **Completed:** 15 of 25 steps
-- **Next:** Step 15 — Config and themes
+- **Current milestone:** v0.2.0 complete; working toward v0.3.0 (CLI, PNG/PDF, markdown)
+- **Current phase:** Phase 4 done; starting Phase 5 (CLI & Output Formats)
+- **Completed:** 16 of 25 steps
+- **Next:** Step 16 — CLI (`cmd/mmdc/`)
 
 ## Phase 0: Project Scaffold
 
@@ -52,7 +52,7 @@ current state without relying on chat history.
 | Status | Step | PR | Coverage | Notes |
 |--------|------|----|----|---|
 | ✅ | 14. Pie parser and renderer | #25 | 91.8% / 94.5% | Parser + renderer + SVG integration in single PR; arc paths, legend, single-slice special case |
-| ⏳ | 15. Config and themes | — | | |
+| ✅ | 15. Config and themes (`pkg/config/`) | #27, #28 | 100% / 91.2% | JSON config loading, 4 built-in themes, init directive extraction, theme wiring into svg.Render |
 
 ## Phase 5: CLI and Output Formats
 
@@ -79,8 +79,8 @@ current state without relying on chat history.
 | Milestone | Steps | Status |
 |-----------|-------|--------|
 | v0.1.0 — Flowchart SVG + Go module API | 0–11 | ✅ Shipped (12/12 done) |
-| v0.2.0 — + Sequence, pie, themes | 12–15 | 🚧 Step 15 remaining (15/16 done) |
-| v0.3.0 — + CLI, PNG/PDF, markdown | 16–19 | ⏳ Not started |
+| v0.2.0 — + Sequence, pie, themes | 12–15 | ✅ Shipped (16/16 done) |
+| v0.3.0 — + CLI, PNG/PDF, markdown | 16–19 | ⏳ Starting |
 | v0.4.0 — + Class, state, ER | 20–22 | ⏳ Not started |
 | v0.5.0 — + Gantt, mindmap, others | 23–25+ | ⏳ Not started |
 | v1.0.0 — Stable API, all major types, >90% coverage | — | ⏳ Not started |
