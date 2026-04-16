@@ -3,7 +3,6 @@
 package svgutil
 
 import (
-	"bytes"
 	"encoding/xml"
 	"fmt"
 	"math"
@@ -29,14 +28,7 @@ func Sanitize(v float64) float64 {
 	return v
 }
 
-func MarshalDoc(doc any) ([]byte, error) {
-	svgBytes, err := xml.Marshal(doc)
-	if err != nil {
-		return nil, err
-	}
-	xmlDecl := []byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-	return append(xmlDecl, svgBytes...), nil
-}
+const xmlDecl = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
 
 type Doc struct {
 	XMLName  xml.Name `xml:"svg"`
@@ -124,14 +116,10 @@ func ViewBox(w, h float64) string {
 	return fmt.Sprintf("0 0 %.2f %.2f", w, h)
 }
 
-func XMLDecl() []byte {
-	return []byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-}
-
 func MarshalSVG(doc Doc) ([]byte, error) {
 	raw, err := xml.Marshal(doc)
 	if err != nil {
 		return nil, err
 	}
-	return bytes.Join([][]byte{XMLDecl(), raw}, nil), nil
+	return append([]byte(xmlDecl), raw...), nil
 }
