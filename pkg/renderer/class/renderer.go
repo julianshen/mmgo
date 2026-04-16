@@ -200,40 +200,31 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 
 		fields, methods := splitMembers(c.Members)
 		if len(fields) > 0 {
-			elems = append(elems, &line{
-				X1: svgFloat(x), Y1: svgFloat(sectionY),
-				X2: svgFloat(x + w), Y2: svgFloat(sectionY),
-				Style: "stroke:#9370DB;stroke-width:1",
-			})
-			for i, f := range fields {
-				fy := sectionY + classPadY/2 + float64(i)*memberRowH + memberRowH/2
-				elems = append(elems, &text{
-					X: svgFloat(x + classPadX), Y: svgFloat(fy),
-					Anchor: "start", Dominant: "central",
-					Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
-					Content: memberText(f),
-				})
-			}
-			sectionY += classPadY + float64(len(fields))*memberRowH
+			elems, sectionY = appendMemberSection(elems, fields, x, w, sectionY, fontSize)
 		}
 		if len(methods) > 0 {
-			elems = append(elems, &line{
-				X1: svgFloat(x), Y1: svgFloat(sectionY),
-				X2: svgFloat(x + w), Y2: svgFloat(sectionY),
-				Style: "stroke:#9370DB;stroke-width:1",
-			})
-			for i, m := range methods {
-				my := sectionY + classPadY/2 + float64(i)*memberRowH + memberRowH/2
-				elems = append(elems, &text{
-					X: svgFloat(x + classPadX), Y: svgFloat(my),
-					Anchor: "start", Dominant: "central",
-					Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
-					Content: memberText(m),
-				})
-			}
+			elems, _ = appendMemberSection(elems, methods, x, w, sectionY, fontSize)
 		}
 	}
 	return elems
+}
+
+func appendMemberSection(elems []any, members []diagram.ClassMember, x, w, sectionY, fontSize float64) ([]any, float64) {
+	elems = append(elems, &line{
+		X1: svgFloat(x), Y1: svgFloat(sectionY),
+		X2: svgFloat(x + w), Y2: svgFloat(sectionY),
+		Style: "stroke:#9370DB;stroke-width:1",
+	})
+	for i, m := range members {
+		my := sectionY + classPadY/2 + float64(i)*memberRowH + memberRowH/2
+		elems = append(elems, &text{
+			X: svgFloat(x + classPadX), Y: svgFloat(my),
+			Anchor: "start", Dominant: "central",
+			Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
+			Content: memberText(m),
+		})
+	}
+	return elems, sectionY + classPadY + float64(len(members))*memberRowH
 }
 
 func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float64) []any {
@@ -248,15 +239,22 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 		return edgeKeys[i].To < edgeKeys[j].To
 	})
 
-	relMap := make(map[string]diagram.ClassRelation)
+	relQueue := make(map[string][]diagram.ClassRelation)
 	for _, r := range d.Relations {
-		relMap[r.From+"->"+r.To] = r
+		key := r.From + "->" + r.To
+		relQueue[key] = append(relQueue[key], r)
 	}
 
 	var elems []any
 	for _, eid := range edgeKeys {
 		el := l.Edges[eid]
-		rel := relMap[eid.From+"->"+eid.To]
+		key := eid.From + "->" + eid.To
+		candidates := relQueue[key]
+		if len(candidates) == 0 {
+			continue
+		}
+		rel := candidates[0]
+		relQueue[key] = candidates[1:]
 
 		if len(el.Points) < 2 {
 			continue
