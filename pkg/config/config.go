@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-
-	flowchartrenderer "github.com/julianshen/mmgo/pkg/renderer/flowchart"
-	sequencerenderer "github.com/julianshen/mmgo/pkg/renderer/sequence"
 )
 
 type ThemeName string
@@ -123,33 +120,3 @@ func BuiltInTheme(name ThemeName) (*ThemeColors, error) {
 	}
 }
 
-func (tc *ThemeColors) FlowchartTheme() flowchartrenderer.Theme {
-	return flowchartrenderer.Theme{
-		NodeFill:       tc.Primary,
-		NodeStroke:     tc.LineColor,
-		NodeText:       tc.Text,
-		EdgeStroke:     tc.LineColor,
-		EdgeText:       tc.Text,
-		SubgraphFill:   tc.Tertiary,
-		SubgraphStroke: tc.LineColor,
-		SubgraphText:   tc.Text,
-		Background:     tc.Background,
-	}
-}
-
-func (tc *ThemeColors) SequenceTheme() sequencerenderer.Theme {
-	return sequencerenderer.Theme{
-		Background:        tc.Background,
-		ParticipantFill:   tc.Secondary,
-		ParticipantStroke: tc.LineColor,
-		ParticipantText:   tc.Text,
-		LifelineStroke:    tc.LineColor,
-		MessageStroke:     tc.LineColor,
-		MessageText:       tc.Text,
-		NoteFill:          tc.NoteFill,
-	}
-}
-
-func (tc *ThemeColors) PieSliceColors() []string {
-	return tc.PieColors
-}

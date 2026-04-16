@@ -104,27 +104,13 @@ func TestLoadFileInvalidJSON(t *testing.T) {
 	}
 }
 
-func TestFlowchartTheme(t *testing.T) {
+func TestThemeColorsFieldsPopulated(t *testing.T) {
 	th, _ := BuiltInTheme(ThemeDark)
-	ft := th.FlowchartTheme()
-	if ft.NodeFill == "" || ft.Background == "" {
-		t.Errorf("FlowchartTheme should populate fields: %+v", ft)
+	if th.Primary == "" || th.Background == "" || th.LineColor == "" {
+		t.Errorf("ThemeColors should have populated fields: %+v", th)
 	}
-}
-
-func TestSequenceTheme(t *testing.T) {
-	th, _ := BuiltInTheme(ThemeForest)
-	st := th.SequenceTheme()
-	if st.ParticipantFill == "" || st.Background == "" {
-		t.Errorf("SequenceTheme should populate fields: %+v", st)
-	}
-}
-
-func TestPieColors(t *testing.T) {
-	th, _ := BuiltInTheme(ThemeDefault)
-	colors := th.PieSliceColors()
-	if len(colors) == 0 {
-		t.Error("PieColors should return at least one color")
+	if len(th.PieColors) == 0 {
+		t.Error("PieColors should not be empty")
 	}
 }
 
