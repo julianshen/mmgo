@@ -445,6 +445,150 @@ func TestRenderMessageHeightScales(t *testing.T) {
 	}
 }
 
+// --- Slice C: Notes, blocks, SVG integration ---
+
+func TestRenderNoteLeftOf(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewNoteItem(diagram.Note{
+				Participants: []string{"A"},
+				Text:         "left note",
+				Position:     diagram.NotePositionLeft,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">left note<") {
+		t.Error("note text missing")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderNoteRightOf(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewNoteItem(diagram.Note{
+				Participants: []string{"A"},
+				Text:         "right note",
+				Position:     diagram.NotePositionRight,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), ">right note<") {
+		t.Error("note text missing")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderNoteOverTwo(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewNoteItem(diagram.Note{
+				Participants: []string{"A", "B"},
+				Text:         "spanning",
+				Position:     diagram.NotePositionOver,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), ">spanning<") {
+		t.Error("note text missing")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderBlockRegion(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind:  diagram.BlockKindLoop,
+				Label: "retry",
+				Items: []diagram.SequenceItem{
+					diagram.NewMessageItem(diagram.Message{
+						From: "A", To: "B", Label: "try",
+						ArrowType: diagram.ArrowTypeSolid,
+					}),
+				},
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">loop<") && !strings.Contains(raw, ">Loop<") {
+		t.Error("block kind label missing")
+	}
+	if !strings.Contains(raw, ">retry<") && !strings.Contains(raw, ">[retry]<") {
+		t.Error("block label missing")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderBlockWithBranches(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind:  diagram.BlockKindAlt,
+				Label: "condition",
+				Items: []diagram.SequenceItem{
+					diagram.NewMessageItem(diagram.Message{
+						From: "A", To: "B", Label: "yes",
+						ArrowType: diagram.ArrowTypeSolid,
+					}),
+				},
+				Branches: []diagram.Block{
+					{Kind: diagram.BlockKindAlt, Label: "otherwise", Items: []diagram.SequenceItem{
+						diagram.NewMessageItem(diagram.Message{
+							From: "A", To: "B", Label: "no",
+							ArrowType: diagram.ArrowTypeSolid,
+						}),
+					}},
+				},
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "stroke-dasharray") {
+		t.Error("branch separator should be dashed")
+	}
+	assertValidSVG(t, out)
+}
+
 // --- Helpers ---
 
 func viewBoxHeight(t *testing.T, svgBytes []byte) float64 {

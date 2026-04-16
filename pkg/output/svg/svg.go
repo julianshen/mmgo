@@ -3,8 +3,7 @@
 //
 //	svgBytes, err := svg.Render(strings.NewReader(input), nil)
 //
-// Currently supports flowchart/graph diagrams; sequence and pie land
-// alongside their renderers.
+// Currently supports flowchart/graph and sequence diagrams.
 package svg
 
 import (
@@ -18,7 +17,9 @@ import (
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
 	flowchartparser "github.com/julianshen/mmgo/pkg/parser/flowchart"
+	sequenceparser "github.com/julianshen/mmgo/pkg/parser/sequence"
 	flowchartrenderer "github.com/julianshen/mmgo/pkg/renderer/flowchart"
+	sequencerenderer "github.com/julianshen/mmgo/pkg/renderer/sequence"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -33,6 +34,7 @@ type Options struct {
 	// Flowchart is forwarded to the flowchart renderer (theme, padding,
 	// font size, ExtraCSS). Nil uses renderer defaults.
 	Flowchart *flowchartrenderer.Options
+	Sequence  *sequencerenderer.Options
 }
 
 // Sizing constants for nodes when no caller-specified theme overrides
@@ -67,6 +69,8 @@ func Render(r io.Reader, opts *Options) ([]byte, error) {
 	switch kind {
 	case kindFlowchart:
 		return renderFlowchart(src, opts)
+	case kindSequence:
+		return renderSequence(src, opts)
 	default:
 		return nil, fmt.Errorf("svg render: %v diagrams are not yet supported", kind)
 	}
@@ -79,12 +83,15 @@ type diagramKind int8
 const (
 	kindUnknown diagramKind = iota
 	kindFlowchart
+	kindSequence
 )
 
 func (k diagramKind) String() string {
 	switch k {
 	case kindFlowchart:
 		return "flowchart"
+	case kindSequence:
+		return "sequence"
 	default:
 		return "unknown"
 	}
@@ -103,6 +110,9 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 		}
 		if hasHeaderKeyword(line, "graph") || hasHeaderKeyword(line, "flowchart") {
 			return kindFlowchart, nil
+		}
+		if hasHeaderKeyword(line, "sequenceDiagram") {
+			return kindSequence, nil
 		}
 		return kindUnknown, fmt.Errorf("unrecognized diagram header: %q", line)
 	}
@@ -174,6 +184,23 @@ func renderFlowchart(src []byte, opts *Options) ([]byte, error) {
 // and the renderer. Reads from opts.Flowchart.FontSize so a single
 // caller setting flows end-to-end; falls back to defaultFontSize when
 // the caller hasn't specified one.
+func renderSequence(src []byte, opts *Options) ([]byte, error) {
+	d, err := sequenceparser.Parse(bytes.NewReader(src))
+	if err != nil {
+		return nil, fmt.Errorf("svg render: parse: %w", err)
+	}
+	var sopts *sequencerenderer.Options
+	if opts != nil && opts.Sequence != nil {
+		clone := *opts.Sequence
+		sopts = &clone
+	}
+	out, err := sequencerenderer.Render(d, sopts)
+	if err != nil {
+		return nil, fmt.Errorf("svg render: %w", err)
+	}
+	return out, nil
+}
+
 func flowchartFontSize(opts *Options) float64 {
 	if opts != nil && opts.Flowchart != nil && opts.Flowchart.FontSize > 0 {
 		return opts.Flowchart.FontSize

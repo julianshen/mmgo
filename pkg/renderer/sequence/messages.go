@@ -49,15 +49,10 @@ func (mr *messageRenderer) renderItems(items []diagram.SequenceItem) []any {
 			elems = append(elems, mr.renderMessage(*item.Message)...)
 			mr.curY += defaultRowHeight
 		case item.Note != nil:
+			elems = append(elems, mr.renderNote(*item.Note)...)
 			mr.curY += defaultRowHeight
 		case item.Block != nil:
-			mr.curY += defaultRowHeight / 2
-			elems = append(elems, mr.renderItems(item.Block.Items)...)
-			for _, br := range item.Block.Branches {
-				mr.curY += defaultRowHeight / 2
-				elems = append(elems, mr.renderItems(br.Items)...)
-			}
-			mr.curY += defaultRowHeight / 2
+			elems = append(elems, mr.renderBlock(*item.Block)...)
 		}
 	}
 	return elems
@@ -148,6 +143,131 @@ func (mr *messageRenderer) renderSelfMessage(x, y float64, m diagram.Message) []
 			Content: m.Label,
 		})
 	}
+	return elems
+}
+
+const (
+	noteW      = 120.0
+	noteH      = 30.0
+	notePad    = 8.0
+	noteOffset = 10.0
+	blockPad   = 15.0
+)
+
+func (mr *messageRenderer) renderNote(n diagram.Note) []any {
+	if len(n.Participants) == 0 {
+		return nil
+	}
+	y := mr.curY
+	idx0 := mr.pIndex[n.Participants[0]]
+	x0 := mr.lay.participantX[idx0]
+
+	var cx float64
+	w := noteW
+	switch n.Position {
+	case diagram.NotePositionLeft:
+		cx = x0 - noteOffset - w/2
+	case diagram.NotePositionRight:
+		cx = x0 + noteOffset + w/2
+	case diagram.NotePositionOver:
+		if len(n.Participants) == 2 {
+			idx1 := mr.pIndex[n.Participants[1]]
+			x1 := mr.lay.participantX[idx1]
+			cx = (x0 + x1) / 2
+			w = x1 - x0 + 2*notePad
+		} else {
+			cx = x0
+		}
+	}
+
+	rx := cx - w/2
+	return []any{
+		&rect{
+			X: svgFloat(rx), Y: svgFloat(y - noteH/2),
+			Width: svgFloat(w), Height: svgFloat(noteH),
+			RX: 3, RY: 3,
+			Style: fmt.Sprintf("fill:#ffffcc;stroke:%s;stroke-width:%.1f", mr.th.MessageStroke, defaultStrokeWidth),
+		},
+		&text{
+			X: svgFloat(cx), Y: svgFloat(y),
+			Anchor: "middle", Dominant: "central",
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize),
+			Content: n.Text,
+		},
+	}
+}
+
+func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
+	startY := mr.curY
+	mr.curY += defaultRowHeight / 2
+
+	var elems []any
+	elems = append(elems, mr.renderItems(b.Items)...)
+
+	var branchYs []float64
+	for _, br := range b.Branches {
+		branchYs = append(branchYs, mr.curY)
+		mr.curY += defaultRowHeight / 2
+		elems = append(elems, mr.renderItems(br.Items)...)
+	}
+	mr.curY += defaultRowHeight / 2
+	endY := mr.curY
+
+	x := mr.lay.participantX[0] - defaultParticipantGap/3
+	w := mr.lay.width - 2*x
+	if w < 0 {
+		w = mr.lay.width - 2*blockPad
+		x = blockPad
+	}
+
+	elems = append(elems, &rect{
+		X: svgFloat(x), Y: svgFloat(startY - defaultRowHeight/4),
+		Width: svgFloat(w), Height: svgFloat(endY - startY + defaultRowHeight/4),
+		RX: 3, RY: 3,
+		Style: fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.1f", mr.th.MessageStroke, defaultStrokeWidth),
+	})
+
+	kindLabel := b.Kind.String()
+	elems = append(elems, &rect{
+		X: svgFloat(x), Y: svgFloat(startY - defaultRowHeight/4),
+		Width: svgFloat(estimateTextWidth(kindLabel, mr.fontSize) + 2*notePad),
+		Height: svgFloat(20),
+		Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f",
+			mr.th.ParticipantFill, mr.th.MessageStroke, defaultStrokeWidth),
+	})
+	elems = append(elems, &text{
+		X: svgFloat(x + notePad), Y: svgFloat(startY - defaultRowHeight/4 + 14),
+		Anchor: "start", Dominant: "auto",
+		Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", mr.th.MessageText, mr.fontSize-1),
+		Content: kindLabel,
+	})
+
+	if b.Label != "" {
+		elems = append(elems, &text{
+			X: svgFloat(x + estimateTextWidth(kindLabel, mr.fontSize) + 3*notePad),
+			Y: svgFloat(startY - defaultRowHeight/4 + 14),
+			Anchor: "start", Dominant: "auto",
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize-1),
+			Content: "[" + b.Label + "]",
+		})
+	}
+
+	for i, brY := range branchYs {
+		elems = append(elems, &line{
+			X1: svgFloat(x), Y1: svgFloat(brY),
+			X2: svgFloat(x + w), Y2: svgFloat(brY),
+			Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", mr.th.MessageStroke, defaultStrokeWidth),
+		})
+		if i < len(b.Branches) && b.Branches[i].Label != "" {
+			elems = append(elems, &text{
+				X: svgFloat(x + notePad), Y: svgFloat(brY + 14),
+				Anchor: "start", Dominant: "auto",
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize-1),
+				Content: "[" + b.Branches[i].Label + "]",
+			})
+		}
+	}
+
 	return elems
 }
 
