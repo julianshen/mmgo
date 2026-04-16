@@ -361,6 +361,17 @@ func TestParseNoteOverTwoParticipants(t *testing.T) {
 	}
 }
 
+func TestParseNoteLowercaseKeyword(t *testing.T) {
+	d, err := Parse(strings.NewReader("sequenceDiagram\n    note over A: lo"))
+	if err != nil {
+		t.Fatalf("lowercase 'note' should be accepted: %v", err)
+	}
+	n := d.Items[0].Note
+	if n.Position != diagram.NotePositionOver || n.Text != "lo" {
+		t.Errorf("got %+v", n)
+	}
+}
+
 func TestParseNoteMissingColonErrors(t *testing.T) {
 	_, err := Parse(strings.NewReader("sequenceDiagram\n    Note over A"))
 	if err == nil {

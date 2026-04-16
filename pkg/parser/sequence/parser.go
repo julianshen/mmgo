@@ -104,6 +104,9 @@ func (p *parser) parseLine(line string) error {
 	if rest, ok := trimKeyword(line, "Note"); ok {
 		return p.parseNote(rest)
 	}
+	if rest, ok := trimKeyword(line, "note"); ok {
+		return p.parseNote(rest)
+	}
 	if m, ok := parseMessage(line); ok {
 		p.ensureParticipant(m.From)
 		p.ensureParticipant(m.To)
