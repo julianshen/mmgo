@@ -65,6 +65,33 @@ func TestLoadFileNotFound(t *testing.T) {
 	}
 }
 
+func TestLoadFileEmptyJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty.json")
+	if err := os.WriteFile(path, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	if c.Theme != ThemeDefault {
+		t.Errorf("Theme = %v, want default", c.Theme)
+	}
+}
+
+func TestLoadFileInvalidTheme(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad-theme.json")
+	if err := os.WriteFile(path, []byte(`{"theme": "nope"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadFile(path)
+	if err == nil {
+		t.Fatal("expected error for unknown theme in config")
+	}
+}
+
 func TestLoadFileInvalidJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.json")

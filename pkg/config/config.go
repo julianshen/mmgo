@@ -55,6 +55,9 @@ func LoadFile(path string) (*Config, error) {
 	if c.Theme == "" {
 		c.Theme = ThemeDefault
 	}
+	if _, err := BuiltInTheme(c.Theme); err != nil {
+		return nil, err
+	}
 	return &c, nil
 }
 
