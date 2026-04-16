@@ -333,6 +333,87 @@ func TestRenderPieDiagramEndToEnd(t *testing.T) {
 	}
 }
 
+// --- Init directives and config ---
+
+func TestExtractInitDirective(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		wantSrc string
+		wantCfg string
+	}{
+		{
+			"no directive",
+			"graph LR\nA --> B",
+			"graph LR\nA --> B",
+			"",
+		},
+		{
+			"single directive",
+			"%%{init: {\"theme\": \"dark\"}}%%\ngraph LR\nA --> B",
+			"graph LR\nA --> B",
+			`{"theme": "dark"}`,
+		},
+		{
+			"directive with whitespace",
+			"  %%{init:   {\"theme\":\"forest\"}  }%%  \ngraph LR",
+			"graph LR",
+			`{"theme":"forest"}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src, cfg := extractInitDirective([]byte(tc.input))
+			if string(src) != tc.wantSrc {
+				t.Errorf("src = %q, want %q", src, tc.wantSrc)
+			}
+			if tc.wantCfg == "" {
+				if cfg != nil {
+					t.Errorf("cfg should be nil, got %+v", cfg)
+				}
+			} else {
+				if cfg == nil {
+					t.Fatal("cfg should not be nil")
+				}
+			}
+		})
+	}
+}
+
+func TestRenderWithInitDirectiveTheme(t *testing.T) {
+	input := `%%{init: {"theme": "dark"}}%%
+graph LR
+    A[Start] --> B[End]`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	// Dark theme background should not be white.
+	if strings.Contains(raw, "fill:#fff;stroke:none") || strings.Contains(raw, "fill:white;stroke:none") {
+		t.Error("dark theme should not use white background")
+	}
+}
+
+func TestRenderWithConfigTheme(t *testing.T) {
+	input := `graph LR
+    A --> B`
+	out, err := Render(strings.NewReader(input), &Options{
+		Theme: "dark",
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if strings.Contains(raw, "fill:#fff;stroke:none") || strings.Contains(raw, "fill:white;stroke:none") {
+		t.Error("dark theme should not use white background")
+	}
+}
+
 func TestRenderDeterministic(t *testing.T) {
 	input := `graph LR
     A[Start] --> B{Check}
