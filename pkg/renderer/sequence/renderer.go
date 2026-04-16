@@ -19,8 +19,12 @@ func Render(d *diagram.SequenceDiagram, opts *Options) ([]byte, error) {
 
 	lay := computeLayout(d, fontSize, pad)
 
+	mr := newMessageRenderer(d, lay, th, fontSize)
+	msgElems := mr.renderItems(d.Items)
+
 	var children []any
 
+	children = append(children, &defs{Markers: buildSequenceMarkers(th)})
 	children = append(children, &rect{
 		X: 0, Y: 0,
 		Width: svgFloat(lay.width), Height: svgFloat(lay.height),
@@ -28,6 +32,8 @@ func Render(d *diagram.SequenceDiagram, opts *Options) ([]byte, error) {
 	})
 
 	children = append(children, renderLifelines(d, lay, th)...)
+	children = append(children, mr.flushActivations()...)
+	children = append(children, msgElems...)
 	children = append(children, renderParticipants(d, lay, th, fontSize)...)
 
 	svg := svgDoc{

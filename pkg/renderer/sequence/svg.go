@@ -57,6 +57,42 @@ type text struct {
 	Content  string   `xml:",chardata"`
 }
 
+type polygon struct {
+	XMLName xml.Name `xml:"polygon"`
+	Points  string   `xml:"points,attr"`
+	Style   string   `xml:"style,attr,omitempty"`
+}
+
+type polyline struct {
+	XMLName xml.Name `xml:"polyline"`
+	Points  string   `xml:"points,attr"`
+	Style   string   `xml:"style,attr,omitempty"`
+}
+
+type defs struct {
+	XMLName xml.Name `xml:"defs"`
+	Markers []marker `xml:"marker,omitempty"`
+}
+
+type marker struct {
+	XMLName  xml.Name `xml:"marker"`
+	ID       string   `xml:"id,attr"`
+	ViewBox  string   `xml:"viewBox,attr"`
+	RefX     svgFloat `xml:"refX,attr"`
+	RefY     svgFloat `xml:"refY,attr"`
+	Width    svgFloat `xml:"markerWidth,attr"`
+	Height   svgFloat `xml:"markerHeight,attr"`
+	Orient   string   `xml:"orient,attr"`
+	Children []any    `xml:",any"`
+}
+
+type path struct {
+	XMLName   xml.Name `xml:"path"`
+	D         string   `xml:"d,attr"`
+	Style     string   `xml:"style,attr,omitempty"`
+	MarkerEnd string   `xml:"marker-end,attr,omitempty"`
+}
+
 type circle struct {
 	XMLName xml.Name `xml:"circle"`
 	CX      svgFloat `xml:"cx,attr"`
