@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	parserutil "github.com/julianshen/mmgo/pkg/parser"
 )
 
 func Parse(r io.Reader) (*diagram.ClassDiagram, error) {
@@ -19,7 +20,7 @@ func Parse(r io.Reader) (*diagram.ClassDiagram, error) {
 	headerSeen := false
 	for p.scanner.Scan() {
 		p.lineNum++
-		line := strings.TrimSpace(stripComment(p.scanner.Text()))
+		line := strings.TrimSpace(parserutil.StripComment(p.scanner.Text()))
 		if line == "" {
 			continue
 		}
@@ -74,7 +75,7 @@ func (p *parser) parseClassBody(name string) error {
 	idx := p.classIdx[name]
 	for p.scanner.Scan() {
 		p.lineNum++
-		line := strings.TrimSpace(stripComment(p.scanner.Text()))
+		line := strings.TrimSpace(parserutil.StripComment(p.scanner.Text()))
 		if line == "" {
 			continue
 		}
@@ -230,16 +231,4 @@ func extractRightSide(s string) (id, label, cardinality string) {
 		}
 	}
 	return s, label, ""
-}
-
-func stripComment(line string) string {
-	for i := 0; i+1 < len(line); i++ {
-		if line[i] != '%' || line[i+1] != '%' {
-			continue
-		}
-		if i == 0 || line[i-1] == ' ' || line[i-1] == '\t' {
-			return line[:i]
-		}
-	}
-	return line
 }

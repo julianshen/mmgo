@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	parserutil "github.com/julianshen/mmgo/pkg/parser"
 )
 
 // Parse reads a sequence diagram definition from r and returns the
@@ -25,7 +26,7 @@ func Parse(r io.Reader) (*diagram.SequenceDiagram, error) {
 	headerSeen := false
 	for scanner.Scan() {
 		lineNum++
-		line := strings.TrimSpace(stripComment(scanner.Text()))
+		line := strings.TrimSpace(parserutil.StripComment(scanner.Text()))
 		if line == "" {
 			continue
 		}
@@ -64,21 +65,6 @@ type parser struct {
 type blockFrame struct {
 	block        *diagram.Block
 	activeBranch *diagram.Block
-}
-
-// stripComment removes a `%%` to-end-of-line comment. The `%%` only
-// starts a comment when at the start of the line or preceded by
-// whitespace, so tokens like "50%%" stay intact.
-func stripComment(line string) string {
-	for i := 0; i+1 < len(line); i++ {
-		if line[i] != '%' || line[i+1] != '%' {
-			continue
-		}
-		if i == 0 || line[i-1] == ' ' || line[i-1] == '\t' {
-			return line[:i]
-		}
-	}
-	return line
 }
 
 // trimKeyword returns the whitespace-trimmed remainder after kw when
