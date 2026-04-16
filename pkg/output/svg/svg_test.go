@@ -89,6 +89,7 @@ func TestDetectDiagramKind(t *testing.T) {
 		{"only comments", "%% one\n%% two\n", kindUnknown, true},
 		// Word-boundary check: `grapha` must not match `graph`.
 		{"grapha not matched", "grapha LR\nA --> B", kindUnknown, true},
+		{"sequenceDiagram", "sequenceDiagram\n    A->>B: hi", kindSequence, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -279,6 +280,32 @@ func (errReader) Read(p []byte) (int, error) {
 var errIOFailure = errors.New("forced read failure")
 
 // --- Determinism ---
+
+func TestRenderSequenceDiagramEndToEnd(t *testing.T) {
+	input := `sequenceDiagram
+    participant Alice
+    participant Bob
+    Alice->>Bob: Hello
+    Bob-->>Alice: Hi back`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.HasPrefix(raw, "<?xml") {
+		t.Errorf("output should start with XML decl")
+	}
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	if !strings.Contains(raw, ">Alice<") || !strings.Contains(raw, ">Bob<") {
+		t.Error("participant labels missing")
+	}
+	if !strings.Contains(raw, ">Hello<") || !strings.Contains(raw, ">Hi back<") {
+		t.Error("message labels missing")
+	}
+}
 
 func TestRenderDeterministic(t *testing.T) {
 	input := `graph LR
