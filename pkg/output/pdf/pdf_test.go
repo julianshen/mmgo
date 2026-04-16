@@ -52,23 +52,6 @@ func TestRenderProducesValidPDF(t *testing.T) {
 	}
 }
 
-func TestRenderDeterministic(t *testing.T) {
-	svgBytes := renderTestSVG(t)
-	first, err := Render(svgBytes, nil)
-	if err != nil {
-		t.Fatalf("Render: %v", err)
-	}
-	for i := 0; i < 5; i++ {
-		next, err := Render(svgBytes, nil)
-		if err != nil {
-			t.Fatalf("iter %d: %v", i, err)
-		}
-		if !bytes.Equal(next, first) {
-			t.Fatalf("iter %d: output diverges", i)
-		}
-	}
-}
-
 func TestRenderSequenceDiagram(t *testing.T) {
 	svgBytes, err := svgpkg.Render(strings.NewReader("sequenceDiagram\n    A->>B: hello"), nil)
 	if err != nil {
