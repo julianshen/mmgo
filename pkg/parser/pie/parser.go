@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	parserutil "github.com/julianshen/mmgo/pkg/parser"
 )
 
 func Parse(r io.Reader) (*diagram.PieDiagram, error) {
@@ -19,7 +20,7 @@ func Parse(r io.Reader) (*diagram.PieDiagram, error) {
 	headerSeen := false
 	for scanner.Scan() {
 		lineNum++
-		line := strings.TrimSpace(stripComment(scanner.Text()))
+		line := strings.TrimSpace(parserutil.StripComment(scanner.Text()))
 		if line == "" {
 			continue
 		}
@@ -92,14 +93,3 @@ func parseSlice(line string, d *diagram.PieDiagram) error {
 	return nil
 }
 
-func stripComment(line string) string {
-	for i := 0; i+1 < len(line); i++ {
-		if line[i] != '%' || line[i+1] != '%' {
-			continue
-		}
-		if i == 0 || line[i-1] == ' ' || line[i-1] == '\t' {
-			return line[:i]
-		}
-	}
-	return line
-}
