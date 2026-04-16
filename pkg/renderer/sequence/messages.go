@@ -2,6 +2,7 @@ package sequence
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 )
@@ -159,34 +160,41 @@ func (mr *messageRenderer) handleLifeline(m diagram.Message) {
 		if len(stack) > 0 {
 			startY := stack[len(stack)-1]
 			mr.actStack[m.To] = stack[:len(stack)-1]
-			idx := mr.pIndex[m.To]
-			x := mr.lay.participantX[idx]
-			mr.actElems = append(mr.actElems, &rect{
-				X: svgFloat(x - defaultActivationW/2), Y: svgFloat(startY),
-				Width: svgFloat(defaultActivationW), Height: svgFloat(mr.curY - startY),
-				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f",
-					mr.th.ParticipantFill, mr.th.ParticipantStroke, defaultStrokeWidth),
-			})
+			mr.actElems = append(mr.actElems, mr.activationRect(m.To, startY, mr.curY))
 		}
 	}
 }
 
 func (mr *messageRenderer) flushActivations() []any {
-	var elems []any
+	// Sort unclosed activations by participant index for deterministic output.
+	ids := make([]string, 0, len(mr.actStack))
 	for id, stack := range mr.actStack {
-		for _, startY := range stack {
-			idx := mr.pIndex[id]
-			x := mr.lay.participantX[idx]
-			elems = append(elems, &rect{
-				X: svgFloat(x - defaultActivationW/2), Y: svgFloat(startY),
-				Width: svgFloat(defaultActivationW), Height: svgFloat(mr.curY - startY),
-				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f",
-					mr.th.ParticipantFill, mr.th.ParticipantStroke, defaultStrokeWidth),
-			})
+		if len(stack) > 0 {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		return mr.pIndex[ids[i]] < mr.pIndex[ids[j]]
+	})
+	var elems []any
+	for _, id := range ids {
+		for _, startY := range mr.actStack[id] {
+			elems = append(elems, mr.activationRect(id, startY, mr.curY))
 		}
 	}
 	elems = append(elems, mr.actElems...)
 	return elems
+}
+
+func (mr *messageRenderer) activationRect(id string, startY, endY float64) *rect {
+	idx := mr.pIndex[id]
+	x := mr.lay.participantX[idx]
+	return &rect{
+		X: svgFloat(x - defaultActivationW/2), Y: svgFloat(startY),
+		Width: svgFloat(defaultActivationW), Height: svgFloat(endY - startY),
+		Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f",
+			mr.th.ParticipantFill, mr.th.ParticipantStroke, defaultStrokeWidth),
+	}
 }
 
 func messageLineStyle(th Theme, at diagram.ArrowType) string {
