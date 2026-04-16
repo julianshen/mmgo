@@ -46,6 +46,9 @@ func Parse(r io.Reader) (*diagram.SequenceDiagram, error) {
 	if !headerSeen {
 		return nil, fmt.Errorf("missing sequenceDiagram header")
 	}
+	if len(p.blockStack) > 0 {
+		return nil, fmt.Errorf("unclosed %v block (missing 'end')", p.blockStack[len(p.blockStack)-1].block.Kind)
+	}
 	return p.diagram, nil
 }
 
@@ -55,6 +58,19 @@ func Parse(r io.Reader) (*diagram.SequenceDiagram, error) {
 type parser struct {
 	diagram       *diagram.SequenceDiagram
 	participantIx map[string]int
+	// blockStack tracks nested block scopes. When non-empty, new items
+	// are appended to the top block's Items (or its latest branch)
+	// instead of to the diagram's top-level Items. `end` pops the
+	// stack and attaches the completed block to its parent.
+	blockStack []*blockFrame
+}
+
+type blockFrame struct {
+	block *diagram.Block
+	// activeBranch points to the branch currently receiving items.
+	// It starts as the block itself; when else/and/option is seen,
+	// a new branch is pushed and activeBranch moves to it.
+	activeBranch *diagram.Block
 }
 
 // stripComment removes a `%%` to-end-of-line comment. The `%%` only
@@ -107,10 +123,19 @@ func (p *parser) parseLine(line string) error {
 	if rest, ok := trimKeyword(line, "note"); ok {
 		return p.parseNote(rest)
 	}
+	if line == "end" {
+		return p.closeBlock()
+	}
+	if kind, label, ok := matchBlockOpen(line); ok {
+		return p.openBlock(kind, label)
+	}
+	if parent, label, ok := matchBranchKeyword(line); ok {
+		return p.addBranch(parent, label)
+	}
 	if m, ok := parseMessage(line); ok {
 		p.ensureParticipant(m.From)
 		p.ensureParticipant(m.To)
-		p.diagram.Items = append(p.diagram.Items, diagram.NewMessageItem(m))
+		p.appendItem(diagram.NewMessageItem(m))
 		return nil
 	}
 	return fmt.Errorf("unrecognized statement: %q", line)
@@ -144,11 +169,96 @@ func (p *parser) parseNote(rest string) error {
 	for _, id := range parts {
 		p.ensureParticipant(id)
 	}
-	p.diagram.Items = append(p.diagram.Items, diagram.NewNoteItem(diagram.Note{
+	p.appendItem(diagram.NewNoteItem(diagram.Note{
 		Participants: parts,
 		Text:         text,
 		Position:     pos,
 	}))
+	return nil
+}
+
+// appendItem routes a SequenceItem to the correct parent: the
+// active branch of the top block when inside a block, or the
+// diagram's top-level Items when no block is open.
+func (p *parser) appendItem(item diagram.SequenceItem) {
+	if len(p.blockStack) > 0 {
+		top := p.blockStack[len(p.blockStack)-1]
+		top.activeBranch.Items = append(top.activeBranch.Items, item)
+	} else {
+		p.diagram.Items = append(p.diagram.Items, item)
+	}
+}
+
+// Block-opening keywords and their BlockKind.
+var blockOpeners = []struct {
+	kw   string
+	kind diagram.BlockKind
+}{
+	{"alt", diagram.BlockKindAlt},
+	{"opt", diagram.BlockKindOpt},
+	{"loop", diagram.BlockKindLoop},
+	{"par", diagram.BlockKindPar},
+	{"critical", diagram.BlockKindCritical},
+	{"break", diagram.BlockKindBreak},
+	{"rect", diagram.BlockKindRect},
+}
+
+func matchBlockOpen(line string) (diagram.BlockKind, string, bool) {
+	for _, bo := range blockOpeners {
+		if rest, ok := trimKeyword(line, bo.kw); ok {
+			return bo.kind, rest, true
+		}
+	}
+	return 0, "", false
+}
+
+func (p *parser) openBlock(kind diagram.BlockKind, label string) error {
+	b := &diagram.Block{Kind: kind, Label: label}
+	frame := &blockFrame{block: b, activeBranch: b}
+	p.blockStack = append(p.blockStack, frame)
+	return nil
+}
+
+func (p *parser) closeBlock() error {
+	if len(p.blockStack) == 0 {
+		return fmt.Errorf("'end' without a matching block opener")
+	}
+	top := p.blockStack[len(p.blockStack)-1]
+	p.blockStack = p.blockStack[:len(p.blockStack)-1]
+	p.appendItem(diagram.NewBlockItem(*top.block))
+	return nil
+}
+
+// Branch keywords: else → alt, and → par, option → critical.
+var branchKeywords = []struct {
+	kw     string
+	parent diagram.BlockKind
+}{
+	{"else", diagram.BlockKindAlt},
+	{"and", diagram.BlockKindPar},
+	{"option", diagram.BlockKindCritical},
+}
+
+func matchBranchKeyword(line string) (diagram.BlockKind, string, bool) {
+	for _, bk := range branchKeywords {
+		if rest, ok := trimKeyword(line, bk.kw); ok {
+			return bk.parent, rest, true
+		}
+	}
+	return 0, "", false
+}
+
+func (p *parser) addBranch(expectedParent diagram.BlockKind, label string) error {
+	if len(p.blockStack) == 0 {
+		return fmt.Errorf("branch keyword outside of any block")
+	}
+	top := p.blockStack[len(p.blockStack)-1]
+	if top.block.Kind != expectedParent {
+		return fmt.Errorf("branch keyword not valid inside %v block", top.block.Kind)
+	}
+	branch := diagram.Block{Kind: top.block.Kind, Label: label}
+	top.block.Branches = append(top.block.Branches, branch)
+	top.activeBranch = &top.block.Branches[len(top.block.Branches)-1]
 	return nil
 }
 

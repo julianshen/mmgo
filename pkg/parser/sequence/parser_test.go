@@ -438,3 +438,230 @@ func TestParseCommentStripping(t *testing.T) {
 		t.Error("participant C not registered")
 	}
 }
+
+// --- Slice C: Block structure tests ---
+
+func TestParseSimpleLoop(t *testing.T) {
+	input := `sequenceDiagram
+    loop every minute
+        A->>B: ping
+    end`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Items) != 1 {
+		t.Fatalf("want 1 top-level item, got %d", len(d.Items))
+	}
+	b := d.Items[0].Block
+	if b == nil {
+		t.Fatal("expected block item")
+	}
+	if b.Kind != diagram.BlockKindLoop {
+		t.Errorf("Kind = %v, want loop", b.Kind)
+	}
+	if b.Label != "every minute" {
+		t.Errorf("Label = %q, want %q", b.Label, "every minute")
+	}
+	if len(b.Items) != 1 || b.Items[0].Message == nil {
+		t.Fatalf("want 1 message inside loop, got %+v", b.Items)
+	}
+	if b.Items[0].Message.Label != "ping" {
+		t.Errorf("inner message label = %q, want ping", b.Items[0].Message.Label)
+	}
+}
+
+func TestParseAltElse(t *testing.T) {
+	input := `sequenceDiagram
+    alt condition
+        A->>B: yes
+    else other
+        A->>B: no
+    end`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := d.Items[0].Block
+	if b.Kind != diagram.BlockKindAlt {
+		t.Errorf("Kind = %v, want alt", b.Kind)
+	}
+	if b.Label != "condition" {
+		t.Errorf("Label = %q", b.Label)
+	}
+	if len(b.Items) != 1 {
+		t.Errorf("main branch should have 1 item, got %d", len(b.Items))
+	}
+	if len(b.Branches) != 1 {
+		t.Fatalf("want 1 else branch, got %d", len(b.Branches))
+	}
+	eb := b.Branches[0]
+	if eb.Label != "other" {
+		t.Errorf("else label = %q", eb.Label)
+	}
+	if len(eb.Items) != 1 {
+		t.Errorf("else branch should have 1 item, got %d", len(eb.Items))
+	}
+}
+
+func TestParseAltMultipleElse(t *testing.T) {
+	input := `sequenceDiagram
+    alt a
+        A->>B: 1
+    else b
+        A->>B: 2
+    else c
+        A->>B: 3
+    end`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := d.Items[0].Block
+	if len(b.Branches) != 2 {
+		t.Fatalf("want 2 else branches, got %d", len(b.Branches))
+	}
+	if b.Branches[0].Label != "b" || b.Branches[1].Label != "c" {
+		t.Errorf("branch labels = %q, %q", b.Branches[0].Label, b.Branches[1].Label)
+	}
+}
+
+func TestParseParAndCritical(t *testing.T) {
+	cases := []struct {
+		name     string
+		openKw   string
+		branchKw string
+		want     diagram.BlockKind
+	}{
+		{"par/and", "par", "and", diagram.BlockKindPar},
+		{"critical/option", "critical", "option", diagram.BlockKindCritical},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			input := "sequenceDiagram\n    " + tc.openKw + " first\n        A->>B: 1\n    " + tc.branchKw + " second\n        A->>B: 2\n    end"
+			d, err := Parse(strings.NewReader(input))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			b := d.Items[0].Block
+			if b.Kind != tc.want {
+				t.Errorf("Kind = %v, want %v", b.Kind, tc.want)
+			}
+			if len(b.Branches) != 1 {
+				t.Fatalf("want 1 branch, got %d", len(b.Branches))
+			}
+		})
+	}
+}
+
+func TestParseSingleBranchBlocks(t *testing.T) {
+	for _, kw := range []string{"opt", "break", "rect"} {
+		t.Run(kw, func(t *testing.T) {
+			input := "sequenceDiagram\n    " + kw + " label\n        A->>B: x\n    end"
+			d, err := Parse(strings.NewReader(input))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			b := d.Items[0].Block
+			if b.Label != "label" {
+				t.Errorf("Label = %q", b.Label)
+			}
+			if len(b.Items) != 1 {
+				t.Errorf("want 1 inner item, got %d", len(b.Items))
+			}
+			if len(b.Branches) != 0 {
+				t.Errorf("single-branch block should have no branches, got %d", len(b.Branches))
+			}
+		})
+	}
+}
+
+func TestParseNestedBlocks(t *testing.T) {
+	input := `sequenceDiagram
+    alt outer
+        loop inner
+            A->>B: deep
+        end
+    end`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	outer := d.Items[0].Block
+	if outer.Kind != diagram.BlockKindAlt {
+		t.Errorf("outer Kind = %v", outer.Kind)
+	}
+	if len(outer.Items) != 1 || outer.Items[0].Block == nil {
+		t.Fatal("outer should contain one nested block")
+	}
+	inner := outer.Items[0].Block
+	if inner.Kind != diagram.BlockKindLoop {
+		t.Errorf("inner Kind = %v", inner.Kind)
+	}
+	if len(inner.Items) != 1 || inner.Items[0].Message == nil {
+		t.Fatal("inner loop should contain one message")
+	}
+	if inner.Items[0].Message.Label != "deep" {
+		t.Errorf("deep message label = %q", inner.Items[0].Message.Label)
+	}
+}
+
+func TestParseBlockWithNotesAndMessages(t *testing.T) {
+	input := `sequenceDiagram
+    opt check
+        A->>B: start
+        Note over A: thinking
+        B->>A: done
+    end`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := d.Items[0].Block
+	if len(b.Items) != 3 {
+		t.Fatalf("want 3 items (msg, note, msg), got %d", len(b.Items))
+	}
+	if b.Items[0].Message == nil || b.Items[1].Note == nil || b.Items[2].Message == nil {
+		t.Errorf("wrong item types: %+v", b.Items)
+	}
+}
+
+func TestParseEndWithoutBlockErrors(t *testing.T) {
+	_, err := Parse(strings.NewReader("sequenceDiagram\n    end"))
+	if err == nil {
+		t.Fatal("expected error for orphan end")
+	}
+}
+
+func TestParseUnclosedBlockErrors(t *testing.T) {
+	_, err := Parse(strings.NewReader("sequenceDiagram\n    loop forever\n        A->>B: go"))
+	if err == nil {
+		t.Fatal("expected error for unclosed block")
+	}
+}
+
+func TestParseElseWithoutAltErrors(t *testing.T) {
+	_, err := Parse(strings.NewReader("sequenceDiagram\n    else oops"))
+	if err == nil {
+		t.Fatal("expected error for else without alt")
+	}
+}
+
+func TestParseBranchKeywordInWrongBlock(t *testing.T) {
+	// 'and' only valid inside par, not alt.
+	_, err := Parse(strings.NewReader("sequenceDiagram\n    alt x\n    and y\n    end"))
+	if err == nil {
+		t.Fatal("expected error: 'and' inside alt")
+	}
+}
+
+func TestParseBlockNoLabel(t *testing.T) {
+	// Mermaid allows blocks without labels.
+	d, err := Parse(strings.NewReader("sequenceDiagram\n    opt\n        A->>B: x\n    end"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Items[0].Block.Label != "" {
+		t.Errorf("expected empty label, got %q", d.Items[0].Block.Label)
+	}
+}
