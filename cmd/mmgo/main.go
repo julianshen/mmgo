@@ -23,14 +23,14 @@ func main() {
 	flag.BoolVarP(&opts.Quiet, "quiet", "q", false, "Suppress non-error output")
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: mmdc [flags]\n\nRender Mermaid diagrams to SVG.\n\nFlags:\n")
+		fmt.Fprintf(os.Stderr, "Usage: mmgo [flags]\n\nRender Mermaid diagrams to SVG.\n\nFlags:\n")
 		flag.PrintDefaults()
 	}
 
 	flag.Parse()
 
 	if err := run(opts); err != nil {
-		fmt.Fprintf(os.Stderr, "mmdc: %v\n", err)
+		fmt.Fprintf(os.Stderr, "mmgo: %v\n", err)
 		os.Exit(1)
 	}
 }

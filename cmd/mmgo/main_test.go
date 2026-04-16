@@ -11,12 +11,12 @@ import (
 var testBin string
 
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "mmdc-test-*")
+	dir, err := os.MkdirTemp("", "mmgo-test-*")
 	if err != nil {
 		panic(err)
 	}
 	defer os.RemoveAll(dir)
-	testBin = filepath.Join(dir, "mmdc")
+	testBin = filepath.Join(dir, "mmgo")
 	cmd := exec.Command("go", "build", "-o", testBin, ".")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		panic(string(out))
