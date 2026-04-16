@@ -247,6 +247,160 @@ func TestParseUnknownStatementErrors(t *testing.T) {
 	}
 }
 
+func TestParseActivationMarkers(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want diagram.LifelineEffect
+		to   string
+	}{
+		{"activate", "A->>+B: go", diagram.LifelineEffectActivate, "B"},
+		{"deactivate", "A->>-B: done", diagram.LifelineEffectDeactivate, "B"},
+		{"no marker", "A->>B: plain", diagram.LifelineEffectNone, "B"},
+		{"activate dashed", "A-->>+B: go", diagram.LifelineEffectActivate, "B"},
+		{"activate with spaces", "A->> +B : go", diagram.LifelineEffectActivate, "B"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("sequenceDiagram\n" + tc.src))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			m := d.Items[0].Message
+			if m == nil {
+				t.Fatalf("expected message, got %+v", d.Items[0])
+			}
+			if m.Lifeline != tc.want {
+				t.Errorf("Lifeline = %v, want %v", m.Lifeline, tc.want)
+			}
+			if m.To != tc.to {
+				t.Errorf("To = %q, want %q", m.To, tc.to)
+			}
+			// The +/- must not leak into the auto-registered participant ID.
+			for _, p := range d.Participants {
+				if strings.ContainsAny(p.ID, "+-") {
+					t.Errorf("participant ID %q must not contain +/-", p.ID)
+				}
+			}
+		})
+	}
+}
+
+func TestParseNoteLeftRight(t *testing.T) {
+	input := `sequenceDiagram
+    Note left of Alice: first
+    Note right of Bob: second`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Items) != 2 {
+		t.Fatalf("want 2 items, got %d", len(d.Items))
+	}
+	want := []struct {
+		pos  diagram.NotePosition
+		who  string
+		text string
+	}{
+		{diagram.NotePositionLeft, "Alice", "first"},
+		{diagram.NotePositionRight, "Bob", "second"},
+	}
+	for i, w := range want {
+		n := d.Items[i].Note
+		if n == nil {
+			t.Fatalf("item[%d] is not a note: %+v", i, d.Items[i])
+		}
+		if n.Position != w.pos {
+			t.Errorf("item[%d] position = %v, want %v", i, n.Position, w.pos)
+		}
+		if len(n.Participants) != 1 || n.Participants[0] != w.who {
+			t.Errorf("item[%d] participants = %v, want [%s]", i, n.Participants, w.who)
+		}
+		if n.Text != w.text {
+			t.Errorf("item[%d] text = %q, want %q", i, n.Text, w.text)
+		}
+	}
+	// Notes auto-register their participants too.
+	ids := make([]string, 0, len(d.Participants))
+	for _, p := range d.Participants {
+		ids = append(ids, p.ID)
+	}
+	if len(ids) != 2 || ids[0] != "Alice" || ids[1] != "Bob" {
+		t.Errorf("participants = %v, want [Alice Bob]", ids)
+	}
+}
+
+func TestParseNoteOverOneParticipant(t *testing.T) {
+	d, err := Parse(strings.NewReader("sequenceDiagram\n    Note over X: hi"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	n := d.Items[0].Note
+	if n.Position != diagram.NotePositionOver {
+		t.Errorf("position = %v, want over", n.Position)
+	}
+	if len(n.Participants) != 1 || n.Participants[0] != "X" {
+		t.Errorf("participants = %v, want [X]", n.Participants)
+	}
+}
+
+func TestParseNoteOverTwoParticipants(t *testing.T) {
+	d, err := Parse(strings.NewReader("sequenceDiagram\n    Note over Alice, Bob: between them"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	n := d.Items[0].Note
+	if n.Position != diagram.NotePositionOver {
+		t.Errorf("position = %v, want over", n.Position)
+	}
+	if len(n.Participants) != 2 || n.Participants[0] != "Alice" || n.Participants[1] != "Bob" {
+		t.Errorf("participants = %v, want [Alice Bob]", n.Participants)
+	}
+	if n.Text != "between them" {
+		t.Errorf("text = %q, want %q", n.Text, "between them")
+	}
+}
+
+func TestParseNoteLowercaseKeyword(t *testing.T) {
+	d, err := Parse(strings.NewReader("sequenceDiagram\n    note over A: lo"))
+	if err != nil {
+		t.Fatalf("lowercase 'note' should be accepted: %v", err)
+	}
+	n := d.Items[0].Note
+	if n.Position != diagram.NotePositionOver || n.Text != "lo" {
+		t.Errorf("got %+v", n)
+	}
+}
+
+func TestParseNoteMissingColonErrors(t *testing.T) {
+	_, err := Parse(strings.NewReader("sequenceDiagram\n    Note over A"))
+	if err == nil {
+		t.Fatal("expected error: note missing text")
+	}
+}
+
+func TestParseNoteInvalidPositionErrors(t *testing.T) {
+	_, err := Parse(strings.NewReader("sequenceDiagram\n    Note under A: nope"))
+	if err == nil {
+		t.Fatal("expected error: unknown note position")
+	}
+}
+
+func TestParseNoteOverTooManyParticipantsErrors(t *testing.T) {
+	_, err := Parse(strings.NewReader("sequenceDiagram\n    Note over A, B, C: oops"))
+	if err == nil {
+		t.Fatal("expected error: over accepts at most 2 participants")
+	}
+}
+
+func TestParseNoteLeftRightWithTwoParticipantsErrors(t *testing.T) {
+	// Only `Note over` accepts a comma pair; left/right are strictly single.
+	_, err := Parse(strings.NewReader("sequenceDiagram\n    Note left of A, B: oops"))
+	if err == nil {
+		t.Fatal("expected error: left/right notes take exactly one participant")
+	}
+}
+
 func TestParseParticipantMissingID(t *testing.T) {
 	_, err := Parse(strings.NewReader("sequenceDiagram\nparticipant"))
 	if err == nil {
