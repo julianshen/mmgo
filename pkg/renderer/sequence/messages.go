@@ -156,11 +156,12 @@ func (mr *messageRenderer) handleLifeline(m diagram.Message) {
 	case diagram.LifelineEffectActivate:
 		mr.actStack[m.To] = append(mr.actStack[m.To], mr.curY)
 	case diagram.LifelineEffectDeactivate:
-		stack := mr.actStack[m.To]
+		// Mermaid spec: `-` suffix deactivates the SOURCE, not target.
+		stack := mr.actStack[m.From]
 		if len(stack) > 0 {
 			startY := stack[len(stack)-1]
-			mr.actStack[m.To] = stack[:len(stack)-1]
-			mr.actElems = append(mr.actElems, mr.activationRect(m.To, startY, mr.curY))
+			mr.actStack[m.From] = stack[:len(stack)-1]
+			mr.actElems = append(mr.actElems, mr.activationRect(m.From, startY, mr.curY))
 		}
 	}
 }

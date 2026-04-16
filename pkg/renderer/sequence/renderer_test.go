@@ -372,6 +372,14 @@ func TestRenderActivationBars(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	raw := string(out)
+	// Activation bar is a rect with the participant fill — count rects
+	// with that fill to verify at least one activation bar was emitted
+	// beyond the background and participant boxes.
+	fillCount := strings.Count(raw, DefaultTheme().ParticipantFill)
+	if fillCount < 2 {
+		t.Errorf("expected activation bar rect with ParticipantFill, got %d occurrences", fillCount)
+	}
 	assertValidSVG(t, out)
 }
 
