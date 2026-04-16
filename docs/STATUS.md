@@ -4,14 +4,14 @@ Dashboard view of progress against [implementation-plan.md](implementation-plan.
 Updated at each step boundary and committed to git, so any client can read
 current state without relying on chat history.
 
-**Last updated:** 2026-04-16 (post Step 15 merge)
+**Last updated:** 2026-04-17 (post Step 19 merge)
 
 ## Overall
 
-- **Current milestone:** v0.2.0 complete; working toward v0.3.0 (CLI, PNG/PDF, markdown)
-- **Current phase:** Phase 4 done; starting Phase 5 (CLI & Output Formats)
-- **Completed:** 16 of 25 steps
-- **Next:** Step 16 — CLI (`cmd/mmdc/`)
+- **Current milestone:** v0.3.0 complete; working toward v0.4.0 (Class, state, ER)
+- **Current phase:** Phase 5 done; starting Phase 6 (Additional Diagram Types)
+- **Completed:** 20 of 25 steps
+- **Next:** Step 20 — Class diagram
 
 ## Phase 0: Project Scaffold
 
@@ -56,12 +56,12 @@ current state without relying on chat history.
 
 ## Phase 5: CLI and Output Formats
 
-| Status | Step | PR |
-|--------|------|----|
-| ⏳ | 16. CLI (`cmd/mmdc/`) | — |
-| ⏳ | 17. PNG output | — |
-| ⏳ | 18. PDF output | — |
-| ⏳ | 19. Markdown processing | — |
+| Status | Step | PR | Coverage | Notes |
+|--------|------|----|----|---|
+| ✅ | 16. CLI (`cmd/mmgo/`) | #30 | — | pflag, stdin/stdout, theme/config, SVG/PNG/PDF output |
+| ✅ | 17. PNG output (`pkg/output/png/`) | #31 | 88.0% | tdewolff/canvas rasterizer, scale/fixed dims, NearestNeighbor |
+| ✅ | 18. PDF output (`pkg/output/pdf/`) | #32 | 88.9% | Vector PDF via canvas renderers.PDF() |
+| ✅ | 19. Markdown processing (`pkg/output/markdown/`) | #33 | 92.5% | Rewrite ```mermaid blocks to image refs, shared ConvertSVG |
 
 ## Phase 6: Additional Diagram Types
 
@@ -80,7 +80,7 @@ current state without relying on chat history.
 |-----------|-------|--------|
 | v0.1.0 — Flowchart SVG + Go module API | 0–11 | ✅ Shipped (12/12 done) |
 | v0.2.0 — + Sequence, pie, themes | 12–15 | ✅ Shipped (16/16 done) |
-| v0.3.0 — + CLI, PNG/PDF, markdown | 16–19 | ⏳ Starting |
+| v0.3.0 — + CLI, PNG/PDF, markdown | 16–19 | ✅ Shipped (20/20 done) |
 | v0.4.0 — + Class, state, ER | 20–22 | ⏳ Not started |
 | v0.5.0 — + Gantt, mindmap, others | 23–25+ | ⏳ Not started |
 | v1.0.0 — Stable API, all major types, >90% coverage | — | ⏳ Not started |
