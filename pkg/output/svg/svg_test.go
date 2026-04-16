@@ -14,6 +14,7 @@ import (
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	flowchartrenderer "github.com/julianshen/mmgo/pkg/renderer/flowchart"
+	sequencerenderer "github.com/julianshen/mmgo/pkg/renderer/sequence"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -53,6 +54,26 @@ func TestRenderUnknownDiagramKind(t *testing.T) {
 
 func TestRenderParseError(t *testing.T) {
 	_, err := Render(strings.NewReader("graph LR\n    A[unclosed"), nil)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if !strings.Contains(err.Error(), "parse") {
+		t.Errorf("error should mention parse: %v", err)
+	}
+}
+
+func TestRenderSequenceParseError(t *testing.T) {
+	_, err := Render(strings.NewReader("sequenceDiagram\n    badline!!!"), nil)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if !strings.Contains(err.Error(), "parse") {
+		t.Errorf("error should mention parse: %v", err)
+	}
+}
+
+func TestRenderPieParseError(t *testing.T) {
+	_, err := Render(strings.NewReader("pie\n    unquoted : 10"), nil)
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
@@ -399,6 +420,30 @@ graph LR
 	}
 }
 
+func TestRenderWithInitDirectiveOnly(t *testing.T) {
+	input := `%%{init: {"theme": "forest"}}%%
+sequenceDiagram
+    A->>B: hello`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	unmarshalSVG(t, out)
+}
+
+func TestRenderWithSequenceTheme(t *testing.T) {
+	input := `sequenceDiagram
+    A->>B: hi`
+	out, err := Render(strings.NewReader(input), &Options{Theme: "dark"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "#1f2020") {
+		t.Error("dark theme should apply to sequence diagram background")
+	}
+}
+
 func TestRenderWithConfigTheme(t *testing.T) {
 	input := `graph LR
     A --> B`
@@ -411,6 +456,41 @@ func TestRenderWithConfigTheme(t *testing.T) {
 	raw := string(out)
 	if !strings.Contains(raw, "fill:#1f2020") {
 		t.Error("dark theme should use #1f2020 background")
+	}
+}
+
+func TestRenderWithExistingSequenceOpts(t *testing.T) {
+	input := `sequenceDiagram
+    A->>B: hi`
+	seqOpts := &sequencerenderer.Options{FontSize: 20}
+	out, err := Render(strings.NewReader(input), &Options{
+		Theme:    "forest",
+		Sequence: seqOpts,
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	unmarshalSVG(t, out)
+	// Verify caller's opts weren't mutated.
+	if seqOpts.Theme.Background != "" {
+		t.Error("caller's Sequence opts should not be mutated")
+	}
+}
+
+func TestDiagramKindString(t *testing.T) {
+	cases := []struct {
+		k    diagramKind
+		want string
+	}{
+		{kindFlowchart, "flowchart"},
+		{kindSequence, "sequence"},
+		{kindPie, "pie"},
+		{kindUnknown, "unknown"},
+	}
+	for _, tc := range cases {
+		if got := tc.k.String(); got != tc.want {
+			t.Errorf("kind %d String() = %q, want %q", tc.k, got, tc.want)
+		}
 	}
 }
 
