@@ -50,7 +50,7 @@ func Render(svgBytes []byte, opts *Options) ([]byte, error) {
 		(img.Bounds().Dx() != opts.Width || img.Bounds().Dy() != opts.Height) {
 		dst := image.NewRGBA(image.Rect(0, 0, opts.Width, opts.Height))
 		// NearestNeighbor preserves sharp edges in diagram line art.
-		xdraw.NearestNeighbor.Scale(dst, dst.Bounds(), img, img.Bounds(), xdraw.Over, nil)
+		xdraw.NearestNeighbor.Scale(dst, dst.Bounds(), img, img.Bounds(), xdraw.Src, nil)
 		img = nil // free the original before encoding
 		out = dst
 	}
