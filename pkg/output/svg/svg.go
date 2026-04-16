@@ -30,8 +30,10 @@ import (
 // Options configures the end-to-end pipeline. All fields are optional;
 // nil opts uses defaults end-to-end.
 type Options struct {
-	Layout    layout.Options
-	Theme     config.ThemeName
+	// Layout.RankDir is intentionally ignored — direction comes from
+	// the diagram header.
+	Layout layout.Options
+	Theme  config.ThemeName
 	Flowchart *flowchartrenderer.Options
 	Sequence  *sequencerenderer.Options
 	Pie       *pierenderer.Options
@@ -208,6 +210,7 @@ func mergeInitTheme(opts *Options, initCfg *config.Config) *Options {
 	if merged.Sequence == nil {
 		merged.Sequence = &sequencerenderer.Options{}
 	}
+	merged.Sequence.Theme = toSequenceTheme(tc)
 
 	return merged
 }
@@ -223,6 +226,19 @@ func toFlowchartTheme(tc *config.ThemeColors) flowchartrenderer.Theme {
 		SubgraphStroke: tc.LineColor,
 		SubgraphText:   tc.Text,
 		Background:     tc.Background,
+	}
+}
+
+func toSequenceTheme(tc *config.ThemeColors) sequencerenderer.Theme {
+	return sequencerenderer.Theme{
+		Background:        tc.Background,
+		ParticipantFill:   tc.Secondary,
+		ParticipantStroke: tc.LineColor,
+		ParticipantText:   tc.Text,
+		LifelineStroke:    tc.LineColor,
+		MessageStroke:     tc.LineColor,
+		MessageText:       tc.Text,
+		NoteFill:          tc.NoteFill,
 	}
 }
 

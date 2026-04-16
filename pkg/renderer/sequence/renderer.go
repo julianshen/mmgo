@@ -14,7 +14,7 @@ func Render(d *diagram.SequenceDiagram, opts *Options) ([]byte, error) {
 	}
 
 	pad := resolvePadding(opts)
-	th := DefaultTheme()
+	th := resolveTheme(opts)
 	fontSize := resolveFontSize(opts)
 
 	lay := computeLayout(d, fontSize, pad)

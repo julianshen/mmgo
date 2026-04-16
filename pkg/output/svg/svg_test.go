@@ -409,8 +409,8 @@ func TestRenderWithConfigTheme(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	if strings.Contains(raw, "fill:#fff;stroke:none") || strings.Contains(raw, "fill:white;stroke:none") {
-		t.Error("dark theme should not use white background")
+	if !strings.Contains(raw, "fill:#1f2020") {
+		t.Error("dark theme should use #1f2020 background")
 	}
 }
 

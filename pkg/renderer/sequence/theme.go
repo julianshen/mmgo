@@ -16,6 +16,7 @@ const (
 type Options struct {
 	FontSize float64
 	Padding  float64
+	Theme    Theme
 }
 
 type Theme struct {
@@ -40,6 +41,39 @@ func DefaultTheme() Theme {
 		MessageText:       "#333",
 		NoteFill:          "#ffffcc",
 	}
+}
+
+func resolveTheme(opts *Options) Theme {
+	th := DefaultTheme()
+	if opts == nil {
+		return th
+	}
+	t := opts.Theme
+	if t.Background != "" {
+		th.Background = t.Background
+	}
+	if t.ParticipantFill != "" {
+		th.ParticipantFill = t.ParticipantFill
+	}
+	if t.ParticipantStroke != "" {
+		th.ParticipantStroke = t.ParticipantStroke
+	}
+	if t.ParticipantText != "" {
+		th.ParticipantText = t.ParticipantText
+	}
+	if t.LifelineStroke != "" {
+		th.LifelineStroke = t.LifelineStroke
+	}
+	if t.MessageStroke != "" {
+		th.MessageStroke = t.MessageStroke
+	}
+	if t.MessageText != "" {
+		th.MessageText = t.MessageText
+	}
+	if t.NoteFill != "" {
+		th.NoteFill = t.NoteFill
+	}
+	return th
 }
 
 func resolveFontSize(opts *Options) float64 {
