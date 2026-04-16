@@ -19,24 +19,26 @@ type Options struct {
 }
 
 type Theme struct {
-	Background       string
-	ParticipantFill  string
+	Background        string
+	ParticipantFill   string
 	ParticipantStroke string
-	ParticipantText  string
-	LifelineStroke   string
-	MessageStroke    string
-	MessageText      string
+	ParticipantText   string
+	LifelineStroke    string
+	MessageStroke     string
+	MessageText       string
+	NoteFill          string
 }
 
 func DefaultTheme() Theme {
 	return Theme{
-		Background:       "white",
-		ParticipantFill:  "#ECECFF",
+		Background:        "white",
+		ParticipantFill:   "#ECECFF",
 		ParticipantStroke: "#9370DB",
-		ParticipantText:  "#333",
-		LifelineStroke:   "#999",
-		MessageStroke:    "#333",
-		MessageText:      "#333",
+		ParticipantText:   "#333",
+		LifelineStroke:    "#999",
+		MessageStroke:     "#333",
+		MessageText:       "#333",
+		NoteFill:          "#ffffcc",
 	}
 }
 

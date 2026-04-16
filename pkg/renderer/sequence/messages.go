@@ -158,8 +158,11 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 	if len(n.Participants) == 0 {
 		return nil
 	}
+	idx0, ok := mr.pIndex[n.Participants[0]]
+	if !ok {
+		return nil
+	}
 	y := mr.curY
-	idx0 := mr.pIndex[n.Participants[0]]
 	x0 := mr.lay.participantX[idx0]
 
 	var cx float64
@@ -171,7 +174,10 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 		cx = x0 + noteOffset + w/2
 	case diagram.NotePositionOver:
 		if len(n.Participants) == 2 {
-			idx1 := mr.pIndex[n.Participants[1]]
+			idx1, ok2 := mr.pIndex[n.Participants[1]]
+			if !ok2 {
+				return nil
+			}
 			x1 := mr.lay.participantX[idx1]
 			cx = (x0 + x1) / 2
 			w = x1 - x0 + 2*notePad
@@ -186,7 +192,7 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 			X: svgFloat(rx), Y: svgFloat(y - noteH/2),
 			Width: svgFloat(w), Height: svgFloat(noteH),
 			RX: 3, RY: 3,
-			Style: fmt.Sprintf("fill:#ffffcc;stroke:%s;stroke-width:%.1f", mr.th.MessageStroke, defaultStrokeWidth),
+			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f", mr.th.NoteFill, mr.th.MessageStroke, defaultStrokeWidth),
 		},
 		&text{
 			X: svgFloat(cx), Y: svgFloat(y),
