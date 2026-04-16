@@ -14,28 +14,27 @@ func Parse(r io.Reader) (*diagram.ClassDiagram, error) {
 		diagram:  &diagram.ClassDiagram{},
 		classIdx: make(map[string]int),
 	}
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	lineNum := 0
+	p.scanner = bufio.NewScanner(r)
+	p.scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	headerSeen := false
-	for scanner.Scan() {
-		lineNum++
-		line := strings.TrimSpace(stripComment(scanner.Text()))
+	for p.scanner.Scan() {
+		p.lineNum++
+		line := strings.TrimSpace(stripComment(p.scanner.Text()))
 		if line == "" {
 			continue
 		}
 		if !headerSeen {
 			if line != "classDiagram" {
-				return nil, fmt.Errorf("line %d: expected 'classDiagram' header, got %q", lineNum, line)
+				return nil, fmt.Errorf("line %d: expected 'classDiagram' header, got %q", p.lineNum, line)
 			}
 			headerSeen = true
 			continue
 		}
-		if err := p.parseLine(line, scanner, &lineNum); err != nil {
-			return nil, fmt.Errorf("line %d: %w", lineNum, err)
+		if err := p.parseLine(line); err != nil {
+			return nil, fmt.Errorf("line %d: %w", p.lineNum, err)
 		}
 	}
-	if err := scanner.Err(); err != nil {
+	if err := p.scanner.Err(); err != nil {
 		return nil, fmt.Errorf("reading input: %w", err)
 	}
 	if !headerSeen {
@@ -47,14 +46,16 @@ func Parse(r io.Reader) (*diagram.ClassDiagram, error) {
 type parser struct {
 	diagram  *diagram.ClassDiagram
 	classIdx map[string]int
+	scanner  *bufio.Scanner
+	lineNum  int
 }
 
-func (p *parser) parseLine(line string, scanner *bufio.Scanner, lineNum *int) error {
+func (p *parser) parseLine(line string) error {
 	if rest, ok := strings.CutPrefix(line, "class "); ok {
 		rest = strings.TrimSpace(rest)
 		if braceIdx := strings.IndexByte(rest, '{'); braceIdx >= 0 {
 			name := strings.TrimSpace(rest[:braceIdx])
-			return p.parseClassBody(name, scanner, lineNum)
+			return p.parseClassBody(name)
 		}
 		p.ensureClass(rest)
 		return nil
@@ -68,12 +69,12 @@ func (p *parser) parseLine(line string, scanner *bufio.Scanner, lineNum *int) er
 	return nil
 }
 
-func (p *parser) parseClassBody(name string, scanner *bufio.Scanner, lineNum *int) error {
+func (p *parser) parseClassBody(name string) error {
 	p.ensureClass(name)
 	idx := p.classIdx[name]
-	for scanner.Scan() {
-		*lineNum++
-		line := strings.TrimSpace(stripComment(scanner.Text()))
+	for p.scanner.Scan() {
+		p.lineNum++
+		line := strings.TrimSpace(stripComment(p.scanner.Text()))
 		if line == "" {
 			continue
 		}
@@ -87,7 +88,7 @@ func (p *parser) parseClassBody(name string, scanner *bufio.Scanner, lineNum *in
 		}
 		p.diagram.Classes[idx].Members = append(p.diagram.Classes[idx].Members, parseMember(line))
 	}
-	if err := scanner.Err(); err != nil {
+	if err := p.scanner.Err(); err != nil {
 		return fmt.Errorf("reading class body for %q: %w", name, err)
 	}
 	return fmt.Errorf("unclosed class body for %q", name)
@@ -121,7 +122,6 @@ func parseMember(line string) diagram.ClassMember {
 	}
 	if idx := strings.Index(line, "("); idx >= 0 {
 		m.IsMethod = true
-		// Extract return type after closing paren
 		if closeIdx := strings.Index(line, ")"); closeIdx >= 0 {
 			m.Name = strings.TrimSpace(line[:idx])
 			if closeIdx+1 < len(line) {
@@ -134,7 +134,6 @@ func parseMember(line string) diagram.ClassMember {
 		parts := strings.Fields(line)
 		switch len(parts) {
 		case 0:
-			// empty
 		case 1:
 			m.Name = parts[0]
 		default:
@@ -160,7 +159,6 @@ func parseAnnotation(s string) diagram.ClassAnnotation {
 	}
 }
 
-// Relation arrows ordered longest-first to avoid prefix ambiguity.
 var relationArrows = []struct {
 	lit string
 	typ diagram.RelationType
