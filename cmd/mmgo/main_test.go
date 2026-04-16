@@ -106,7 +106,7 @@ func TestCLIWithConfigFile(t *testing.T) {
 	}
 }
 
-func TestCLIUnsupportedOutputFormat(t *testing.T) {
+func TestCLIPNGOutput(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "test.mmd")
 	output := filepath.Join(dir, "test.png")
@@ -114,8 +114,29 @@ func TestCLIUnsupportedOutputFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := exec.Command(testBin, "-i", input, "-o", output).CombinedOutput()
+	if err != nil {
+		t.Fatalf("cli: %v\n%s", err, out)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	// PNG magic bytes
+	if len(data) < 8 || string(data[:4]) != "\x89PNG" {
+		t.Error("output should be valid PNG")
+	}
+}
+
+func TestCLIUnsupportedOutputFormat(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "test.mmd")
+	output := filepath.Join(dir, "test.pdf")
+	if err := os.WriteFile(input, []byte("graph LR\n    A --> B"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(testBin, "-i", input, "-o", output).CombinedOutput()
 	if err == nil {
-		t.Fatal("expected error for .png output")
+		t.Fatal("expected error for .pdf output")
 	}
 	if !strings.Contains(string(out), "not yet supported") {
 		t.Errorf("error should mention unsupported format: %s", out)

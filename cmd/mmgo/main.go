@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/config"
+	pngpkg "github.com/julianshen/mmgo/pkg/output/png"
 	svg "github.com/julianshen/mmgo/pkg/output/svg"
 	flag "github.com/spf13/pflag"
 )
@@ -49,10 +50,16 @@ func run(opts cliOptions) error {
 		return fmt.Errorf("no input specified (use -i <file> or -i - for stdin)")
 	}
 
+	outputFormat := "svg"
 	if opts.Output != "" {
 		ext := strings.ToLower(filepath.Ext(opts.Output))
-		if ext != ".svg" && ext != "" {
-			return fmt.Errorf("%s output not yet supported (only .svg)", ext)
+		switch ext {
+		case ".svg", "":
+			outputFormat = "svg"
+		case ".png":
+			outputFormat = "png"
+		default:
+			return fmt.Errorf("%s output not yet supported", ext)
 		}
 	}
 
@@ -87,12 +94,22 @@ func run(opts cliOptions) error {
 		return err
 	}
 
+	var outBytes []byte
+	if outputFormat == "png" {
+		outBytes, err = pngpkg.Render(svgBytes, nil)
+		if err != nil {
+			return err
+		}
+	} else {
+		outBytes = svgBytes
+	}
+
 	if opts.Output == "" {
-		_, err = os.Stdout.Write(svgBytes)
+		_, err = os.Stdout.Write(outBytes)
 		return err
 	}
 
-	if err := os.WriteFile(opts.Output, svgBytes, 0o644); err != nil {
+	if err := os.WriteFile(opts.Output, outBytes, 0o644); err != nil {
 		return fmt.Errorf("write output: %w", err)
 	}
 
