@@ -2,6 +2,7 @@ package sequence
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
@@ -180,7 +181,7 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 			}
 			x1 := mr.lay.participantX[idx1]
 			cx = (x0 + x1) / 2
-			w = x1 - x0 + 2*notePad
+			w = math.Abs(x1-x0) + 2*notePad
 		} else {
 			cx = x0
 		}
@@ -219,7 +220,10 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 	mr.curY += defaultRowHeight / 2
 	endY := mr.curY
 
-	x := mr.lay.participantX[0] - defaultParticipantGap/3
+	x := blockPad
+	if len(mr.lay.participantX) > 0 {
+		x = mr.lay.participantX[0] - defaultParticipantGap/3
+	}
 	w := mr.lay.width - 2*x
 	if w < 0 {
 		w = mr.lay.width - 2*blockPad
