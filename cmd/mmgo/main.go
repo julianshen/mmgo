@@ -8,8 +8,7 @@ import (
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/config"
-	pdfpkg "github.com/julianshen/mmgo/pkg/output/pdf"
-	pngpkg "github.com/julianshen/mmgo/pkg/output/png"
+	"github.com/julianshen/mmgo/pkg/output"
 	svg "github.com/julianshen/mmgo/pkg/output/svg"
 	flag "github.com/spf13/pflag"
 )
@@ -97,15 +96,7 @@ func run(opts cliOptions) error {
 		return err
 	}
 
-	var outBytes []byte
-	switch outputFormat {
-	case "png":
-		outBytes, err = pngpkg.Render(svgBytes, nil)
-	case "pdf":
-		outBytes, err = pdfpkg.Render(svgBytes, nil)
-	default:
-		outBytes = svgBytes
-	}
+	outBytes, err := output.ConvertSVG(svgBytes, outputFormat)
 	if err != nil {
 		return err
 	}
