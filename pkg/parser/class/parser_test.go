@@ -187,6 +187,20 @@ func TestParseUnclosedClassBody(t *testing.T) {
 	}
 }
 
+func TestParseClassNoSpaceBeforeBrace(t *testing.T) {
+	input := "classDiagram\n    class Animal{\n        +name\n    }"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Classes) != 1 || d.Classes[0].ID != "Animal" {
+		t.Errorf("got %+v", d.Classes)
+	}
+	if len(d.Classes[0].Members) != 1 {
+		t.Errorf("want 1 member, got %d", len(d.Classes[0].Members))
+	}
+}
+
 func TestParseBareClassDeclaration(t *testing.T) {
 	input := "classDiagram\n    class Animal"
 	d, err := Parse(strings.NewReader(input))

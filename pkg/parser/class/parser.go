@@ -52,8 +52,8 @@ type parser struct {
 func (p *parser) parseLine(line string, scanner *bufio.Scanner, lineNum *int) error {
 	if rest, ok := strings.CutPrefix(line, "class "); ok {
 		rest = strings.TrimSpace(rest)
-		if strings.HasSuffix(rest, "{") {
-			name := strings.TrimSpace(strings.TrimSuffix(rest, "{"))
+		if braceIdx := strings.IndexByte(rest, '{'); braceIdx >= 0 {
+			name := strings.TrimSpace(rest[:braceIdx])
 			return p.parseClassBody(name, scanner, lineNum)
 		}
 		p.ensureClass(rest)
@@ -86,6 +86,9 @@ func (p *parser) parseClassBody(name string, scanner *bufio.Scanner, lineNum *in
 			continue
 		}
 		p.diagram.Classes[idx].Members = append(p.diagram.Classes[idx].Members, parseMember(line))
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("reading class body for %q: %w", name, err)
 	}
 	return fmt.Errorf("unclosed class body for %q", name)
 }
