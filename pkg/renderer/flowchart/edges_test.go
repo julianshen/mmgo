@@ -168,7 +168,7 @@ func TestRenderEdgeWithLabel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ruler.Close()
+	defer func() { _ = ruler.Close() }()
 	e := diagram.Edge{From: "A", To: "B", Label: "yes", ArrowHead: diagram.ArrowHeadArrow}
 	el := layout.EdgeLayout{
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
@@ -191,7 +191,7 @@ func TestRenderEdgeLabelBackgroundRect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ruler.Close()
+	defer func() { _ = ruler.Close() }()
 	e := diagram.Edge{From: "A", To: "B", Label: "bg", ArrowHead: diagram.ArrowHeadArrow}
 	el := layout.EdgeLayout{
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
@@ -214,7 +214,7 @@ func TestRenderEdgeLabelBackgroundRectWithRuler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ruler.Close()
+	defer func() { _ = ruler.Close() }()
 
 	e := diagram.Edge{From: "A", To: "B", Label: "a very long label", ArrowHead: diagram.ArrowHeadArrow}
 	el := layout.EdgeLayout{

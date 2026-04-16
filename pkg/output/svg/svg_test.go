@@ -218,7 +218,7 @@ func TestBuildFlowchartGraphIncludesNestedNodes(t *testing.T) {
 		},
 	}
 	ruler := mustRuler(t)
-	defer ruler.Close()
+	defer func() { _ = ruler.Close() }()
 	g := buildFlowchartGraph(d, ruler, flowchartrenderer.DefaultFontSize)
 
 	for _, want := range []string{"Top", "Nested", "Deep"} {
@@ -233,7 +233,7 @@ func TestBuildFlowchartGraphIncludesNestedNodes(t *testing.T) {
 
 func TestNodeSizeRespectsMinimum(t *testing.T) {
 	ruler := mustRuler(t)
-	defer ruler.Close()
+	defer func() { _ = ruler.Close() }()
 	w, h := nodeSize("", ruler, flowchartrenderer.DefaultFontSize)
 	if w < minNodeWidth || h < minNodeHeight {
 		t.Errorf("empty label should clamp to minimum: w=%v h=%v", w, h)
