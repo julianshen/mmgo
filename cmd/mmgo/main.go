@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/config"
+	pdfpkg "github.com/julianshen/mmgo/pkg/output/pdf"
 	pngpkg "github.com/julianshen/mmgo/pkg/output/png"
 	svg "github.com/julianshen/mmgo/pkg/output/svg"
 	flag "github.com/spf13/pflag"
@@ -58,6 +59,8 @@ func run(opts cliOptions) error {
 			outputFormat = "svg"
 		case ".png":
 			outputFormat = "png"
+		case ".pdf":
+			outputFormat = "pdf"
 		default:
 			return fmt.Errorf("%s output not yet supported", ext)
 		}
@@ -95,13 +98,16 @@ func run(opts cliOptions) error {
 	}
 
 	var outBytes []byte
-	if outputFormat == "png" {
+	switch outputFormat {
+	case "png":
 		outBytes, err = pngpkg.Render(svgBytes, nil)
-		if err != nil {
-			return err
-		}
-	} else {
+	case "pdf":
+		outBytes, err = pdfpkg.Render(svgBytes, nil)
+	default:
 		outBytes = svgBytes
+	}
+	if err != nil {
+		return err
 	}
 
 	if opts.Output == "" {

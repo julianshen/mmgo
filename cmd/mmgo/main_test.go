@@ -127,7 +127,7 @@ func TestCLIPNGOutput(t *testing.T) {
 	}
 }
 
-func TestCLIUnsupportedOutputFormat(t *testing.T) {
+func TestCLIPDFOutput(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "test.mmd")
 	output := filepath.Join(dir, "test.pdf")
@@ -135,8 +135,28 @@ func TestCLIUnsupportedOutputFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := exec.Command(testBin, "-i", input, "-o", output).CombinedOutput()
+	if err != nil {
+		t.Fatalf("cli: %v\n%s", err, out)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	if len(data) < 4 || string(data[:4]) != "%PDF" {
+		t.Error("output should be valid PDF")
+	}
+}
+
+func TestCLIUnsupportedOutputFormat(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "test.mmd")
+	output := filepath.Join(dir, "test.docx")
+	if err := os.WriteFile(input, []byte("graph LR\n    A --> B"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(testBin, "-i", input, "-o", output).CombinedOutput()
 	if err == nil {
-		t.Fatal("expected error for .pdf output")
+		t.Fatal("expected error for .docx output")
 	}
 	if !strings.Contains(string(out), "not yet supported") {
 		t.Errorf("error should mention unsupported format: %s", out)
