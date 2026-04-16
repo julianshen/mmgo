@@ -9,9 +9,7 @@ import (
 	"github.com/tdewolff/canvas/renderers"
 )
 
-type Options struct {
-	// reserved for future pdfFit, page size, etc.
-}
+type Options struct{}
 
 func Render(svgBytes []byte, opts *Options) ([]byte, error) {
 	if len(svgBytes) == 0 {
