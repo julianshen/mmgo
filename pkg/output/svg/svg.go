@@ -9,10 +9,12 @@ package svg
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 
+	"github.com/julianshen/mmgo/pkg/config"
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
@@ -28,13 +30,10 @@ import (
 // Options configures the end-to-end pipeline. All fields are optional;
 // nil opts uses defaults end-to-end.
 type Options struct {
-	// Layout forwards spacing knobs (NodeSep, RankSep) to the layout
-	// engine. RankDir is intentionally ignored — direction comes from
-	// the parsed diagram header (`graph LR`, `flowchart TB`, ...) so
-	// the rendered output matches the input verbatim.
+	// Layout.RankDir is intentionally ignored — direction comes from
+	// the diagram header.
 	Layout layout.Options
-	// Flowchart is forwarded to the flowchart renderer (theme, padding,
-	// font size, ExtraCSS). Nil uses renderer defaults.
+	Theme  config.ThemeName
 	Flowchart *flowchartrenderer.Options
 	Sequence  *sequencerenderer.Options
 	Pie       *pierenderer.Options
@@ -60,10 +59,13 @@ func Render(r io.Reader, opts *Options) ([]byte, error) {
 	if r == nil {
 		return nil, fmt.Errorf("svg render: reader is nil")
 	}
-	src, err := io.ReadAll(r)
+	raw, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: read input: %w", err)
 	}
+
+	src, initCfg := extractInitDirective(raw)
+	opts = mergeInitTheme(opts, initCfg)
 
 	kind, err := detectDiagramKind(src)
 	if err != nil {
@@ -151,6 +153,105 @@ func hasHeaderKeyword(line, kw string) bool {
 // diagram. The font size used for node sizing is read from the
 // flowchart renderer's Options so node boxes and rendered text always
 // agree, even when the caller customizes it.
+// extractInitDirective strips `%%{init: {...}}%%` lines from src and
+// returns the cleaned source plus the parsed JSON config (nil if none).
+func extractInitDirective(src []byte) ([]byte, *config.Config) {
+	scanner := bufio.NewScanner(bytes.NewReader(src))
+	var cleaned []byte
+	var cfg *config.Config
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "%%{init:") && strings.HasSuffix(trimmed, "}%%") {
+			inner := strings.TrimPrefix(trimmed, "%%{init:")
+			inner = strings.TrimSuffix(inner, "}%%")
+			inner = strings.TrimSpace(inner)
+			var c config.Config
+			if json.Unmarshal([]byte(inner), &c) == nil {
+				if c.Theme == "" {
+					c.Theme = config.ThemeDefault
+				}
+				cfg = &c
+			}
+			continue
+		}
+		if len(cleaned) > 0 {
+			cleaned = append(cleaned, '\n')
+		}
+		cleaned = append(cleaned, []byte(line)...)
+	}
+	if err := scanner.Err(); err != nil {
+		return src, nil
+	}
+	return cleaned, cfg
+}
+
+func mergeInitTheme(opts *Options, initCfg *config.Config) *Options {
+	if initCfg == nil && (opts == nil || opts.Theme == "") {
+		return opts
+	}
+	theme := config.ThemeDefault
+	if opts != nil && opts.Theme != "" {
+		theme = opts.Theme
+	}
+	if initCfg != nil && initCfg.Theme != "" {
+		theme = initCfg.Theme
+	}
+	tc, err := config.BuiltInTheme(theme)
+	if err != nil {
+		return opts
+	}
+	merged := &Options{}
+	if opts != nil {
+		*merged = *opts
+	}
+	// Clone pointer fields so we don't mutate the caller's structs.
+	if merged.Flowchart != nil {
+		clone := *merged.Flowchart
+		merged.Flowchart = &clone
+	} else {
+		merged.Flowchart = &flowchartrenderer.Options{}
+	}
+	merged.Flowchart.Theme = toFlowchartTheme(tc)
+
+	if merged.Sequence != nil {
+		clone := *merged.Sequence
+		merged.Sequence = &clone
+	} else {
+		merged.Sequence = &sequencerenderer.Options{}
+	}
+	merged.Sequence.Theme = toSequenceTheme(tc)
+
+	return merged
+}
+
+func toFlowchartTheme(tc *config.ThemeColors) flowchartrenderer.Theme {
+	return flowchartrenderer.Theme{
+		NodeFill:       tc.Primary,
+		NodeStroke:     tc.LineColor,
+		NodeText:       tc.Text,
+		EdgeStroke:     tc.LineColor,
+		EdgeText:       tc.Text,
+		SubgraphFill:   tc.Tertiary,
+		SubgraphStroke: tc.LineColor,
+		SubgraphText:   tc.Text,
+		Background:     tc.Background,
+	}
+}
+
+func toSequenceTheme(tc *config.ThemeColors) sequencerenderer.Theme {
+	return sequencerenderer.Theme{
+		Background:        tc.Background,
+		ParticipantFill:   tc.Secondary,
+		ParticipantStroke: tc.LineColor,
+		ParticipantText:   tc.Text,
+		LifelineStroke:    tc.LineColor,
+		MessageStroke:     tc.LineColor,
+		MessageText:       tc.Text,
+		NoteFill:          tc.NoteFill,
+	}
+}
+
 func renderFlowchart(src []byte, opts *Options) ([]byte, error) {
 	d, err := flowchartparser.Parse(bytes.NewReader(src))
 	if err != nil {
