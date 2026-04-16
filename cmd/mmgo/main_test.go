@@ -15,7 +15,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	testBin = filepath.Join(dir, "mmgo")
 	cmd := exec.Command("go", "build", "-o", testBin, ".")
 	if out, err := cmd.CombinedOutput(); err != nil {

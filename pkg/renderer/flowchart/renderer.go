@@ -40,7 +40,7 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 		if err != nil {
 			return nil, fmt.Errorf("flowchart render: text measurer init: %w", err)
 		}
-		defer r.Close()
+		defer func() { _ = r.Close() }()
 		ruler = r
 	}
 

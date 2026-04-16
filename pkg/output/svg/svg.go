@@ -262,7 +262,7 @@ func renderFlowchart(src []byte, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: text measurer: %w", err)
 	}
-	defer ruler.Close()
+	defer func() { _ = ruler.Close() }()
 
 	fontSize := flowchartFontSize(opts)
 	g := buildFlowchartGraph(d, ruler, fontSize)

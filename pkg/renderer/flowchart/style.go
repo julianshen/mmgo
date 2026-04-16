@@ -19,7 +19,7 @@ func buildClassCSS(d *diagram.FlowchartDiagram) string {
 	sort.Strings(names)
 	var sb strings.Builder
 	for _, name := range names {
-		sb.WriteString(fmt.Sprintf(".%s { %s }\n", name, d.Classes[name]))
+		fmt.Fprintf(&sb, ".%s { %s }\n", name, d.Classes[name])
 	}
 	return sb.String()
 }
