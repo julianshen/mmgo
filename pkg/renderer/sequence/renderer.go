@@ -62,20 +62,46 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 		}
 	}
 
+	// Compute per-participant widths so spacing adapts to labels.
+	widths := make([]float64, n)
+	maxHeaderH := defaultBoxHeight
+	for i, p := range d.Participants {
+		label := p.Alias
+		if label == "" {
+			label = p.ID
+		}
+		widths[i] = estimateTextWidth(label, fontSize) + 2*defaultBoxPadX
+		if widths[i] < defaultParticipantGap*0.6 {
+			widths[i] = defaultParticipantGap * 0.6
+		}
+		if p.Kind == diagram.ParticipantKindActor {
+			h := actorHeight(fontSize)
+			if h > maxHeaderH {
+				maxHeaderH = h
+			}
+		}
+	}
+
 	xs := make([]float64, n)
-	for i := range xs {
-		xs[i] = pad + float64(i)*defaultParticipantGap
+	xs[0] = pad + widths[0]/2
+	for i := 1; i < n; i++ {
+		gap := (widths[i-1] + widths[i]) / 2
+		if gap < defaultParticipantGap {
+			gap = defaultParticipantGap
+		}
+		xs[i] = xs[i-1] + gap
 	}
 
 	topY := pad
-	bodyStart := topY + defaultBoxHeight + 10
+	bodyStart := topY + maxHeaderH + 10
 	rows := countRows(d)
 	bodyEnd := bodyStart + float64(rows)*defaultRowHeight
 	if rows == 0 {
 		bodyEnd = bodyStart + defaultRowHeight
 	}
 
-	totalW := xs[n-1] + defaultParticipantGap/2 + pad
+	lastHalfW := widths[n-1] / 2
+	totalW := xs[n-1] + lastHalfW + pad
 	totalH := bodyEnd + pad
 
 	return seqLayout{
@@ -86,6 +112,10 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 		width:  totalW,
 		height: totalH,
 	}
+}
+
+func actorHeight(fontSize float64) float64 {
+	return 2*defaultActorHeadR + defaultActorBodyH + fontSize + 2
 }
 
 func countRows(d *diagram.SequenceDiagram) int {

@@ -110,8 +110,14 @@ func TestRenderViewBoxScalesWithParticipants(t *testing.T) {
 			{ID: "D", Kind: diagram.ParticipantKindParticipant},
 		},
 	}
-	out2, _ := Render(d2, nil)
-	out4, _ := Render(d4, nil)
+	out2, err := Render(d2, nil)
+	if err != nil {
+		t.Fatalf("Render d2: %v", err)
+	}
+	out4, err := Render(d4, nil)
+	if err != nil {
+		t.Fatalf("Render d4: %v", err)
+	}
 	w2 := viewBoxWidth(t, out2)
 	w4 := viewBoxWidth(t, out4)
 	if !(w4 > w2) {
@@ -132,9 +138,15 @@ func TestRenderDeterministic(t *testing.T) {
 			}),
 		},
 	}
-	first, _ := Render(d, nil)
+	first, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
 	for i := 0; i < 10; i++ {
-		next, _ := Render(d, nil)
+		next, err := Render(d, nil)
+		if err != nil {
+			t.Fatalf("iter %d: %v", i, err)
+		}
 		if string(next) != string(first) {
 			t.Fatalf("iter %d: output diverges", i)
 		}
