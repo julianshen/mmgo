@@ -180,6 +180,9 @@ func extractInitDirective(src []byte) ([]byte, *config.Config) {
 		}
 		cleaned = append(cleaned, []byte(line)...)
 	}
+	if err := scanner.Err(); err != nil {
+		return src, nil
+	}
 	return cleaned, cfg
 }
 
@@ -202,12 +205,19 @@ func mergeInitTheme(opts *Options, initCfg *config.Config) *Options {
 	if opts != nil {
 		*merged = *opts
 	}
-	if merged.Flowchart == nil {
+	// Clone pointer fields so we don't mutate the caller's structs.
+	if merged.Flowchart != nil {
+		clone := *merged.Flowchart
+		merged.Flowchart = &clone
+	} else {
 		merged.Flowchart = &flowchartrenderer.Options{}
 	}
 	merged.Flowchart.Theme = toFlowchartTheme(tc)
 
-	if merged.Sequence == nil {
+	if merged.Sequence != nil {
+		clone := *merged.Sequence
+		merged.Sequence = &clone
+	} else {
 		merged.Sequence = &sequencerenderer.Options{}
 	}
 	merged.Sequence.Theme = toSequenceTheme(tc)
