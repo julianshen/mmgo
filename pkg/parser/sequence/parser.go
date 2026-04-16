@@ -58,18 +58,11 @@ func Parse(r io.Reader) (*diagram.SequenceDiagram, error) {
 type parser struct {
 	diagram       *diagram.SequenceDiagram
 	participantIx map[string]int
-	// blockStack tracks nested block scopes. When non-empty, new items
-	// are appended to the top block's Items (or its latest branch)
-	// instead of to the diagram's top-level Items. `end` pops the
-	// stack and attaches the completed block to its parent.
 	blockStack []*blockFrame
 }
 
 type blockFrame struct {
-	block *diagram.Block
-	// activeBranch points to the branch currently receiving items.
-	// It starts as the block itself; when else/and/option is seen,
-	// a new branch is pushed and activeBranch moves to it.
+	block        *diagram.Block
 	activeBranch *diagram.Block
 }
 
@@ -177,9 +170,6 @@ func (p *parser) parseNote(rest string) error {
 	return nil
 }
 
-// appendItem routes a SequenceItem to the correct parent: the
-// active branch of the top block when inside a block, or the
-// diagram's top-level Items when no block is open.
 func (p *parser) appendItem(item diagram.SequenceItem) {
 	if len(p.blockStack) > 0 {
 		top := p.blockStack[len(p.blockStack)-1]
@@ -189,7 +179,6 @@ func (p *parser) appendItem(item diagram.SequenceItem) {
 	}
 }
 
-// Block-opening keywords and their BlockKind.
 var blockOpeners = []struct {
 	kw   string
 	kind diagram.BlockKind

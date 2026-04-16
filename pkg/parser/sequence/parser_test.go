@@ -655,6 +655,39 @@ func TestParseBranchKeywordInWrongBlock(t *testing.T) {
 	}
 }
 
+func TestParseEmptyBlock(t *testing.T) {
+	d, err := Parse(strings.NewReader("sequenceDiagram\n    alt x\n    end"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := d.Items[0].Block
+	if len(b.Items) != 0 {
+		t.Errorf("empty block should have no items, got %d", len(b.Items))
+	}
+}
+
+func TestParseImmediateBranch(t *testing.T) {
+	input := `sequenceDiagram
+    alt x
+    else y
+        A->>B: z
+    end`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := d.Items[0].Block
+	if len(b.Items) != 0 {
+		t.Errorf("main branch should be empty, got %d items", len(b.Items))
+	}
+	if len(b.Branches) != 1 {
+		t.Fatalf("want 1 else branch, got %d", len(b.Branches))
+	}
+	if len(b.Branches[0].Items) != 1 {
+		t.Errorf("else branch should have 1 item, got %d", len(b.Branches[0].Items))
+	}
+}
+
 func TestParseBlockNoLabel(t *testing.T) {
 	// Mermaid allows blocks without labels.
 	d, err := Parse(strings.NewReader("sequenceDiagram\n    opt\n        A->>B: x\n    end"))
