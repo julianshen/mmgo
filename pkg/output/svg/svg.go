@@ -3,7 +3,7 @@
 //
 //	svgBytes, err := svg.Render(strings.NewReader(input), nil)
 //
-// Currently supports flowchart/graph and sequence diagrams.
+// Currently supports flowchart/graph, sequence, and pie diagrams.
 package svg
 
 import (
@@ -17,8 +17,10 @@ import (
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
 	flowchartparser "github.com/julianshen/mmgo/pkg/parser/flowchart"
+	pieparser "github.com/julianshen/mmgo/pkg/parser/pie"
 	sequenceparser "github.com/julianshen/mmgo/pkg/parser/sequence"
 	flowchartrenderer "github.com/julianshen/mmgo/pkg/renderer/flowchart"
+	pierenderer "github.com/julianshen/mmgo/pkg/renderer/pie"
 	sequencerenderer "github.com/julianshen/mmgo/pkg/renderer/sequence"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
@@ -35,6 +37,7 @@ type Options struct {
 	// font size, ExtraCSS). Nil uses renderer defaults.
 	Flowchart *flowchartrenderer.Options
 	Sequence  *sequencerenderer.Options
+	Pie       *pierenderer.Options
 }
 
 // Sizing constants for nodes when no caller-specified theme overrides
@@ -71,6 +74,8 @@ func Render(r io.Reader, opts *Options) ([]byte, error) {
 		return renderFlowchart(src, opts)
 	case kindSequence:
 		return renderSequence(src, opts)
+	case kindPie:
+		return renderPie(src, opts)
 	default:
 		return nil, fmt.Errorf("svg render: %v diagrams are not yet supported", kind)
 	}
@@ -84,6 +89,7 @@ const (
 	kindUnknown diagramKind = iota
 	kindFlowchart
 	kindSequence
+	kindPie
 )
 
 func (k diagramKind) String() string {
@@ -92,6 +98,8 @@ func (k diagramKind) String() string {
 		return "flowchart"
 	case kindSequence:
 		return "sequence"
+	case kindPie:
+		return "pie"
 	default:
 		return "unknown"
 	}
@@ -113,6 +121,9 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 		}
 		if hasHeaderKeyword(line, "sequenceDiagram") {
 			return kindSequence, nil
+		}
+		if hasHeaderKeyword(line, "pie") {
+			return kindPie, nil
 		}
 		return kindUnknown, fmt.Errorf("unrecognized diagram header: %q", line)
 	}
@@ -195,6 +206,23 @@ func renderSequence(src []byte, opts *Options) ([]byte, error) {
 		sopts = &clone
 	}
 	out, err := sequencerenderer.Render(d, sopts)
+	if err != nil {
+		return nil, fmt.Errorf("svg render: %w", err)
+	}
+	return out, nil
+}
+
+func renderPie(src []byte, opts *Options) ([]byte, error) {
+	d, err := pieparser.Parse(bytes.NewReader(src))
+	if err != nil {
+		return nil, fmt.Errorf("svg render: parse: %w", err)
+	}
+	var popts *pierenderer.Options
+	if opts != nil && opts.Pie != nil {
+		clone := *opts.Pie
+		popts = &clone
+	}
+	out, err := pierenderer.Render(d, popts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}

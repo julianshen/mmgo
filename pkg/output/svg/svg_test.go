@@ -90,6 +90,7 @@ func TestDetectDiagramKind(t *testing.T) {
 		// Word-boundary check: `grapha` must not match `graph`.
 		{"grapha not matched", "grapha LR\nA --> B", kindUnknown, true},
 		{"sequenceDiagram", "sequenceDiagram\n    A->>B: hi", kindSequence, false},
+		{"pie", "pie title Pets\n    \"Dogs\" : 10", kindPie, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -304,6 +305,31 @@ func TestRenderSequenceDiagramEndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(raw, ">Hello<") || !strings.Contains(raw, ">Hi back<") {
 		t.Error("message labels missing")
+	}
+}
+
+func TestRenderPieDiagramEndToEnd(t *testing.T) {
+	input := `pie title Pets
+    "Dogs" : 386
+    "Cats" : 85
+    "Rats" : 15`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.HasPrefix(raw, "<?xml") {
+		t.Error("output should start with XML decl")
+	}
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	if !strings.Contains(raw, ">Pets<") {
+		t.Error("title missing")
+	}
+	if !strings.Contains(raw, "<path") {
+		t.Error("arc paths missing")
 	}
 }
 
