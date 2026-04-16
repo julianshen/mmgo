@@ -10,14 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	pdfpkg "github.com/julianshen/mmgo/pkg/output/pdf"
-	pngpkg "github.com/julianshen/mmgo/pkg/output/png"
+	"github.com/julianshen/mmgo/pkg/output"
 	svgpkg "github.com/julianshen/mmgo/pkg/output/svg"
 )
 
-// Process reads markdown from r, finds ```mermaid code blocks, renders
-// each to the specified format, writes output files to outputDir, and
-// returns the rewritten markdown with image references.
 func Process(r io.Reader, outputDir, baseName, format string, opts *svgpkg.Options) ([]byte, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
@@ -73,19 +69,9 @@ func renderAndWrite(mermaid, path, format string, opts *svgpkg.Options) error {
 	if err != nil {
 		return err
 	}
-
-	var outBytes []byte
-	switch format {
-	case "png":
-		outBytes, err = pngpkg.Render(svgBytes, nil)
-	case "pdf":
-		outBytes, err = pdfpkg.Render(svgBytes, nil)
-	default:
-		outBytes = svgBytes
-	}
+	outBytes, err := output.ConvertSVG(svgBytes, format)
 	if err != nil {
 		return err
 	}
-
 	return os.WriteFile(path, outBytes, 0o644)
 }
