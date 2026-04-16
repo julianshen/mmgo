@@ -90,6 +90,9 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 
 	startAngle := -math.Pi / 2
 	for _, s := range d.Slices {
+		if total == 0 {
+			break
+		}
 		frac := s.Value / total
 		sweep := frac * 2 * math.Pi
 		midAngle := startAngle + sweep/2

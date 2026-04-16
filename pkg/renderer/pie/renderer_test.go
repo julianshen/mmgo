@@ -86,6 +86,17 @@ func TestRenderSingleSlice(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+func TestRenderAllZeroValues(t *testing.T) {
+	d := &diagram.PieDiagram{
+		Slices: []diagram.Slice{{Label: "A", Value: 0}, {Label: "B", Value: 0}},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	assertValidSVG(t, out)
+}
+
 func TestRenderDeterministic(t *testing.T) {
 	d := &diagram.PieDiagram{
 		Title:  "Test",

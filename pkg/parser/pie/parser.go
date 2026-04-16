@@ -85,6 +85,9 @@ func parseSlice(line string, d *diagram.PieDiagram) error {
 	if err != nil {
 		return fmt.Errorf("invalid slice value %q: %w", valStr, err)
 	}
+	if val < 0 {
+		return fmt.Errorf("slice value must be non-negative, got %v", val)
+	}
 	d.Slices = append(d.Slices, diagram.Slice{Label: label, Value: val})
 	return nil
 }

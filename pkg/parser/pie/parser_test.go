@@ -123,6 +123,13 @@ func TestParseSliceInvalidValue(t *testing.T) {
 	}
 }
 
+func TestParseNegativeValueErrors(t *testing.T) {
+	_, err := Parse(strings.NewReader("pie\n    \"X\" : -5"))
+	if err == nil {
+		t.Fatal("expected error for negative slice value")
+	}
+}
+
 func TestParseDecimalValues(t *testing.T) {
 	d, err := Parse(strings.NewReader("pie\n    \"A\" : 3.14"))
 	if err != nil {
