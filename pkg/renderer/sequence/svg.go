@@ -26,12 +26,6 @@ type svgDoc struct {
 	Children []any    `xml:",any"`
 }
 
-type group struct {
-	XMLName  xml.Name `xml:"g"`
-	ID       string   `xml:"id,attr,omitempty"`
-	Children []any    `xml:",any"`
-}
-
 type rect struct {
 	XMLName xml.Name `xml:"rect"`
 	X       svgFloat `xml:"x,attr"`
