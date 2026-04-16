@@ -8,25 +8,24 @@ import (
 	"testing"
 )
 
+var testBin string
+
 func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "mmdc-test-*")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(dir)
+	testBin = filepath.Join(dir, "mmdc")
+	cmd := exec.Command("go", "build", "-o", testBin, ".")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		panic(string(out))
+	}
 	os.Exit(m.Run())
 }
 
-func buildBinary(t *testing.T) string {
-	t.Helper()
-	bin := filepath.Join(t.TempDir(), "mmdc")
-	cmd := exec.Command("go", "build", "-o", bin, ".")
-	cmd.Dir = "."
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
-	return bin
-}
-
 func TestCLIHelp(t *testing.T) {
-	bin := buildBinary(t)
-	out, err := exec.Command(bin, "--help").CombinedOutput()
+	out, err := exec.Command(testBin, "--help").CombinedOutput()
 	if err != nil {
 		t.Fatalf("--help should not error: %v\n%s", err, out)
 	}
@@ -37,9 +36,7 @@ func TestCLIHelp(t *testing.T) {
 }
 
 func TestCLINoInput(t *testing.T) {
-	bin := buildBinary(t)
-	cmd := exec.Command(bin)
-	out, err := cmd.CombinedOutput()
+	out, err := exec.Command(testBin).CombinedOutput()
 	if err == nil {
 		t.Fatal("expected error when no input specified")
 	}
@@ -49,15 +46,13 @@ func TestCLINoInput(t *testing.T) {
 }
 
 func TestCLIFileToSVG(t *testing.T) {
-	bin := buildBinary(t)
 	dir := t.TempDir()
 	input := filepath.Join(dir, "test.mmd")
 	output := filepath.Join(dir, "test.svg")
 	if err := os.WriteFile(input, []byte("graph LR\n    A --> B"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(bin, "-i", input, "-o", output)
-	out, err := cmd.CombinedOutput()
+	out, err := exec.Command(testBin, "-i", input, "-o", output).CombinedOutput()
 	if err != nil {
 		t.Fatalf("cli: %v\n%s", err, out)
 	}
@@ -71,8 +66,7 @@ func TestCLIFileToSVG(t *testing.T) {
 }
 
 func TestCLIStdinToStdout(t *testing.T) {
-	bin := buildBinary(t)
-	cmd := exec.Command(bin, "-i", "-")
+	cmd := exec.Command(testBin, "-i", "-")
 	cmd.Stdin = strings.NewReader("graph LR\n    A --> B")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -84,8 +78,7 @@ func TestCLIStdinToStdout(t *testing.T) {
 }
 
 func TestCLIWithTheme(t *testing.T) {
-	bin := buildBinary(t)
-	cmd := exec.Command(bin, "-i", "-", "-t", "dark")
+	cmd := exec.Command(testBin, "-i", "-", "-t", "dark")
 	cmd.Stdin = strings.NewReader("graph LR\n    A --> B")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -97,13 +90,12 @@ func TestCLIWithTheme(t *testing.T) {
 }
 
 func TestCLIWithConfigFile(t *testing.T) {
-	bin := buildBinary(t)
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
 	if err := os.WriteFile(cfgPath, []byte(`{"theme": "forest"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(bin, "-i", "-", "-c", cfgPath)
+	cmd := exec.Command(testBin, "-i", "-", "-c", cfgPath)
 	cmd.Stdin = strings.NewReader("graph LR\n    A --> B")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -115,15 +107,13 @@ func TestCLIWithConfigFile(t *testing.T) {
 }
 
 func TestCLIUnsupportedOutputFormat(t *testing.T) {
-	bin := buildBinary(t)
 	dir := t.TempDir()
 	input := filepath.Join(dir, "test.mmd")
 	output := filepath.Join(dir, "test.png")
 	if err := os.WriteFile(input, []byte("graph LR\n    A --> B"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(bin, "-i", input, "-o", output)
-	out, err := cmd.CombinedOutput()
+	out, err := exec.Command(testBin, "-i", input, "-o", output).CombinedOutput()
 	if err == nil {
 		t.Fatal("expected error for .png output")
 	}
@@ -133,15 +123,13 @@ func TestCLIUnsupportedOutputFormat(t *testing.T) {
 }
 
 func TestCLIQuietMode(t *testing.T) {
-	bin := buildBinary(t)
 	dir := t.TempDir()
 	input := filepath.Join(dir, "test.mmd")
 	output := filepath.Join(dir, "test.svg")
 	if err := os.WriteFile(input, []byte("graph LR\n    A --> B"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(bin, "-i", input, "-o", output, "-q")
-	out, err := cmd.CombinedOutput()
+	out, err := exec.Command(testBin, "-i", input, "-o", output, "-q").CombinedOutput()
 	if err != nil {
 		t.Fatalf("cli: %v\n%s", err, out)
 	}
@@ -151,8 +139,7 @@ func TestCLIQuietMode(t *testing.T) {
 }
 
 func TestCLISequenceDiagram(t *testing.T) {
-	bin := buildBinary(t)
-	cmd := exec.Command(bin, "-i", "-")
+	cmd := exec.Command(testBin, "-i", "-")
 	cmd.Stdin = strings.NewReader("sequenceDiagram\n    A->>B: hello")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -164,8 +151,7 @@ func TestCLISequenceDiagram(t *testing.T) {
 }
 
 func TestCLIPieDiagram(t *testing.T) {
-	bin := buildBinary(t)
-	cmd := exec.Command(bin, "-i", "-")
+	cmd := exec.Command(testBin, "-i", "-")
 	cmd.Stdin = strings.NewReader("pie title Pets\n    \"Dogs\" : 70\n    \"Cats\" : 30")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

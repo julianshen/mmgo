@@ -13,21 +13,14 @@ import (
 )
 
 func main() {
-	var (
-		input      string
-		output     string
-		theme      string
-		bgColor    string
-		configFile string
-		quiet      bool
-	)
+	var opts cliOptions
 
-	flag.StringVarP(&input, "input", "i", "", "Input file (.mmd) or - for stdin")
-	flag.StringVarP(&output, "output", "o", "", "Output file (format inferred from extension; defaults to stdout)")
-	flag.StringVarP(&theme, "theme", "t", "", "Mermaid theme (default, dark, forest, neutral)")
-	flag.StringVarP(&bgColor, "backgroundColor", "b", "", "Background color")
-	flag.StringVarP(&configFile, "configFile", "c", "", "Path to JSON config file")
-	flag.BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output")
+	flag.StringVarP(&opts.Input, "input", "i", "", "Input file (.mmd) or - for stdin")
+	flag.StringVarP(&opts.Output, "output", "o", "", "Output file (format inferred from extension; defaults to stdout)")
+	flag.StringVarP(&opts.Theme, "theme", "t", "", "Mermaid theme (default, dark, forest, neutral)")
+	flag.StringVarP(&opts.BackgroundColor, "backgroundColor", "b", "", "Background color")
+	flag.StringVarP(&opts.ConfigFile, "configFile", "c", "", "Path to JSON config file")
+	flag.BoolVarP(&opts.Quiet, "quiet", "q", false, "Suppress non-error output")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: mmdc [flags]\n\nRender Mermaid diagrams to SVG.\n\nFlags:\n")
@@ -36,29 +29,38 @@ func main() {
 
 	flag.Parse()
 
-	if err := run(input, output, theme, bgColor, configFile, quiet); err != nil {
+	if err := run(opts); err != nil {
 		fmt.Fprintf(os.Stderr, "mmdc: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(input, output, theme, bgColor, configFile string, quiet bool) error {
-	if input == "" {
+type cliOptions struct {
+	Input           string
+	Output          string
+	Theme           string
+	BackgroundColor string
+	ConfigFile      string
+	Quiet           bool
+}
+
+func run(opts cliOptions) error {
+	if opts.Input == "" {
 		return fmt.Errorf("no input specified (use -i <file> or -i - for stdin)")
 	}
 
-	if output != "" {
-		ext := strings.ToLower(filepath.Ext(output))
+	if opts.Output != "" {
+		ext := strings.ToLower(filepath.Ext(opts.Output))
 		if ext != ".svg" && ext != "" {
 			return fmt.Errorf("%s output not yet supported (only .svg)", ext)
 		}
 	}
 
 	var r io.Reader
-	if input == "-" {
+	if opts.Input == "-" {
 		r = os.Stdin
 	} else {
-		f, err := os.Open(input)
+		f, err := os.Open(opts.Input)
 		if err != nil {
 			return fmt.Errorf("open input: %w", err)
 		}
@@ -66,36 +68,36 @@ func run(input, output, theme, bgColor, configFile string, quiet bool) error {
 		r = f
 	}
 
-	opts := &svg.Options{}
+	svgOpts := &svg.Options{}
 
-	if configFile != "" {
-		cfg, err := config.LoadFile(configFile)
+	if opts.ConfigFile != "" {
+		cfg, err := config.LoadFile(opts.ConfigFile)
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}
-		opts.Theme = cfg.Theme
+		svgOpts.Theme = cfg.Theme
 	}
 
-	if theme != "" {
-		opts.Theme = config.ThemeName(theme)
+	if opts.Theme != "" {
+		svgOpts.Theme = config.ThemeName(opts.Theme)
 	}
 
-	svgBytes, err := svg.Render(r, opts)
+	svgBytes, err := svg.Render(r, svgOpts)
 	if err != nil {
 		return err
 	}
 
-	if output == "" {
+	if opts.Output == "" {
 		_, err = os.Stdout.Write(svgBytes)
 		return err
 	}
 
-	if err := os.WriteFile(output, svgBytes, 0o644); err != nil {
+	if err := os.WriteFile(opts.Output, svgBytes, 0o644); err != nil {
 		return fmt.Errorf("write output: %w", err)
 	}
 
-	if !quiet {
-		fmt.Fprintf(os.Stderr, "Wrote %s\n", output)
+	if !opts.Quiet {
+		fmt.Fprintf(os.Stderr, "Wrote %s\n", opts.Output)
 	}
 	return nil
 }
