@@ -3,6 +3,7 @@ package sequence
 import (
 	"encoding/xml"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 )
@@ -50,7 +51,6 @@ type seqLayout struct {
 	bodyEndY     float64
 	width        float64
 	height       float64
-	pad          float64
 }
 
 func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout {
@@ -59,7 +59,6 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 		return seqLayout{
 			width:  2 * pad,
 			height: 2 * pad,
-			pad:    pad,
 		}
 	}
 
@@ -84,9 +83,8 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 		topY:         topY,
 		bodyStartY:   bodyStart,
 		bodyEndY:     bodyEnd,
-		width:        totalW,
-		height:       totalH,
-		pad:          pad,
+		width:  totalW,
+		height: totalH,
 	}
 }
 
@@ -150,10 +148,14 @@ func renderParticipantBox(cx, topY float64, label string, th Theme, fontSize flo
 		&text{
 			X: svgFloat(cx), Y: svgFloat(ry + h/2),
 			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.ParticipantText, fontSize),
+			Style:   labelStyle(th, fontSize),
 			Content: label,
 		},
 	}
+}
+
+func labelStyle(th Theme, fontSize float64) string {
+	return fmt.Sprintf("fill:%s;font-size:%.0fpx", th.ParticipantText, fontSize)
 }
 
 func renderActor(cx, topY float64, label string, th Theme, fontSize float64) []any {
@@ -163,24 +165,18 @@ func renderActor(cx, topY float64, label string, th Theme, fontSize float64) []a
 	strokeStyle := fmt.Sprintf("stroke:%s;stroke-width:%.1f;fill:none", th.ParticipantStroke, defaultStrokeWidth)
 
 	return []any{
-		// head
 		&circle{
 			CX: svgFloat(cx), CY: svgFloat(headCY), R: svgFloat(defaultActorHeadR),
 			Style: strokeStyle,
 		},
-		// body
 		&line{X1: svgFloat(cx), Y1: svgFloat(bodyTop), X2: svgFloat(cx), Y2: svgFloat(bodyBot - 10), Style: strokeStyle},
-		// arms
 		&line{X1: svgFloat(cx - 15), Y1: svgFloat(bodyTop + 8), X2: svgFloat(cx + 15), Y2: svgFloat(bodyTop + 8), Style: strokeStyle},
-		// left leg
 		&line{X1: svgFloat(cx), Y1: svgFloat(bodyBot - 10), X2: svgFloat(cx - 10), Y2: svgFloat(bodyBot), Style: strokeStyle},
-		// right leg
 		&line{X1: svgFloat(cx), Y1: svgFloat(bodyBot - 10), X2: svgFloat(cx + 10), Y2: svgFloat(bodyBot), Style: strokeStyle},
-		// label
 		&text{
 			X: svgFloat(cx), Y: svgFloat(bodyBot + fontSize + 2),
 			Anchor: "middle", Dominant: "auto",
-			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.ParticipantText, fontSize),
+			Style:   labelStyle(th, fontSize),
 			Content: label,
 		},
 	}
@@ -199,11 +195,6 @@ func renderLifelines(d *diagram.SequenceDiagram, lay seqLayout, th Theme) []any 
 	return elems
 }
 
-// estimateTextWidth provides a rough character-count-based width
-// estimate for layout. The sequence renderer doesn't use the font
-// ruler (which requires TTF parsing) — this fast approximation is
-// sufficient for column-based layouts where exact glyph widths
-// aren't critical.
 func estimateTextWidth(s string, fontSize float64) float64 {
-	return float64(len(s)) * fontSize * 0.6
+	return float64(utf8.RuneCountInString(s)) * fontSize * 0.6
 }
