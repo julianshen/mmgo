@@ -329,6 +329,27 @@ func TestRenderSequenceDiagramEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRenderClassDiagramEndToEnd(t *testing.T) {
+	input := `classDiagram
+    class Animal {
+        +String name
+        +eat()
+    }
+    Animal <|-- Dog`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	if !strings.Contains(raw, ">Animal<") || !strings.Contains(raw, ">Dog<") {
+		t.Error("class labels missing")
+	}
+}
+
 func TestRenderPieDiagramEndToEnd(t *testing.T) {
 	input := `pie title Pets
     "Dogs" : 386
