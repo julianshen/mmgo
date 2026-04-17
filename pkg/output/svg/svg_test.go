@@ -350,6 +350,27 @@ func TestRenderClassDiagramEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRenderERDiagramEndToEnd(t *testing.T) {
+	input := `erDiagram
+    CUSTOMER ||--o{ ORDER : places
+    CUSTOMER {
+        string name
+        int id PK
+    }`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	if !strings.Contains(raw, ">CUSTOMER<") {
+		t.Error("entity name missing")
+	}
+}
+
 func TestRenderStateDiagramEndToEnd(t *testing.T) {
 	input := `stateDiagram-v2
     [*] --> Idle
