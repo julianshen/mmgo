@@ -3,6 +3,7 @@ package timeline
 import (
 	"encoding/xml"
 	"fmt"
+	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 )
@@ -38,14 +39,13 @@ func Render(d *diagram.TimelineDiagram, opts *Options) ([]byte, error) {
 	}
 	pad := defaultPadding
 
-	rows, sectionStarts := countRows(d)
+	rows := countRows(d)
 	totalH := pad
 	if d.Title != "" {
 		totalH += titleH
 	}
-	totalH += float64(rows)*(eventBoxH+rowGap) + float64(len(d.Sections))*sectionGap + pad
+	totalH += rowGap + float64(rows)*(eventBoxH+rowGap) + float64(len(d.Sections))*sectionGap + pad
 	viewW := pad + axisX + axisW + 30 + eventBoxW + pad
-	_ = sectionStarts
 
 	var children []any
 	children = append(children, &rect{
@@ -111,18 +111,15 @@ func Render(d *diagram.TimelineDiagram, opts *Options) ([]byte, error) {
 	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), svgBytes...), nil
 }
 
-func countRows(d *diagram.TimelineDiagram) (int, []int) {
-	starts := []int{}
-	rows := 0
+func countRows(d *diagram.TimelineDiagram) int {
 	if len(d.Sections) > 0 {
+		rows := 0
 		for _, s := range d.Sections {
-			starts = append(starts, rows)
 			rows += len(s.Events)
 		}
-	} else {
-		rows = len(d.Events)
+		return rows
 	}
-	return rows, starts
+	return len(d.Events)
 }
 
 func renderEvent(ev diagram.TimelineEvent, axis, y float64, color string, fontSize float64) []any {
@@ -138,10 +135,7 @@ func renderEvent(ev diagram.TimelineEvent, axis, y float64, color string, fontSi
 		Style: fmt.Sprintf("fill:%s;stroke:white;stroke-width:2", color),
 	})
 	boxX := axis + 20
-	content := ev.Events[0]
-	for _, e := range ev.Events[1:] {
-		content += ", " + e
-	}
+	content := strings.Join(ev.Events, ", ")
 	elems = append(elems, &rect{
 		X: svgFloat(boxX), Y: svgFloat(y),
 		Width: svgFloat(eventBoxW), Height: svgFloat(eventBoxH),
