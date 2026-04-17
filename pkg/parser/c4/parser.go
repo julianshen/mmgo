@@ -78,13 +78,12 @@ func parseLine(d *diagram.C4Diagram, line string) error {
 		d.Title = strings.TrimSpace(rest)
 		return nil
 	}
-	// Relation: Rel(from, to, "label"[, "technology"])
-	// Directional variants: Rel_U, Rel_D, Rel_L, Rel_R, Rel_Back
-	if isRelation(line) {
-		rel, ok := parseRelation(line)
+	if dir, args, ok := matchRelation(line); ok {
+		rel, ok := parseRelation(args)
 		if !ok {
 			return nil
 		}
+		rel.Direction = dir
 		d.Relations = append(d.Relations, rel)
 		return nil
 	}
@@ -98,14 +97,27 @@ func parseLine(d *diagram.C4Diagram, line string) error {
 	return nil
 }
 
-func isRelation(line string) bool {
-	return strings.HasPrefix(line, "Rel(") ||
-		strings.HasPrefix(line, "Rel_U(") ||
-		strings.HasPrefix(line, "Rel_D(") ||
-		strings.HasPrefix(line, "Rel_L(") ||
-		strings.HasPrefix(line, "Rel_R(") ||
-		strings.HasPrefix(line, "Rel_Back(") ||
-		strings.HasPrefix(line, "BiRel(")
+// relKeywords is ordered longest-first so `Rel_Back(` wins over `Rel(`.
+var relKeywords = []struct {
+	kw  string
+	dir diagram.C4RelDirection
+}{
+	{"Rel_Back", diagram.C4RelBack},
+	{"BiRel", diagram.C4RelBi},
+	{"Rel_U", diagram.C4RelUp},
+	{"Rel_D", diagram.C4RelDown},
+	{"Rel_L", diagram.C4RelLeft},
+	{"Rel_R", diagram.C4RelRight},
+	{"Rel", diagram.C4RelDefault},
+}
+
+func matchRelation(line string) (diagram.C4RelDirection, string, bool) {
+	for _, rk := range relKeywords {
+		if rest, ok := strings.CutPrefix(line, rk.kw+"("); ok {
+			return rk.dir, rest, true
+		}
+	}
+	return 0, "", false
 }
 
 func matchElementKeyword(line string) (diagram.C4ElementKind, string, bool) {
@@ -117,14 +129,9 @@ func matchElementKeyword(line string) (diagram.C4ElementKind, string, bool) {
 	return 0, "", false
 }
 
-func parseRelation(line string) (diagram.C4Relation, bool) {
-	openIdx := strings.Index(line, "(")
-	if openIdx < 0 {
-		return diagram.C4Relation{}, false
-	}
-	inner := line[openIdx+1:]
-	inner = strings.TrimSuffix(inner, ")")
-	args := splitArgs(inner)
+func parseRelation(rest string) (diagram.C4Relation, bool) {
+	rest = strings.TrimSuffix(rest, ")")
+	args := splitArgs(rest)
 	if len(args) < 3 {
 		return diagram.C4Relation{}, false
 	}
@@ -165,13 +172,20 @@ func parseElement(kind diagram.C4ElementKind, rest string) (diagram.C4Element, b
 }
 
 // splitArgs splits a parenthesized argument list on commas, respecting
-// double-quoted strings.
+// double-quoted strings. Backslash-escaped quotes inside strings are
+// treated as literal and don't toggle the quote state.
 func splitArgs(s string) []string {
 	var args []string
 	var cur strings.Builder
 	inQuote := false
 	for i := 0; i < len(s); i++ {
 		c := s[i]
+		if c == '\\' && i+1 < len(s) {
+			cur.WriteByte(c)
+			cur.WriteByte(s[i+1])
+			i++
+			continue
+		}
 		if c == '"' {
 			inQuote = !inQuote
 			cur.WriteByte(c)

@@ -44,11 +44,28 @@ type C4Element struct {
 	Description string
 }
 
+type C4RelDirection int8
+
+const (
+	C4RelDefault C4RelDirection = iota
+	C4RelUp
+	C4RelDown
+	C4RelLeft
+	C4RelRight
+	C4RelBack
+	C4RelBi
+)
+
+var c4RelDirNames = []string{"default", "up", "down", "left", "right", "back", "bi"}
+
+func (d C4RelDirection) String() string { return enumString(d, c4RelDirNames) }
+
 type C4Relation struct {
 	From       string
 	To         string
 	Label      string
 	Technology string
+	Direction  C4RelDirection
 }
 
 type C4Diagram struct {

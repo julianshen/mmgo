@@ -109,9 +109,21 @@ func TestParseRelation(t *testing.T) {
 }
 
 func TestParseAllRelVariants(t *testing.T) {
-	for _, kw := range []string{"Rel", "Rel_U", "Rel_D", "Rel_L", "Rel_R", "Rel_Back", "BiRel"} {
-		t.Run(kw, func(t *testing.T) {
-			input := "C4Context\n    " + kw + "(a, b, \"x\")"
+	cases := []struct {
+		kw  string
+		dir diagram.C4RelDirection
+	}{
+		{"Rel", diagram.C4RelDefault},
+		{"Rel_U", diagram.C4RelUp},
+		{"Rel_D", diagram.C4RelDown},
+		{"Rel_L", diagram.C4RelLeft},
+		{"Rel_R", diagram.C4RelRight},
+		{"Rel_Back", diagram.C4RelBack},
+		{"BiRel", diagram.C4RelBi},
+	}
+	for _, tc := range cases {
+		t.Run(tc.kw, func(t *testing.T) {
+			input := "C4Context\n    " + tc.kw + "(a, b, \"x\")"
 			d, err := Parse(strings.NewReader(input))
 			if err != nil {
 				t.Fatalf("parse: %v", err)
@@ -121,6 +133,9 @@ func TestParseAllRelVariants(t *testing.T) {
 			}
 			if d.Relations[0].Label != "x" {
 				t.Errorf("label = %q", d.Relations[0].Label)
+			}
+			if d.Relations[0].Direction != tc.dir {
+				t.Errorf("direction = %v, want %v", d.Relations[0].Direction, tc.dir)
 			}
 		})
 	}
@@ -152,6 +167,21 @@ func TestParseComments(t *testing.T) {
 	}
 	if len(d.Elements) != 1 {
 		t.Errorf("want 1 element, got %d", len(d.Elements))
+	}
+}
+
+func TestParseEscapedQuoteInLabel(t *testing.T) {
+	input := `C4Context
+    Person(a, "Say \"Hi\"", "Greeter")`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Elements) != 1 {
+		t.Fatalf("want 1 element, got %d", len(d.Elements))
+	}
+	if d.Elements[0].Description != "Greeter" {
+		t.Errorf("description = %q, escaped quote broke arg split", d.Elements[0].Description)
 	}
 }
 
