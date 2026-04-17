@@ -17,7 +17,6 @@ const (
 	barGap          = 6.0
 	sectionLabelW   = 120.0
 	dayWidth        = 20.0
-	sectionPadY     = 8.0
 )
 
 type Options struct {
@@ -53,11 +52,7 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 	axisY := headerY
 	bodyY := axisY + axisH
 
-	rows := len(d.Tasks)
-	for _, sec := range d.Sections {
-		_ = sec
-		rows++
-	}
+	rows := len(d.Tasks) + len(d.Sections)
 	chartH := bodyY + float64(rows)*(barH+barGap) + pad
 
 	viewW := pad + sectionLabelW + chartW + pad

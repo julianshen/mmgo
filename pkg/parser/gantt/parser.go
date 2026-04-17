@@ -17,8 +17,7 @@ const defaultDateFormat = "2006-01-02"
 func Parse(r io.Reader) (*diagram.GanttDiagram, error) {
 	p := &parser{
 		diagram:    &diagram.GanttDiagram{DateFormat: defaultDateFormat},
-		taskByID:   make(map[string]*diagram.GanttTask),
-		lastTaskEnd: time.Now(),
+		taskByID: make(map[string]*diagram.GanttTask),
 	}
 	p.scanner = bufio.NewScanner(r)
 	p.scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
@@ -139,21 +138,20 @@ func (p *parser) parseTask(line string) error {
 			if err == nil {
 				task.End = t
 				p.lastTaskEnd = task.End
-				if task.ID != "" {
-					p.taskByID[task.ID] = &task
-				}
 				p.diagram.Tasks = append(p.diagram.Tasks, task)
+				if task.ID != "" {
+					p.taskByID[task.ID] = &p.diagram.Tasks[len(p.diagram.Tasks)-1]
+				}
 				return nil
 			}
 		}
 	}
 	task.End = task.Start.Add(dur)
 	p.lastTaskEnd = task.End
-
-	if task.ID != "" {
-		p.taskByID[task.ID] = &task
-	}
 	p.diagram.Tasks = append(p.diagram.Tasks, task)
+	if task.ID != "" {
+		p.taskByID[task.ID] = &p.diagram.Tasks[len(p.diagram.Tasks)-1]
+	}
 	return nil
 }
 
