@@ -350,6 +350,26 @@ func TestRenderClassDiagramEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRenderMindmapEndToEnd(t *testing.T) {
+	input := `mindmap
+    Root
+        Branch 1
+            Leaf
+        Branch 2`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	if !strings.Contains(raw, ">Root<") || !strings.Contains(raw, ">Leaf<") {
+		t.Error("mindmap node labels missing")
+	}
+}
+
 func TestRenderGanttDiagramEndToEnd(t *testing.T) {
 	input := `gantt
     title Project
