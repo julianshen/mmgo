@@ -350,6 +350,26 @@ func TestRenderClassDiagramEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRenderTimelineEndToEnd(t *testing.T) {
+	input := `timeline
+    title My Life
+    section 2020s
+        2020 : Graduated
+        2021 : First Job`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	if !strings.Contains(raw, ">My Life<") || !strings.Contains(raw, ">2020s<") {
+		t.Error("timeline labels missing")
+	}
+}
+
 func TestRenderMindmapEndToEnd(t *testing.T) {
 	input := `mindmap
     Root
