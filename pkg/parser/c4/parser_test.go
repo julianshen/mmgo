@@ -108,6 +108,24 @@ func TestParseRelation(t *testing.T) {
 	}
 }
 
+func TestParseAllRelVariants(t *testing.T) {
+	for _, kw := range []string{"Rel", "Rel_U", "Rel_D", "Rel_L", "Rel_R", "Rel_Back", "BiRel"} {
+		t.Run(kw, func(t *testing.T) {
+			input := "C4Context\n    " + kw + "(a, b, \"x\")"
+			d, err := Parse(strings.NewReader(input))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(d.Relations) != 1 {
+				t.Fatalf("want 1 relation, got %d", len(d.Relations))
+			}
+			if d.Relations[0].Label != "x" {
+				t.Errorf("label = %q", d.Relations[0].Label)
+			}
+		})
+	}
+}
+
 func TestParseExternalAndDB(t *testing.T) {
 	input := `C4Context
     Person_Ext(admin, "Admin")

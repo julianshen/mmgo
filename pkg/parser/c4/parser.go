@@ -20,16 +20,22 @@ var headerVariants = map[string]diagram.C4Variant{
 	"C4Deployment": diagram.C4VariantDeployment,
 }
 
-var elementKeywords = map[string]diagram.C4ElementKind{
-	"Person":       diagram.C4ElementPerson,
-	"Person_Ext":   diagram.C4ElementPersonExt,
-	"System":       diagram.C4ElementSystem,
-	"System_Ext":   diagram.C4ElementSystemExt,
-	"SystemDb":     diagram.C4ElementSystemDB,
-	"SystemDb_Ext": diagram.C4ElementSystemDB,
-	"Container":    diagram.C4ElementContainer,
-	"ContainerDb":  diagram.C4ElementContainerDB,
-	"Component":    diagram.C4ElementComponent,
+// elementKeywords is ordered by keyword length (longest first) so that
+// keyword dispatch is deterministic even though the `(` suffix already
+// prevents prefix ambiguity (e.g. `Container(` vs `ContainerDb(`).
+var elementKeywords = []struct {
+	kw   string
+	kind diagram.C4ElementKind
+}{
+	{"SystemDb_Ext", diagram.C4ElementSystemDB},
+	{"ContainerDb", diagram.C4ElementContainerDB},
+	{"Person_Ext", diagram.C4ElementPersonExt},
+	{"System_Ext", diagram.C4ElementSystemExt},
+	{"Component", diagram.C4ElementComponent},
+	{"Container", diagram.C4ElementContainer},
+	{"SystemDb", diagram.C4ElementSystemDB},
+	{"System", diagram.C4ElementSystem},
+	{"Person", diagram.C4ElementPerson},
 }
 
 func Parse(r io.Reader) (*diagram.C4Diagram, error) {
@@ -103,9 +109,9 @@ func isRelation(line string) bool {
 }
 
 func matchElementKeyword(line string) (diagram.C4ElementKind, string, bool) {
-	for kw, kind := range elementKeywords {
-		if rest, ok := strings.CutPrefix(line, kw+"("); ok {
-			return kind, rest, true
+	for _, ek := range elementKeywords {
+		if rest, ok := strings.CutPrefix(line, ek.kw+"("); ok {
+			return ek.kind, rest, true
 		}
 	}
 	return 0, "", false
