@@ -350,6 +350,25 @@ func TestRenderClassDiagramEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRenderStateDiagramEndToEnd(t *testing.T) {
+	input := `stateDiagram-v2
+    [*] --> Idle
+    Idle --> Active : start
+    Active --> [*]`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	if !strings.Contains(raw, ">Idle<") || !strings.Contains(raw, ">Active<") {
+		t.Error("state labels missing")
+	}
+}
+
 func TestRenderPieDiagramEndToEnd(t *testing.T) {
 	input := `pie title Pets
     "Dogs" : 386
