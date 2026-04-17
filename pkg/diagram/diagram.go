@@ -16,6 +16,7 @@ const (
 	Gantt
 	Mindmap
 	Timeline
+	C4
 )
 
 // Diagram is implemented by all diagram AST types.

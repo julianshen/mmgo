@@ -1,0 +1,213 @@
+// Package c4 parses Mermaid C4 diagram syntax (Context, Container,
+// Component, Dynamic, Deployment).
+package c4
+
+import (
+	"bufio"
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/julianshen/mmgo/pkg/diagram"
+	parserutil "github.com/julianshen/mmgo/pkg/parser"
+)
+
+var headerVariants = map[string]diagram.C4Variant{
+	"C4Context":    diagram.C4VariantContext,
+	"C4Container":  diagram.C4VariantContainer,
+	"C4Component":  diagram.C4VariantComponent,
+	"C4Dynamic":    diagram.C4VariantDynamic,
+	"C4Deployment": diagram.C4VariantDeployment,
+}
+
+// elementKeywords is ordered by keyword length (longest first) so that
+// keyword dispatch is deterministic even though the `(` suffix already
+// prevents prefix ambiguity (e.g. `Container(` vs `ContainerDb(`).
+var elementKeywords = []struct {
+	kw   string
+	kind diagram.C4ElementKind
+}{
+	{"SystemDb_Ext", diagram.C4ElementSystemDB},
+	{"ContainerDb", diagram.C4ElementContainerDB},
+	{"Person_Ext", diagram.C4ElementPersonExt},
+	{"System_Ext", diagram.C4ElementSystemExt},
+	{"Component", diagram.C4ElementComponent},
+	{"Container", diagram.C4ElementContainer},
+	{"SystemDb", diagram.C4ElementSystemDB},
+	{"System", diagram.C4ElementSystem},
+	{"Person", diagram.C4ElementPerson},
+}
+
+func Parse(r io.Reader) (*diagram.C4Diagram, error) {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	d := &diagram.C4Diagram{}
+	lineNum := 0
+	headerSeen := false
+
+	for scanner.Scan() {
+		lineNum++
+		line := strings.TrimSpace(parserutil.StripComment(scanner.Text()))
+		if line == "" {
+			continue
+		}
+		if !headerSeen {
+			variant, ok := headerVariants[line]
+			if !ok {
+				return nil, fmt.Errorf("line %d: expected C4* header, got %q", lineNum, line)
+			}
+			d.Variant = variant
+			headerSeen = true
+			continue
+		}
+		if err := parseLine(d, line); err != nil {
+			return nil, fmt.Errorf("line %d: %w", lineNum, err)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("reading input: %w", err)
+	}
+	if !headerSeen {
+		return nil, fmt.Errorf("missing C4 header")
+	}
+	return d, nil
+}
+
+func parseLine(d *diagram.C4Diagram, line string) error {
+	if rest, ok := strings.CutPrefix(line, "title "); ok {
+		d.Title = strings.TrimSpace(rest)
+		return nil
+	}
+	if dir, args, ok := matchRelation(line); ok {
+		rel, ok := parseRelation(args)
+		if !ok {
+			return nil
+		}
+		rel.Direction = dir
+		d.Relations = append(d.Relations, rel)
+		return nil
+	}
+	// Element: Person(id, "label"[, "description"])
+	//          Container(id, "label", "technology"[, "description"])
+	if kind, rest, ok := matchElementKeyword(line); ok {
+		if elem, ok := parseElement(kind, rest); ok {
+			d.Elements = append(d.Elements, elem)
+		}
+	}
+	return nil
+}
+
+// relKeywords is ordered longest-first so `Rel_Back(` wins over `Rel(`.
+var relKeywords = []struct {
+	kw  string
+	dir diagram.C4RelDirection
+}{
+	{"Rel_Back", diagram.C4RelBack},
+	{"BiRel", diagram.C4RelBi},
+	{"Rel_U", diagram.C4RelUp},
+	{"Rel_D", diagram.C4RelDown},
+	{"Rel_L", diagram.C4RelLeft},
+	{"Rel_R", diagram.C4RelRight},
+	{"Rel", diagram.C4RelDefault},
+}
+
+func matchRelation(line string) (diagram.C4RelDirection, string, bool) {
+	for _, rk := range relKeywords {
+		if rest, ok := strings.CutPrefix(line, rk.kw+"("); ok {
+			return rk.dir, rest, true
+		}
+	}
+	return 0, "", false
+}
+
+func matchElementKeyword(line string) (diagram.C4ElementKind, string, bool) {
+	for _, ek := range elementKeywords {
+		if rest, ok := strings.CutPrefix(line, ek.kw+"("); ok {
+			return ek.kind, rest, true
+		}
+	}
+	return 0, "", false
+}
+
+func parseRelation(rest string) (diagram.C4Relation, bool) {
+	rest = strings.TrimSuffix(rest, ")")
+	args := splitArgs(rest)
+	if len(args) < 3 {
+		return diagram.C4Relation{}, false
+	}
+	rel := diagram.C4Relation{
+		From:  args[0],
+		To:    args[1],
+		Label: unquote(args[2]),
+	}
+	if len(args) >= 4 {
+		rel.Technology = unquote(args[3])
+	}
+	return rel, true
+}
+
+func parseElement(kind diagram.C4ElementKind, rest string) (diagram.C4Element, bool) {
+	rest = strings.TrimSuffix(rest, ")")
+	args := splitArgs(rest)
+	if len(args) < 2 {
+		return diagram.C4Element{}, false
+	}
+	elem := diagram.C4Element{
+		ID:    args[0],
+		Kind:  kind,
+		Label: unquote(args[1]),
+	}
+	if kind == diagram.C4ElementContainer || kind == diagram.C4ElementContainerDB ||
+		kind == diagram.C4ElementComponent {
+		if len(args) >= 3 {
+			elem.Technology = unquote(args[2])
+		}
+		if len(args) >= 4 {
+			elem.Description = unquote(args[3])
+		}
+	} else if len(args) >= 3 {
+		elem.Description = unquote(args[2])
+	}
+	return elem, true
+}
+
+// splitArgs splits a parenthesized argument list on commas, respecting
+// double-quoted strings. Backslash-escaped quotes inside strings are
+// treated as literal and don't toggle the quote state.
+func splitArgs(s string) []string {
+	var args []string
+	var cur strings.Builder
+	inQuote := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '\\' && i+1 < len(s) {
+			cur.WriteByte(c)
+			cur.WriteByte(s[i+1])
+			i++
+			continue
+		}
+		if c == '"' {
+			inQuote = !inQuote
+			cur.WriteByte(c)
+			continue
+		}
+		if c == ',' && !inQuote {
+			args = append(args, strings.TrimSpace(cur.String()))
+			cur.Reset()
+			continue
+		}
+		cur.WriteByte(c)
+	}
+	if cur.Len() > 0 {
+		args = append(args, strings.TrimSpace(cur.String()))
+	}
+	return args
+}
+
+func unquote(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		return s[1 : len(s)-1]
+	}
+	return s
+}
