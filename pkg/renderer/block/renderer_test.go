@@ -140,9 +140,15 @@ func TestRenderDeterministic(t *testing.T) {
 			{From: "b", To: "c"},
 		},
 	}
-	first, _ := Render(d, nil)
+	first, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
 	for i := 0; i < 10; i++ {
-		next, _ := Render(d, nil)
+		next, err := Render(d, nil)
+		if err != nil {
+			t.Fatalf("iter %d: %v", i, err)
+		}
 		if string(next) != string(first) {
 			t.Fatalf("iter %d: output diverges", i)
 		}

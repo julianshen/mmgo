@@ -184,7 +184,10 @@ func renderEdges(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float6
 		if edgeKeys[i].From != edgeKeys[j].From {
 			return edgeKeys[i].From < edgeKeys[j].From
 		}
-		return edgeKeys[i].To < edgeKeys[j].To
+		if edgeKeys[i].To != edgeKeys[j].To {
+			return edgeKeys[i].To < edgeKeys[j].To
+		}
+		return edgeKeys[i].ID < edgeKeys[j].ID
 	})
 
 	edgeQueue := make(map[string][]diagram.BlockEdge)
