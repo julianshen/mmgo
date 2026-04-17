@@ -15,6 +15,7 @@ const (
 	ER
 	Gantt
 	Mindmap
+	Timeline
 )
 
 // Diagram is implemented by all diagram AST types.
