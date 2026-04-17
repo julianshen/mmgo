@@ -24,6 +24,8 @@ const (
 	forkBarW           = 60.0
 	forkBarH           = 6.0
 	choiceSize         = 30.0
+	pseudoStartPrefix  = "__start_"
+	pseudoEndPrefix    = "__end_"
 )
 
 type Options struct {
@@ -57,12 +59,12 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 		from, to := t.From, t.To
 		if from == "[*]" {
 			startIdx++
-			from = fmt.Sprintf("__start_%d__", startIdx)
+			from = fmt.Sprintf("%s%d__", pseudoStartPrefix, startIdx)
 			g.SetNode(from, graph.NodeAttrs{Width: startEndR * 2, Height: startEndR * 2})
 		}
 		if to == "[*]" {
 			startIdx++
-			to = fmt.Sprintf("__end_%d__", startIdx)
+			to = fmt.Sprintf("%s%d__", pseudoEndPrefix, startIdx)
 			g.SetNode(to, graph.NodeAttrs{Width: startEndR * 2, Height: startEndR * 2})
 		}
 		g.SetEdge(from, to, graph.EdgeAttrs{Label: t.Label})
@@ -178,20 +180,29 @@ func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize floa
 		}
 	}
 
-	for id, nl := range l.Nodes {
-		if len(id) > 8 && id[:8] == "__start_" {
+	pseudoIDs := make([]string, 0)
+	for id := range l.Nodes {
+		if isPseudoNode(id) {
+			pseudoIDs = append(pseudoIDs, id)
+		}
+	}
+	sort.Strings(pseudoIDs)
+	for _, id := range pseudoIDs {
+		nl := l.Nodes[id]
+		cx := nl.X + pad
+		cy := nl.Y + pad
+		if isStartNode(id) {
 			elems = append(elems, &circle{
-				CX: svgFloat(nl.X + pad), CY: svgFloat(nl.Y + pad), R: svgFloat(startEndR),
+				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(startEndR),
 				Style: "fill:#333;stroke:#333",
 			})
-		}
-		if len(id) > 6 && id[:6] == "__end_" {
+		} else {
 			elems = append(elems, &circle{
-				CX: svgFloat(nl.X + pad), CY: svgFloat(nl.Y + pad), R: svgFloat(startEndR),
+				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(startEndR),
 				Style: "fill:#fff;stroke:#333;stroke-width:2",
 			})
 			elems = append(elems, &circle{
-				CX: svgFloat(nl.X + pad), CY: svgFloat(nl.Y + pad), R: svgFloat(startEndR - 3),
+				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(startEndR - 3),
 				Style: "fill:#333;stroke:none",
 			})
 		}
@@ -232,23 +243,29 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		}
 
 		style := "stroke:#333;stroke-width:1.5;fill:none"
-		ln := &line{
-			X1: svgFloat(pts[0].X), Y1: svgFloat(pts[0].Y),
-			X2: svgFloat(pts[len(pts)-1].X), Y2: svgFloat(pts[len(pts)-1].Y),
-			Style: style,
+		if len(pts) == 2 {
+			elems = append(elems, &line{
+				X1: svgFloat(pts[0].X), Y1: svgFloat(pts[0].Y),
+				X2: svgFloat(pts[1].X), Y2: svgFloat(pts[1].Y),
+				Style: style, MarkerEnd: "url(#state-arrow)",
+			})
+		} else {
+			d := fmt.Sprintf("M%.2f,%.2f", pts[0].X, pts[0].Y)
+			for _, p := range pts[1:] {
+				d += fmt.Sprintf(" L%.2f,%.2f", p.X, p.Y)
+			}
+			elems = append(elems, &path{
+				D: d, Style: style, MarkerEnd: "url(#state-arrow)",
+			})
 		}
-		ln.MarkerEnd = "url(#state-arrow)"
-		elems = append(elems, ln)
 
 		origFrom := eid.From
 		origTo := eid.To
-		for _, prefix := range []string{"__start_", "__end_"} {
-			if len(origFrom) > len(prefix) && origFrom[:len(prefix)] == prefix {
-				origFrom = "[*]"
-			}
-			if len(origTo) > len(prefix) && origTo[:len(prefix)] == prefix {
-				origTo = "[*]"
-			}
+		if isPseudoNode(origFrom) {
+			origFrom = "[*]"
+		}
+		if isPseudoNode(origTo) {
+			origTo = "[*]"
 		}
 		key := origFrom + "->" + origTo
 		if candidates := transMap[key]; len(candidates) > 0 {
@@ -267,6 +284,18 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		}
 	}
 	return elems
+}
+
+func isPseudoNode(id string) bool {
+	return isStartNode(id) || isEndNode(id)
+}
+
+func isStartNode(id string) bool {
+	return len(id) > len(pseudoStartPrefix) && id[:len(pseudoStartPrefix)] == pseudoStartPrefix
+}
+
+func isEndNode(id string) bool {
+	return len(id) > len(pseudoEndPrefix) && id[:len(pseudoEndPrefix)] == pseudoEndPrefix
 }
 
 func buildArrowMarker() marker {

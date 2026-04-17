@@ -71,6 +71,13 @@ type polygon struct {
 	Style   string   `xml:"style,attr,omitempty"`
 }
 
+type path struct {
+	XMLName   xml.Name `xml:"path"`
+	D         string   `xml:"d,attr"`
+	Style     string   `xml:"style,attr,omitempty"`
+	MarkerEnd string   `xml:"marker-end,attr,omitempty"`
+}
+
 type defs struct {
 	XMLName xml.Name `xml:"defs"`
 	Markers []marker `xml:"marker,omitempty"`
