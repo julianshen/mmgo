@@ -18,6 +18,7 @@ const (
 	Timeline
 	C4
 	BlockDiag
+	GitGraph
 )
 
 // Diagram is implemented by all diagram AST types.
