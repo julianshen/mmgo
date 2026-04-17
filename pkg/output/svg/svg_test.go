@@ -409,6 +409,29 @@ func TestRenderTimelineEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRenderSankeyEndToEnd(t *testing.T) {
+	input := `sankey-beta
+source,target,value
+Coal,Power,50
+Gas,Power,30
+Power,Industry,40
+Power,Homes,40`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	for _, n := range []string{"Coal", "Gas", "Power", "Industry", "Homes"} {
+		if !strings.Contains(raw, ">"+n+"<") {
+			t.Errorf("label %q missing", n)
+		}
+	}
+}
+
 func TestRenderGitGraphEndToEnd(t *testing.T) {
 	input := `gitGraph
     commit id: "init"

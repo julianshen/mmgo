@@ -1,0 +1,187 @@
+package sankey
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/julianshen/mmgo/pkg/diagram"
+)
+
+func TestParseHeaderRequired(t *testing.T) {
+	if _, err := Parse(strings.NewReader("A,B,10\n")); err == nil {
+		t.Fatal("expected error for missing header")
+	}
+}
+
+func TestParseEmpty(t *testing.T) {
+	if _, err := Parse(strings.NewReader("")); err == nil {
+		t.Fatal("expected error for empty input")
+	}
+}
+
+func TestParseBadHeader(t *testing.T) {
+	if _, err := Parse(strings.NewReader("flowchart LR\nA,B,10\n")); err == nil {
+		t.Fatal("expected error for wrong header")
+	}
+}
+
+func TestParseHeaderVariants(t *testing.T) {
+	cases := []string{
+		"sankey-beta\n",
+		"sankey-beta:\n",
+		"sankey-beta \n",
+		"sankey-beta: trailing junk\n",
+	}
+	for _, c := range cases {
+		if _, err := Parse(strings.NewReader(c)); err != nil {
+			t.Errorf("header %q: %v", c, err)
+		}
+	}
+}
+
+func TestParseSimpleFlow(t *testing.T) {
+	input := `sankey-beta
+A,B,10
+B,C,5
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Flows) != 2 {
+		t.Fatalf("flows = %d, want 2", len(d.Flows))
+	}
+	if d.Flows[0] != (diagram.SankeyFlow{Source: "A", Target: "B", Value: 10}) {
+		t.Errorf("flow[0] = %+v", d.Flows[0])
+	}
+}
+
+func TestParseColumnHeaderSkipped(t *testing.T) {
+	input := `sankey-beta
+source,target,value
+A,B,10
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Flows) != 1 {
+		t.Fatalf("flows = %d, want 1", len(d.Flows))
+	}
+}
+
+func TestParseColumnHeaderCaseInsensitive(t *testing.T) {
+	input := `sankey-beta
+SOURCE,Target,Value
+A,B,10
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Flows) != 1 {
+		t.Errorf("flows = %d, want 1", len(d.Flows))
+	}
+}
+
+func TestParseQuotedFields(t *testing.T) {
+	input := `sankey-beta
+"Agricultural waste","Bio-conversion",124.729
+"Bio-conversion","Liquid, refined",0.597
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if d.Flows[1].Target != "Liquid, refined" {
+		t.Errorf("target = %q, want 'Liquid, refined'", d.Flows[1].Target)
+	}
+	if d.Flows[0].Value != 124.729 {
+		t.Errorf("value = %v, want 124.729", d.Flows[0].Value)
+	}
+}
+
+func TestParseFloatValues(t *testing.T) {
+	input := `sankey-beta
+A,B,0.5
+C,D,1e3
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if d.Flows[0].Value != 0.5 || d.Flows[1].Value != 1000 {
+		t.Errorf("values = %v", d.Flows)
+	}
+}
+
+func TestParseBadColumnCount(t *testing.T) {
+	if _, err := Parse(strings.NewReader("sankey-beta\nA,B\n")); err == nil {
+		t.Fatal("expected error for 2 columns")
+	}
+	if _, err := Parse(strings.NewReader("sankey-beta\nA,B,C,10\n")); err == nil {
+		t.Fatal("expected error for 4 columns")
+	}
+}
+
+func TestParseBadValue(t *testing.T) {
+	if _, err := Parse(strings.NewReader("sankey-beta\nA,B,not-a-number\n")); err == nil {
+		t.Fatal("expected error for non-numeric value")
+	}
+}
+
+func TestParseNegativeValueRejected(t *testing.T) {
+	if _, err := Parse(strings.NewReader("sankey-beta\nA,B,-5\n")); err == nil {
+		t.Fatal("expected error for negative value")
+	}
+}
+
+func TestParseEmptySourceOrTarget(t *testing.T) {
+	if _, err := Parse(strings.NewReader("sankey-beta\n,B,10\n")); err == nil {
+		t.Fatal("expected error for empty source")
+	}
+	if _, err := Parse(strings.NewReader("sankey-beta\nA,,10\n")); err == nil {
+		t.Fatal("expected error for empty target")
+	}
+}
+
+func TestParseCommentsIgnored(t *testing.T) {
+	input := `sankey-beta
+%% a comment
+A,B,10 %% trailing
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Flows) != 1 {
+		t.Fatalf("flows = %d", len(d.Flows))
+	}
+}
+
+func TestSankeyNodesFirstAppearanceOrder(t *testing.T) {
+	d := &diagram.SankeyDiagram{
+		Flows: []diagram.SankeyFlow{
+			{Source: "A", Target: "B", Value: 1},
+			{Source: "B", Target: "C", Value: 1},
+			{Source: "A", Target: "C", Value: 1},
+		},
+	}
+	got := d.Nodes()
+	want := []string{"A", "B", "C"}
+	if len(got) != len(want) {
+		t.Fatalf("nodes = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("nodes[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestSankeyDiagramType(t *testing.T) {
+	var d diagram.Diagram = &diagram.SankeyDiagram{}
+	if d.Type() != diagram.Sankey {
+		t.Errorf("Type() = %v, want Sankey", d.Type())
+	}
+}
