@@ -39,6 +39,26 @@ func TestParseHeaderVariants(t *testing.T) {
 	}
 }
 
+// Pins the permissive "sankey-beta: <anything>" semantics: content
+// after the colon on the header line is ignored, not parsed as a flow
+// row. Any future tightening of the header grammar should update this
+// test deliberately.
+func TestParseHeaderTrailingContentIgnored(t *testing.T) {
+	input := `sankey-beta: this is not a flow row
+A,B,10
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Flows) != 1 {
+		t.Fatalf("flows = %d, want 1 (header trailing content must not become a flow)", len(d.Flows))
+	}
+	if d.Flows[0].Source != "A" {
+		t.Errorf("first flow source = %q, want A", d.Flows[0].Source)
+	}
+}
+
 func TestParseSimpleFlow(t *testing.T) {
 	input := `sankey-beta
 A,B,10
