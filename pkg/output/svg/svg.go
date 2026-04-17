@@ -22,10 +22,12 @@ import (
 	flowchartparser "github.com/julianshen/mmgo/pkg/parser/flowchart"
 	pieparser "github.com/julianshen/mmgo/pkg/parser/pie"
 	sequenceparser "github.com/julianshen/mmgo/pkg/parser/sequence"
+	stateparser "github.com/julianshen/mmgo/pkg/parser/state"
 	classrenderer "github.com/julianshen/mmgo/pkg/renderer/class"
 	flowchartrenderer "github.com/julianshen/mmgo/pkg/renderer/flowchart"
 	pierenderer "github.com/julianshen/mmgo/pkg/renderer/pie"
 	sequencerenderer "github.com/julianshen/mmgo/pkg/renderer/sequence"
+	staterenderer "github.com/julianshen/mmgo/pkg/renderer/state"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -82,6 +84,8 @@ func Render(r io.Reader, opts *Options) ([]byte, error) {
 		return renderPie(src, opts)
 	case kindClass:
 		return renderClass(src, opts)
+	case kindState:
+		return renderState(src, opts)
 	default:
 		return nil, fmt.Errorf("svg render: %v diagrams are not yet supported", kind)
 	}
@@ -97,6 +101,7 @@ const (
 	kindSequence
 	kindPie
 	kindClass
+	kindState
 )
 
 func (k diagramKind) String() string {
@@ -109,6 +114,8 @@ func (k diagramKind) String() string {
 		return "pie"
 	case kindClass:
 		return "class"
+	case kindState:
+		return "state"
 	default:
 		return "unknown"
 	}
@@ -136,6 +143,9 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 		}
 		if hasHeaderKeyword(line, "classDiagram") {
 			return kindClass, nil
+		}
+		if hasHeaderKeyword(line, "stateDiagram-v2") || hasHeaderKeyword(line, "stateDiagram") {
+			return kindState, nil
 		}
 		return kindUnknown, fmt.Errorf("unrecognized diagram header: %q", line)
 	}
@@ -329,6 +339,18 @@ func renderClass(src []byte, opts *Options) ([]byte, error) {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
 	out, err := classrenderer.Render(d, nil)
+	if err != nil {
+		return nil, fmt.Errorf("svg render: %w", err)
+	}
+	return out, nil
+}
+
+func renderState(src []byte, opts *Options) ([]byte, error) {
+	d, err := stateparser.Parse(bytes.NewReader(src))
+	if err != nil {
+		return nil, fmt.Errorf("svg render: parse: %w", err)
+	}
+	out, err := staterenderer.Render(d, nil)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
