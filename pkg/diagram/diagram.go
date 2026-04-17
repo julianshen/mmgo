@@ -17,6 +17,7 @@ const (
 	Mindmap
 	Timeline
 	C4
+	BlockDiag
 )
 
 // Diagram is implemented by all diagram AST types.

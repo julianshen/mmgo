@@ -350,6 +350,25 @@ func TestRenderClassDiagramEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRenderBlockEndToEnd(t *testing.T) {
+	input := `block-beta
+    a[Start] b(Middle) c{End}
+    a --> b
+    b --> c`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	if !strings.Contains(raw, ">Start<") || !strings.Contains(raw, ">End<") {
+		t.Error("block labels missing")
+	}
+}
+
 func TestRenderC4EndToEnd(t *testing.T) {
 	input := `C4Context
     title System Context
