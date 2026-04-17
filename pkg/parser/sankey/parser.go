@@ -17,10 +17,8 @@ import (
 )
 
 func Parse(r io.Reader) (*diagram.SankeyDiagram, error) {
-	br := bufio.NewReader(r)
 	d := &diagram.SankeyDiagram{}
-
-	scanner := bufio.NewScanner(br)
+	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	lineNum := 0
 	headerSeen := false
@@ -60,8 +58,9 @@ func Parse(r io.Reader) (*diagram.SankeyDiagram, error) {
 }
 
 func isHeader(line string) bool {
-	return line == "sankey-beta" || strings.HasPrefix(line, "sankey-beta ") ||
-		line == "sankey-beta:" || strings.HasPrefix(line, "sankey-beta:")
+	return line == "sankey-beta" ||
+		strings.HasPrefix(line, "sankey-beta ") ||
+		strings.HasPrefix(line, "sankey-beta:")
 }
 
 // isColumnHeader matches a literal `source,target,value` row (any

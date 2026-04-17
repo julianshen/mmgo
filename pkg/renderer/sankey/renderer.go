@@ -7,7 +7,6 @@ package sankey
 import (
 	"encoding/xml"
 	"fmt"
-	"sort"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 )
@@ -17,19 +16,23 @@ type Options struct {
 }
 
 const (
-	defaultFontSize  = 13.0
-	nodeW            = 18.0
-	columnSpacing    = 160.0
-	verticalPadding  = 8.0
-	marginX          = 40.0
-	marginY          = 40.0
-	minCanvasH       = 300.0
-	labelGap         = 6.0
-	avgCharWidth     = 0.6
+	defaultFontSize = 13.0
+	nodeW           = 18.0
+	columnSpacing   = 160.0
+	verticalPadding = 8.0
+	marginX         = 40.0
+	marginY         = 40.0
+	minCanvasH      = 300.0
+	labelGap        = 6.0
+	avgCharWidth    = 0.6
+
+	bgFill        = "#fff"
+	labelFill     = "#333"
+	ribbonOpacity = 0.45
 )
 
-// palette cycles by node index (stable first-appearance order) so the
-// output is deterministic.
+// palette cycles by node first-appearance index so the output is
+// deterministic across runs.
 var palette = []string{
 	"#5470c6", "#91cc75", "#fac858", "#ee6666",
 	"#73c0de", "#3ba272", "#fc8452", "#9a60b4",
@@ -51,11 +54,11 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 		nodeIdx[n] = i
 	}
 
-	// --- 1. Column assignment via longest-path rank.
-	col := assignColumns(nodes, d.Flows)
+	col, maxCol := assignColumns(nodes, d.Flows)
 
-	// --- 2. Compute per-node magnitude = max(sumIn, sumOut). Bar
-	// height is proportional to this, so flow is visually conserved.
+	// Node height = max(sumIn, sumOut) so flow is visually conserved:
+	// a node that receives 10 and emits 10 has a bar tall enough for
+	// either side, not both.
 	sumIn := make(map[string]float64, len(nodes))
 	sumOut := make(map[string]float64, len(nodes))
 	for _, f := range d.Flows {
@@ -63,40 +66,31 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 		sumIn[f.Target] += f.Value
 	}
 	magnitude := make(map[string]float64, len(nodes))
-	totalValue := 0.0
 	for _, n := range nodes {
 		m := sumIn[n]
 		if sumOut[n] > m {
 			m = sumOut[n]
 		}
 		magnitude[n] = m
-		totalValue += m
 	}
 
-	// --- 3. Vertical layout per column. Unit scale so the tallest
-	// column fits the canvas minus margins.
-	columns := make(map[int][]string)
-	maxCol := 0
+	columns := make([][]string, maxCol+1)
 	for _, n := range nodes {
-		c := col[n]
-		columns[c] = append(columns[c], n)
-		if c > maxCol {
-			maxCol = c
-		}
+		columns[col[n]] = append(columns[col[n]], n)
 	}
-	var canvasH float64 = minCanvasH
-	for c := 0; c <= maxCol; c++ {
+
+	canvasH := minCanvasH
+	for _, colNodes := range columns {
 		sum := 0.0
-		for _, n := range columns[c] {
+		for _, n := range colNodes {
 			sum += magnitude[n]
 		}
-		sum += float64(max(len(columns[c])-1, 0)) * verticalPadding
+		sum += float64(max(len(colNodes)-1, 0)) * verticalPadding
 		if sum > canvasH {
 			canvasH = sum
 		}
 	}
 
-	// --- 4. Longest label width for outer margin on the right side.
 	maxLabel := 0
 	for _, n := range nodes {
 		if len(n) > maxLabel {
@@ -108,16 +102,15 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 	viewW := 2*marginX + float64(maxCol)*columnSpacing + nodeW + labelPad
 	viewH := canvasH + 2*marginY
 
-	// --- 5. Position nodes: y is cumulative stack top of each column.
 	nodeY := make(map[string]float64, len(nodes))
 	nodeH := make(map[string]float64, len(nodes))
 	nodeX := make(map[string]float64, len(nodes))
-	for c := 0; c <= maxCol; c++ {
+	for c, colNodes := range columns {
 		y := marginY
-		for _, n := range columns[c] {
+		for _, n := range colNodes {
 			h := magnitude[n]
 			if h < 1 {
-				h = 1 // minimum bar height for visibility
+				h = 1 // ensure a visible stub for zero-value leaves
 			}
 			nodeX[n] = marginX + float64(c)*columnSpacing
 			nodeY[n] = y
@@ -126,23 +119,21 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 		}
 	}
 
-	// --- 6. Link ribbons. For each node, stack outgoing ribbons top-
-	// to-bottom on the source side and incoming ribbons top-to-bottom
-	// on the target side in the order they appear in d.Flows — this
-	// keeps output deterministic and visually consistent.
+	// Each node's outgoing ribbons stack top-to-bottom on the source
+	// side; incoming ribbons stack top-to-bottom on the target side.
+	// Ordering follows d.Flows so output is deterministic.
 	srcOffset := make(map[string]float64, len(nodes))
 	tgtOffset := make(map[string]float64, len(nodes))
 
-	children := []any{
-		&rect{
-			X: 0, Y: 0,
-			Width:  svgFloat(viewW),
-			Height: svgFloat(viewH),
-			Style:  "fill:#fff;stroke:none",
-		},
-	}
+	children := make([]any, 0, 1+len(d.Flows)+2*len(nodes))
+	children = append(children, &rect{
+		X: 0, Y: 0,
+		Width:  svgFloat(viewW),
+		Height: svgFloat(viewH),
+		Style:  fmt.Sprintf("fill:%s;stroke:none", bgFill),
+	})
 
-	// Ribbons first so nodes paint over the ribbon edges.
+	// Ribbons before bars so bars paint over the ribbon edges.
 	for _, f := range d.Flows {
 		sx := nodeX[f.Source] + nodeW
 		tx := nodeX[f.Target]
@@ -154,12 +145,12 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 		color := palette[nodeIdx[f.Source]%len(palette)]
 		children = append(children, &path{
 			D:     ribbonPath(sx, syTop, tx, tyTop, f.Value),
-			Style: fmt.Sprintf("fill:%s;stroke:none;opacity:0.45", color),
+			Style: fmt.Sprintf("fill:%s;stroke:none;opacity:%.2f", color, ribbonOpacity),
 		})
 	}
 
-	for i, n := range nodes {
-		color := palette[i%len(palette)]
+	for _, n := range nodes {
+		color := palette[nodeIdx[n]%len(palette)]
 		children = append(children, &rect{
 			X: svgFloat(nodeX[n]), Y: svgFloat(nodeY[n]),
 			Width:  svgFloat(nodeW),
@@ -167,15 +158,9 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 			Style:  fmt.Sprintf("fill:%s;stroke:none", color),
 		})
 
-		// Label anchored left or right of the bar depending on column
-		// so labels don't overlap adjacent ribbons.
 		labelX := nodeX[n] - labelGap
 		anchor := "end"
-		if col[n] == 0 {
-			labelX = nodeX[n] - labelGap
-			anchor = "end"
-		}
-		if col[n] == maxCol {
+		if col[n] == maxCol && maxCol > 0 {
 			labelX = nodeX[n] + nodeW + labelGap
 			anchor = "start"
 		}
@@ -184,7 +169,7 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 			Y:        svgFloat(nodeY[n] + nodeH[n]/2),
 			Anchor:   anchor,
 			Dominant: "central",
-			Style:    fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize),
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, fontSize),
 			Content:  n,
 		})
 	}
@@ -201,16 +186,16 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), b...), nil
 }
 
-// assignColumns returns a column index per node using longest-path
-// rank from any source (node with no incoming flow). Cycles are
-// broken by capping iteration at len(nodes) — a flow graph should be
-// a DAG in practice, but the cap keeps pathological input bounded.
-func assignColumns(nodes []string, flows []diagram.SankeyFlow) map[string]int {
+// assignColumns returns the column index per node plus the largest
+// assigned index. Uses longest-path rank from sources via a
+// fixed-point relaxation. The iteration is capped at len(nodes) so
+// pathological cyclic input terminates — the render may be wide but
+// does not hang.
+func assignColumns(nodes []string, flows []diagram.SankeyFlow) (map[string]int, int) {
 	col := make(map[string]int, len(nodes))
 	for _, n := range nodes {
 		col[n] = 0
 	}
-	// Iterate until no change or we hit the cap.
 	for iter := 0; iter < len(nodes); iter++ {
 		changed := false
 		for _, f := range flows {
@@ -223,17 +208,18 @@ func assignColumns(nodes []string, flows []diagram.SankeyFlow) map[string]int {
 			break
 		}
 	}
-	// Stabilize the per-column node order by first-appearance in
-	// `nodes` (already the case), but sort by column as well so the
-	// outer loop visits columns in order.
-	sort.SliceStable(nodes, func(i, j int) bool { return col[nodes[i]] < col[nodes[j]] })
-	return col
+	maxCol := 0
+	for _, c := range col {
+		if c > maxCol {
+			maxCol = c
+		}
+	}
+	return col, maxCol
 }
 
-// ribbonPath builds a filled SVG path for a flow ribbon between two
-// rectangular endpoints. The curve is a cubic Bezier with horizontal
-// tangents at both ends so the ribbon enters/exits each node bar
-// perpendicular to the bar face.
+// ribbonPath returns a filled SVG path describing the ribbon between
+// two vertical node faces. Both curves are cubic Beziers with
+// horizontal tangents so each end enters the bar perpendicular.
 func ribbonPath(sx, syTop, tx, tyTop, value float64) string {
 	midX := (sx + tx) / 2
 	syBot := syTop + value

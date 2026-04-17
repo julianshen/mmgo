@@ -124,16 +124,52 @@ func TestRenderCustomFontSize(t *testing.T) {
 }
 
 func TestRenderCycleBoundedIterations(t *testing.T) {
-	// A -> B -> A creates a cycle. Render must terminate without
-	// looping forever (column assignment iteration is capped).
+	// A -> B -> A creates a cycle. Render must terminate (iteration
+	// cap) and still produce a valid SVG with both labels and both
+	// ribbons visible.
 	d := &diagram.SankeyDiagram{
 		Flows: []diagram.SankeyFlow{
 			{Source: "A", Target: "B", Value: 1},
 			{Source: "B", Target: "A", Value: 1},
 		},
 	}
-	if _, err := Render(d, nil); err != nil {
+	out, err := Render(d, nil)
+	if err != nil {
 		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">A<") || !strings.Contains(raw, ">B<") {
+		t.Error("cycle labels missing")
+	}
+	if n := strings.Count(raw, "<path"); n != 2 {
+		t.Errorf("ribbon count = %d, want 2", n)
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderRibbonColorMatchesSourceBar(t *testing.T) {
+	// Regression: assignColumns previously sorted `nodes` in place,
+	// which split nodeIdx (pre-sort) from the palette index used by
+	// node bars (post-sort). Guard: the palette color of node A must
+	// be present in both its bar fill and in the fill of every flow
+	// originating from A.
+	d := &diagram.SankeyDiagram{
+		Flows: []diagram.SankeyFlow{
+			{Source: "A", Target: "B", Value: 1},
+			{Source: "B", Target: "C", Value: 1},
+			{Source: "A", Target: "C", Value: 1},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	colorA := palette[0] // A is the first-appearance node
+	// The color must appear in at least 3 fills (A's bar + 2 ribbons).
+	if strings.Count(raw, "fill:"+colorA) < 3 {
+		t.Errorf("A's color %s should be used for A's bar and both outgoing ribbons; saw %d occurrences\n%s",
+			colorA, strings.Count(raw, "fill:"+colorA), raw)
 	}
 }
 
