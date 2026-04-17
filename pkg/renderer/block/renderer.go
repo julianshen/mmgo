@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
@@ -96,18 +97,18 @@ func nodeSize(n diagram.BlockNode, ruler *textmeasure.Ruler, fontSize float64) (
 	tw, th := ruler.Measure(n.Label, fontSize)
 	w = tw + 2*nodePadX
 	h = th + 2*nodePadY
+	if w < minNodeW {
+		w = minNodeW
+	}
+	if h < minNodeH {
+		h = minNodeH
+	}
 	if n.Shape == diagram.BlockShapeCircle {
 		side := w
 		if h > side {
 			side = h
 		}
 		return side, side
-	}
-	if w < minNodeW {
-		w = minNodeW
-	}
-	if h < minNodeH {
-		h = minNodeH
 	}
 	return w, h
 }
@@ -217,11 +218,12 @@ func renderEdges(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float6
 				Style: style, MarkerEnd: "url(#block-arrow)",
 			})
 		} else {
-			pathD := fmt.Sprintf("M%.2f,%.2f", pts[0].X, pts[0].Y)
+			var b strings.Builder
+			fmt.Fprintf(&b, "M%.2f,%.2f", pts[0].X, pts[0].Y)
 			for _, p := range pts[1:] {
-				pathD += fmt.Sprintf(" L%.2f,%.2f", p.X, p.Y)
+				fmt.Fprintf(&b, " L%.2f,%.2f", p.X, p.Y)
 			}
-			elems = append(elems, &path{D: pathD, Style: style, MarkerEnd: "url(#block-arrow)"})
+			elems = append(elems, &path{D: b.String(), Style: style, MarkerEnd: "url(#block-arrow)"})
 		}
 
 		if edge.Label != "" {

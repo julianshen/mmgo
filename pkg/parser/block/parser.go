@@ -116,10 +116,11 @@ func extractBetween(s, open, close string) string {
 }
 
 func matchArrow(line string) (from, to, label string, ok bool) {
-	// Forms: "a --> b", "a --> b: label", "a -->|label| b"
-	idx := strings.Index(line, "-->")
+	// Find the arrow token outside brackets so labels like
+	// "a[x --> y]" aren't misread as an arrow.
+	idx := findArrowOutsideBrackets(line, "-->")
 	if idx < 0 {
-		idx = strings.Index(line, "---")
+		idx = findArrowOutsideBrackets(line, "---")
 		if idx < 0 {
 			return "", "", "", false
 		}
@@ -145,6 +146,27 @@ func matchArrow(line string) (from, to, label string, ok bool) {
 		return "", "", "", false
 	}
 	return from, to, label, true
+}
+
+func findArrowOutsideBrackets(line, token string) int {
+	depth := 0
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch c {
+		case '[', '(', '{':
+			depth++
+			continue
+		case ']', ')', '}':
+			if depth > 0 {
+				depth--
+			}
+			continue
+		}
+		if depth == 0 && i+len(token) <= len(line) && line[i:i+len(token)] == token {
+			return i
+		}
+	}
+	return -1
 }
 
 func firstID(s string) string {

@@ -138,6 +138,26 @@ func TestParseComments(t *testing.T) {
 	}
 }
 
+func TestParseArrowInsideLabel(t *testing.T) {
+	// "a[x --> y]" should parse as a single block with label
+	// containing the arrow, NOT as an edge.
+	input := `block-beta
+    a[x --> y]`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Nodes) != 1 {
+		t.Fatalf("want 1 node, got %d", len(d.Nodes))
+	}
+	if len(d.Edges) != 0 {
+		t.Errorf("should have no edges, got %+v", d.Edges)
+	}
+	if d.Nodes[0].Label != "x --> y" {
+		t.Errorf("label = %q, want %q", d.Nodes[0].Label, "x --> y")
+	}
+}
+
 func TestParseDashedEdge(t *testing.T) {
 	input := `block-beta
     a --- b`
