@@ -350,6 +350,31 @@ func TestRenderClassDiagramEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRenderGanttDiagramEndToEnd(t *testing.T) {
+	input := `gantt
+    title Project
+    dateFormat YYYY-MM-DD
+    section Phase 1
+    Design :done, a1, 2024-01-01, 10d
+    section Phase 2
+    Build :active, a2, after a1, 20d`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	if !strings.Contains(raw, ">Project<") {
+		t.Error("title missing")
+	}
+	if !strings.Contains(raw, ">Design<") {
+		t.Error("task name missing")
+	}
+}
+
 func TestRenderERDiagramEndToEnd(t *testing.T) {
 	input := `erDiagram
     CUSTOMER ||--o{ ORDER : places
