@@ -153,17 +153,24 @@ func TestRenderCustomFontSize(t *testing.T) {
 }
 
 func TestRenderMissingParentSilentlySkipped(t *testing.T) {
-	// A parent ID that doesn't exist in the commit map shouldn't
-	// crash the renderer; it's simply a dangling reference (the
-	// parser should never emit one, but render must be defensive).
+	// A dangling parent ID must not crash the renderer and must not
+	// produce a <path> element referring to a nonexistent coordinate.
 	d := &diagram.GitGraphDiagram{
 		Branches: []string{"main"},
 		Commits: []diagram.GitCommit{
 			{ID: "c1", Branch: "main", Parents: []string{"ghost"}},
 		},
 	}
-	if _, err := Render(d, nil); err != nil {
+	out, err := Render(d, nil)
+	if err != nil {
 		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if strings.Contains(raw, "<path") {
+		t.Error("dangling parent should not emit a path element")
+	}
+	if strings.Contains(raw, "ghost") {
+		t.Error("dangling parent ID should not appear in output")
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
-	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
 type Options struct {
@@ -25,6 +24,14 @@ const (
 	marginY         = 40.0
 	labelGap        = 6.0
 	branchLabelPadX = 8.0
+
+	// avgCharWidthFactor approximates Source Sans Regular's average
+	// glyph advance as a fraction of font size. Used to size the
+	// branch-label gutter without instantiating a full text ruler.
+	avgCharWidthFactor = 0.6
+
+	labelFill     = "#333"
+	dotStrokeFill = "#fff"
 )
 
 // branchPalette is cycled by branch declaration order. Lane 0 (main)
@@ -44,49 +51,35 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		fontSize = opts.FontSize
 	}
 
-	ruler, err := textmeasure.NewDefaultRuler()
-	if err != nil {
-		return nil, fmt.Errorf("gitgraph render: text measurer: %w", err)
-	}
-	defer func() { _ = ruler.Close() }()
-
 	laneOf := make(map[string]int, len(d.Branches))
 	for i, b := range d.Branches {
 		laneOf[b] = i
 	}
 
-	// Reserve left-margin space for the longest branch label so the
-	// first commit column doesn't overlap.
-	branchLabelW := 0.0
-	for _, b := range d.Branches {
-		if w, _ := ruler.Measure(b, fontSize); w > branchLabelW {
-			branchLabelW = w
-		}
-	}
-	originX := marginX + branchLabelW + 2*branchLabelPadX
+	originX := marginX + branchGutterW(d.Branches, fontSize) + 2*branchLabelPadX
 
 	cx := make(map[string]float64, len(d.Commits))
 	cy := make(map[string]float64, len(d.Commits))
+	// x is monotonic in commit index, so only the first and last x per
+	// branch are ever needed; no min/max reduction required.
 	branchRange := make(map[string][2]float64, len(d.Branches))
 	for i, c := range d.Commits {
 		x := originX + float64(i)*commitStride
-		y := laneY(laneOf[c.Branch])
 		cx[c.ID] = x
-		cy[c.ID] = y
+		cy[c.ID] = laneY(laneOf[c.Branch])
 		if r, ok := branchRange[c.Branch]; ok {
-			if x < r[0] {
-				r[0] = x
-			}
-			if x > r[1] {
-				r[1] = x
-			}
+			r[1] = x
 			branchRange[c.Branch] = r
 		} else {
 			branchRange[c.Branch] = [2]float64{x, x}
 		}
 	}
 
-	viewW := originX + float64(maxCommits(d.Commits))*commitStride + marginX
+	cols := len(d.Commits)
+	if cols > 0 {
+		cols--
+	}
+	viewW := originX + float64(cols)*commitStride + marginX
 	viewH := marginY + float64(max(len(d.Branches), 1))*laneHeight + marginY
 
 	children := []any{
@@ -98,8 +91,6 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		},
 	}
 
-	// Branch labels + horizontal branch lines. Declaration order is
-	// deterministic, so SVG output is stable.
 	for i, b := range d.Branches {
 		color := branchPalette[i%len(branchPalette)]
 		y := laneY(i)
@@ -120,11 +111,9 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		}
 	}
 
-	// Cross-branch parent links (merge/fork). Same-branch links are
-	// covered by the branch line.
 	for _, c := range d.Commits {
 		childX, childY := cx[c.ID], cy[c.ID]
-		color := branchPalette[laneOf[c.Branch]%len(branchPalette)]
+		color := colorFor(laneOf[c.Branch])
 		for _, pid := range c.Parents {
 			px, ok := cx[pid]
 			if !ok {
@@ -132,7 +121,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 			}
 			py := cy[pid]
 			if py == childY {
-				continue
+				continue // same-branch link is covered by the branch line
 			}
 			children = append(children, &path{
 				D:     curvePath(px, py, childX, childY),
@@ -141,13 +130,12 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		}
 	}
 
-	// Commit dots and labels drawn last so they sit above the branch
-	// lines and curves.
+	// Dots and labels drawn last so they sit above the branch lines and
+	// curves (SVG paints in document order).
 	for _, c := range d.Commits {
-		lane := laneOf[c.Branch]
-		color := branchPalette[lane%len(branchPalette)]
+		color := colorFor(laneOf[c.Branch])
 		x, y := cx[c.ID], cy[c.ID]
-		children = append(children, commitShape(c, x, y, color)...)
+		children = append(children, commitDot(c, x, y, color)...)
 
 		label := c.Tag
 		if label == "" {
@@ -159,7 +147,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 				Y:        svgFloat(y - commitRadius - labelGap),
 				Anchor:   "middle",
 				Dominant: "baseline",
-				Style:    fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-2),
+				Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, fontSize-2),
 				Content:  label,
 			})
 		}
@@ -177,59 +165,60 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), b...), nil
 }
 
-func laneY(lane int) float64 { return marginY + float64(lane)*laneHeight }
+func laneY(lane int) float64   { return marginY + float64(lane)*laneHeight }
+func colorFor(lane int) string { return branchPalette[lane%len(branchPalette)] }
 
-// maxCommits returns len(cs)-1 clamped to >=0 so viewBox width accounts
-// for the final column, which lives at `origin + (n-1)*stride`.
-func maxCommits(cs []diagram.GitCommit) int {
-	if len(cs) == 0 {
-		return 0
+// branchGutterW estimates the width of the longest branch label. An
+// exact measurement would need a font ruler; the estimate avoids
+// loading a TTF just for a gutter size.
+func branchGutterW(branches []string, fontSize float64) float64 {
+	maxLen := 0
+	for _, b := range branches {
+		if n := len(b); n > maxLen {
+			maxLen = n
+		}
 	}
-	return len(cs) - 1
+	return fontSize * avgCharWidthFactor * float64(maxLen)
 }
 
-// commitShape returns the SVG element(s) for a commit dot, varied by
-// commit type so Highlight / Reverse / Merge are visually distinct.
-func commitShape(c diagram.GitCommit, x, y float64, color string) []any {
+type dotStyle struct {
+	r       float64
+	fill    string
+	stroke  string
+	strokeW float64
+	innerR  float64 // non-zero for merge commits — a small white dot on top
+}
+
+func dotStyleFor(c diagram.GitCommit, color string) dotStyle {
 	switch c.Type {
 	case diagram.GitCommitMerge:
-		return []any{
-			&circle{
-				CX: svgFloat(x), CY: svgFloat(y), R: svgFloat(commitRadius),
-				Style: fmt.Sprintf("fill:%s;stroke:#fff;stroke-width:2", color),
-			},
-			&circle{
-				CX: svgFloat(x), CY: svgFloat(y), R: svgFloat(commitRadius * 0.4),
-				Style: "fill:#fff;stroke:none",
-			},
-		}
+		return dotStyle{r: commitRadius, fill: color, stroke: dotStrokeFill, strokeW: 2, innerR: commitRadius * 0.4}
 	case diagram.GitCommitHighlight:
-		return []any{
-			&circle{
-				CX: svgFloat(x), CY: svgFloat(y), R: svgFloat(highlightRadius),
-				Style: fmt.Sprintf("fill:%s;stroke:#333;stroke-width:2", color),
-			},
-		}
+		return dotStyle{r: highlightRadius, fill: color, stroke: labelFill, strokeW: 2}
 	case diagram.GitCommitReverse:
-		return []any{
-			&circle{
-				CX: svgFloat(x), CY: svgFloat(y), R: svgFloat(commitRadius),
-				Style: fmt.Sprintf("fill:none;stroke:%s;stroke-width:3", color),
-			},
-		}
+		return dotStyle{r: commitRadius, fill: "none", stroke: color, strokeW: 3}
 	default:
-		return []any{
-			&circle{
-				CX: svgFloat(x), CY: svgFloat(y), R: svgFloat(commitRadius),
-				Style: fmt.Sprintf("fill:%s;stroke:#333;stroke-width:1.5", color),
-			},
-		}
+		return dotStyle{r: commitRadius, fill: color, stroke: labelFill, strokeW: 1.5}
 	}
 }
 
-// curvePath draws a short cubic Bezier that leaves parent (x1,y1)
-// horizontally and arrives at child (x2,y2) vertically, matching
-// Mermaid's style for branch/merge connectors.
+func commitDot(c diagram.GitCommit, x, y float64, color string) []any {
+	s := dotStyleFor(c, color)
+	elems := []any{&circle{
+		CX: svgFloat(x), CY: svgFloat(y), R: svgFloat(s.r),
+		Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%g", s.fill, s.stroke, s.strokeW),
+	}}
+	if s.innerR > 0 {
+		elems = append(elems, &circle{
+			CX: svgFloat(x), CY: svgFloat(y), R: svgFloat(s.innerR),
+			Style: fmt.Sprintf("fill:%s;stroke:none", dotStrokeFill),
+		})
+	}
+	return elems
+}
+
+// curvePath draws a cubic Bezier that leaves parent (x1,y1) horizontal
+// and arrives at child (x2,y2) vertical — the Mermaid gitgraph style.
 func curvePath(x1, y1, x2, y2 float64) string {
 	midX := (x1 + x2) / 2
 	return fmt.Sprintf("M%.2f,%.2f C%.2f,%.2f %.2f,%.2f %.2f,%.2f",

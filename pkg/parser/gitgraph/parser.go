@@ -17,6 +17,7 @@ func Parse(r io.Reader) (*diagram.GitGraphDiagram, error) {
 	p := &parser{
 		diagram:    &diagram.GitGraphDiagram{},
 		branchHead: make(map[string]string),
+		branchSeen: make(map[string]bool),
 		current:    defaultBranch,
 	}
 	scanner := bufio.NewScanner(r)
@@ -50,8 +51,8 @@ func Parse(r io.Reader) (*diagram.GitGraphDiagram, error) {
 	return p.diagram, nil
 }
 
-// isHeader matches `gitGraph`, `gitGraph:`, `gitGraph LR`,
-// `gitGraph TB:`, etc. Mermaid allows several forms.
+// isHeader accepts the several forms Mermaid allows: bare `gitGraph`,
+// trailing colon, or an explicit direction token.
 func isHeader(line string) bool {
 	if !strings.HasPrefix(line, "gitGraph") {
 		return false
@@ -59,13 +60,13 @@ func isHeader(line string) bool {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "gitGraph"))
 	rest = strings.TrimSuffix(rest, ":")
 	rest = strings.TrimSpace(rest)
-	// Allow bare `gitGraph`, or trailing direction like "LR"/"TB".
 	return rest == "" || rest == "LR" || rest == "TB" || rest == "BT"
 }
 
 type parser struct {
 	diagram    *diagram.GitGraphDiagram
 	branchHead map[string]string // branch -> current head commit ID
+	branchSeen map[string]bool   // O(1) dedupe for ensureBranch
 	current    string            // currently checked-out branch
 	commitSeq  int               // auto-ID counter for unnamed commits
 }
@@ -85,10 +86,9 @@ func (p *parser) parseLine(line string) error {
 	return nil
 }
 
-// splitKeyword returns the first word of line and the whitespace-trimmed
-// remainder. Lines with no whitespace (e.g. `branch` alone) still yield
-// the keyword and an empty rest, so argument-less forms can be diagnosed
-// as errors downstream.
+// splitKeyword returns the first whitespace-delimited word and the
+// trimmed remainder. Bare keywords (`branch` alone) yield an empty
+// rest so downstream can error on missing arguments.
 func splitKeyword(line string) (kw, rest string) {
 	if i := strings.IndexAny(line, " \t"); i >= 0 {
 		return line[:i], strings.TrimSpace(line[i+1:])
@@ -97,11 +97,10 @@ func splitKeyword(line string) (kw, rest string) {
 }
 
 func (p *parser) ensureBranch(name string) {
-	for _, b := range p.diagram.Branches {
-		if b == name {
-			return
-		}
+	if p.branchSeen[name] {
+		return
 	}
+	p.branchSeen[name] = true
 	p.diagram.Branches = append(p.diagram.Branches, name)
 }
 
@@ -125,17 +124,14 @@ func (p *parser) parseCommit(rest string) error {
 }
 
 // parseCommitAttrs parses `id: "x"`, `tag: "v1"`, `type: HIGHLIGHT` etc.
-// Attributes are space-separated and the key/value is colon-separated.
 func parseCommitAttrs(s string, c *diagram.GitCommit) {
-	// Split on spaces but respect quoted strings.
 	for _, tok := range tokenizeAttrs(s) {
 		colon := strings.Index(tok, ":")
 		if colon < 0 {
 			continue
 		}
 		key := strings.TrimSpace(tok[:colon])
-		val := strings.TrimSpace(tok[colon+1:])
-		val = strings.Trim(val, "\"")
+		val := strings.Trim(strings.TrimSpace(tok[colon+1:]), "\"")
 		switch key {
 		case "id":
 			c.ID = val
@@ -158,43 +154,45 @@ func parseCommitType(s string) diagram.GitCommitType {
 	}
 }
 
-// tokenizeAttrs splits `id: "my commit" tag: "v1"` into
-// [`id: "my commit"`, `tag: "v1"`]. Quoted values are preserved.
+// tokenizeAttrs splits `id: "my commit" tag: "v1"` on whitespace that
+// separates two complete `key: value` pairs. Whitespace inside the
+// value of a pending pair (before a value byte is seen) is folded into
+// the current token so `id : "x"` still parses. Quotes are preserved
+// so `parseCommitAttrs` can strip them later.
 func tokenizeAttrs(s string) []string {
 	var tokens []string
 	var cur strings.Builder
 	inQuote := false
-	// We split on whitespace that follows a completed `key:value` pair.
-	// Simpler: track a "has seen colon" state; a space after the value
-	// (outside quotes) ends the token.
-	afterColon := false
+	sawColon := false
+	sawValue := false
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if c == '"' {
+		switch {
+		case c == '"':
 			inQuote = !inQuote
 			cur.WriteByte(c)
-			continue
-		}
-		if !inQuote && (c == ' ' || c == '\t') {
-			if afterColon && cur.Len() > 0 {
-				// Determine if we've consumed a value yet. Look for
-				// trailing non-space after the colon.
-				raw := cur.String()
-				colon := strings.Index(raw, ":")
-				if colon >= 0 && strings.TrimSpace(raw[colon+1:]) != "" {
-					tokens = append(tokens, strings.TrimSpace(raw))
-					cur.Reset()
-					afterColon = false
-					continue
-				}
+			if sawColon {
+				sawValue = true
+			}
+		case inQuote:
+			cur.WriteByte(c)
+		case c == ' ' || c == '\t':
+			if sawColon && sawValue {
+				tokens = append(tokens, strings.TrimSpace(cur.String()))
+				cur.Reset()
+				sawColon, sawValue = false, false
+				continue
 			}
 			cur.WriteByte(c)
-			continue
+		case c == ':':
+			sawColon = true
+			cur.WriteByte(c)
+		default:
+			if sawColon {
+				sawValue = true
+			}
+			cur.WriteByte(c)
 		}
-		if c == ':' && !inQuote {
-			afterColon = true
-		}
-		cur.WriteByte(c)
 	}
 	if cur.Len() > 0 {
 		tokens = append(tokens, strings.TrimSpace(cur.String()))
@@ -208,7 +206,6 @@ func (p *parser) parseBranch(name string) error {
 		return fmt.Errorf("branch name required")
 	}
 	p.ensureBranch(name)
-	// New branch starts at the current branch's head.
 	if head, ok := p.branchHead[p.current]; ok {
 		p.branchHead[name] = head
 	}
@@ -216,8 +213,9 @@ func (p *parser) parseBranch(name string) error {
 	return nil
 }
 
-// stripOptionalOrder drops a trailing "order: N" clause from a branch
-// declaration. Mermaid allows `branch feature order: 2`.
+// stripOptionalOrder drops a trailing `order: N` clause, which Mermaid
+// uses only to influence lane ordering — mmgo preserves declaration
+// order, so the clause is informational.
 func stripOptionalOrder(s string) string {
 	if idx := strings.Index(s, " order:"); idx >= 0 {
 		return strings.TrimSpace(s[:idx])
@@ -235,7 +233,6 @@ func (p *parser) parseCheckout(name string) error {
 }
 
 func (p *parser) parseMerge(rest string) error {
-	// Format: `merge <branch> [id: "x"] [tag: "v1"] [type: HIGHLIGHT]`
 	parts := strings.Fields(rest)
 	if len(parts) == 0 {
 		return fmt.Errorf("merge: branch name required")
@@ -250,15 +247,13 @@ func (p *parser) parseMerge(rest string) error {
 		Type:   diagram.GitCommitMerge,
 	}
 	if len(parts) > 1 {
-		parseCommitAttrs(strings.TrimSpace(rest[len(parts[0]):]), &commit)
+		parseCommitAttrs(strings.TrimPrefix(rest, parts[0]), &commit)
 	}
 	if commit.ID == "" {
 		p.commitSeq++
 		commit.ID = fmt.Sprintf("m%d", p.commitSeq)
 	}
 
-	// Merge commit has two parents: current branch head, and merged
-	// branch head (if one exists).
 	if head, ok := p.branchHead[p.current]; ok {
 		commit.Parents = append(commit.Parents, head)
 	}

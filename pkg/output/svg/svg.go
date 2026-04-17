@@ -215,8 +215,7 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 		if hasHeaderKeyword(line, "block-beta") {
 			return kindBlock, nil
 		}
-		if hasHeaderKeyword(line, "gitGraph") ||
-			strings.HasPrefix(line, "gitGraph:") {
+		if hasHeaderKeyword(line, "gitGraph") {
 			return kindGitGraph, nil
 		}
 		return kindUnknown, fmt.Errorf("unrecognized diagram header: %q", line)
@@ -227,9 +226,10 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 	return kindUnknown, fmt.Errorf("empty input: no diagram header found")
 }
 
-// hasHeaderKeyword reports whether line begins with kw followed by
-// either end-of-string or whitespace, mirroring the parser's
-// word-boundary rule so `grapha` is not mis-matched as `graph`.
+// hasHeaderKeyword reports whether line begins with kw followed by a
+// word boundary: end-of-string, whitespace, or `:` (Mermaid tolerates
+// a trailing colon on many headers). `grapha` is not mis-matched as
+// `graph`.
 func hasHeaderKeyword(line, kw string) bool {
 	if !strings.HasPrefix(line, kw) {
 		return false
@@ -238,7 +238,7 @@ func hasHeaderKeyword(line, kw string) bool {
 		return true
 	}
 	c := line[len(kw)]
-	return c == ' ' || c == '\t'
+	return c == ' ' || c == '\t' || c == ':'
 }
 
 // renderFlowchart runs parse → size → layout → render for a flowchart

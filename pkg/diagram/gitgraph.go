@@ -26,7 +26,6 @@ type GitCommit struct {
 }
 
 type GitGraphDiagram struct {
-	Title   string
 	// Branches lists branch names in declaration order. The first
 	// branch is typically "main" (implicit — created automatically
 	// when the first commit lands without a prior `branch` command).
