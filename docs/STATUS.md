@@ -4,14 +4,14 @@ Dashboard view of progress against [implementation-plan.md](implementation-plan.
 Updated at each step boundary and committed to git, so any client can read
 current state without relying on chat history.
 
-**Last updated:** 2026-04-17 (post Step 19 merge)
+**Last updated:** 2026-04-17 (post Step 22 merge)
 
 ## Overall
 
-- **Current milestone:** v0.3.0 complete; working toward v0.4.0 (Class, state, ER)
-- **Current phase:** Phase 5 done; starting Phase 6 (Additional Diagram Types)
-- **Completed:** 20 of 25 steps
-- **Next:** Step 20 — Class diagram
+- **Current milestone:** v0.4.0 complete; working toward v0.5.0 (Gantt, mindmap, others)
+- **Current phase:** Phase 6 in progress
+- **Completed:** 23 of 25 steps
+- **Next:** Step 23 — Gantt chart
 
 ## Phase 0: Project Scaffold
 
@@ -65,12 +65,12 @@ current state without relying on chat history.
 
 ## Phase 6: Additional Diagram Types
 
-| Status | Step | PR |
-|--------|------|----|
-| ⏳ | 20. Class diagram | — |
-| ⏳ | 21. State diagram | — |
-| ⏳ | 22. ER diagram | — |
-| ⏳ | 23. Gantt chart | — |
+| Status | Step | PR | Coverage | Notes |
+|--------|------|----|----|---|
+| ✅ | 20. Class diagram | #35, #36 | 91.8% / 92.5% | AST + parser (Part A), dagre renderer with compartmented boxes (Part B) |
+| ✅ | 21. State diagram | #38, #39 | 91.7% / 91.0% | Composite states, [*] pseudo-states, fork/join/choice, dagre renderer |
+| ✅ | 22. ER diagram | #40 | 91.2% / 88.2% | Entity attributes with PK/FK/UK, 15 cardinality arrows, dagre renderer |
+| ⏳ | 23. Gantt chart | — | | |
 | ⏳ | 24. Mindmap | — |
 | ⏳ | 25+. Remaining types (GitGraph, Timeline, Sankey, XY, C4, Quadrant, Kanban, Block) | — |
 
@@ -81,8 +81,8 @@ current state without relying on chat history.
 | v0.1.0 — Flowchart SVG + Go module API | 0–11 | ✅ Shipped (12/12 done) |
 | v0.2.0 — + Sequence, pie, themes | 12–15 | ✅ Shipped (16/16 done) |
 | v0.3.0 — + CLI, PNG/PDF, markdown | 16–19 | ✅ Shipped (20/20 done) |
-| v0.4.0 — + Class, state, ER | 20–22 | ⏳ Not started |
-| v0.5.0 — + Gantt, mindmap, others | 23–25+ | ⏳ Not started |
+| v0.4.0 — + Class, state, ER | 20–22 | ✅ Shipped (23/23 done) |
+| v0.5.0 — + Gantt, mindmap, others | 23–25+ | 🚧 In progress |
 | v1.0.0 — Stable API, all major types, >90% coverage | — | ⏳ Not started |
 
 ## Legend
