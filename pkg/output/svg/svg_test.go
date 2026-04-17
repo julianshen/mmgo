@@ -409,6 +409,31 @@ func TestRenderTimelineEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRenderGitGraphEndToEnd(t *testing.T) {
+	input := `gitGraph
+    commit id: "init"
+    branch develop
+    commit
+    checkout main
+    commit
+    merge develop tag: "v1"`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	if !strings.Contains(raw, ">main<") || !strings.Contains(raw, ">develop<") {
+		t.Error("branch lane labels missing")
+	}
+	if !strings.Contains(raw, ">v1<") {
+		t.Error("merge tag missing")
+	}
+}
+
 func TestRenderMindmapEndToEnd(t *testing.T) {
 	input := `mindmap
     Root

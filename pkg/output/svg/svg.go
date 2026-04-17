@@ -21,6 +21,7 @@ import (
 	classparser "github.com/julianshen/mmgo/pkg/parser/class"
 	erparser "github.com/julianshen/mmgo/pkg/parser/er"
 	ganttparser "github.com/julianshen/mmgo/pkg/parser/gantt"
+	gitgraphparser "github.com/julianshen/mmgo/pkg/parser/gitgraph"
 	mindmapparser "github.com/julianshen/mmgo/pkg/parser/mindmap"
 	blockparser "github.com/julianshen/mmgo/pkg/parser/block"
 	c4parser "github.com/julianshen/mmgo/pkg/parser/c4"
@@ -32,6 +33,7 @@ import (
 	classrenderer "github.com/julianshen/mmgo/pkg/renderer/class"
 	errenderer "github.com/julianshen/mmgo/pkg/renderer/er"
 	ganttrenderer "github.com/julianshen/mmgo/pkg/renderer/gantt"
+	gitgraphrenderer "github.com/julianshen/mmgo/pkg/renderer/gitgraph"
 	mindmaprenderer "github.com/julianshen/mmgo/pkg/renderer/mindmap"
 	blockrenderer "github.com/julianshen/mmgo/pkg/renderer/block"
 	c4renderer "github.com/julianshen/mmgo/pkg/renderer/c4"
@@ -110,6 +112,8 @@ func Render(r io.Reader, opts *Options) ([]byte, error) {
 		return renderC4(src, opts)
 	case kindBlock:
 		return renderBlock(src, opts)
+	case kindGitGraph:
+		return renderGitGraph(src, opts)
 	default:
 		return nil, fmt.Errorf("svg render: %v diagrams are not yet supported", kind)
 	}
@@ -132,6 +136,7 @@ const (
 	kindTimeline
 	kindC4
 	kindBlock
+	kindGitGraph
 )
 
 func (k diagramKind) String() string {
@@ -158,6 +163,8 @@ func (k diagramKind) String() string {
 		return "c4"
 	case kindBlock:
 		return "block"
+	case kindGitGraph:
+		return "gitGraph"
 	default:
 		return "unknown"
 	}
@@ -207,6 +214,10 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 		}
 		if hasHeaderKeyword(line, "block-beta") {
 			return kindBlock, nil
+		}
+		if hasHeaderKeyword(line, "gitGraph") ||
+			strings.HasPrefix(line, "gitGraph:") {
+			return kindGitGraph, nil
 		}
 		return kindUnknown, fmt.Errorf("unrecognized diagram header: %q", line)
 	}
@@ -448,6 +459,18 @@ func renderBlock(src []byte, opts *Options) ([]byte, error) {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
 	out, err := blockrenderer.Render(d, nil)
+	if err != nil {
+		return nil, fmt.Errorf("svg render: %w", err)
+	}
+	return out, nil
+}
+
+func renderGitGraph(src []byte, opts *Options) ([]byte, error) {
+	d, err := gitgraphparser.Parse(bytes.NewReader(src))
+	if err != nil {
+		return nil, fmt.Errorf("svg render: parse: %w", err)
+	}
+	out, err := gitgraphrenderer.Render(d, nil)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
