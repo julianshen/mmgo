@@ -61,7 +61,7 @@ func Render(d *diagram.MindmapDiagram, opts *Options) ([]byte, error) {
 	})
 
 	if d.Root != nil {
-		children = append(children, renderEdges(g, l, pad)...)
+		children = append(children, renderEdges(l, pad)...)
 		children = append(children, renderNodes(d.Root, l, pad, fontSize, 0, ids)...)
 	}
 
@@ -167,7 +167,7 @@ func renderNodes(node *diagram.MindmapNode, l *layout.Result, pad, fontSize floa
 	return elems
 }
 
-func renderEdges(g *graph.Graph, l *layout.Result, pad float64) []any {
+func renderEdges(l *layout.Result, pad float64) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -179,18 +179,25 @@ func renderEdges(g *graph.Graph, l *layout.Result, pad float64) []any {
 		return edgeKeys[i].To < edgeKeys[j].To
 	})
 	var elems []any
+	style := "stroke:#999;stroke-width:2;fill:none"
 	for _, eid := range edgeKeys {
 		el := l.Edges[eid]
 		if len(el.Points) < 2 {
 			continue
 		}
-		p0 := el.Points[0]
-		p1 := el.Points[len(el.Points)-1]
-		elems = append(elems, &line{
-			X1: svgFloat(p0.X + pad), Y1: svgFloat(p0.Y + pad),
-			X2: svgFloat(p1.X + pad), Y2: svgFloat(p1.Y + pad),
-			Style: "stroke:#999;stroke-width:2;fill:none",
-		})
+		if len(el.Points) == 2 {
+			elems = append(elems, &line{
+				X1: svgFloat(el.Points[0].X + pad), Y1: svgFloat(el.Points[0].Y + pad),
+				X2: svgFloat(el.Points[1].X + pad), Y2: svgFloat(el.Points[1].Y + pad),
+				Style: style,
+			})
+			continue
+		}
+		d := fmt.Sprintf("M%.2f,%.2f", el.Points[0].X+pad, el.Points[0].Y+pad)
+		for _, p := range el.Points[1:] {
+			d += fmt.Sprintf(" L%.2f,%.2f", p.X+pad, p.Y+pad)
+		}
+		elems = append(elems, &path{D: d, Style: style})
 	}
 	return elems
 }

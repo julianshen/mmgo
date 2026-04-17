@@ -6,12 +6,11 @@ const (
 	MindmapShapeDefault MindmapNodeShape = iota
 	MindmapShapeRound                    // (text)
 	MindmapShapeSquare                   // [text]
-	MindmapShapeCloud                    // ))text((
+	MindmapShapeCloud                    // ((text))
 	MindmapShapeBang                     // {{text}}
-	MindmapShapeHexagon                  // {{text}}
 )
 
-var mindmapShapeNames = []string{"default", "round", "square", "cloud", "bang", "hexagon"}
+var mindmapShapeNames = []string{"default", "round", "square", "cloud", "bang"}
 
 func (s MindmapNodeShape) String() string { return enumString(s, mindmapShapeNames) }
 

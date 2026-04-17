@@ -46,6 +46,12 @@ type line struct {
 	Style   string   `xml:"style,attr,omitempty"`
 }
 
+type path struct {
+	XMLName xml.Name `xml:"path"`
+	D       string   `xml:"d,attr"`
+	Style   string   `xml:"style,attr,omitempty"`
+}
+
 type text struct {
 	XMLName  xml.Name `xml:"text"`
 	X        svgFloat `xml:"x,attr"`
