@@ -22,6 +22,7 @@ import (
 	erparser "github.com/julianshen/mmgo/pkg/parser/er"
 	ganttparser "github.com/julianshen/mmgo/pkg/parser/gantt"
 	mindmapparser "github.com/julianshen/mmgo/pkg/parser/mindmap"
+	c4parser "github.com/julianshen/mmgo/pkg/parser/c4"
 	timelineparser "github.com/julianshen/mmgo/pkg/parser/timeline"
 	flowchartparser "github.com/julianshen/mmgo/pkg/parser/flowchart"
 	pieparser "github.com/julianshen/mmgo/pkg/parser/pie"
@@ -31,6 +32,7 @@ import (
 	errenderer "github.com/julianshen/mmgo/pkg/renderer/er"
 	ganttrenderer "github.com/julianshen/mmgo/pkg/renderer/gantt"
 	mindmaprenderer "github.com/julianshen/mmgo/pkg/renderer/mindmap"
+	c4renderer "github.com/julianshen/mmgo/pkg/renderer/c4"
 	timelinerenderer "github.com/julianshen/mmgo/pkg/renderer/timeline"
 	flowchartrenderer "github.com/julianshen/mmgo/pkg/renderer/flowchart"
 	pierenderer "github.com/julianshen/mmgo/pkg/renderer/pie"
@@ -102,6 +104,8 @@ func Render(r io.Reader, opts *Options) ([]byte, error) {
 		return renderMindmap(src, opts)
 	case kindTimeline:
 		return renderTimeline(src, opts)
+	case kindC4:
+		return renderC4(src, opts)
 	default:
 		return nil, fmt.Errorf("svg render: %v diagrams are not yet supported", kind)
 	}
@@ -122,6 +126,7 @@ const (
 	kindGantt
 	kindMindmap
 	kindTimeline
+	kindC4
 )
 
 func (k diagramKind) String() string {
@@ -144,6 +149,8 @@ func (k diagramKind) String() string {
 		return "mindmap"
 	case kindTimeline:
 		return "timeline"
+	case kindC4:
+		return "c4"
 	default:
 		return "unknown"
 	}
@@ -186,6 +193,10 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 		}
 		if hasHeaderKeyword(line, "timeline") {
 			return kindTimeline, nil
+		}
+		switch line {
+		case "C4Context", "C4Container", "C4Component", "C4Dynamic", "C4Deployment":
+			return kindC4, nil
 		}
 		return kindUnknown, fmt.Errorf("unrecognized diagram header: %q", line)
 	}
@@ -415,6 +426,18 @@ func renderGantt(src []byte, opts *Options) ([]byte, error) {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
 	out, err := ganttrenderer.Render(d, nil)
+	if err != nil {
+		return nil, fmt.Errorf("svg render: %w", err)
+	}
+	return out, nil
+}
+
+func renderC4(src []byte, opts *Options) ([]byte, error) {
+	d, err := c4parser.Parse(bytes.NewReader(src))
+	if err != nil {
+		return nil, fmt.Errorf("svg render: parse: %w", err)
+	}
+	out, err := c4renderer.Render(d, nil)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}

@@ -350,6 +350,26 @@ func TestRenderClassDiagramEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRenderC4EndToEnd(t *testing.T) {
+	input := `C4Context
+    title System Context
+    Person(customer, "Customer", "A user")
+    System(app, "App", "Core system")
+    Rel(customer, app, "Uses")`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	if !strings.Contains(raw, ">System Context<") || !strings.Contains(raw, ">Customer<") {
+		t.Error("C4 labels missing")
+	}
+}
+
 func TestRenderTimelineEndToEnd(t *testing.T) {
 	input := `timeline
     title My Life
