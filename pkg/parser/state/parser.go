@@ -12,8 +12,7 @@ import (
 
 func Parse(r io.Reader) (*diagram.StateDiagram, error) {
 	p := &parser{
-		diagram:  &diagram.StateDiagram{},
-		stateIdx: make(map[string]int),
+		diagram: &diagram.StateDiagram{},
 	}
 	p.scanner = bufio.NewScanner(r)
 	p.scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
@@ -31,7 +30,7 @@ func Parse(r io.Reader) (*diagram.StateDiagram, error) {
 			headerSeen = true
 			continue
 		}
-		if err := p.parseLine(line); err != nil {
+		if err := p.parseLine(line, &p.diagram.States); err != nil {
 			return nil, fmt.Errorf("line %d: %w", p.lineNum, err)
 		}
 	}
@@ -45,50 +44,68 @@ func Parse(r io.Reader) (*diagram.StateDiagram, error) {
 }
 
 type parser struct {
-	diagram  *diagram.StateDiagram
-	stateIdx map[string]int
-	scanner  *bufio.Scanner
-	lineNum  int
+	diagram *diagram.StateDiagram
+	scanner *bufio.Scanner
+	lineNum int
 }
 
-func (p *parser) parseLine(line string) error {
+// upsertState returns a pointer to the state with the given id in
+// target, creating it if absent. `[*]` pseudo-states return nil.
+func upsertState(target *[]diagram.StateDef, id string) *diagram.StateDef {
+	if id == "[*]" {
+		return nil
+	}
+	for i := range *target {
+		if (*target)[i].ID == id {
+			return &(*target)[i]
+		}
+	}
+	*target = append(*target, diagram.StateDef{ID: id, Label: id})
+	return &(*target)[len(*target)-1]
+}
+
+func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
 	if rest, ok := strings.CutPrefix(line, "state "); ok {
-		return p.parseStateDecl(strings.TrimSpace(rest))
+		return p.parseStateDecl(strings.TrimSpace(rest), target)
 	}
 	if t, ok := parseTransition(line); ok {
-		p.ensureState(t.From)
-		p.ensureState(t.To)
+		upsertState(target, t.From)
+		upsertState(target, t.To)
 		p.diagram.Transitions = append(p.diagram.Transitions, t)
 		return nil
 	}
 	return nil
 }
 
-func (p *parser) parseStateDecl(rest string) error {
+func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef) error {
 	if strings.HasPrefix(rest, "\"") {
-		return p.parseAliasDecl(rest)
+		return p.parseAliasDecl(rest, target)
 	}
 	if braceIdx := strings.IndexByte(rest, '{'); braceIdx >= 0 {
 		name := strings.TrimSpace(rest[:braceIdx])
-		return p.parseCompositeBody(name)
+		s := upsertState(target, name)
+		if s == nil {
+			return fmt.Errorf("invalid composite state name %q", name)
+		}
+		return p.parseCompositeBody(&s.Children)
 	}
 	parts := strings.Fields(rest)
-	if len(parts) >= 2 && strings.HasPrefix(parts[1], "<<") {
+	if len(parts) >= 2 && strings.HasPrefix(parts[1], "<<") && strings.HasSuffix(parts[1], ">>") {
 		id := parts[0]
 		annotation := strings.Trim(parts[1], "<>")
-		kind := parseStateKind(annotation)
-		p.ensureState(id)
-		idx := p.stateIdx[id]
-		p.diagram.States[idx].Kind = kind
+		s := upsertState(target, id)
+		if s != nil {
+			s.Kind = parseStateKind(annotation)
+		}
 		return nil
 	}
 	if len(parts) >= 1 {
-		p.ensureState(parts[0])
+		upsertState(target, parts[0])
 	}
 	return nil
 }
 
-func (p *parser) parseAliasDecl(rest string) error {
+func (p *parser) parseAliasDecl(rest string, target *[]diagram.StateDef) error {
 	endQuote := strings.Index(rest[1:], "\"")
 	if endQuote < 0 {
 		return fmt.Errorf("unterminated quote in state declaration")
@@ -97,28 +114,15 @@ func (p *parser) parseAliasDecl(rest string) error {
 	after := strings.TrimSpace(rest[endQuote+2:])
 	if id, ok := strings.CutPrefix(after, "as "); ok {
 		id = strings.TrimSpace(id)
-		p.ensureState(id)
-		idx := p.stateIdx[id]
-		p.diagram.States[idx].Label = label
+		s := upsertState(target, id)
+		if s != nil {
+			s.Label = label
+		}
 	}
 	return nil
 }
 
-func (p *parser) parseCompositeBody(name string) error {
-	p.ensureState(name)
-	idx := p.stateIdx[name]
-	childStates := make(map[string]int)
-	addChild := func(id string) {
-		if id == "[*]" {
-			return
-		}
-		if _, exists := childStates[id]; exists {
-			return
-		}
-		childStates[id] = len(p.diagram.States[idx].Children)
-		p.diagram.States[idx].Children = append(p.diagram.States[idx].Children,
-			diagram.StateDef{ID: id, Label: id})
-	}
+func (p *parser) parseCompositeBody(target *[]diagram.StateDef) error {
 	for p.scanner.Scan() {
 		p.lineNum++
 		line := strings.TrimSpace(parserutil.StripComment(p.scanner.Text()))
@@ -128,43 +132,14 @@ func (p *parser) parseCompositeBody(name string) error {
 		if line == "}" {
 			return nil
 		}
-		if rest, ok := strings.CutPrefix(line, "state "); ok {
-			rest = strings.TrimSpace(rest)
-			if braceIdx := strings.IndexByte(rest, '{'); braceIdx >= 0 {
-				childName := strings.TrimSpace(rest[:braceIdx])
-				if err := p.parseCompositeBody(childName); err != nil {
-					return err
-				}
-				addChild(childName)
-				continue
-			}
-			parts := strings.Fields(rest)
-			if len(parts) >= 1 {
-				addChild(parts[0])
-			}
-			continue
-		}
-		if t, ok := parseTransition(line); ok {
-			addChild(t.From)
-			addChild(t.To)
-			p.diagram.Transitions = append(p.diagram.Transitions, t)
+		if err := p.parseLine(line, target); err != nil {
+			return err
 		}
 	}
 	if err := p.scanner.Err(); err != nil {
-		return fmt.Errorf("reading composite state %q: %w", name, err)
+		return fmt.Errorf("reading composite state: %w", err)
 	}
-	return fmt.Errorf("unclosed composite state %q", name)
-}
-
-func (p *parser) ensureState(id string) {
-	if id == "[*]" {
-		return
-	}
-	if _, ok := p.stateIdx[id]; ok {
-		return
-	}
-	p.stateIdx[id] = len(p.diagram.States)
-	p.diagram.States = append(p.diagram.States, diagram.StateDef{ID: id, Label: id})
+	return fmt.Errorf("unclosed composite state")
 }
 
 func parseTransition(line string) (diagram.StateTransition, bool) {

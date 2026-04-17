@@ -198,17 +198,41 @@ func TestParseNestedComposite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	var outer *diagram.StateDef
-	for i := range d.States {
-		if d.States[i].ID == "Outer" {
-			outer = &d.States[i]
+	if len(d.States) != 1 || d.States[0].ID != "Outer" {
+		t.Fatalf("top-level should only contain Outer: %+v", d.States)
+	}
+	outer := &d.States[0]
+	if len(outer.Children) != 1 || outer.Children[0].ID != "Inner" {
+		t.Fatalf("Outer should contain Inner: %+v", outer.Children)
+	}
+	inner := &outer.Children[0]
+	if len(inner.Children) < 2 {
+		t.Fatalf("Inner should have A and B as children: %+v", inner.Children)
+	}
+}
+
+func TestParseCompositeWithAliasedChild(t *testing.T) {
+	input := `stateDiagram-v2
+    state Active {
+        state "Long Name" as L
+        L --> L2
+    }`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	active := &d.States[0]
+	var lChild *diagram.StateDef
+	for i := range active.Children {
+		if active.Children[i].ID == "L" {
+			lChild = &active.Children[i]
 		}
 	}
-	if outer == nil {
-		t.Fatal("Outer not found")
+	if lChild == nil {
+		t.Fatal("L not found in Active.Children")
 	}
-	if len(outer.Children) < 1 {
-		t.Fatal("Outer should have Inner child")
+	if lChild.Label != "Long Name" {
+		t.Errorf("L.Label = %q, want %q", lChild.Label, "Long Name")
 	}
 }
 
@@ -239,6 +263,45 @@ func TestParseCompositeWithStateDecl(t *testing.T) {
 	}
 	if !foundRunning {
 		t.Error("Running should be a child of Active")
+	}
+}
+
+func TestParseInvalidTransition(t *testing.T) {
+	input := "stateDiagram-v2\n    --> B"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Transitions) != 0 {
+		t.Errorf("empty-from transition should be ignored, got %+v", d.Transitions)
+	}
+}
+
+func TestParseStartToEnd(t *testing.T) {
+	input := "stateDiagram-v2\n    [*] --> [*]"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Transitions) != 1 {
+		t.Fatalf("want 1 transition, got %d", len(d.Transitions))
+	}
+	if d.Transitions[0].From != "[*]" || d.Transitions[0].To != "[*]" {
+		t.Errorf("got %+v", d.Transitions[0])
+	}
+	if len(d.States) != 0 {
+		t.Errorf("[*] should not create real states, got %+v", d.States)
+	}
+}
+
+func TestParseUnknownStateKind(t *testing.T) {
+	input := "stateDiagram-v2\n    state foo <<unknown>>"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.States[0].Kind != diagram.StateKindNormal {
+		t.Errorf("unknown kind should default to normal, got %v", d.States[0].Kind)
 	}
 }
 
