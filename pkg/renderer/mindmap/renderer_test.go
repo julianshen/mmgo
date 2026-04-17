@@ -78,6 +78,70 @@ func TestRenderNodeShapes(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+func TestRenderAllShapes(t *testing.T) {
+	d := &diagram.MindmapDiagram{
+		Root: &diagram.MindmapNode{
+			Text:  "Center",
+			Shape: diagram.MindmapShapeDefault,
+			Children: []*diagram.MindmapNode{
+				{Text: "R", Shape: diagram.MindmapShapeRound},
+				{Text: "S", Shape: diagram.MindmapShapeSquare},
+				{Text: "C", Shape: diagram.MindmapShapeCloud},
+				{Text: "B", Shape: diagram.MindmapShapeBang},
+			},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, name := range []string{"Center", "R", "S", "C", "B"} {
+		if !strings.Contains(raw, ">"+name+"<") {
+			t.Errorf("missing %q", name)
+		}
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderDeepTree(t *testing.T) {
+	d := &diagram.MindmapDiagram{
+		Root: &diagram.MindmapNode{
+			Text: "L0",
+			Children: []*diagram.MindmapNode{
+				{Text: "L1", Children: []*diagram.MindmapNode{
+					{Text: "L2", Children: []*diagram.MindmapNode{
+						{Text: "L3", Children: []*diagram.MindmapNode{
+							{Text: "L4", Children: []*diagram.MindmapNode{
+								{Text: "L5"},
+								{Text: "L6"},
+							}},
+						}},
+					}},
+				}},
+			},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderCustomFontSize(t *testing.T) {
+	d := &diagram.MindmapDiagram{
+		Root: &diagram.MindmapNode{Text: "Big"},
+	}
+	out, err := Render(d, &Options{FontSize: 24})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "font-size:24px") {
+		t.Error("custom font size not applied")
+	}
+}
+
 func TestRenderDeterministic(t *testing.T) {
 	d := &diagram.MindmapDiagram{
 		Root: &diagram.MindmapNode{
