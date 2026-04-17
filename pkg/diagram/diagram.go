@@ -14,6 +14,7 @@ const (
 	State
 	ER
 	Gantt
+	Mindmap
 )
 
 // Diagram is implemented by all diagram AST types.

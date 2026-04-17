@@ -21,6 +21,7 @@ import (
 	classparser "github.com/julianshen/mmgo/pkg/parser/class"
 	erparser "github.com/julianshen/mmgo/pkg/parser/er"
 	ganttparser "github.com/julianshen/mmgo/pkg/parser/gantt"
+	mindmapparser "github.com/julianshen/mmgo/pkg/parser/mindmap"
 	flowchartparser "github.com/julianshen/mmgo/pkg/parser/flowchart"
 	pieparser "github.com/julianshen/mmgo/pkg/parser/pie"
 	sequenceparser "github.com/julianshen/mmgo/pkg/parser/sequence"
@@ -28,6 +29,7 @@ import (
 	classrenderer "github.com/julianshen/mmgo/pkg/renderer/class"
 	errenderer "github.com/julianshen/mmgo/pkg/renderer/er"
 	ganttrenderer "github.com/julianshen/mmgo/pkg/renderer/gantt"
+	mindmaprenderer "github.com/julianshen/mmgo/pkg/renderer/mindmap"
 	flowchartrenderer "github.com/julianshen/mmgo/pkg/renderer/flowchart"
 	pierenderer "github.com/julianshen/mmgo/pkg/renderer/pie"
 	sequencerenderer "github.com/julianshen/mmgo/pkg/renderer/sequence"
@@ -94,6 +96,8 @@ func Render(r io.Reader, opts *Options) ([]byte, error) {
 		return renderER(src, opts)
 	case kindGantt:
 		return renderGantt(src, opts)
+	case kindMindmap:
+		return renderMindmap(src, opts)
 	default:
 		return nil, fmt.Errorf("svg render: %v diagrams are not yet supported", kind)
 	}
@@ -112,6 +116,7 @@ const (
 	kindState
 	kindER
 	kindGantt
+	kindMindmap
 )
 
 func (k diagramKind) String() string {
@@ -130,6 +135,8 @@ func (k diagramKind) String() string {
 		return "er"
 	case kindGantt:
 		return "gantt"
+	case kindMindmap:
+		return "mindmap"
 	default:
 		return "unknown"
 	}
@@ -166,6 +173,9 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 		}
 		if hasHeaderKeyword(line, "gantt") {
 			return kindGantt, nil
+		}
+		if hasHeaderKeyword(line, "mindmap") {
+			return kindMindmap, nil
 		}
 		return kindUnknown, fmt.Errorf("unrecognized diagram header: %q", line)
 	}
@@ -395,6 +405,18 @@ func renderGantt(src []byte, opts *Options) ([]byte, error) {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
 	out, err := ganttrenderer.Render(d, nil)
+	if err != nil {
+		return nil, fmt.Errorf("svg render: %w", err)
+	}
+	return out, nil
+}
+
+func renderMindmap(src []byte, opts *Options) ([]byte, error) {
+	d, err := mindmapparser.Parse(bytes.NewReader(src))
+	if err != nil {
+		return nil, fmt.Errorf("svg render: parse: %w", err)
+	}
+	out, err := mindmaprenderer.Render(d, nil)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
