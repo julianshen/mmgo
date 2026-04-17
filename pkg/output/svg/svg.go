@@ -19,11 +19,13 @@ import (
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
 	classparser "github.com/julianshen/mmgo/pkg/parser/class"
+	erparser "github.com/julianshen/mmgo/pkg/parser/er"
 	flowchartparser "github.com/julianshen/mmgo/pkg/parser/flowchart"
 	pieparser "github.com/julianshen/mmgo/pkg/parser/pie"
 	sequenceparser "github.com/julianshen/mmgo/pkg/parser/sequence"
 	stateparser "github.com/julianshen/mmgo/pkg/parser/state"
 	classrenderer "github.com/julianshen/mmgo/pkg/renderer/class"
+	errenderer "github.com/julianshen/mmgo/pkg/renderer/er"
 	flowchartrenderer "github.com/julianshen/mmgo/pkg/renderer/flowchart"
 	pierenderer "github.com/julianshen/mmgo/pkg/renderer/pie"
 	sequencerenderer "github.com/julianshen/mmgo/pkg/renderer/sequence"
@@ -86,6 +88,8 @@ func Render(r io.Reader, opts *Options) ([]byte, error) {
 		return renderClass(src, opts)
 	case kindState:
 		return renderState(src, opts)
+	case kindER:
+		return renderER(src, opts)
 	default:
 		return nil, fmt.Errorf("svg render: %v diagrams are not yet supported", kind)
 	}
@@ -102,6 +106,7 @@ const (
 	kindPie
 	kindClass
 	kindState
+	kindER
 )
 
 func (k diagramKind) String() string {
@@ -116,6 +121,8 @@ func (k diagramKind) String() string {
 		return "class"
 	case kindState:
 		return "state"
+	case kindER:
+		return "er"
 	default:
 		return "unknown"
 	}
@@ -146,6 +153,9 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 		}
 		if hasHeaderKeyword(line, "stateDiagram-v2") || hasHeaderKeyword(line, "stateDiagram") {
 			return kindState, nil
+		}
+		if hasHeaderKeyword(line, "erDiagram") {
+			return kindER, nil
 		}
 		return kindUnknown, fmt.Errorf("unrecognized diagram header: %q", line)
 	}
@@ -351,6 +361,18 @@ func renderState(src []byte, opts *Options) ([]byte, error) {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
 	out, err := staterenderer.Render(d, nil)
+	if err != nil {
+		return nil, fmt.Errorf("svg render: %w", err)
+	}
+	return out, nil
+}
+
+func renderER(src []byte, opts *Options) ([]byte, error) {
+	d, err := erparser.Parse(bytes.NewReader(src))
+	if err != nil {
+		return nil, fmt.Errorf("svg render: parse: %w", err)
+	}
+	out, err := errenderer.Render(d, nil)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
