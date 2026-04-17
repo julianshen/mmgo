@@ -108,6 +108,17 @@ func (p *parser) parseCompositeBody(name string) error {
 	p.ensureState(name)
 	idx := p.stateIdx[name]
 	childStates := make(map[string]int)
+	addChild := func(id string) {
+		if id == "[*]" {
+			return
+		}
+		if _, exists := childStates[id]; exists {
+			return
+		}
+		childStates[id] = len(p.diagram.States[idx].Children)
+		p.diagram.States[idx].Children = append(p.diagram.States[idx].Children,
+			diagram.StateDef{ID: id, Label: id})
+	}
 	for p.scanner.Scan() {
 		p.lineNum++
 		line := strings.TrimSpace(parserutil.StripComment(p.scanner.Text()))
@@ -124,34 +135,18 @@ func (p *parser) parseCompositeBody(name string) error {
 				if err := p.parseCompositeBody(childName); err != nil {
 					return err
 				}
-				if _, exists := childStates[childName]; !exists {
-					childStates[childName] = len(p.diagram.States[idx].Children)
-					p.diagram.States[idx].Children = append(p.diagram.States[idx].Children,
-						diagram.StateDef{ID: childName, Label: childName})
-				}
+				addChild(childName)
 				continue
 			}
 			parts := strings.Fields(rest)
 			if len(parts) >= 1 {
-				childID := parts[0]
-				if _, exists := childStates[childID]; !exists {
-					childStates[childID] = len(p.diagram.States[idx].Children)
-					p.diagram.States[idx].Children = append(p.diagram.States[idx].Children,
-						diagram.StateDef{ID: childID, Label: childID})
-				}
+				addChild(parts[0])
 			}
 			continue
 		}
 		if t, ok := parseTransition(line); ok {
-			for _, id := range []string{t.From, t.To} {
-				if id != "[*]" {
-					if _, exists := childStates[id]; !exists {
-						childStates[id] = len(p.diagram.States[idx].Children)
-						p.diagram.States[idx].Children = append(p.diagram.States[idx].Children,
-							diagram.StateDef{ID: id, Label: id})
-					}
-				}
-			}
+			addChild(t.From)
+			addChild(t.To)
 			p.diagram.Transitions = append(p.diagram.Transitions, t)
 		}
 	}

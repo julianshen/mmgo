@@ -3,15 +3,13 @@ package diagram
 type StateKind int8
 
 const (
-	StateKindNormal  StateKind = iota
-	StateKindStart             // [*] as source
-	StateKindEnd               // [*] as target
-	StateKindFork              // <<fork>>
-	StateKindJoin              // <<join>>
-	StateKindChoice            // <<choice>>
+	StateKindNormal StateKind = iota
+	StateKindFork             // <<fork>>
+	StateKindJoin             // <<join>>
+	StateKindChoice           // <<choice>>
 )
 
-var stateKindNames = []string{"normal", "start", "end", "fork", "join", "choice"}
+var stateKindNames = []string{"normal", "fork", "join", "choice"}
 
 func (s StateKind) String() string { return enumString(s, stateKindNames) }
 
@@ -28,16 +26,9 @@ type StateTransition struct {
 	Label string
 }
 
-type StateNote struct {
-	StateID  string
-	Text     string
-	Position string
-}
-
 type StateDiagram struct {
 	States      []StateDef
 	Transitions []StateTransition
-	Notes       []StateNote
 }
 
 func (*StateDiagram) Type() DiagramType { return State }
