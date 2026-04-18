@@ -91,15 +91,28 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 		}
 	}
 
-	maxLabel := 0
+	// Labels anchor leftward (text-anchor=end) for every column except
+	// the rightmost when maxCol > 0; the rightmost column anchors them
+	// rightward (text-anchor=start). Reserve pad on both sides so long
+	// labels don't clip outside the viewBox.
+	var leftMaxLen, rightMaxLen int
 	for _, n := range nodes {
-		if len(n) > maxLabel {
-			maxLabel = len(n)
+		onRight := col[n] == maxCol && maxCol > 0
+		if onRight {
+			if len(n) > rightMaxLen {
+				rightMaxLen = len(n)
+			}
+		} else {
+			if len(n) > leftMaxLen {
+				leftMaxLen = len(n)
+			}
 		}
 	}
-	labelPad := fontSize * avgCharWidth * float64(maxLabel)
+	leftPad := fontSize * avgCharWidth * float64(leftMaxLen)
+	rightPad := fontSize * avgCharWidth * float64(rightMaxLen)
 
-	viewW := 2*marginX + float64(maxCol)*columnSpacing + nodeW + labelPad
+	originX := marginX + leftPad
+	viewW := originX + float64(maxCol)*columnSpacing + nodeW + rightPad + marginX
 	viewH := canvasH + 2*marginY
 
 	nodeY := make(map[string]float64, len(nodes))
@@ -112,7 +125,7 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 			if h < 1 {
 				h = 1 // ensure a visible stub for zero-value leaves
 			}
-			nodeX[n] = marginX + float64(c)*columnSpacing
+			nodeX[n] = originX + float64(c)*columnSpacing
 			nodeY[n] = y
 			nodeH[n] = h
 			y += h + verticalPadding

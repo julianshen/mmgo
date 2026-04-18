@@ -3,6 +3,7 @@ package sankey
 import (
 	"bytes"
 	"encoding/xml"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -108,6 +109,84 @@ func TestRenderDeterministic(t *testing.T) {
 			t.Fatalf("iter %d: output diverges", i)
 		}
 	}
+}
+
+// Regression: labels on non-rightmost columns anchor leftward from
+// their node bar. A long label on the leftmost column used to extend
+// into negative X and clip outside the viewBox. viewW must now grow
+// to include left-side label padding, and the first node's x must be
+// shifted right so the label fits.
+func TestRenderLongLeftLabelFitsInViewBox(t *testing.T) {
+	short := &diagram.SankeyDiagram{
+		Flows: []diagram.SankeyFlow{{Source: "A", Target: "B", Value: 1}},
+	}
+	long := &diagram.SankeyDiagram{
+		Flows: []diagram.SankeyFlow{{Source: "A very long label on the left", Target: "B", Value: 1}},
+	}
+	sOut, _ := Render(short, nil)
+	lOut, _ := Render(long, nil)
+	sw := svgViewBoxWidth(t, sOut)
+	lw := svgViewBoxWidth(t, lOut)
+	if lw <= sw {
+		t.Errorf("viewBox width did not grow for long left label (short=%.2f long=%.2f)", sw, lw)
+	}
+	// And the label's leftmost x must be non-negative: label anchor is
+	// at `nodeX - labelGap` with estimated width `fontSize*avgCharWidth*len`.
+	// Finding the first text x attribute in the SVG gives a concrete lower
+	// bound; if the renderer didn't shift originX right, this would be <= 0.
+	firstAnchorX := firstLeftLabelX(string(lOut))
+	labelLen := len("A very long label on the left")
+	minAnchorX := float64(labelLen) * defaultFontSize * avgCharWidth
+	if firstAnchorX < minAnchorX {
+		t.Errorf("first label anchor X = %.2f, want >= %.2f so label fits in viewBox",
+			firstAnchorX, minAnchorX)
+	}
+}
+
+func svgViewBoxWidth(t *testing.T, svgBytes []byte) float64 {
+	t.Helper()
+	body := svgBytes
+	if i := bytes.Index(body, []byte("<svg")); i >= 0 {
+		body = body[i:]
+	}
+	var doc struct {
+		XMLName xml.Name `xml:"svg"`
+		ViewBox string   `xml:"viewBox,attr"`
+	}
+	if err := xml.Unmarshal(body, &doc); err != nil {
+		t.Fatalf("invalid SVG: %v", err)
+	}
+	var x0, y0, w, h float64
+	if _, err := fmt.Sscanf(doc.ViewBox, "%f %f %f %f", &x0, &y0, &w, &h); err != nil {
+		t.Fatalf("viewBox parse: %v", err)
+	}
+	return w
+}
+
+// firstLeftLabelX returns the x attribute of the first <text ...
+// text-anchor="end"> element — a left-anchored label.
+func firstLeftLabelX(raw string) float64 {
+	i := strings.Index(raw, `text-anchor="end"`)
+	if i < 0 {
+		return 0
+	}
+	start := strings.LastIndex(raw[:i], "<text")
+	if start < 0 {
+		return 0
+	}
+	// Find x="..." inside this element.
+	xIdx := strings.Index(raw[start:i], ` x="`)
+	if xIdx < 0 {
+		return 0
+	}
+	xIdx += start + len(` x="`)
+	end := strings.Index(raw[xIdx:], `"`)
+	if end < 0 {
+		return 0
+	}
+	var v float64
+	_, _ = fmt.Sscanf(raw[xIdx:xIdx+end], "%f", &v)
+	return v
 }
 
 func TestRenderCustomFontSize(t *testing.T) {
