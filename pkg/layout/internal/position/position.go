@@ -47,8 +47,16 @@ type Options struct {
 	// NodeSep is the minimum horizontal gap between adjacent nodes in
 	// the same rank, in pixels.
 	NodeSep float64
-	// RankSep is the vertical distance between adjacent ranks, in pixels.
+	// RankSep is the minimum gap between rank boundaries (not centers),
+	// in pixels.
 	RankSep float64
+	// RankDim returns the rank-axis extent of a node — the height for
+	// TB/BT and the width for LR/RL. Used to space ranks so that nodes
+	// with large rank-axis extents don't overlap across rank boundaries.
+	// If nil, ranks are placed at fixed `r * RankSep` intervals (the
+	// pre-1.0 behavior, valid only when rank-axis node sizes are small
+	// relative to RankSep).
+	RankDim NodeWidth
 }
 
 // alignmentPasses is the number of top-down/bottom-up median alignment
@@ -91,12 +99,35 @@ func Run(g *graph.Graph, ord order.Order, widthFn NodeWidth, opts Options) Resul
 }
 
 // initialPacking lays out each rank left-to-right centered at x=0.
-// y is set from the rank index.
+// y (the rank-axis coordinate) is accumulated from each rank's maximum
+// rank-axis extent so that nodes with large perpendicular-to-pack
+// dimensions don't overlap across rank boundaries.
 func initialPacking(ord order.Order, ranksAsc []int, widthFn NodeWidth, opts Options) Result {
 	result := make(Result)
-	for _, r := range ranksAsc {
+	// Precompute the max rank-axis extent per rank. When RankDim is
+	// nil (the pre-1.0 behavior), fall back to fixed-interval spacing.
+	maxRankDim := make([]float64, len(ranksAsc))
+	if opts.RankDim != nil {
+		for i, r := range ranksAsc {
+			for _, n := range ord[r] {
+				if d := opts.RankDim(n); d > maxRankDim[i] {
+					maxRankDim[i] = d
+				}
+			}
+		}
+	}
+	y := 0.0
+	for i, r := range ranksAsc {
 		nodes := ord[r]
-		y := float64(r) * opts.RankSep
+		if opts.RankDim == nil {
+			y = float64(r) * opts.RankSep
+		} else {
+			if i == 0 {
+				y = maxRankDim[i] / 2
+			} else {
+				y += maxRankDim[i-1]/2 + opts.RankSep + maxRankDim[i]/2
+			}
+		}
 
 		totalWidth := 0.0
 		for i, n := range nodes {
