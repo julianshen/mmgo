@@ -177,6 +177,45 @@ func TestParseNegativeValueRejected(t *testing.T) {
 	}
 }
 
+// strconv.ParseFloat happily decodes "NaN", "+Inf", "-Inf". The
+// non-negative check does not catch NaN (NaN < 0 is false), so an
+// explicit finiteness guard is required to keep non-finite values
+// from poisoning the renderer's magnitude math.
+func TestParseNonFiniteValuesRejected(t *testing.T) {
+	cases := []string{
+		"sankey-beta\nA,B,NaN\n",
+		"sankey-beta\nA,B,Inf\n",
+		"sankey-beta\nA,B,+Inf\n",
+		"sankey-beta\nA,B,-Inf\n",
+	}
+	for _, c := range cases {
+		if _, err := Parse(strings.NewReader(c)); err == nil {
+			t.Errorf("expected error for input:\n%s", c)
+		}
+	}
+}
+
+// A self-loop (A -> A) has no sensible interpretation in a sankey
+// flow graph. Reject at parse time rather than produce a degenerate
+// zero-length ribbon downstream.
+func TestParseSelfLoopRejected(t *testing.T) {
+	if _, err := Parse(strings.NewReader("sankey-beta\nA,A,10\n")); err == nil {
+		t.Fatal("expected error for self-loop")
+	}
+}
+
+// Value zero is explicitly accepted; the renderer applies a minimum
+// bar-height floor so the node remains visible.
+func TestParseZeroValueAccepted(t *testing.T) {
+	d, err := Parse(strings.NewReader("sankey-beta\nA,B,0\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Flows) != 1 || d.Flows[0].Value != 0 {
+		t.Errorf("flows = %v, want one flow with Value=0", d.Flows)
+	}
+}
+
 func TestParseEmptySourceOrTarget(t *testing.T) {
 	if _, err := Parse(strings.NewReader("sankey-beta\n,B,10\n")); err == nil {
 		t.Fatal("expected error for empty source")

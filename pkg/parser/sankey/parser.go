@@ -9,6 +9,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 
@@ -100,8 +101,17 @@ func parseRow(line string) (diagram.SankeyFlow, error) {
 	if err != nil {
 		return diagram.SankeyFlow{}, fmt.Errorf("invalid value %q: %w", valStr, err)
 	}
+	// strconv.ParseFloat accepts "NaN", "Inf", "+Inf", "-Inf" as valid
+	// floats. A NaN < 0 comparison is false, so NaN would slip past the
+	// non-negative check and poison the renderer's magnitude math.
+	if math.IsNaN(val) || math.IsInf(val, 0) {
+		return diagram.SankeyFlow{}, fmt.Errorf("value must be finite, got %q", valStr)
+	}
 	if val < 0 {
 		return diagram.SankeyFlow{}, fmt.Errorf("value must be non-negative, got %g", val)
+	}
+	if src == dst {
+		return diagram.SankeyFlow{}, fmt.Errorf("self-loop not allowed: %q → %q", src, dst)
 	}
 	return diagram.SankeyFlow{Source: src, Target: dst, Value: val}, nil
 }
