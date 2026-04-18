@@ -21,6 +21,7 @@ const (
 	GitGraph
 	Sankey
 	XYChart
+	Quadrant
 )
 
 // Diagram is implemented by all diagram AST types.
