@@ -25,6 +25,7 @@ import (
 	gitgraphparser "github.com/julianshen/mmgo/pkg/parser/gitgraph"
 	mindmapparser "github.com/julianshen/mmgo/pkg/parser/mindmap"
 	sankeyparser "github.com/julianshen/mmgo/pkg/parser/sankey"
+	xychartparser "github.com/julianshen/mmgo/pkg/parser/xychart"
 	blockparser "github.com/julianshen/mmgo/pkg/parser/block"
 	c4parser "github.com/julianshen/mmgo/pkg/parser/c4"
 	timelineparser "github.com/julianshen/mmgo/pkg/parser/timeline"
@@ -38,6 +39,7 @@ import (
 	gitgraphrenderer "github.com/julianshen/mmgo/pkg/renderer/gitgraph"
 	mindmaprenderer "github.com/julianshen/mmgo/pkg/renderer/mindmap"
 	sankeyrenderer "github.com/julianshen/mmgo/pkg/renderer/sankey"
+	xychartrenderer "github.com/julianshen/mmgo/pkg/renderer/xychart"
 	blockrenderer "github.com/julianshen/mmgo/pkg/renderer/block"
 	c4renderer "github.com/julianshen/mmgo/pkg/renderer/c4"
 	timelinerenderer "github.com/julianshen/mmgo/pkg/renderer/timeline"
@@ -119,6 +121,8 @@ func Render(r io.Reader, opts *Options) ([]byte, error) {
 		return renderGitGraph(src, opts)
 	case kindSankey:
 		return renderSankey(src, opts)
+	case kindXYChart:
+		return renderXYChart(src, opts)
 	default:
 		return nil, fmt.Errorf("svg render: %v diagrams are not yet supported", kind)
 	}
@@ -143,6 +147,7 @@ const (
 	kindBlock
 	kindGitGraph
 	kindSankey
+	kindXYChart
 )
 
 func (k diagramKind) String() string {
@@ -173,6 +178,8 @@ func (k diagramKind) String() string {
 		return "gitGraph"
 	case kindSankey:
 		return "sankey"
+	case kindXYChart:
+		return "xychart"
 	default:
 		return "unknown"
 	}
@@ -228,6 +235,9 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 		}
 		if parserutil.HasHeaderKeyword(line, "sankey-beta") {
 			return kindSankey, nil
+		}
+		if parserutil.HasHeaderKeyword(line, "xychart-beta") {
+			return kindXYChart, nil
 		}
 		return kindUnknown, fmt.Errorf("unrecognized diagram header: %q", line)
 	}
@@ -480,6 +490,18 @@ func renderSankey(src []byte, opts *Options) ([]byte, error) {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
 	out, err := sankeyrenderer.Render(d, nil)
+	if err != nil {
+		return nil, fmt.Errorf("svg render: %w", err)
+	}
+	return out, nil
+}
+
+func renderXYChart(src []byte, opts *Options) ([]byte, error) {
+	d, err := xychartparser.Parse(bytes.NewReader(src))
+	if err != nil {
+		return nil, fmt.Errorf("svg render: parse: %w", err)
+	}
+	out, err := xychartrenderer.Render(d, nil)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}

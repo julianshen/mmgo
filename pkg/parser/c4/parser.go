@@ -138,10 +138,10 @@ func parseRelation(rest string) (diagram.C4Relation, bool) {
 	rel := diagram.C4Relation{
 		From:  args[0],
 		To:    args[1],
-		Label: unquote(args[2]),
+		Label: parserutil.Unquote(args[2]),
 	}
 	if len(args) >= 4 {
-		rel.Technology = unquote(args[3])
+		rel.Technology = parserutil.Unquote(args[3])
 	}
 	return rel, true
 }
@@ -155,18 +155,18 @@ func parseElement(kind diagram.C4ElementKind, rest string) (diagram.C4Element, b
 	elem := diagram.C4Element{
 		ID:    args[0],
 		Kind:  kind,
-		Label: unquote(args[1]),
+		Label: parserutil.Unquote(args[1]),
 	}
 	if kind == diagram.C4ElementContainer || kind == diagram.C4ElementContainerDB ||
 		kind == diagram.C4ElementComponent {
 		if len(args) >= 3 {
-			elem.Technology = unquote(args[2])
+			elem.Technology = parserutil.Unquote(args[2])
 		}
 		if len(args) >= 4 {
-			elem.Description = unquote(args[3])
+			elem.Description = parserutil.Unquote(args[3])
 		}
 	} else if len(args) >= 3 {
-		elem.Description = unquote(args[2])
+		elem.Description = parserutil.Unquote(args[2])
 	}
 	return elem, true
 }
@@ -204,10 +204,3 @@ func splitArgs(s string) []string {
 	return args
 }
 
-func unquote(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		return s[1 : len(s)-1]
-	}
-	return s
-}
