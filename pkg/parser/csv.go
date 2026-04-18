@@ -4,12 +4,13 @@ import "strings"
 
 // SplitUnquotedCommas splits s on commas that are outside single- or
 // double-quoted spans. Whitespace around each item is preserved;
-// callers typically TrimSpace before use. An empty input returns an
-// empty slice.
+// callers typically TrimSpace before use. An empty input returns nil.
 //
 // The quote chars `'` and `"` are supported because Mermaid grammars
 // use both — kanban metadata uses single quotes, CSV-like bracket
-// lists tend to use double.
+// lists tend to use double. Unterminated quotes consume the rest of
+// the input into a single token; callers that need to surface that
+// as a syntax error must validate separately.
 func SplitUnquotedCommas(s string) []string {
 	if s == "" {
 		return nil
