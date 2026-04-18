@@ -1,0 +1,13 @@
+gantt
+    title Q1 Release Plan
+    dateFormat YYYY-MM-DD
+    section Planning
+    Requirements    :done, p1, 2024-01-01, 5d
+    Design review   :done, p2, after p1, 3d
+    section Implementation
+    Feature A       :active, i1, 2024-01-10, 14d
+    Feature B       :i2, after i1, 10d
+    Bug fixes       :i3, after i2, 5d
+    section Release
+    RC build        :r1, after i3, 2d
+    Deployment      :crit, r2, after r1, 1d

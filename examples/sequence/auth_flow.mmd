@@ -1,0 +1,13 @@
+sequenceDiagram
+    participant User
+    participant App
+    participant AuthServer
+    participant Resource
+    User->>App: Login request
+    App->>AuthServer: Validate credentials
+    AuthServer-->>App: Access token
+    App-->>User: Login success
+    User->>App: Get data
+    App->>Resource: Fetch with token
+    Resource-->>App: Data
+    App-->>User: Display data

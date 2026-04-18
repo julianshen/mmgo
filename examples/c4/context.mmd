@@ -1,0 +1,7 @@
+C4Context
+    title System Context
+    Person(customer, "Customer", "A user of the system")
+    System(webapp, "Web Application", "Serves customer requests")
+    System_Ext(email, "Email Service", "Sends email notifications")
+    Rel(customer, webapp, "Uses")
+    Rel(webapp, email, "Sends email via")

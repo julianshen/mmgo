@@ -1,0 +1,8 @@
+flowchart TD
+    Start([Start]) --> Input[/Input data/]
+    Input --> Validate{Valid?}
+    Validate -->|Yes| Process[Process]
+    Validate -->|No| Error[Error]
+    Process --> Store[(Save)]
+    Store --> Done([Done])
+    Error --> Done
