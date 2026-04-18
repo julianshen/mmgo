@@ -80,6 +80,36 @@ func TestParseTitleUnquoted(t *testing.T) {
 	}
 }
 
+// HasHeaderKeyword accepts `:` as a word boundary, so directives may
+// appear in colon form (`title:X`, `y-axis:0 --> 100`, `bar:[1,2,3]`).
+// The old private trimKeyword didn't strip the colon — the stored
+// values silently carried a leading ":". The migration to
+// parserutil.TrimKeyword fixes that; this test pins the correct
+// behavior so a future regression would break the build.
+func TestParseKeywordColonForms(t *testing.T) {
+	input := `xychart-beta
+title:My Chart
+y-axis:0 --> 100
+bar:[1,2,3]
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if d.Title != "My Chart" {
+		t.Errorf("Title = %q, want %q", d.Title, "My Chart")
+	}
+	if !d.YAxis.HasRange || d.YAxis.Min != 0 || d.YAxis.Max != 100 {
+		t.Errorf("y-axis = %+v, want HasRange min=0 max=100", d.YAxis)
+	}
+	if len(d.Series) != 1 || d.Series[0].Type != diagram.XYSeriesBar {
+		t.Errorf("series = %+v, want one bar", d.Series)
+	}
+	if len(d.Series[0].Data) != 3 || d.Series[0].Data[0] != 1 {
+		t.Errorf("data = %v", d.Series[0].Data)
+	}
+}
+
 func TestParseCategoricalXAxis(t *testing.T) {
 	d, err := Parse(strings.NewReader(`xychart-beta
 x-axis [jan, feb, mar]

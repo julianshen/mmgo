@@ -80,37 +80,29 @@ func parseLine(line string, d *diagram.QuadrantChartDiagram) error {
 	}
 	switch {
 	case parserutil.HasHeaderKeyword(line, "title"):
-		d.Title = trimKeyword(line, "title")
+		d.Title = parserutil.TrimKeyword(line, "title")
 	case parserutil.HasHeaderKeyword(line, "x-axis"):
-		low, high, err := parseAxis(trimKeyword(line, "x-axis"))
+		low, high, err := parseAxis(parserutil.TrimKeyword(line, "x-axis"))
 		if err != nil {
 			return fmt.Errorf("x-axis: %w", err)
 		}
 		d.XAxisLow, d.XAxisHigh = low, high
 	case parserutil.HasHeaderKeyword(line, "y-axis"):
-		low, high, err := parseAxis(trimKeyword(line, "y-axis"))
+		low, high, err := parseAxis(parserutil.TrimKeyword(line, "y-axis"))
 		if err != nil {
 			return fmt.Errorf("y-axis: %w", err)
 		}
 		d.YAxisLow, d.YAxisHigh = low, high
 	case parserutil.HasHeaderKeyword(line, "quadrant-1"):
-		d.Quadrant1 = trimKeyword(line, "quadrant-1")
+		d.Quadrant1 = parserutil.TrimKeyword(line, "quadrant-1")
 	case parserutil.HasHeaderKeyword(line, "quadrant-2"):
-		d.Quadrant2 = trimKeyword(line, "quadrant-2")
+		d.Quadrant2 = parserutil.TrimKeyword(line, "quadrant-2")
 	case parserutil.HasHeaderKeyword(line, "quadrant-3"):
-		d.Quadrant3 = trimKeyword(line, "quadrant-3")
+		d.Quadrant3 = parserutil.TrimKeyword(line, "quadrant-3")
 	case parserutil.HasHeaderKeyword(line, "quadrant-4"):
-		d.Quadrant4 = trimKeyword(line, "quadrant-4")
+		d.Quadrant4 = parserutil.TrimKeyword(line, "quadrant-4")
 	}
 	return nil
-}
-
-// trimKeyword strips `kw` and any immediately following whitespace or
-// colon from the start of `line`. HasHeaderKeyword accepts `:` as a
-// word boundary so forms like `title: foo` and `x-axis:Low --> High`
-// would otherwise leak the colon into the returned value.
-func trimKeyword(line, kw string) string {
-	return strings.TrimSpace(strings.TrimLeft(strings.TrimPrefix(line, kw), ": \t"))
 }
 
 // parseAxis handles `low --> high` or `low-only`. The separator is
