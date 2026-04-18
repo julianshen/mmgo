@@ -90,6 +90,27 @@ A,B,10
 	}
 }
 
+func TestParseColumnHeaderOnlyMatchesFirstDataRow(t *testing.T) {
+	// A flow whose fields happen to be literally (source, target,
+	// value) must not be silently skipped when it appears after
+	// real data rows. Only the *first* data row is treated as a
+	// potential column header.
+	input := `sankey-beta
+A,B,10
+source,target,15
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Flows) != 2 {
+		t.Fatalf("flows = %d, want 2 (the second row must not be treated as a column header)", len(d.Flows))
+	}
+	if d.Flows[1].Source != "source" || d.Flows[1].Target != "target" {
+		t.Errorf("second flow = %+v, want {source, target, 15}", d.Flows[1])
+	}
+}
+
 func TestParseColumnHeaderCaseInsensitive(t *testing.T) {
 	input := `sankey-beta
 SOURCE,Target,Value

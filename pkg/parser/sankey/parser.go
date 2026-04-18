@@ -19,9 +19,14 @@ import (
 func Parse(r io.Reader) (*diagram.SankeyDiagram, error) {
 	d := &diagram.SankeyDiagram{}
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 	lineNum := 0
 	headerSeen := false
+	// The optional `source,target,value` column-header row is only
+	// meaningful as the first data row. Checking every line would
+	// silently skip a legitimate flow whose source/target/value
+	// happen to be literally "source", "target", "value".
+	firstDataRow := true
 
 	for scanner.Scan() {
 		lineNum++
@@ -37,10 +42,11 @@ func Parse(r io.Reader) (*diagram.SankeyDiagram, error) {
 			headerSeen = true
 			continue
 		}
-		// Skip an optional `source,target,value` column-header row.
-		// Mermaid permits but does not require it.
-		if isColumnHeader(line) {
-			continue
+		if firstDataRow {
+			firstDataRow = false
+			if isColumnHeader(line) {
+				continue
+			}
 		}
 		flow, err := parseRow(line)
 		if err != nil {
