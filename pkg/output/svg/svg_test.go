@@ -409,6 +409,34 @@ func TestRenderTimelineEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRenderQuadrantEndToEnd(t *testing.T) {
+	input := `quadrantChart
+    title Reach and engagement
+    x-axis Low Reach --> High Reach
+    y-axis Low Engagement --> High Engagement
+    quadrant-1 We should expand
+    quadrant-2 Need to promote
+    quadrant-3 Re-evaluate
+    quadrant-4 May be improved
+    Campaign A: [0.3, 0.6]
+    Campaign B: [0.7, 0.8]`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	for _, s := range []string{">Reach and engagement<", ">Low Reach<",
+		">High Engagement<", ">We should expand<", ">Campaign A<"} {
+		if !strings.Contains(raw, s) {
+			t.Errorf("missing %s", s)
+		}
+	}
+}
+
 func TestRenderXYChartEndToEnd(t *testing.T) {
 	input := `xychart-beta
     title "Sales Revenue"
