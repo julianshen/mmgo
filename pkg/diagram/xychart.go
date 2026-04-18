@@ -33,7 +33,10 @@ type XYSeries struct {
 }
 
 // XYChartDiagram is the AST for a Mermaid xychart-beta diagram.
-// Horizontal flips the X/Y roles at render time.
+//
+// Horizontal is set when the header declares `xychart-beta horizontal`.
+// It is preserved on the AST but the current renderer does not yet
+// honor it — all charts render vertically.
 type XYChartDiagram struct {
 	Title      string
 	Horizontal bool

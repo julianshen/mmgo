@@ -16,6 +16,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 
@@ -65,7 +66,17 @@ func Parse(r io.Reader) (*diagram.XYChartDiagram, error) {
 func parseLine(line string, d *diagram.XYChartDiagram) error {
 	switch {
 	case parserutil.HasHeaderKeyword(line, "title"):
-		d.Title = parserutil.Unquote(trimKeyword(line, "title"))
+		rest := trimKeyword(line, "title")
+		title, leftover, err := pullLeadingQuote(rest)
+		if err != nil {
+			return fmt.Errorf("title: %w", err)
+		}
+		if title == "" {
+			title = leftover
+		} else if leftover != "" {
+			return fmt.Errorf("title: unexpected trailing text %q", leftover)
+		}
+		d.Title = title
 	case parserutil.HasHeaderKeyword(line, "x-axis"):
 		axis, err := parseAxis(trimKeyword(line, "x-axis"))
 		if err != nil {
@@ -145,6 +156,9 @@ func parseAxis(s string) (diagram.XYAxis, error) {
 		if err != nil {
 			return a, err
 		}
+		if len(items) == 0 {
+			return a, fmt.Errorf("category list is empty")
+		}
 		a.Categories = items
 		return a, nil
 	}
@@ -159,6 +173,12 @@ func parseAxis(s string) (diagram.XYAxis, error) {
 		maxV, err := strconv.ParseFloat(hi, 64)
 		if err != nil {
 			return a, fmt.Errorf("invalid max %q: %w", hi, err)
+		}
+		// NaN/Inf slip past strconv.ParseFloat and through the
+		// `minV >= maxV` check (NaN comparisons are always false),
+		// so guard explicitly.
+		if math.IsNaN(minV) || math.IsInf(minV, 0) || math.IsNaN(maxV) || math.IsInf(maxV, 0) {
+			return a, fmt.Errorf("axis bounds must be finite, got %q --> %q", lo, hi)
 		}
 		if minV >= maxV {
 			return a, fmt.Errorf("min (%g) must be less than max (%g)", minV, maxV)
@@ -200,6 +220,11 @@ func parseSeries(t diagram.XYSeriesType, s string) (diagram.XYSeries, error) {
 		v, err := strconv.ParseFloat(strings.TrimSpace(it), 64)
 		if err != nil {
 			return out, fmt.Errorf("invalid value %q: %w", it, err)
+		}
+		// strconv.ParseFloat accepts "NaN"/"Inf"; either would poison
+		// yRange and produce broken SVG downstream.
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return out, fmt.Errorf("value must be finite, got %q", it)
 		}
 		out.Data = append(out.Data, v)
 	}

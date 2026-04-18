@@ -251,6 +251,52 @@ func TestRenderWithAxisTitles(t *testing.T) {
 	}
 }
 
+// Horizontal is parsed and preserved on the AST but not yet honored by
+// the renderer — output must match the vertical rendering byte-for-byte.
+// This test pins that intentional no-op so a future `Horizontal` impl
+// has to touch the test deliberately.
+func TestRenderHorizontalCurrentlyNoOp(t *testing.T) {
+	vertical := &diagram.XYChartDiagram{
+		XAxis: diagram.XYAxis{Categories: []string{"a", "b"}},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{1, 2}},
+		},
+	}
+	horizontal := &diagram.XYChartDiagram{
+		Horizontal: true,
+		XAxis:      diagram.XYAxis{Categories: []string{"a", "b"}},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{1, 2}},
+		},
+	}
+	vOut, _ := Render(vertical, nil)
+	hOut, _ := Render(horizontal, nil)
+	if string(vOut) != string(hOut) {
+		t.Error("Horizontal flag currently a no-op; outputs should match")
+	}
+}
+
+// Data points beyond len(categories) are silently truncated. Pin the
+// behavior — the alternative would be synthesizing extra categories,
+// which would mask the user's data-shape mistake.
+func TestRenderTruncatesDataBeyondCategories(t *testing.T) {
+	d := &diagram.XYChartDiagram{
+		XAxis: diagram.XYAxis{Categories: []string{"a", "b"}},
+		YAxis: diagram.XYAxis{HasRange: true, Min: 0, Max: 10},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{1, 2, 3, 4}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// 1 background + 2 bars (truncated to nCols) = 3 rects.
+	if n := strings.Count(string(out), "<rect"); n != 3 {
+		t.Errorf("rect count = %d, want 3 (extra data points should be dropped)", n)
+	}
+}
+
 func TestRenderClampsOutOfRangeValues(t *testing.T) {
 	// Value 200 > yMax=100 should clamp (not overflow plot).
 	d := &diagram.XYChartDiagram{

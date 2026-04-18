@@ -148,6 +148,63 @@ func TestParseYAxisBadRange(t *testing.T) {
 	}
 }
 
+// NaN/Inf in axis bounds slip past strconv.ParseFloat and through the
+// `minV >= maxV` check (NaN comparisons are false). The explicit
+// finiteness guard must catch them.
+func TestParseAxisNonFiniteRejected(t *testing.T) {
+	cases := []string{
+		"xychart-beta\ny-axis NaN --> 10\n",
+		"xychart-beta\ny-axis 0 --> Inf\n",
+		"xychart-beta\ny-axis -Inf --> 10\n",
+	}
+	for _, c := range cases {
+		if _, err := Parse(strings.NewReader(c)); err == nil {
+			t.Errorf("expected error for:\n%s", c)
+		}
+	}
+}
+
+// NaN/Inf in series data must be rejected — they would poison yRange
+// and produce invalid SVG with zero-height bars.
+func TestParseSeriesNonFiniteRejected(t *testing.T) {
+	cases := []string{
+		"xychart-beta\nbar [1, NaN, 3]\n",
+		"xychart-beta\nline [Inf, 2]\n",
+		"xychart-beta\nbar [-Inf]\n",
+	}
+	for _, c := range cases {
+		if _, err := Parse(strings.NewReader(c)); err == nil {
+			t.Errorf("expected error for:\n%s", c)
+		}
+	}
+}
+
+func TestParseAxisEmptyBracketsRejected(t *testing.T) {
+	if _, err := Parse(strings.NewReader("xychart-beta\nx-axis []\n")); err == nil {
+		t.Fatal("expected error for empty category list")
+	}
+}
+
+func TestParseAxisUnterminatedQuote(t *testing.T) {
+	if _, err := Parse(strings.NewReader("xychart-beta\nx-axis \"Month\n")); err == nil {
+		t.Fatal("expected error for unterminated quoted title")
+	}
+}
+
+func TestParseSeriesUnterminatedQuote(t *testing.T) {
+	if _, err := Parse(strings.NewReader("xychart-beta\nbar \"Revenue [1,2,3]\n")); err == nil {
+		t.Fatal("expected error for unterminated quoted series title")
+	}
+}
+
+// title now routes through pullLeadingQuote, so an unterminated
+// title quote errors symmetrically with the axis/series paths.
+func TestParseTitleUnterminatedQuote(t *testing.T) {
+	if _, err := Parse(strings.NewReader("xychart-beta\ntitle \"My Chart\n")); err == nil {
+		t.Fatal("expected error for unterminated title quote")
+	}
+}
+
 func TestParseBarSeries(t *testing.T) {
 	d, err := Parse(strings.NewReader("xychart-beta\nbar [1, 2, 3, 4]\n"))
 	if err != nil {
