@@ -19,6 +19,7 @@ const (
 	C4
 	BlockDiag
 	GitGraph
+	Sankey
 )
 
 // Diagram is implemented by all diagram AST types.

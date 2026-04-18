@@ -23,6 +23,7 @@ import (
 	ganttparser "github.com/julianshen/mmgo/pkg/parser/gantt"
 	gitgraphparser "github.com/julianshen/mmgo/pkg/parser/gitgraph"
 	mindmapparser "github.com/julianshen/mmgo/pkg/parser/mindmap"
+	sankeyparser "github.com/julianshen/mmgo/pkg/parser/sankey"
 	blockparser "github.com/julianshen/mmgo/pkg/parser/block"
 	c4parser "github.com/julianshen/mmgo/pkg/parser/c4"
 	timelineparser "github.com/julianshen/mmgo/pkg/parser/timeline"
@@ -35,6 +36,7 @@ import (
 	ganttrenderer "github.com/julianshen/mmgo/pkg/renderer/gantt"
 	gitgraphrenderer "github.com/julianshen/mmgo/pkg/renderer/gitgraph"
 	mindmaprenderer "github.com/julianshen/mmgo/pkg/renderer/mindmap"
+	sankeyrenderer "github.com/julianshen/mmgo/pkg/renderer/sankey"
 	blockrenderer "github.com/julianshen/mmgo/pkg/renderer/block"
 	c4renderer "github.com/julianshen/mmgo/pkg/renderer/c4"
 	timelinerenderer "github.com/julianshen/mmgo/pkg/renderer/timeline"
@@ -114,6 +116,8 @@ func Render(r io.Reader, opts *Options) ([]byte, error) {
 		return renderBlock(src, opts)
 	case kindGitGraph:
 		return renderGitGraph(src, opts)
+	case kindSankey:
+		return renderSankey(src, opts)
 	default:
 		return nil, fmt.Errorf("svg render: %v diagrams are not yet supported", kind)
 	}
@@ -137,6 +141,7 @@ const (
 	kindC4
 	kindBlock
 	kindGitGraph
+	kindSankey
 )
 
 func (k diagramKind) String() string {
@@ -165,6 +170,8 @@ func (k diagramKind) String() string {
 		return "block"
 	case kindGitGraph:
 		return "gitGraph"
+	case kindSankey:
+		return "sankey"
 	default:
 		return "unknown"
 	}
@@ -217,6 +224,9 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 		}
 		if hasHeaderKeyword(line, "gitGraph") {
 			return kindGitGraph, nil
+		}
+		if hasHeaderKeyword(line, "sankey-beta") {
+			return kindSankey, nil
 		}
 		return kindUnknown, fmt.Errorf("unrecognized diagram header: %q", line)
 	}
@@ -471,6 +481,18 @@ func renderGitGraph(src []byte, opts *Options) ([]byte, error) {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
 	out, err := gitgraphrenderer.Render(d, nil)
+	if err != nil {
+		return nil, fmt.Errorf("svg render: %w", err)
+	}
+	return out, nil
+}
+
+func renderSankey(src []byte, opts *Options) ([]byte, error) {
+	d, err := sankeyparser.Parse(bytes.NewReader(src))
+	if err != nil {
+		return nil, fmt.Errorf("svg render: parse: %w", err)
+	}
+	out, err := sankeyrenderer.Render(d, nil)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
