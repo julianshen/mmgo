@@ -43,7 +43,10 @@ func Parse(r io.Reader) (*diagram.XYChartDiagram, error) {
 			if !parserutil.HasHeaderKeyword(line, headerKeyword) {
 				return nil, fmt.Errorf("line %d: expected '%s' header, got %q", lineNum, headerKeyword, line)
 			}
-			rest := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(line, headerKeyword)), ":"))
+			// Strip whitespace and the optional colon in one pass so
+			// `xychart-beta horizontal`, `xychart-beta: horizontal`,
+			// and `xychart-beta:\thorizontal` all resolve identically.
+			rest := strings.Trim(line[len(headerKeyword):], " \t:")
 			if rest == "horizontal" {
 				d.Horizontal = true
 			}

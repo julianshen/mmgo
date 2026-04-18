@@ -40,12 +40,21 @@ func TestParseHeaderVariants(t *testing.T) {
 }
 
 func TestParseHorizontalFlag(t *testing.T) {
-	d, err := Parse(strings.NewReader("xychart-beta horizontal\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
+	// All three forms must set Horizontal=true. The previous
+	// TrimSuffix-only trim chain only accepted the first form.
+	cases := []string{
+		"xychart-beta horizontal\n",
+		"xychart-beta: horizontal\n",
+		"xychart-beta:\thorizontal\n",
 	}
-	if !d.Horizontal {
-		t.Error("Horizontal should be true")
+	for _, c := range cases {
+		d, err := Parse(strings.NewReader(c))
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", c, err)
+		}
+		if !d.Horizontal {
+			t.Errorf("header %q: Horizontal should be true", c)
+		}
 	}
 }
 
