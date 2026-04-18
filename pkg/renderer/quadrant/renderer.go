@@ -136,8 +136,8 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 
 	// Clamp derived sizes so tiny custom FontSize values don't produce
 	// zero- or negative-pixel labels.
-	axisFontSize := maxFloat(fontSize-1, 1)
-	pointLabelFontSize := maxFloat(fontSize-2, 1)
+	axisFontSize := max(fontSize-1, 1)
+	pointLabelFontSize := max(fontSize-2, 1)
 	axisFontStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, axisFontSize)
 	if d.XAxisLow != "" {
 		children = append(children, &text{
@@ -221,9 +221,3 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), b...), nil
 }
 
-func maxFloat(a, b float64) float64 {
-	if a > b {
-		return a
-	}
-	return b
-}

@@ -65,17 +65,12 @@ func Parse(r io.Reader) (*diagram.KanbanDiagram, error) {
 				return nil, fmt.Errorf("line %d: %w", lineNum, err)
 			}
 			d.Sections = append(d.Sections, diagram.KanbanSection{
-				ID:    id,
-				Title: text,
+				ID:       id,
+				Title:    text,
+				Metadata: meta,
 			})
-			// Mermaid permits metadata on sections but it's not used
-			// by any common renderer; drop to keep the AST focused.
-			_ = meta
 			currentSection = len(d.Sections) - 1
 			continue
-		}
-		if currentSection < 0 {
-			return nil, fmt.Errorf("line %d: task before any section", lineNum)
 		}
 		id, text, meta, err := parseElement(trimmed)
 		if err != nil {
@@ -162,8 +157,12 @@ func parseElement(s string) (id, text string, metadata map[string]string, err er
 }
 
 // parseMetadata handles `key: value, key2: 'value, with comma'`. Values
-// may be wrapped in single or double quotes to preserve commas.
+// may be wrapped in single or double quotes to preserve commas. An
+// empty body (`@{}` or `@{  }`) returns nil.
 func parseMetadata(s string) (map[string]string, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
 	out := make(map[string]string)
 	for _, tok := range splitTopLevelCommas(s) {
 		tok = strings.TrimSpace(tok)

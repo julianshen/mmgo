@@ -7,6 +7,7 @@ package kanban
 import (
 	"encoding/xml"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
@@ -70,8 +71,8 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 	textWidth := columnWidth - 2*cardPadding
 	// Derived font sizes clamped so very small Options.FontSize doesn't
 	// produce zero-pixel labels.
-	titleSize := maxFloat(fontSize+1, 1)
-	metaSize := maxFloat(fontSize-2, 1)
+	titleSize := max(fontSize+1, 1)
+	metaSize := max(fontSize-2, 1)
 
 	for i, s := range d.Sections {
 		col := colLayout{}
@@ -103,14 +104,23 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 	}
 	viewH := 2*marginY + canvasH
 
-	children := []any{
-		&rect{
-			X: 0, Y: 0,
-			Width:  svgFloat(viewW),
-			Height: svgFloat(viewH),
-			Style:  fmt.Sprintf("fill:%s;stroke:none", bgFill),
-		},
+	// Exact preallocation: 1 bg + per section (1 column rect + 1
+	// title text + per card 1 rect + len(lines) body text + len(meta)
+	// meta text).
+	total := 1
+	for i := range columns {
+		total += 2
+		for _, c := range columns[i].cards {
+			total += 1 + len(c.lines) + len(c.meta)
+		}
 	}
+	children := make([]any, 0, total)
+	children = append(children, &rect{
+		X: 0, Y: 0,
+		Width:  svgFloat(viewW),
+		Height: svgFloat(viewH),
+		Style:  fmt.Sprintf("fill:%s;stroke:none", bgFill),
+	})
 
 	for i, s := range d.Sections {
 		colX := marginX + float64(i)*(columnWidth+columnGap)
@@ -244,12 +254,7 @@ func formatMetadata(m map[string]string) []string {
 			rest = append(rest, k)
 		}
 	}
-	// Simple alphabetical sort for the rest.
-	for i := 1; i < len(rest); i++ {
-		for j := i; j > 0 && rest[j] < rest[j-1]; j-- {
-			rest[j], rest[j-1] = rest[j-1], rest[j]
-		}
-	}
+	sort.Strings(rest)
 	keys = append(keys, rest...)
 	out := make([]string, 0, len(keys))
 	for _, k := range keys {
@@ -258,9 +263,3 @@ func formatMetadata(m map[string]string) []string {
 	return out
 }
 
-func maxFloat(a, b float64) float64 {
-	if a > b {
-		return a
-	}
-	return b
-}

@@ -11,11 +11,15 @@ type KanbanTask struct {
 }
 
 // KanbanSection is one column on the board. Tasks are listed in
-// source order.
+// source order. ID is empty when the source didn't supply an
+// `id[title]` prefix. Metadata mirrors KanbanTask.Metadata and is
+// reserved for future per-column styling (icons, colors) that
+// Mermaid supports.
 type KanbanSection struct {
-	ID    string
-	Title string
-	Tasks []KanbanTask
+	ID       string
+	Title    string
+	Metadata map[string]string
+	Tasks    []KanbanTask
 }
 
 // KanbanDiagram is the AST for a Mermaid kanban diagram. Sections are

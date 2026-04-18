@@ -234,6 +234,27 @@ func TestParseFullExample(t *testing.T) {
 	}
 }
 
+// Mermaid permits per-section metadata (icons, colors). The AST
+// preserves it on KanbanSection.Metadata even though the renderer
+// doesn't yet use it — silently dropping would lose fidelity.
+func TestParseSectionMetadataPreserved(t *testing.T) {
+	input := `kanban
+Todo@{ icon: 'clock', color: '#f00' }
+    [x]
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	s := d.Sections[0]
+	if s.Metadata["icon"] != "clock" {
+		t.Errorf("icon = %q", s.Metadata["icon"])
+	}
+	if s.Metadata["color"] != "#f00" {
+		t.Errorf("color = %q", s.Metadata["color"])
+	}
+}
+
 func TestParseCommentsIgnored(t *testing.T) {
 	input := `kanban
 %% comment
