@@ -59,7 +59,13 @@ func Parse(r io.Reader) (*diagram.KanbanDiagram, error) {
 		if sectionIndent == -1 {
 			sectionIndent = indent
 		}
-		if indent <= sectionIndent {
+		// A line shallower than the first body line is almost always
+		// an accidental dedent; reject rather than silently reshape
+		// the AST. Equal indent is a new section; deeper is a task.
+		if indent < sectionIndent {
+			return nil, fmt.Errorf("line %d: indent %d is shallower than the section indent %d", lineNum, indent, sectionIndent)
+		}
+		if indent == sectionIndent {
 			id, text, meta, err := parseElement(trimmed)
 			if err != nil {
 				return nil, fmt.Errorf("line %d: %w", lineNum, err)
@@ -118,14 +124,18 @@ func leadingSpaces(s string) int {
 // The bracketed form is preferred. A bare-text element has no id and
 // no metadata.
 func parseElement(s string) (id, text string, metadata map[string]string, err error) {
-	// Pull trailing `@{ ... }` first so the rest is simpler.
-	if at := strings.Index(s, "@{"); at >= 0 {
-		end := strings.Index(s[at:], "}")
+	// Pull trailing `@{ ... }` first so the rest is simpler. Use
+	// LastIndex so a `@{` appearing literally earlier in the task
+	// text doesn't get mistaken for the metadata start. The closing
+	// `}` is located with quote-aware scanning so `'}' inside a
+	// quoted value doesn't truncate the body early.
+	if at := strings.LastIndex(s, "@{"); at >= 0 {
+		end := findMetaClose(s[at+2:])
 		if end < 0 {
 			return "", "", nil, fmt.Errorf("unterminated '@{' metadata")
 		}
-		metaBody := s[at+2 : at+end]
-		if tail := strings.TrimSpace(s[at+end+1:]); tail != "" {
+		metaBody := s[at+2 : at+2+end]
+		if tail := strings.TrimSpace(s[at+2+end+1:]); tail != "" {
 			return "", "", nil, fmt.Errorf("unexpected trailing text after metadata: %q", tail)
 		}
 		m, err := parseMetadata(metaBody)
@@ -178,12 +188,33 @@ func parseMetadata(s string) (map[string]string, error) {
 		if k == "" {
 			return nil, fmt.Errorf("metadata key is empty in %q", tok)
 		}
-		out[k] = unquoteMeta(v)
+		out[k] = parserutil.Unquote(v)
 	}
 	if len(out) == 0 {
 		return nil, nil
 	}
 	return out, nil
+}
+
+// findMetaClose returns the index of the first `}` outside single or
+// double quotes. -1 if quotes are unterminated or no `}` is found —
+// both are treated as malformed metadata by the caller.
+func findMetaClose(s string) int {
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '\'' || c == '"':
+			quote = c
+		case c == '}':
+			return i
+		}
+	}
+	return -1
 }
 
 // splitTopLevelCommas splits on commas that are outside single or
@@ -216,12 +247,3 @@ func splitTopLevelCommas(s string) []string {
 	return out
 }
 
-// unquoteMeta strips a single pair of matching single or double quotes.
-func unquoteMeta(s string) string {
-	if len(s) >= 2 {
-		if (s[0] == '\'' && s[len(s)-1] == '\'') || (s[0] == '"' && s[len(s)-1] == '"') {
-			return s[1 : len(s)-1]
-		}
-	}
-	return s
-}

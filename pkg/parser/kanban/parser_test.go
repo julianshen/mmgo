@@ -199,6 +199,48 @@ func TestParseBadBrackets(t *testing.T) {
 	}
 }
 
+// A literal `}` inside a quoted metadata value must not terminate
+// the metadata block early. Without quote-aware closing-brace
+// scanning, `note: 'use } here'` would truncate.
+func TestParseMetadataWithBraceInQuotes(t *testing.T) {
+	input := `kanban
+Todo
+    [T]@{ note: 'use } here', assigned: bob }
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	task := d.Sections[0].Tasks[0]
+	if task.Metadata["note"] != "use } here" {
+		t.Errorf("note = %q, want %q", task.Metadata["note"], "use } here")
+	}
+	if task.Metadata["assigned"] != "bob" {
+		t.Errorf("assigned = %q", task.Metadata["assigned"])
+	}
+}
+
+// `@{` appearing inside bracketed task text (as literal characters)
+// must not be mistaken for the metadata block start. Use LastIndex
+// so the real trailing `@{...}` wins.
+func TestParseLiteralAtBraceInText(t *testing.T) {
+	input := `kanban
+Todo
+    [Task with literal @{foo} prefix]@{ priority: 'High' }
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	task := d.Sections[0].Tasks[0]
+	if !strings.Contains(task.Text, "@{foo}") {
+		t.Errorf("text = %q, want to contain literal '@{foo}'", task.Text)
+	}
+	if task.Metadata["priority"] != "High" {
+		t.Errorf("priority = %q", task.Metadata["priority"])
+	}
+}
+
 func TestParseBadMetadata(t *testing.T) {
 	cases := []string{
 		"kanban\nTodo\n    [x]@{ priority \n", // unterminated @{
@@ -237,6 +279,16 @@ func TestParseFullExample(t *testing.T) {
 // Mermaid permits per-section metadata (icons, colors). The AST
 // preserves it on KanbanSection.Metadata even though the renderer
 // doesn't yet use it — silently dropping would lose fidelity.
+// A line at a shallower indent than the first body line is an
+// accidental dedent — error rather than silently creating a new
+// section from the dedented line.
+func TestParseDedentRejected(t *testing.T) {
+	input := "kanban\n    Todo\n        [task]\n  Dedent\n"
+	if _, err := Parse(strings.NewReader(input)); err == nil {
+		t.Fatal("expected error for line dedented below the section indent")
+	}
+}
+
 func TestParseSectionMetadataPreserved(t *testing.T) {
 	input := `kanban
 Todo@{ icon: 'clock', color: '#f00' }

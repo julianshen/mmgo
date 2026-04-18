@@ -136,7 +136,7 @@ func TestRenderMetadataOrderingDeterministic(t *testing.T) {
 	priIdx := strings.Index(raw, "priority:")
 	asgIdx := strings.Index(raw, "assigned:")
 	tktIdx := strings.Index(raw, "ticket:")
-	if !(priIdx < asgIdx && asgIdx < tktIdx) {
+	if priIdx >= asgIdx || asgIdx >= tktIdx {
 		t.Errorf("priority/assigned/ticket order broken: %d %d %d", priIdx, asgIdx, tktIdx)
 	}
 }
