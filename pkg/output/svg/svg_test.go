@@ -409,6 +409,33 @@ func TestRenderTimelineEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRenderXYChartEndToEnd(t *testing.T) {
+	input := `xychart-beta
+    title "Sales Revenue"
+    x-axis [jan, feb, mar, apr]
+    y-axis "Revenue" 0 --> 10000
+    bar [5000, 6000, 7500, 8200]
+    line [5000, 6000, 7500, 8200]`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	if !strings.Contains(raw, ">Sales Revenue<") || !strings.Contains(raw, ">Revenue<") {
+		t.Error("titles missing")
+	}
+	if !strings.Contains(raw, ">jan<") || !strings.Contains(raw, ">apr<") {
+		t.Error("x-axis labels missing")
+	}
+	if !strings.Contains(raw, "<polyline") {
+		t.Error("line series missing")
+	}
+}
+
 func TestRenderSankeyEndToEnd(t *testing.T) {
 	input := `sankey-beta
 source,target,value

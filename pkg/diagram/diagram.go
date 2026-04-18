@@ -20,6 +20,7 @@ const (
 	BlockDiag
 	GitGraph
 	Sankey
+	XYChart
 )
 
 // Diagram is implemented by all diagram AST types.
