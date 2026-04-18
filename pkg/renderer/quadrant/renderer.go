@@ -91,7 +91,6 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		})
 	}
 
-	// Divider lines at the midpoint.
 	midX := (plotX0 + plotX1) / 2
 	midY := (plotY0 + plotY1) / 2
 	children = append(children, &line{
@@ -135,7 +134,6 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		})
 	}
 
-	// Axis labels.
 	axisFontStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, fontSize-1)
 	if d.XAxisLow != "" {
 		children = append(children, &text{
@@ -184,14 +182,16 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		})
 	}
 
-	// Points. Y is inverted because SVG's origin is top-left but our
-	// coordinate convention is bottom-left.
+	// Y is inverted: our coords put (0, 0) at bottom-left but SVG's
+	// origin is top-left.
+	pointStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:2", pointFill, pointStroke)
+	pointLabelStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", pointLabelFill, fontSize-2)
 	for _, p := range d.Points {
 		px := plotX0 + p.X*plotSide
 		py := plotY1 - p.Y*plotSide
 		children = append(children, &circle{
 			CX: svgFloat(px), CY: svgFloat(py), R: pointRadius,
-			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:2", pointFill, pointStroke),
+			Style: pointStyle,
 		})
 		if p.Label != "" {
 			children = append(children, &text{
@@ -199,7 +199,7 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 				Y:        svgFloat(py - pointRadius - pointLabelGap),
 				Anchor:   "middle",
 				Dominant: "baseline",
-				Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", pointLabelFill, fontSize-2),
+				Style:    pointLabelStyle,
 				Content:  p.Label,
 			})
 		}

@@ -59,9 +59,9 @@ func TestRenderFullChart(t *testing.T) {
 }
 
 // Pin Mermaid's math-convention numbering: Q1 top-right, Q2 top-left,
-// Q3 bottom-left, Q4 bottom-right. The test inspects the X of each
-// quadrant label text element and compares pairs — top-right's Q1 must
-// share X with bottom-right's Q4, etc.
+// Q3 bottom-left, Q4 bottom-right. Each label's position is checked
+// against the plot's own midlines so the test encodes the positioning
+// contract directly, not a side effect.
 func TestRenderQuadrantPositions(t *testing.T) {
 	d := &diagram.QuadrantChartDiagram{
 		Quadrant1: "Q1TR", Quadrant2: "Q2TL",
@@ -69,24 +69,76 @@ func TestRenderQuadrantPositions(t *testing.T) {
 	}
 	out, _ := Render(d, nil)
 	raw := string(out)
-	q1X, q1Y := textCoords(t, raw, "Q1TR")
-	q2X, q2Y := textCoords(t, raw, "Q2TL")
-	q3X, q3Y := textCoords(t, raw, "Q3BL")
-	q4X, q4Y := textCoords(t, raw, "Q4BR")
-	// X pairs: Q2/Q3 share left half; Q1/Q4 share right half.
-	if !(q2X < q1X) {
-		t.Errorf("Q2 (top-left) X %.2f should be less than Q1 (top-right) X %.2f", q2X, q1X)
+	// Plot rect is the second <rect> (after the background).
+	plotX0, plotY0, side := plotRect(t, raw)
+	midX, midY := plotX0+side/2, plotY0+side/2
+
+	want := []struct {
+		name        string
+		leftOfMidX  bool
+		aboveMidY   bool
+	}{
+		{"Q1TR", false, true},
+		{"Q2TL", true, true},
+		{"Q3BL", true, false},
+		{"Q4BR", false, false},
 	}
-	if !(q3X < q4X) {
-		t.Errorf("Q3 (bottom-left) X %.2f should be less than Q4 (bottom-right) X %.2f", q3X, q4X)
+	for _, w := range want {
+		x, y := textCoords(t, raw, w.name)
+		if (x < midX) != w.leftOfMidX {
+			side := "right"
+			if w.leftOfMidX {
+				side = "left"
+			}
+			t.Errorf("%s X=%.2f should be on the %s of midX=%.2f", w.name, x, side, midX)
+		}
+		if (y < midY) != w.aboveMidY {
+			pos := "below"
+			if w.aboveMidY {
+				pos = "above"
+			}
+			t.Errorf("%s Y=%.2f should be %s midY=%.2f", w.name, y, pos, midY)
+		}
 	}
-	// Y pairs: Q1/Q2 share top half; Q3/Q4 share bottom half.
-	if !(q1Y < q3Y) {
-		t.Errorf("Q1 (top) Y %.2f should be less than Q3 (bottom) Y %.2f", q1Y, q3Y)
+}
+
+// plotRect parses the second <rect> (first is the white background)
+// and returns its origin plus side length.
+func plotRect(t *testing.T, raw string) (x0, y0, side float64) {
+	t.Helper()
+	idx := strings.Index(raw, "<rect")
+	if idx < 0 {
+		t.Fatal("no <rect> found")
 	}
-	if !(q2Y < q4Y) {
-		t.Errorf("Q2 (top) Y %.2f should be less than Q4 (bottom) Y %.2f", q2Y, q4Y)
+	idx = strings.Index(raw[idx+1:], "<rect") + idx + 1
+	end := strings.IndexByte(raw[idx:], '>')
+	if end < 0 {
+		t.Fatal("second <rect> has no closing >")
 	}
+	attrs := raw[idx : idx+end]
+	x0 = parseAttrFloat(t, attrs, "x")
+	y0 = parseAttrFloat(t, attrs, "y")
+	side = parseAttrFloat(t, attrs, "width")
+	return
+}
+
+func parseAttrFloat(t *testing.T, s, name string) float64 {
+	t.Helper()
+	needle := " " + name + `="`
+	i := strings.Index(s, needle)
+	if i < 0 {
+		t.Fatalf("attr %s missing from %q", name, s)
+	}
+	i += len(needle)
+	j := strings.Index(s[i:], `"`)
+	if j < 0 {
+		t.Fatalf("attr %s unterminated in %q", name, s)
+	}
+	v, err := strconv.ParseFloat(s[i:i+j], 64)
+	if err != nil {
+		t.Fatalf("attr %s parse: %v", name, err)
+	}
+	return v
 }
 
 // Y coordinate inversion: a point at (_, 0) must be lower on the SVG
@@ -150,6 +202,9 @@ func TestRenderCustomFontSize(t *testing.T) {
 }
 
 func TestRenderPointWithoutLabel(t *testing.T) {
+	// A label-less point must emit exactly one <circle> and zero
+	// <text> elements (no title, no quadrant names, no axis labels
+	// means the entire SVG should contain no text).
 	d := &diagram.QuadrantChartDiagram{
 		Points: []diagram.QuadrantPoint{{X: 0.5, Y: 0.5}},
 	}
@@ -158,8 +213,11 @@ func TestRenderPointWithoutLabel(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	if !strings.Contains(raw, "<circle") {
-		t.Error("circle missing")
+	if n := strings.Count(raw, "<circle"); n != 1 {
+		t.Errorf("circle count = %d, want 1", n)
+	}
+	if n := strings.Count(raw, "<text"); n != 0 {
+		t.Errorf("text count = %d, want 0 (no label means no text)", n)
 	}
 }
 
