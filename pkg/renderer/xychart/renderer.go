@@ -33,6 +33,8 @@ const (
 	gridStroke      = "#e5e5e5"
 	bgFill          = "#fff"
 	barInsetRatio   = 0.15 // fraction of category slot left blank on each side
+	yRangeHeadroom  = 0.10 // 10% visual padding above the max data value
+	tickFontDelta   = 2.0  // tick/category labels render this many px below base
 )
 
 // seriesPalette cycles by series index so output is deterministic
@@ -51,9 +53,6 @@ func Render(d *diagram.XYChartDiagram, opts *Options) ([]byte, error) {
 		fontSize = opts.FontSize
 	}
 
-	// Categorical x-axis is the common case; generate synthetic
-	// category labels ("1".."n") when none are supplied so every
-	// series still maps to X positions.
 	categories := d.XAxis.Categories
 	if len(categories) == 0 {
 		n := maxSeriesLen(d.Series)
@@ -62,13 +61,11 @@ func Render(d *diagram.XYChartDiagram, opts *Options) ([]byte, error) {
 			categories[i] = strconv.Itoa(i + 1)
 		}
 	}
-	yMin, yMax := yRange(d, 0.0)
+	yMin, yMax := yRange(d)
 	if yMin == yMax {
-		// Flat data: widen the range so the line/bar is visible.
-		yMax = yMin + 1
+		yMax = yMin + 1 // flat data: widen so the line/bar is visible
 	}
 
-	// Plot rectangle.
 	titleH := 0.0
 	if d.Title != "" {
 		titleH = titleGap
@@ -88,7 +85,18 @@ func Render(d *diagram.XYChartDiagram, opts *Options) ([]byte, error) {
 	viewW := plotX1 + marginX
 	viewH := plotY1 + bottomAxisPad + marginY
 
-	var children []any
+	// Conservative preallocation: background + optional title + axis
+	// lines/ticks + per-series elements.
+	nYTicks := 6
+	size := 3 + 2*nYTicks + 2*len(categories) + 4
+	for _, s := range d.Series {
+		if s.Type == diagram.XYSeriesBar {
+			size += len(s.Data)
+		} else {
+			size += 1 + len(s.Data)
+		}
+	}
+	children := make([]any, 0, size)
 	children = append(children, &rect{
 		X: 0, Y: 0,
 		Width:  svgFloat(viewW),
@@ -96,7 +104,6 @@ func Render(d *diagram.XYChartDiagram, opts *Options) ([]byte, error) {
 		Style:  fmt.Sprintf("fill:%s;stroke:none", bgFill),
 	})
 
-	// Title centered over the plot.
 	if d.Title != "" {
 		children = append(children, &text{
 			X:        svgFloat((plotX0 + plotX1) / 2),
@@ -123,10 +130,11 @@ func Render(d *diagram.XYChartDiagram, opts *Options) ([]byte, error) {
 	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), b...), nil
 }
 
-// yRange returns [min, max] for the y-axis, honoring an explicit range
-// if set, otherwise deriving from series data with a small headroom
-// extension so top values aren't pressed against the axis.
-func yRange(d *diagram.XYChartDiagram, _ float64) (float64, float64) {
+// yRange returns the y-axis [min, max], honoring an explicit range
+// when set or deriving from data. Lower bound clamps to 0 when all
+// data is non-negative; upper bound gets a yRangeHeadroom nudge so
+// top values aren't flush against the axis.
+func yRange(d *diagram.XYChartDiagram) (float64, float64) {
 	if d.YAxis.HasRange {
 		return d.YAxis.Min, d.YAxis.Max
 	}
@@ -145,8 +153,6 @@ func yRange(d *diagram.XYChartDiagram, _ float64) (float64, float64) {
 	if math.IsInf(lo, 0) {
 		return 0, 1
 	}
-	// Nudge upper bound for visual breathing room; clamp lower to 0
-	// when all data is non-negative (the common case).
 	if lo > 0 {
 		lo = 0
 	}
@@ -154,7 +160,7 @@ func yRange(d *diagram.XYChartDiagram, _ float64) (float64, float64) {
 	if span == 0 {
 		span = 1
 	}
-	hi += span * 0.1
+	hi += span * yRangeHeadroom
 	return lo, hi
 }
 
@@ -168,11 +174,11 @@ func maxSeriesLen(series []diagram.XYSeries) int {
 	return n
 }
 
-// renderAxes draws the X and Y axis lines, tick marks, gridlines,
-// tick labels, and optional axis titles.
+// renderAxes draws gridlines, tick marks/labels, axis lines, and
+// axis titles. Axis lines come last so the ticks/grid don't overdraw
+// them.
 func renderAxes(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, y0, x1, y1, fontSize float64) []any {
 	var elems []any
-	// Y gridlines + tick labels (5 ticks).
 	const nYTicks = 5
 	for i := 0; i <= nYTicks; i++ {
 		t := float64(i) / float64(nYTicks)
@@ -188,12 +194,11 @@ func renderAxes(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, 
 			Y:        svgFloat(yPix),
 			Anchor:   "end",
 			Dominant: "central",
-			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, fontSize-2),
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, fontSize-tickFontDelta),
 			Content:  formatTick(val),
 		})
 	}
 
-	// X tick labels at each category center.
 	for i, c := range categories {
 		x := categoryCenter(i, len(categories), x0, x1)
 		elems = append(elems, &line{
@@ -206,12 +211,11 @@ func renderAxes(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, 
 			Y:        svgFloat(y1 + tickSize + float64(fontSize)),
 			Anchor:   "middle",
 			Dominant: "hanging",
-			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, fontSize-2),
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, fontSize-tickFontDelta),
 			Content:  c,
 		})
 	}
 
-	// Axis lines drawn last so ticks/grid don't overlap them.
 	elems = append(elems, &line{
 		X1: svgFloat(x0), Y1: svgFloat(y1),
 		X2: svgFloat(x1), Y2: svgFloat(y1),
@@ -234,31 +238,37 @@ func renderAxes(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, 
 		})
 	}
 	if d.YAxis.Title != "" {
-		// Rotated y-axis title, anchored at the plot midpoint.
+		// Use the SVG `transform` presentation attribute (not CSS
+		// transform) so the rotation renders correctly in non-browser
+		// SVG consumers like tdewolff/canvas (used for PNG/PDF).
 		midY := (y0 + y1) / 2
 		tx := x0 - axisLabelGap - titleGap/2
 		elems = append(elems, &text{
-			X:        svgFloat(tx),
-			Y:        svgFloat(midY),
-			Anchor:   "middle",
-			Dominant: "central",
-			Style: fmt.Sprintf("fill:%s;font-size:%.0fpx;transform:rotate(-90deg);transform-origin:%.2fpx %.2fpx",
-				labelFill, fontSize, tx, midY),
-			Content: d.YAxis.Title,
+			X:         svgFloat(tx),
+			Y:         svgFloat(midY),
+			Anchor:    "middle",
+			Dominant:  "central",
+			Style:     fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, fontSize),
+			Transform: fmt.Sprintf("rotate(-90 %.2f %.2f)", tx, midY),
+			Content:   d.YAxis.Title,
 		})
 	}
 	return elems
 }
 
 // renderSeries draws each series. Multiple bar series share the
-// category slot and split it into equal bands; line series overlay
-// connecting their category centers.
+// category slot and split it into equal bands; line series overlay.
 func renderSeries(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, y0, x1, y1 float64) []any {
 	var elems []any
 	nCols := len(categories)
+	slotW := (x1 - x0) / float64(nCols)
+	bandW := slotW * (1 - 2*barInsetRatio)
 
-	barIndexes := barSeriesIndexes(d.Series)
-	nBars := len(barIndexes)
+	barIndexes, nBars := barSeriesIndexes(d.Series)
+	bw := bandW
+	if nBars > 1 {
+		bw = bandW / float64(nBars)
+	}
 
 	for seriesIdx, s := range d.Series {
 		color := seriesPalette[seriesIdx%len(seriesPalette)]
@@ -266,23 +276,13 @@ func renderSeries(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0
 		case diagram.XYSeriesBar:
 			barSlot := barIndexes[seriesIdx]
 			for i := 0; i < len(s.Data) && i < nCols; i++ {
-				cx := categoryCenter(i, nCols, x0, x1)
-				slotW := (x1 - x0) / float64(nCols)
-				bandW := slotW * (1 - 2*barInsetRatio)
-				bw := bandW
-				if nBars > 1 {
-					bw = bandW / float64(nBars)
-				}
+				cx := x0 + slotW*(float64(i)+0.5)
 				bx := cx - bandW/2 + float64(barSlot)*bw
 				by := yPix(s.Data[i], yMin, yMax, y0, y1)
-				bh := y1 - by
-				if bh < 0 {
-					bh = 0
-				}
 				elems = append(elems, &rect{
 					X: svgFloat(bx), Y: svgFloat(by),
 					Width:  svgFloat(bw),
-					Height: svgFloat(bh),
+					Height: svgFloat(y1 - by),
 					Style:  fmt.Sprintf("fill:%s;stroke:none", color),
 				})
 			}
@@ -290,19 +290,21 @@ func renderSeries(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0
 			if len(s.Data) == 0 {
 				continue
 			}
-			points := make([]string, 0, len(s.Data))
+			var sb strings.Builder
 			for i := 0; i < len(s.Data) && i < nCols; i++ {
-				cx := categoryCenter(i, nCols, x0, x1)
+				cx := x0 + slotW*(float64(i)+0.5)
 				py := yPix(s.Data[i], yMin, yMax, y0, y1)
-				points = append(points, fmt.Sprintf("%.2f,%.2f", cx, py))
+				if i > 0 {
+					sb.WriteByte(' ')
+				}
+				fmt.Fprintf(&sb, "%.2f,%.2f", cx, py)
 			}
 			elems = append(elems, &polyline{
-				Points: strings.Join(points, " "),
+				Points: sb.String(),
 				Style:  fmt.Sprintf("fill:none;stroke:%s;stroke-width:2", color),
 			})
-			// Small dots at each data point for readability.
 			for i := 0; i < len(s.Data) && i < nCols; i++ {
-				cx := categoryCenter(i, nCols, x0, x1)
+				cx := x0 + slotW*(float64(i)+0.5)
 				py := yPix(s.Data[i], yMin, yMax, y0, y1)
 				elems = append(elems, &circle{
 					CX: svgFloat(cx), CY: svgFloat(py), R: 3,
@@ -314,9 +316,10 @@ func renderSeries(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0
 	return elems
 }
 
-// barSeriesIndexes assigns each bar series a band index within a
-// category slot. Line series get -1 (unused).
-func barSeriesIndexes(series []diagram.XYSeries) []int {
+// barSeriesIndexes returns a slice (index-per-series) giving each bar
+// series its band position within a category slot, plus the total bar
+// count. Line series map to -1.
+func barSeriesIndexes(series []diagram.XYSeries) ([]int, int) {
 	idx := make([]int, len(series))
 	n := 0
 	for i, s := range series {
@@ -327,7 +330,7 @@ func barSeriesIndexes(series []diagram.XYSeries) []int {
 			idx[i] = -1
 		}
 	}
-	return idx
+	return idx, n
 }
 
 func categoryCenter(i, n int, x0, x1 float64) float64 {

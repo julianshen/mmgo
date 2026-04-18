@@ -59,13 +59,14 @@ type Line struct {
 }
 
 type Text struct {
-	XMLName  xml.Name `xml:"text"`
-	X        Float    `xml:"x,attr"`
-	Y        Float    `xml:"y,attr"`
-	Anchor   string   `xml:"text-anchor,attr,omitempty"`
-	Dominant string   `xml:"dominant-baseline,attr,omitempty"`
-	Style    string   `xml:"style,attr,omitempty"`
-	Content  string   `xml:",chardata"`
+	XMLName   xml.Name `xml:"text"`
+	X         Float    `xml:"x,attr"`
+	Y         Float    `xml:"y,attr"`
+	Anchor    string   `xml:"text-anchor,attr,omitempty"`
+	Dominant  string   `xml:"dominant-baseline,attr,omitempty"`
+	Style     string   `xml:"style,attr,omitempty"`
+	Transform string   `xml:"transform,attr,omitempty"`
+	Content   string   `xml:",chardata"`
 }
 
 type Circle struct {

@@ -3,6 +3,8 @@ package xychart
 import (
 	"bytes"
 	"encoding/xml"
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -96,21 +98,87 @@ func TestRenderBarAndLineMixed(t *testing.T) {
 }
 
 func TestRenderMultipleBarSeriesSplitSlot(t *testing.T) {
-	d := &diagram.XYChartDiagram{
+	single := &diagram.XYChartDiagram{
+		XAxis: diagram.XYAxis{Categories: []string{"a", "b"}},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{10, 20}},
+		},
+	}
+	two := &diagram.XYChartDiagram{
 		XAxis: diagram.XYAxis{Categories: []string{"a", "b"}},
 		Series: []diagram.XYSeries{
 			{Type: diagram.XYSeriesBar, Data: []float64{10, 20}},
 			{Type: diagram.XYSeriesBar, Data: []float64{15, 25}},
 		},
 	}
-	out, err := Render(d, nil)
-	if err != nil {
-		t.Fatalf("Render: %v", err)
+	sOut, _ := Render(single, nil)
+	tOut, _ := Render(two, nil)
+	// 2-bar layout must produce exactly two bars per category slot
+	// (1 bg + 4 bars = 5 rects); each bar is half the 1-bar width.
+	if n := strings.Count(string(tOut), "<rect"); n != 5 {
+		t.Errorf("rect count (2 series) = %d, want 5", n)
 	}
-	// 1 background + 2 categories × 2 series = 5 rects total.
-	if n := strings.Count(string(out), "<rect"); n != 5 {
-		t.Errorf("rect count = %d, want 5", n)
+	sw := firstBarWidth(t, sOut)
+	tw := firstBarWidth(t, tOut)
+	if !(tw > 0 && sw > 0 && tw < sw*0.6) {
+		t.Errorf("two-series bar width %.2f should be ~half of single-series %.2f", tw, sw)
 	}
+}
+
+// Regression: mixed bar+line charts used to count line series toward
+// the bar count, producing half-width bars. One bar series alongside
+// one line series must render the bar at full band width — the same
+// width as a single-bar chart.
+func TestRenderBarWidthIgnoresLineSeries(t *testing.T) {
+	soloBar := &diagram.XYChartDiagram{
+		XAxis: diagram.XYAxis{Categories: []string{"a", "b"}},
+		YAxis: diagram.XYAxis{HasRange: true, Min: 0, Max: 100},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{50, 60}},
+		},
+	}
+	mixed := &diagram.XYChartDiagram{
+		XAxis: diagram.XYAxis{Categories: []string{"a", "b"}},
+		YAxis: diagram.XYAxis{HasRange: true, Min: 0, Max: 100},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{50, 60}},
+			{Type: diagram.XYSeriesLine, Data: []float64{40, 55}},
+		},
+	}
+	sOut, _ := Render(soloBar, nil)
+	mOut, _ := Render(mixed, nil)
+	sw := firstBarWidth(t, sOut)
+	mw := firstBarWidth(t, mOut)
+	if math.Abs(sw-mw) > 0.01 {
+		t.Errorf("bar width differed (solo=%.2f mixed=%.2f) — line series must not shrink bars", sw, mw)
+	}
+}
+
+// firstBarWidth parses the width attribute of the first <rect ...
+// fill="#5470c6"> — the first bar in the default palette.
+func firstBarWidth(t *testing.T, svgBytes []byte) float64 {
+	t.Helper()
+	raw := string(svgBytes)
+	// Skip the background rect (fill:#fff).
+	idx := strings.Index(raw, `fill:#5470c6`)
+	if idx < 0 {
+		return 0
+	}
+	start := strings.LastIndex(raw[:idx], "<rect")
+	if start < 0 {
+		return 0
+	}
+	wIdx := strings.Index(raw[start:idx], ` width="`)
+	if wIdx < 0 {
+		return 0
+	}
+	wIdx += start + len(` width="`)
+	end := strings.Index(raw[wIdx:], `"`)
+	if end < 0 {
+		return 0
+	}
+	v, _ := strconv.ParseFloat(raw[wIdx:wIdx+end], 64)
+	return v
 }
 
 func TestRenderAutoYRange(t *testing.T) {

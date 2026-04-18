@@ -64,27 +64,27 @@ func Parse(r io.Reader) (*diagram.XYChartDiagram, error) {
 
 func parseLine(line string, d *diagram.XYChartDiagram) error {
 	switch {
-	case hasKeyword(line, "title"):
-		d.Title = unquote(strings.TrimSpace(trimKeyword(line, "title")))
-	case hasKeyword(line, "x-axis"):
+	case parserutil.HasHeaderKeyword(line, "title"):
+		d.Title = parserutil.Unquote(trimKeyword(line, "title"))
+	case parserutil.HasHeaderKeyword(line, "x-axis"):
 		axis, err := parseAxis(trimKeyword(line, "x-axis"))
 		if err != nil {
 			return fmt.Errorf("x-axis: %w", err)
 		}
 		d.XAxis = axis
-	case hasKeyword(line, "y-axis"):
+	case parserutil.HasHeaderKeyword(line, "y-axis"):
 		axis, err := parseAxis(trimKeyword(line, "y-axis"))
 		if err != nil {
 			return fmt.Errorf("y-axis: %w", err)
 		}
 		d.YAxis = axis
-	case hasKeyword(line, "bar"):
+	case parserutil.HasHeaderKeyword(line, "bar"):
 		s, err := parseSeries(diagram.XYSeriesBar, trimKeyword(line, "bar"))
 		if err != nil {
 			return fmt.Errorf("bar: %w", err)
 		}
 		d.Series = append(d.Series, s)
-	case hasKeyword(line, "line"):
+	case parserutil.HasHeaderKeyword(line, "line"):
 		s, err := parseSeries(diagram.XYSeriesLine, trimKeyword(line, "line"))
 		if err != nil {
 			return fmt.Errorf("line: %w", err)
@@ -94,41 +94,52 @@ func parseLine(line string, d *diagram.XYChartDiagram) error {
 	return nil
 }
 
-// hasKeyword reports whether line starts with kw followed by space,
-// tab, or end-of-string (a word boundary).
-func hasKeyword(line, kw string) bool {
-	return parserutil.HasHeaderKeyword(line, kw)
-}
-
 func trimKeyword(line, kw string) string {
 	return strings.TrimSpace(strings.TrimPrefix(line, kw))
 }
 
-// parseAxis handles three forms:
-//   - [a, b, c]                  → categorical
-//   - "Title" [a, b, c]          → categorical with title
-//   - min --> max                → numeric range
-//   - "Title" min --> max        → numeric range with title
-//   - "Title"                    → title only (bounds derived from data)
+// pullLeadingQuote extracts an initial double-quoted span and returns
+// the inner text plus the whitespace-trimmed remainder. If s doesn't
+// start with `"`, title is empty and rest is s unchanged.
+func pullLeadingQuote(s string) (title, rest string, err error) {
+	if !strings.HasPrefix(s, "\"") {
+		return "", s, nil
+	}
+	end := strings.Index(s[1:], "\"")
+	if end < 0 {
+		return "", s, fmt.Errorf("unterminated quoted title")
+	}
+	return s[1 : 1+end], strings.TrimSpace(s[2+end:]), nil
+}
+
+// parseAxis accepts:
+//   - [a, b, c]                  categorical
+//   - "Title" [a, b, c]          categorical with title
+//   - min --> max                numeric range
+//   - "Title" min --> max        numeric range with title
+//   - "Title"                    title only — bounds derived from data
+//
+// An empty body (e.g. a bare `x-axis` line with no arguments) is an
+// error: accepting it would silently lose data the author clearly
+// meant to supply.
 func parseAxis(s string) (diagram.XYAxis, error) {
 	var a diagram.XYAxis
 	s = strings.TrimSpace(s)
-
-	// Pull a leading quoted title if present.
-	if strings.HasPrefix(s, "\"") {
-		end := strings.Index(s[1:], "\"")
-		if end < 0 {
-			return a, fmt.Errorf("unterminated quoted title")
-		}
-		a.Title = s[1 : 1+end]
-		s = strings.TrimSpace(s[2+end:])
+	if s == "" {
+		return a, fmt.Errorf("axis requires a title, category list, or range")
 	}
+
+	title, rest, err := pullLeadingQuote(s)
+	if err != nil {
+		return a, err
+	}
+	a.Title = title
+	s = rest
 
 	if s == "" {
 		return a, nil
 	}
 
-	// Bracket list → categories.
 	if strings.HasPrefix(s, "[") {
 		items, err := parseBracketList(s)
 		if err != nil {
@@ -138,7 +149,6 @@ func parseAxis(s string) (diagram.XYAxis, error) {
 		return a, nil
 	}
 
-	// min --> max
 	if idx := strings.Index(s, "-->"); idx >= 0 {
 		lo := strings.TrimSpace(s[:idx])
 		hi := strings.TrimSpace(s[idx+3:])
@@ -162,20 +172,18 @@ func parseAxis(s string) (diagram.XYAxis, error) {
 	return a, fmt.Errorf("unrecognized axis form: %q", s)
 }
 
-// parseSeries extracts an optional quoted title then a bracket list of
-// floats: `["title"] [v1, v2, v3]`.
+// parseSeries accepts `["title"] [v1, v2, v3]`. An empty value list
+// is rejected — a `bar` line with no data is almost certainly a typo.
 func parseSeries(t diagram.XYSeriesType, s string) (diagram.XYSeries, error) {
-	s = strings.TrimSpace(s)
 	out := diagram.XYSeries{Type: t}
+	s = strings.TrimSpace(s)
 
-	if strings.HasPrefix(s, "\"") {
-		end := strings.Index(s[1:], "\"")
-		if end < 0 {
-			return out, fmt.Errorf("unterminated quoted title")
-		}
-		out.Title = s[1 : 1+end]
-		s = strings.TrimSpace(s[2+end:])
+	title, rest, err := pullLeadingQuote(s)
+	if err != nil {
+		return out, err
 	}
+	out.Title = title
+	s = rest
 
 	if !strings.HasPrefix(s, "[") {
 		return out, fmt.Errorf("expected '['-delimited value list, got %q", s)
@@ -183,6 +191,9 @@ func parseSeries(t diagram.XYSeriesType, s string) (diagram.XYSeries, error) {
 	items, err := parseBracketList(s)
 	if err != nil {
 		return out, err
+	}
+	if len(items) == 0 {
+		return out, fmt.Errorf("value list is empty")
 	}
 	out.Data = make([]float64, 0, len(items))
 	for _, it := range items {
@@ -227,12 +238,4 @@ func parseBracketList(s string) ([]string, error) {
 		out = append(out, strings.TrimSpace(cur.String()))
 	}
 	return out, nil
-}
-
-// unquote strips surrounding double quotes if both are present.
-func unquote(s string) string {
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		return s[1 : len(s)-1]
-	}
-	return s
 }
