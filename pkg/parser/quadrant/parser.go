@@ -62,6 +62,22 @@ func Parse(r io.Reader) (*diagram.QuadrantChartDiagram, error) {
 }
 
 func parseLine(line string, d *diagram.QuadrantChartDiagram) error {
+	// Data points have the shape `Label: [x, y]`. Check the bracket
+	// form before the keyword switch so a label that collides with a
+	// directive name (e.g. `title: [0.5, 0.5]`) is still captured as
+	// a point. A colon without a bracket is treated as a directive
+	// (or silently ignored if unknown) rather than a malformed point,
+	// which tolerates forward-compat syntax like `theme: dark`.
+	if idx := strings.LastIndex(line, ":"); idx >= 0 {
+		if strings.HasPrefix(strings.TrimSpace(line[idx+1:]), "[") {
+			p, err := parsePoint(line[:idx], line[idx+1:])
+			if err != nil {
+				return err
+			}
+			d.Points = append(d.Points, p)
+			return nil
+		}
+	}
 	switch {
 	case parserutil.HasHeaderKeyword(line, "title"):
 		d.Title = trimKeyword(line, "title")
@@ -85,15 +101,6 @@ func parseLine(line string, d *diagram.QuadrantChartDiagram) error {
 		d.Quadrant3 = trimKeyword(line, "quadrant-3")
 	case parserutil.HasHeaderKeyword(line, "quadrant-4"):
 		d.Quadrant4 = trimKeyword(line, "quadrant-4")
-	default:
-		// Anything else with a colon and a `[x, y]` is a data point.
-		if idx := strings.LastIndex(line, ":"); idx >= 0 {
-			p, err := parsePoint(line[:idx], line[idx+1:])
-			if err != nil {
-				return err
-			}
-			d.Points = append(d.Points, p)
-		}
 	}
 	return nil
 }

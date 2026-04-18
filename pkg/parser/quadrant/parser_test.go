@@ -105,6 +105,47 @@ quadrant-1:Expand
 	}
 }
 
+// A data point whose label happens to match a directive keyword must
+// still be captured as a point — the bracket shape is the precedence
+// signal. Regression guard: without the bracket-first check in
+// parseLine, `title: [0.5, 0.5]` would be parsed as a title directive
+// and the point silently dropped.
+func TestParseKeywordCollidingPointLabels(t *testing.T) {
+	input := `quadrantChart
+title: [0.5, 0.5]
+x-axis: [0.1, 0.2]
+quadrant-1: [0.9, 0.9]
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Points) != 3 {
+		t.Fatalf("points = %d, want 3 (keyword-like labels should still parse as points)", len(d.Points))
+	}
+	if d.Title != "" || d.XAxisLow != "" || d.Quadrant1 != "" {
+		t.Errorf("directive slots should be empty when the line is a point: title=%q x-low=%q q1=%q",
+			d.Title, d.XAxisLow, d.Quadrant1)
+	}
+}
+
+// `theme: dark` (unknown directive with a colon but no bracket) should
+// be silently ignored — not error as a bad point and not dropped into
+// any directive slot.
+func TestParseUnknownDirectiveWithColonIgnored(t *testing.T) {
+	input := `quadrantChart
+theme: dark
+Campaign A: [0.5, 0.5]
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Points) != 1 {
+		t.Errorf("points = %d, want 1", len(d.Points))
+	}
+}
+
 func TestParsePointsAtCorners(t *testing.T) {
 	input := `quadrantChart
 BottomLeft: [0, 0]
@@ -174,19 +215,36 @@ func TestParsePointNonFinite(t *testing.T) {
 	}
 }
 
+// Malformed *point* lines (bracket-shaped but invalid contents) must
+// error so users see their typo. A missing-bracket line like
+// `A: 0.3, 0.6` is treated as an unknown directive (silently ignored
+// for forward-compat) rather than a bad point.
 func TestParsePointBadFormat(t *testing.T) {
 	cases := []string{
-		"quadrantChart\nA: 0.3, 0.6\n",           // no brackets
-		"quadrantChart\nA: [0.3\n",               // missing close
-		"quadrantChart\nA: [0.3, 0.5] extra\n",   // trailing garbage
-		"quadrantChart\nA: [0.3]\n",              // one coord
-		"quadrantChart\n: [0.3, 0.5]\n",          // empty label
-		"quadrantChart\nA: [abc, 0.5]\n",         // non-numeric
+		"quadrantChart\nA: [0.3\n",             // missing close
+		"quadrantChart\nA: [0.3, 0.5] extra\n", // trailing garbage
+		"quadrantChart\nA: [0.3]\n",            // one coord
+		"quadrantChart\n: [0.3, 0.5]\n",        // empty label
+		"quadrantChart\nA: [abc, 0.5]\n",       // non-numeric
 	}
 	for _, c := range cases {
 		if _, err := Parse(strings.NewReader(c)); err == nil {
 			t.Errorf("expected error for:\n%s", c)
 		}
+	}
+}
+
+// A colon line without brackets is NOT a point — it's treated as an
+// unknown directive and silently ignored for forward-compat. This
+// keeps `theme: dark` tolerable but shifts `A: 0.3, 0.6` (missing
+// brackets) from "error" to "no point created."
+func TestParseColonLineWithoutBracketIgnored(t *testing.T) {
+	d, err := Parse(strings.NewReader("quadrantChart\nA: 0.3, 0.6\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Points) != 0 {
+		t.Errorf("points = %d, want 0 (non-bracket colon line is a directive, not a point)", len(d.Points))
 	}
 }
 

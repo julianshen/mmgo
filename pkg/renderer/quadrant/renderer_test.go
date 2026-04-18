@@ -201,6 +201,24 @@ func TestRenderCustomFontSize(t *testing.T) {
 	}
 }
 
+// A very small Options.FontSize must not drive derived label sizes
+// (fontSize-1 for axis labels, fontSize-2 for point labels) to zero
+// or below, which would serialize as invisible or invalid CSS.
+func TestRenderSmallFontSizeClamped(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		XAxisLow: "L",
+		Points:   []diagram.QuadrantPoint{{Label: "A", X: 0.5, Y: 0.5}},
+	}
+	out, err := Render(d, &Options{FontSize: 2})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if strings.Contains(raw, "font-size:0px") || strings.Contains(raw, "font-size:-") {
+		t.Errorf("derived font size degenerated to 0 or negative in:\n%s", raw)
+	}
+}
+
 func TestRenderPointWithoutLabel(t *testing.T) {
 	// A label-less point must emit exactly one <circle> and zero
 	// <text> elements (no title, no quadrant names, no axis labels

@@ -134,7 +134,11 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		})
 	}
 
-	axisFontStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, fontSize-1)
+	// Clamp derived sizes so tiny custom FontSize values don't produce
+	// zero- or negative-pixel labels.
+	axisFontSize := maxFloat(fontSize-1, 1)
+	pointLabelFontSize := maxFloat(fontSize-2, 1)
+	axisFontStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, axisFontSize)
 	if d.XAxisLow != "" {
 		children = append(children, &text{
 			X:        svgFloat(plotX0 + plotSide/4),
@@ -185,7 +189,7 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	// Y is inverted: our coords put (0, 0) at bottom-left but SVG's
 	// origin is top-left.
 	pointStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:2", pointFill, pointStroke)
-	pointLabelStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", pointLabelFill, fontSize-2)
+	pointLabelStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", pointLabelFill, pointLabelFontSize)
 	for _, p := range d.Points {
 		px := plotX0 + p.X*plotSide
 		py := plotY1 - p.Y*plotSide
@@ -215,4 +219,11 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		return nil, fmt.Errorf("quadrant render: %w", err)
 	}
 	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), b...), nil
+}
+
+func maxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
 }
