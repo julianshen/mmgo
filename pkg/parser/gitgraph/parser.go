@@ -51,10 +51,10 @@ func Parse(r io.Reader) (*diagram.GitGraphDiagram, error) {
 	return p.diagram, nil
 }
 
-// isHeader accepts the several forms Mermaid allows: bare `gitGraph`,
-// trailing colon, or an explicit direction token.
+// isHeader accepts `gitGraph`, `gitGraph:`, or `gitGraph <dir>` where
+// <dir> is LR/TB/BT — the forms Mermaid allows on this diagram.
 func isHeader(line string) bool {
-	if !strings.HasPrefix(line, "gitGraph") {
+	if !parserutil.HasHeaderKeyword(line, "gitGraph") {
 		return false
 	}
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "gitGraph"))

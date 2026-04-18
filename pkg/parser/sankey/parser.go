@@ -65,9 +65,7 @@ func Parse(r io.Reader) (*diagram.SankeyDiagram, error) {
 }
 
 func isHeader(line string) bool {
-	return line == "sankey-beta" ||
-		strings.HasPrefix(line, "sankey-beta ") ||
-		strings.HasPrefix(line, "sankey-beta:")
+	return parserutil.HasHeaderKeyword(line, "sankey-beta")
 }
 
 // isColumnHeader matches a literal `source,target,value` row (any
