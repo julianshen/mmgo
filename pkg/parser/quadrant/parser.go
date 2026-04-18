@@ -64,27 +64,27 @@ func Parse(r io.Reader) (*diagram.QuadrantChartDiagram, error) {
 func parseLine(line string, d *diagram.QuadrantChartDiagram) error {
 	switch {
 	case parserutil.HasHeaderKeyword(line, "title"):
-		d.Title = strings.TrimSpace(strings.TrimPrefix(line, "title"))
+		d.Title = trimKeyword(line, "title")
 	case parserutil.HasHeaderKeyword(line, "x-axis"):
-		low, high, err := parseAxis(strings.TrimSpace(strings.TrimPrefix(line, "x-axis")))
+		low, high, err := parseAxis(trimKeyword(line, "x-axis"))
 		if err != nil {
 			return fmt.Errorf("x-axis: %w", err)
 		}
 		d.XAxisLow, d.XAxisHigh = low, high
 	case parserutil.HasHeaderKeyword(line, "y-axis"):
-		low, high, err := parseAxis(strings.TrimSpace(strings.TrimPrefix(line, "y-axis")))
+		low, high, err := parseAxis(trimKeyword(line, "y-axis"))
 		if err != nil {
 			return fmt.Errorf("y-axis: %w", err)
 		}
 		d.YAxisLow, d.YAxisHigh = low, high
 	case parserutil.HasHeaderKeyword(line, "quadrant-1"):
-		d.Quadrant1 = strings.TrimSpace(strings.TrimPrefix(line, "quadrant-1"))
+		d.Quadrant1 = trimKeyword(line, "quadrant-1")
 	case parserutil.HasHeaderKeyword(line, "quadrant-2"):
-		d.Quadrant2 = strings.TrimSpace(strings.TrimPrefix(line, "quadrant-2"))
+		d.Quadrant2 = trimKeyword(line, "quadrant-2")
 	case parserutil.HasHeaderKeyword(line, "quadrant-3"):
-		d.Quadrant3 = strings.TrimSpace(strings.TrimPrefix(line, "quadrant-3"))
+		d.Quadrant3 = trimKeyword(line, "quadrant-3")
 	case parserutil.HasHeaderKeyword(line, "quadrant-4"):
-		d.Quadrant4 = strings.TrimSpace(strings.TrimPrefix(line, "quadrant-4"))
+		d.Quadrant4 = trimKeyword(line, "quadrant-4")
 	default:
 		// Anything else with a colon and a `[x, y]` is a data point.
 		if idx := strings.LastIndex(line, ":"); idx >= 0 {
@@ -98,16 +98,31 @@ func parseLine(line string, d *diagram.QuadrantChartDiagram) error {
 	return nil
 }
 
+// trimKeyword strips `kw` and any immediately following whitespace or
+// colon from the start of `line`. HasHeaderKeyword accepts `:` as a
+// word boundary so forms like `title: foo` and `x-axis:Low --> High`
+// would otherwise leak the colon into the returned value.
+func trimKeyword(line, kw string) string {
+	return strings.TrimSpace(strings.TrimLeft(strings.TrimPrefix(line, kw), ": \t"))
+}
+
 // parseAxis handles `low --> high` or `low-only`. The separator is
-// literal `-->` with optional surrounding whitespace.
+// literal `-->` with optional surrounding whitespace. An empty low
+// label (`--> High`) is an error — a writer who wrote the arrow
+// clearly intended both ends.
 func parseAxis(s string) (low, high string, err error) {
 	if s == "" {
 		return "", "", fmt.Errorf("axis requires a label")
 	}
 	if idx := strings.Index(s, "-->"); idx >= 0 {
-		return strings.TrimSpace(s[:idx]), strings.TrimSpace(s[idx+3:]), nil
+		low = strings.TrimSpace(s[:idx])
+		high = strings.TrimSpace(s[idx+3:])
+		if low == "" {
+			return "", "", fmt.Errorf("axis low-end label is empty")
+		}
+		return low, high, nil
 	}
-	// Only a low label (Mermaid permits omitting --> high).
+	// Low label only — Mermaid permits omitting the arrow and the high end.
 	return s, "", nil
 }
 

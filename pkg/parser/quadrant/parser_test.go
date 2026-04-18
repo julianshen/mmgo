@@ -73,6 +73,53 @@ func TestParseAxisEmptyRejected(t *testing.T) {
 	}
 }
 
+func TestParseAxisEmptyLowRejected(t *testing.T) {
+	// `--> high` with an empty low side is almost certainly a typo.
+	// Reject rather than silently accept an empty label.
+	if _, err := Parse(strings.NewReader("quadrantChart\nx-axis --> High\n")); err == nil {
+		t.Fatal("expected error for axis with empty low label")
+	}
+}
+
+// HasHeaderKeyword accepts `:` as a boundary, so `title:X` matches.
+// Without the colon strip, the prior code would leave a leading `:`
+// in the stored value. Pin the correct behavior.
+func TestParseKeywordColonForms(t *testing.T) {
+	input := `quadrantChart
+title: My Chart
+x-axis:Low --> High
+quadrant-1:Expand
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if d.Title != "My Chart" {
+		t.Errorf("Title = %q, want %q", d.Title, "My Chart")
+	}
+	if d.XAxisLow != "Low" || d.XAxisHigh != "High" {
+		t.Errorf("x-axis = (%q, %q)", d.XAxisLow, d.XAxisHigh)
+	}
+	if d.Quadrant1 != "Expand" {
+		t.Errorf("Quadrant1 = %q", d.Quadrant1)
+	}
+}
+
+func TestParsePointsAtCorners(t *testing.T) {
+	input := `quadrantChart
+BottomLeft: [0, 0]
+TopRight: [1, 1]
+Center: [0.5, 0.5]
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Points) != 3 {
+		t.Fatalf("points = %d, want 3", len(d.Points))
+	}
+}
+
 func TestParseAllQuadrants(t *testing.T) {
 	input := `quadrantChart
 quadrant-1 Expand
