@@ -27,6 +27,7 @@ import (
 	sankeyparser "github.com/julianshen/mmgo/pkg/parser/sankey"
 	xychartparser "github.com/julianshen/mmgo/pkg/parser/xychart"
 	quadrantparser "github.com/julianshen/mmgo/pkg/parser/quadrant"
+	kanbanparser "github.com/julianshen/mmgo/pkg/parser/kanban"
 	blockparser "github.com/julianshen/mmgo/pkg/parser/block"
 	c4parser "github.com/julianshen/mmgo/pkg/parser/c4"
 	timelineparser "github.com/julianshen/mmgo/pkg/parser/timeline"
@@ -42,6 +43,7 @@ import (
 	sankeyrenderer "github.com/julianshen/mmgo/pkg/renderer/sankey"
 	xychartrenderer "github.com/julianshen/mmgo/pkg/renderer/xychart"
 	quadrantrenderer "github.com/julianshen/mmgo/pkg/renderer/quadrant"
+	kanbanrenderer "github.com/julianshen/mmgo/pkg/renderer/kanban"
 	blockrenderer "github.com/julianshen/mmgo/pkg/renderer/block"
 	c4renderer "github.com/julianshen/mmgo/pkg/renderer/c4"
 	timelinerenderer "github.com/julianshen/mmgo/pkg/renderer/timeline"
@@ -127,6 +129,8 @@ func Render(r io.Reader, opts *Options) ([]byte, error) {
 		return renderXYChart(src, opts)
 	case kindQuadrant:
 		return renderQuadrant(src, opts)
+	case kindKanban:
+		return renderKanban(src, opts)
 	default:
 		return nil, fmt.Errorf("svg render: %v diagrams are not yet supported", kind)
 	}
@@ -153,6 +157,7 @@ const (
 	kindSankey
 	kindXYChart
 	kindQuadrant
+	kindKanban
 )
 
 func (k diagramKind) String() string {
@@ -187,6 +192,8 @@ func (k diagramKind) String() string {
 		return "xychart"
 	case kindQuadrant:
 		return "quadrant"
+	case kindKanban:
+		return "kanban"
 	default:
 		return "unknown"
 	}
@@ -248,6 +255,9 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 		}
 		if parserutil.HasHeaderKeyword(line, "quadrantChart") {
 			return kindQuadrant, nil
+		}
+		if parserutil.HasHeaderKeyword(line, "kanban") {
+			return kindKanban, nil
 		}
 		return kindUnknown, fmt.Errorf("unrecognized diagram header: %q", line)
 	}
@@ -524,6 +534,18 @@ func renderQuadrant(src []byte, opts *Options) ([]byte, error) {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
 	out, err := quadrantrenderer.Render(d, nil)
+	if err != nil {
+		return nil, fmt.Errorf("svg render: %w", err)
+	}
+	return out, nil
+}
+
+func renderKanban(src []byte, opts *Options) ([]byte, error) {
+	d, err := kanbanparser.Parse(bytes.NewReader(src))
+	if err != nil {
+		return nil, fmt.Errorf("svg render: parse: %w", err)
+	}
+	out, err := kanbanrenderer.Render(d, nil)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}

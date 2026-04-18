@@ -22,6 +22,7 @@ const (
 	Sankey
 	XYChart
 	Quadrant
+	Kanban
 )
 
 // Diagram is implemented by all diagram AST types.

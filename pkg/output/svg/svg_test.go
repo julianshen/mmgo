@@ -409,6 +409,32 @@ func TestRenderTimelineEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRenderKanbanEndToEnd(t *testing.T) {
+	input := `kanban
+  Todo
+    [Write docs]
+    id2[Triage]@{ priority: 'High' }
+  In progress
+    [Implement renderer]
+  Done
+    [Write tests]@{ assigned: 'alice' }`
+	out, err := Render(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	doc := unmarshalSVG(t, out)
+	if doc.ViewBox == "" {
+		t.Error("viewBox missing")
+	}
+	for _, s := range []string{">Todo<", ">In progress<", ">Done<",
+		">Write docs<", ">Triage<", ">priority: High<"} {
+		if !strings.Contains(raw, s) {
+			t.Errorf("missing %s", s)
+		}
+	}
+}
+
 func TestRenderQuadrantEndToEnd(t *testing.T) {
 	input := `quadrantChart
     title Reach and engagement
