@@ -69,7 +69,7 @@ func Parse(r io.Reader) (*diagram.XYChartDiagram, error) {
 func parseLine(line string, d *diagram.XYChartDiagram) error {
 	switch {
 	case parserutil.HasHeaderKeyword(line, "title"):
-		rest := trimKeyword(line, "title")
+		rest := parserutil.TrimKeyword(line, "title")
 		title, leftover, err := pullLeadingQuote(rest)
 		if err != nil {
 			return fmt.Errorf("title: %w", err)
@@ -81,35 +81,31 @@ func parseLine(line string, d *diagram.XYChartDiagram) error {
 		}
 		d.Title = title
 	case parserutil.HasHeaderKeyword(line, "x-axis"):
-		axis, err := parseAxis(trimKeyword(line, "x-axis"))
+		axis, err := parseAxis(parserutil.TrimKeyword(line, "x-axis"))
 		if err != nil {
 			return fmt.Errorf("x-axis: %w", err)
 		}
 		d.XAxis = axis
 	case parserutil.HasHeaderKeyword(line, "y-axis"):
-		axis, err := parseAxis(trimKeyword(line, "y-axis"))
+		axis, err := parseAxis(parserutil.TrimKeyword(line, "y-axis"))
 		if err != nil {
 			return fmt.Errorf("y-axis: %w", err)
 		}
 		d.YAxis = axis
 	case parserutil.HasHeaderKeyword(line, "bar"):
-		s, err := parseSeries(diagram.XYSeriesBar, trimKeyword(line, "bar"))
+		s, err := parseSeries(diagram.XYSeriesBar, parserutil.TrimKeyword(line, "bar"))
 		if err != nil {
 			return fmt.Errorf("bar: %w", err)
 		}
 		d.Series = append(d.Series, s)
 	case parserutil.HasHeaderKeyword(line, "line"):
-		s, err := parseSeries(diagram.XYSeriesLine, trimKeyword(line, "line"))
+		s, err := parseSeries(diagram.XYSeriesLine, parserutil.TrimKeyword(line, "line"))
 		if err != nil {
 			return fmt.Errorf("line: %w", err)
 		}
 		d.Series = append(d.Series, s)
 	}
 	return nil
-}
-
-func trimKeyword(line, kw string) string {
-	return strings.TrimSpace(strings.TrimPrefix(line, kw))
 }
 
 // pullLeadingQuote extracts an initial double-quoted span and returns

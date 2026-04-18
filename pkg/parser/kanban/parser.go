@@ -174,7 +174,7 @@ func parseMetadata(s string) (map[string]string, error) {
 		return nil, nil
 	}
 	out := make(map[string]string)
-	for _, tok := range splitTopLevelCommas(s) {
+	for _, tok := range parserutil.SplitUnquotedCommas(s) {
 		tok = strings.TrimSpace(tok)
 		if tok == "" {
 			continue
@@ -215,35 +215,5 @@ func findMetaClose(s string) int {
 		}
 	}
 	return -1
-}
-
-// splitTopLevelCommas splits on commas that are outside single or
-// double quotes.
-func splitTopLevelCommas(s string) []string {
-	var out []string
-	var cur strings.Builder
-	var quote byte
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case quote != 0:
-			if c == quote {
-				quote = 0
-			}
-			cur.WriteByte(c)
-		case c == '\'' || c == '"':
-			quote = c
-			cur.WriteByte(c)
-		case c == ',':
-			out = append(out, cur.String())
-			cur.Reset()
-		default:
-			cur.WriteByte(c)
-		}
-	}
-	if cur.Len() > 0 {
-		out = append(out, cur.String())
-	}
-	return out
 }
 
