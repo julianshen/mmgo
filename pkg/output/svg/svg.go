@@ -18,6 +18,7 @@ import (
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
+	parserutil "github.com/julianshen/mmgo/pkg/parser"
 	classparser "github.com/julianshen/mmgo/pkg/parser/class"
 	erparser "github.com/julianshen/mmgo/pkg/parser/er"
 	ganttparser "github.com/julianshen/mmgo/pkg/parser/gantt"
@@ -188,44 +189,44 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 		if line == "" || strings.HasPrefix(line, "%%") {
 			continue
 		}
-		if hasHeaderKeyword(line, "graph") || hasHeaderKeyword(line, "flowchart") {
+		if parserutil.HasHeaderKeyword(line, "graph") || parserutil.HasHeaderKeyword(line, "flowchart") {
 			return kindFlowchart, nil
 		}
-		if hasHeaderKeyword(line, "sequenceDiagram") {
+		if parserutil.HasHeaderKeyword(line, "sequenceDiagram") {
 			return kindSequence, nil
 		}
-		if hasHeaderKeyword(line, "pie") {
+		if parserutil.HasHeaderKeyword(line, "pie") {
 			return kindPie, nil
 		}
-		if hasHeaderKeyword(line, "classDiagram") {
+		if parserutil.HasHeaderKeyword(line, "classDiagram") {
 			return kindClass, nil
 		}
-		if hasHeaderKeyword(line, "stateDiagram-v2") || hasHeaderKeyword(line, "stateDiagram") {
+		if parserutil.HasHeaderKeyword(line, "stateDiagram-v2") || parserutil.HasHeaderKeyword(line, "stateDiagram") {
 			return kindState, nil
 		}
-		if hasHeaderKeyword(line, "erDiagram") {
+		if parserutil.HasHeaderKeyword(line, "erDiagram") {
 			return kindER, nil
 		}
-		if hasHeaderKeyword(line, "gantt") {
+		if parserutil.HasHeaderKeyword(line, "gantt") {
 			return kindGantt, nil
 		}
-		if hasHeaderKeyword(line, "mindmap") {
+		if parserutil.HasHeaderKeyword(line, "mindmap") {
 			return kindMindmap, nil
 		}
-		if hasHeaderKeyword(line, "timeline") {
+		if parserutil.HasHeaderKeyword(line, "timeline") {
 			return kindTimeline, nil
 		}
 		switch line {
 		case "C4Context", "C4Container", "C4Component", "C4Dynamic", "C4Deployment":
 			return kindC4, nil
 		}
-		if hasHeaderKeyword(line, "block-beta") {
+		if parserutil.HasHeaderKeyword(line, "block-beta") {
 			return kindBlock, nil
 		}
-		if hasHeaderKeyword(line, "gitGraph") {
+		if parserutil.HasHeaderKeyword(line, "gitGraph") {
 			return kindGitGraph, nil
 		}
-		if hasHeaderKeyword(line, "sankey-beta") {
+		if parserutil.HasHeaderKeyword(line, "sankey-beta") {
 			return kindSankey, nil
 		}
 		return kindUnknown, fmt.Errorf("unrecognized diagram header: %q", line)
@@ -236,20 +237,6 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 	return kindUnknown, fmt.Errorf("empty input: no diagram header found")
 }
 
-// hasHeaderKeyword reports whether line begins with kw followed by a
-// word boundary: end-of-string, whitespace, or `:` (Mermaid tolerates
-// a trailing colon on many headers). `grapha` is not mis-matched as
-// `graph`.
-func hasHeaderKeyword(line, kw string) bool {
-	if !strings.HasPrefix(line, kw) {
-		return false
-	}
-	if len(line) == len(kw) {
-		return true
-	}
-	c := line[len(kw)]
-	return c == ' ' || c == '\t' || c == ':'
-}
 
 // renderFlowchart runs parse → size → layout → render for a flowchart
 // diagram. The font size used for node sizing is read from the

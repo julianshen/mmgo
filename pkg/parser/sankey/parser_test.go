@@ -30,6 +30,7 @@ func TestParseHeaderVariants(t *testing.T) {
 		"sankey-beta\n",
 		"sankey-beta:\n",
 		"sankey-beta \n",
+		"sankey-beta\tfoo\n",
 		"sankey-beta: trailing junk\n",
 	}
 	for _, c := range cases {
