@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
 const (
@@ -18,13 +19,8 @@ const (
 	sectionLabelW   = 120.0
 	dayWidth        = 20.0
 
-	// avgCharWidth approximates the per-character width as a fraction
-	// of font size for the bundled font. Used to estimate label
-	// extents without instantiating a text ruler. See gitgraph/sankey
-	// for the same heuristic.
-	avgCharWidth = 0.55
 	// labelInsideSlack is the minimum extra bar width (in pixels)
-	// beyond the estimated label width before the label fits inside.
+	// beyond the measured label width before the label fits inside.
 	labelInsideSlack = 8.0
 	// labelOutsideGap is the gap between the bar's right edge and an
 	// outside label.
@@ -33,13 +29,6 @@ const (
 	// outside label so it doesn't clip at the right edge.
 	labelEdgeMargin = 12.0
 )
-
-// estimateLabelWidth approximates the rendered width of name at the
-// given font size. Used by both the viewBox sizing pass and the
-// per-task inside/outside label decision.
-func estimateLabelWidth(name string, fontSize float64) float64 {
-	return float64(len(name)) * (fontSize - 1) * avgCharWidth
-}
 
 type Options struct {
 	FontSize float64
@@ -57,6 +46,12 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 	if opts != nil && opts.FontSize > 0 {
 		fontSize = opts.FontSize
 	}
+
+	ruler, err := textmeasure.NewDefaultRuler()
+	if err != nil {
+		return nil, fmt.Errorf("gantt render: text measurer: %w", err)
+	}
+	defer func() { _ = ruler.Close() }()
 
 	minDate, maxDate := dateRange(d.Tasks)
 	totalDays := maxDate.Sub(minDate).Hours() / 24
@@ -89,7 +84,7 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 		if barW < 2 {
 			barW = 2
 		}
-		labelW := estimateLabelWidth(task.Name, fontSize)
+		labelW, _ := ruler.Measure(task.Name, fontSize-1)
 		if labelW+labelInsideSlack > barW {
 			if e := chartX + endOffset + labelOutsideGap + labelW; e > rightExtent {
 				rightExtent = e
@@ -149,7 +144,8 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 		// Place the label outside the bar (right, dark) when the bar
 		// is too narrow to hold it without spillover; inside the bar
 		// (centered, white) otherwise.
-		if estimateLabelWidth(task.Name, fontSize)+labelInsideSlack > barW {
+		labelW2, _ := ruler.Measure(task.Name, fontSize-1)
+		if labelW2+labelInsideSlack > barW {
 			children = append(children, &text{
 				X: svgFloat(bx + barW + labelOutsideGap), Y: svgFloat(by + barH/2),
 				Anchor: "start", Dominant: "central",
