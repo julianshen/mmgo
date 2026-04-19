@@ -72,10 +72,6 @@ func TestRenderRelationship(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
-// Crow's-foot markers: every relationship endpoint must reference a
-// marker def matching its cardinality. mmdc renders ER edges with
-// distinct glyphs at each end; mmgo previously emitted bare lines
-// with no markers.
 func TestRenderRelationshipCardinalityMarkers(t *testing.T) {
 	d := &diagram.ERDiagram{
 		Entities: []diagram.EREntity{{Name: "A"}, {Name: "B"}},
@@ -101,7 +97,6 @@ func TestRenderRelationshipCardinalityMarkers(t *testing.T) {
 	}
 }
 
-// Each cardinality should round-trip to its own marker id pair.
 func TestRenderAllCardinalities(t *testing.T) {
 	cases := []struct {
 		card diagram.ERCardinality

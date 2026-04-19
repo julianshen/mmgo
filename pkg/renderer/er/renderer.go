@@ -61,7 +61,9 @@ func Render(d *diagram.ERDiagram, opts *Options) ([]byte, error) {
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
 		Style: "fill:#fff;stroke:none",
 	})
-	children = append(children, &defs{Markers: buildERMarkers()})
+	if markers := buildERMarkers(d); len(markers) > 0 {
+		children = append(children, &defs{Markers: markers})
+	}
 	children = append(children, renderEdges(d, l, pad, fontSize)...)
 	children = append(children, renderEntities(d, l, pad, fontSize)...)
 
@@ -84,27 +86,23 @@ func sanitize(v float64) float64 {
 	return v
 }
 
-// clipToRectEdge returns the point where the segment from (cx, cy) to
-// (ox, oy) crosses the axis-aligned rectangle of size (w, h) centered
-// at (cx, cy). Used to pull layout edges back from entity centers to
-// entity edges so cardinality markers sit outside the box.
+// clipToRectEdge returns the point on the box boundary where the ray
+// from (cx, cy) toward (ox, oy) exits the rectangle. Used so crow's-foot
+// markers sit on the entity edge rather than at the layout-emitted center.
 func clipToRectEdge(cx, cy, w, h, ox, oy float64) layout.Point {
 	dx, dy := ox-cx, oy-cy
 	if dx == 0 && dy == 0 {
 		return layout.Point{X: cx, Y: cy}
 	}
 	halfW, halfH := w/2, h/2
-	adx, ady := math.Abs(dx), math.Abs(dy)
-	var t float64
-	switch {
-	case ady == 0:
-		t = halfW / adx
-	case adx == 0:
-		t = halfH / ady
-	case adx*halfH > ady*halfW:
-		t = halfW / adx
-	default:
-		t = halfH / ady
+	t := math.Inf(1)
+	if dx != 0 {
+		t = halfW / math.Abs(dx)
+	}
+	if dy != 0 {
+		if ty := halfH / math.Abs(dy); ty < t {
+			t = ty
+		}
 	}
 	return layout.Point{X: cx + dx*t, Y: cy + dy*t}
 }
@@ -220,27 +218,22 @@ func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64) 
 		for i, p := range el.Points {
 			pts[i] = layout.Point{X: p.X + pad, Y: p.Y + pad}
 		}
-		// Crow's-foot markers anchor at the path endpoints. Layout
-		// emits center-to-center edges; clipping the first/last point
-		// to the entity rectangle puts the markers on the box edge so
-		// the cardinality glyph reads outside the entity.
+		// Cache direction references before mutating endpoints — for
+		// 2-point edges pts[0] and pts[len-2] alias each other, so
+		// without this the dst clip would use the already-clipped src.
+		srcDir := pts[1]
+		dstDir := pts[len(pts)-2]
 		if src, ok := l.Nodes[eid.From]; ok {
-			pts[0] = clipToRectEdge(
-				src.X+pad, src.Y+pad, src.Width, src.Height,
-				pts[1].X, pts[1].Y,
-			)
+			pts[0] = clipToRectEdge(src.X+pad, src.Y+pad, src.Width, src.Height, srcDir.X, srcDir.Y)
 		}
 		if dst, ok := l.Nodes[eid.To]; ok {
 			last := len(pts) - 1
-			pts[last] = clipToRectEdge(
-				dst.X+pad, dst.Y+pad, dst.Width, dst.Height,
-				pts[last-1].X, pts[last-1].Y,
-			)
+			pts[last] = clipToRectEdge(dst.X+pad, dst.Y+pad, dst.Width, dst.Height, dstDir.X, dstDir.Y)
 		}
 
 		style := "stroke:#333;stroke-width:1.5;fill:none"
-		startRef := markerRef(markerID(rel.FromCard, "start"))
-		endRef := markerRef(markerID(rel.ToCard, "end"))
+		startRef := markerRef(markerStartID(rel.FromCard))
+		endRef := markerRef(markerEndID(rel.ToCard))
 		if len(pts) == 2 {
 			elems = append(elems, &line{
 				X1: svgFloat(pts[0].X), Y1: svgFloat(pts[0].Y),
