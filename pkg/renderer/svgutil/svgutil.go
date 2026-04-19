@@ -8,6 +8,57 @@ import (
 	"math"
 )
 
+// ClipToRectEdge returns the point on the axis-aligned rectangle
+// boundary (center (cx, cy), size (w, h)) where the ray toward
+// (ox, oy) exits. If (ox, oy) already lies inside the rect the
+// result is clamped to that point so the clip never overshoots its
+// reference.
+func ClipToRectEdge(cx, cy, w, h, ox, oy float64) (x, y float64) {
+	dx, dy := ox-cx, oy-cy
+	if dx == 0 && dy == 0 {
+		return cx, cy
+	}
+	halfW, halfH := w/2, h/2
+	t := math.Inf(1)
+	if dx != 0 {
+		t = halfW / math.Abs(dx)
+	}
+	if dy != 0 {
+		if ty := halfH / math.Abs(dy); ty < t {
+			t = ty
+		}
+	}
+	if t > 1 {
+		t = 1
+	}
+	return cx + dx*t, cy + dy*t
+}
+
+// NegCoord formats -v for an SVG transform attribute, avoiding the
+// "-0.00" output that a plain %.2f of -0 produces (ugly in
+// golden-file diffs).
+func NegCoord(v float64) string {
+	if v == 0 {
+		return "0.00"
+	}
+	return fmt.Sprintf("%.2f", -v)
+}
+
+// InlineMarkerAt emits a transformed <g> that places children so
+// their (refX, refY) anchor sits at (startX, startY) and their local
+// +X axis points from (startX, startY) toward (nextX, nextY). Used
+// to work around tdewolff/canvas mis-positioning marker-start when
+// marker-end is also set on the same element; browsers render this
+// inline group identically to a marker-start reference.
+func InlineMarkerAt(startX, startY, nextX, nextY, refX, refY float64, children []any) *Group {
+	angle := math.Atan2(nextY-startY, nextX-startX) * 180 / math.Pi
+	return &Group{
+		Transform: fmt.Sprintf("translate(%.2f,%.2f) rotate(%.2f) translate(%s,%s)",
+			startX, startY, angle, NegCoord(refX), NegCoord(refY)),
+		Children: children,
+	}
+}
+
 type Float float64
 
 func (v Float) MarshalXMLAttr(name xml.Name) (xml.Attr, error) {

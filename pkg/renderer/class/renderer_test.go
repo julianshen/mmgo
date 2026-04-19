@@ -69,8 +69,12 @@ func TestRenderRelationship(t *testing.T) {
 	if !strings.Contains(raw, ">Animal<") || !strings.Contains(raw, ">Dog<") {
 		t.Error("class labels missing")
 	}
-	if !strings.Contains(raw, "marker-end") {
-		t.Error("expected arrow marker on relationship")
+	// Inheritance: glyph sits at the parent end (From side), inlined.
+	if !strings.Contains(raw, `<g transform="translate(`) {
+		t.Error("expected inline start glyph for inheritance")
+	}
+	if strings.Contains(raw, "marker-end") {
+		t.Error("inheritance should not use marker-end")
 	}
 	assertValidSVG(t, out)
 }
@@ -112,33 +116,78 @@ func TestRenderMultipleClasses(t *testing.T) {
 }
 
 func TestRenderAllRelationTypes(t *testing.T) {
-	types := []diagram.RelationType{
-		diagram.RelationTypeInheritance,
-		diagram.RelationTypeComposition,
-		diagram.RelationTypeAggregation,
-		diagram.RelationTypeAssociation,
-		diagram.RelationTypeDependency,
-		diagram.RelationTypeRealization,
-		diagram.RelationTypeLink,
-		diagram.RelationTypeDashedLink,
+	// Start-side glyphs (parent/whole on the left of the arrow).
+	// End-side glyphs (arrow/dependency target on the right).
+	// Link/DashedLink carry no marker.
+	// wantPolygonPoints pins the glyph identity so a fill/orientation
+	// swap (e.g. composition ↔ aggregation) can't pass.
+	cases := []struct {
+		rt                diagram.RelationType
+		wantStartInline   bool
+		wantEndMarker     bool
+		wantDashed        bool
+		wantPolygonPoints string // unique marker-geometry substring
+	}{
+		{diagram.RelationTypeInheritance, true, false, false, `points="20,0 0,10 20,20"`},
+		{diagram.RelationTypeComposition, true, false, false, `fill:#333;stroke:#333`},
+		{diagram.RelationTypeAggregation, true, false, false, `fill:white;stroke:#333;stroke-width:1"`},
+		{diagram.RelationTypeRealization, false, true, true, `fill:white;stroke:#333;stroke-width:1.5"`},
+		{diagram.RelationTypeDependency, false, true, true, `id="cls-dependency"`},
+		{diagram.RelationTypeAssociation, false, true, false, `id="cls-association"`},
+		{diagram.RelationTypeLink, false, false, false, ""},
+		{diagram.RelationTypeDashedLink, false, false, true, ""},
 	}
-	for _, rt := range types {
-		t.Run(rt.String(), func(t *testing.T) {
+	for _, tc := range cases {
+		t.Run(tc.rt.String(), func(t *testing.T) {
 			d := &diagram.ClassDiagram{
 				Classes: []diagram.ClassDef{
 					{ID: "A", Label: "A"},
 					{ID: "B", Label: "B"},
 				},
 				Relations: []diagram.ClassRelation{
-					{From: "A", To: "B", RelationType: rt},
+					{From: "A", To: "B", RelationType: tc.rt},
 				},
 			}
 			out, err := Render(d, nil)
 			if err != nil {
 				t.Fatalf("Render: %v", err)
 			}
+			raw := string(out)
 			assertValidSVG(t, out)
+
+			hasStartInline := strings.Contains(raw, `<g transform="translate(`)
+			if hasStartInline != tc.wantStartInline {
+				t.Errorf("%s: start inline glyph: got %v, want %v", tc.rt, hasStartInline, tc.wantStartInline)
+			}
+			hasEndMarker := strings.Contains(raw, `marker-end="url(#`)
+			if hasEndMarker != tc.wantEndMarker {
+				t.Errorf("%s: marker-end: got %v, want %v", tc.rt, hasEndMarker, tc.wantEndMarker)
+			}
+			hasDashed := strings.Contains(raw, "stroke-dasharray")
+			if hasDashed != tc.wantDashed {
+				t.Errorf("%s: stroke-dasharray: got %v, want %v", tc.rt, hasDashed, tc.wantDashed)
+			}
+			if tc.wantPolygonPoints != "" && !strings.Contains(raw, tc.wantPolygonPoints) {
+				t.Errorf("%s: expected %q in output", tc.rt, tc.wantPolygonPoints)
+			}
 		})
+	}
+}
+
+// A diagram with only marker-less relations (Link) should omit <defs>
+// entirely — buildDefs returns nil when nothing references end markers.
+func TestRenderBuildDefsOmittedWhenUnneeded(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{
+			{ID: "A", Label: "A"}, {ID: "B", Label: "B"},
+		},
+		Relations: []diagram.ClassRelation{
+			{From: "A", To: "B", RelationType: diagram.RelationTypeInheritance},
+		},
+	}
+	out, _ := Render(d, nil)
+	if strings.Contains(string(out), "<defs") {
+		t.Error("inheritance-only diagram should not emit <defs>")
 	}
 }
 
