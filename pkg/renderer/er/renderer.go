@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -86,6 +88,15 @@ func sanitize(v float64) float64 {
 	return v
 }
 
+func polylineD(pts []layout.Point) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "M%.2f,%.2f", pts[0].X, pts[0].Y)
+	for _, p := range pts[1:] {
+		fmt.Fprintf(&sb, " L%.2f,%.2f", p.X, p.Y)
+	}
+	return sb.String()
+}
+
 // See erStartGeoms in markers.go for why start markers are inlined
 // rather than referenced via SVG marker-start.
 func startMarkerGroup(c diagram.ERCardinality, start, next layout.Point) *group {
@@ -93,47 +104,7 @@ func startMarkerGroup(c diagram.ERCardinality, start, next layout.Point) *group 
 	if !ok {
 		return nil
 	}
-	angle := math.Atan2(next.Y-start.Y, next.X-start.X) * 180 / math.Pi
-	return &group{
-		Transform: fmt.Sprintf("translate(%.2f,%.2f) rotate(%.2f) translate(%s,%s)",
-			start.X, start.Y, angle, negCoord(refX), negCoord(refY)),
-		Children: children,
-	}
-}
-
-// negCoord formats -v for an SVG transform, avoiding the "-0.00"
-// output that a plain %.2f of -0 produces (ugly in golden-file diffs).
-func negCoord(v float64) string {
-	if v == 0 {
-		return "0.00"
-	}
-	return fmt.Sprintf("%.2f", -v)
-}
-
-// Crow's-foot markers must sit on the entity rectangle edge, not at
-// the layout-emitted node center.
-func clipToRectEdge(cx, cy, w, h, ox, oy float64) layout.Point {
-	dx, dy := ox-cx, oy-cy
-	if dx == 0 && dy == 0 {
-		return layout.Point{X: cx, Y: cy}
-	}
-	halfW, halfH := w/2, h/2
-	t := math.Inf(1)
-	if dx != 0 {
-		t = halfW / math.Abs(dx)
-	}
-	if dy != 0 {
-		if ty := halfH / math.Abs(dy); ty < t {
-			t = ty
-		}
-	}
-	// Cap t at 1 so the clip never overshoots the reference point.
-	// Matters when (ox, oy) lies inside the rectangle (e.g. a future
-	// multi-segment polyline whose next vertex is still in the box).
-	if t > 1 {
-		t = 1
-	}
-	return layout.Point{X: cx + dx*t, Y: cy + dy*t}
+	return svgutil.InlineMarkerAt(start.X, start.Y, next.X, next.Y, refX, refY, children)
 }
 
 func entitySize(e diagram.EREntity, ruler *textmeasure.Ruler, fontSize float64) (w, h float64) {
@@ -253,11 +224,13 @@ func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64) 
 		srcDir := pts[1]
 		dstDir := pts[len(pts)-2]
 		if src, ok := l.Nodes[eid.From]; ok {
-			pts[0] = clipToRectEdge(src.X+pad, src.Y+pad, src.Width, src.Height, srcDir.X, srcDir.Y)
+			x, y := svgutil.ClipToRectEdge(src.X+pad, src.Y+pad, src.Width, src.Height, srcDir.X, srcDir.Y)
+			pts[0] = layout.Point{X: x, Y: y}
 		}
 		if dst, ok := l.Nodes[eid.To]; ok {
 			last := len(pts) - 1
-			pts[last] = clipToRectEdge(dst.X+pad, dst.Y+pad, dst.Width, dst.Height, dstDir.X, dstDir.Y)
+			x, y := svgutil.ClipToRectEdge(dst.X+pad, dst.Y+pad, dst.Width, dst.Height, dstDir.X, dstDir.Y)
+			pts[last] = layout.Point{X: x, Y: y}
 		}
 
 		style := "stroke:#333;stroke-width:1.5;fill:none"
@@ -270,12 +243,8 @@ func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64) 
 				MarkerEnd: endRef,
 			})
 		} else {
-			pathD := fmt.Sprintf("M%.2f,%.2f", pts[0].X, pts[0].Y)
-			for _, p := range pts[1:] {
-				pathD += fmt.Sprintf(" L%.2f,%.2f", p.X, p.Y)
-			}
 			elems = append(elems, &path{
-				D:         pathD,
+				D:         polylineD(pts),
 				Style:     style,
 				MarkerEnd: endRef,
 			})

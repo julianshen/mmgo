@@ -1,39 +1,12 @@
 package er
 
 import (
-	"math"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 )
-
-func TestClipToRectEdge(t *testing.T) {
-	cases := []struct {
-		name             string
-		cx, cy, w, h     float64
-		ox, oy           float64
-		wantX, wantY     float64
-	}{
-		{"east", 0, 0, 10, 6, 100, 0, 5, 0},
-		{"west", 0, 0, 10, 6, -100, 0, -5, 0},
-		{"north", 0, 0, 10, 6, 0, -100, 0, -3},
-		{"south", 0, 0, 10, 6, 0, 100, 0, 3},
-		{"NE-w-limited", 0, 0, 10, 100, 50, 50, 5, 5},
-		{"NE-h-limited", 0, 0, 100, 10, 50, 50, 5, 5},
-		{"coincident", 3, 4, 10, 6, 3, 4, 3, 4},
-		{"interior-clamped", 0, 0, 100, 100, 5, 5, 5, 5},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := clipToRectEdge(tc.cx, tc.cy, tc.w, tc.h, tc.ox, tc.oy)
-			if math.Abs(got.X-tc.wantX) > 1e-9 || math.Abs(got.Y-tc.wantY) > 1e-9 {
-				t.Errorf("clipToRectEdge=(%v,%v) want=(%v,%v)", got.X, got.Y, tc.wantX, tc.wantY)
-			}
-		})
-	}
-}
 
 func TestMarkerRefEmpty(t *testing.T) {
 	if got := markerRef(""); got != "" {
