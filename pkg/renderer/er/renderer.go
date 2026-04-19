@@ -86,22 +86,28 @@ func sanitize(v float64) float64 {
 	return v
 }
 
-// startMarkerGroup emits the start-position cardinality marker as an
-// inline <g>. We cannot use SVG marker-start here because
-// tdewolff/canvas (our PNG rasterizer) mis-positions it to (0,0) when
-// marker-end is also set on the same element. Browsers handle the
-// inline group identically.
-func startMarkerGroup(c diagram.ERCardinality, start, dir layout.Point) *group {
+// See erStartGeoms in markers.go for why start markers are inlined
+// rather than referenced via SVG marker-start.
+func startMarkerGroup(c diagram.ERCardinality, start, next layout.Point) *group {
 	children, refX, refY, ok := startMarkerGeom(c)
 	if !ok {
 		return nil
 	}
-	angle := math.Atan2(dir.Y-start.Y, dir.X-start.X) * 180 / math.Pi
+	angle := math.Atan2(next.Y-start.Y, next.X-start.X) * 180 / math.Pi
 	return &group{
-		Transform: fmt.Sprintf("translate(%.2f,%.2f) rotate(%.2f) translate(%.2f,%.2f)",
-			start.X, start.Y, angle, -refX, -refY),
+		Transform: fmt.Sprintf("translate(%.2f,%.2f) rotate(%.2f) translate(%s,%s)",
+			start.X, start.Y, angle, negCoord(refX), negCoord(refY)),
 		Children: children,
 	}
+}
+
+// negCoord formats -v for an SVG transform, avoiding the "-0.00"
+// output that a plain %.2f of -0 produces (ugly in golden-file diffs).
+func negCoord(v float64) string {
+	if v == 0 {
+		return "0.00"
+	}
+	return fmt.Sprintf("%.2f", -v)
 }
 
 // Crow's-foot markers must sit on the entity rectangle edge, not at

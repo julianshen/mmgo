@@ -43,30 +43,50 @@ const (
 	erOptionalCircle = "fill:#fff;stroke:#333;stroke-width:1"
 )
 
-// startMarkerGeom returns the children, refX, and refY for the start-
-// position marker of a given cardinality. Callers inline these
-// children under a transformed <g> rather than using marker-start,
-// which tdewolff/canvas mis-positions when marker-end is also set on
-// the same element (rendering marker-start at (0,0)). Browsers render
-// the inline group identically to a marker-start reference.
-func startMarkerGeom(c diagram.ERCardinality) (children []any, refX, refY float64, ok bool) {
-	switch c {
-	case diagram.ERCardExactlyOne:
-		return []any{&path{D: "M9,0 L9,18 M15,0 L15,18", Style: erMarkerStroke}}, 0, 9, true
-	case diagram.ERCardZeroOrOne:
-		return []any{
+// Start-position cardinality glyphs are inlined under a transformed
+// <g> rather than referenced via marker-start. tdewolff/canvas (our
+// PNG rasterizer) mis-positions marker-start at canvas (0,0) when
+// marker-end is also set on the same element; browsers render the
+// inline group identically, so SVG output is consistent across both.
+//
+// End geometry differs from start geometry by a viewBox shift so the
+// glyph hugs refX=markerWidth; see buildERMarkers below.
+type startGeom struct {
+	children   []any
+	refX, refY float64
+}
+
+var erStartGeoms = map[diagram.ERCardinality]startGeom{
+	diagram.ERCardExactlyOne: {
+		children: []any{&path{D: "M9,0 L9,18 M15,0 L15,18", Style: erMarkerStroke}},
+		refX:     0, refY: 9,
+	},
+	diagram.ERCardZeroOrOne: {
+		children: []any{
 			&circle{CX: 21, CY: 9, R: 6, Style: erOptionalCircle},
 			&path{D: "M9,0 L9,18", Style: erMarkerStroke},
-		}, 0, 9, true
-	case diagram.ERCardOneOrMore:
-		return []any{&path{D: "M0,18 Q18,0 36,18 Q18,36 0,18 M42,9 L42,27", Style: erMarkerStroke}}, 18, 18, true
-	case diagram.ERCardZeroOrMore:
-		return []any{
+		},
+		refX: 0, refY: 9,
+	},
+	diagram.ERCardOneOrMore: {
+		children: []any{&path{D: "M0,18 Q18,0 36,18 Q18,36 0,18 M42,9 L42,27", Style: erMarkerStroke}},
+		refX:     18, refY: 18,
+	},
+	diagram.ERCardZeroOrMore: {
+		children: []any{
 			&circle{CX: 48, CY: 18, R: 6, Style: erOptionalCircle},
 			&path{D: "M0,18 Q18,0 36,18 Q18,36 0,18", Style: erMarkerStroke},
-		}, 18, 18, true
+		},
+		refX: 18, refY: 18,
+	},
+}
+
+func startMarkerGeom(c diagram.ERCardinality) (children []any, refX, refY float64, ok bool) {
+	g, ok := erStartGeoms[c]
+	if !ok {
+		return nil, 0, 0, false
 	}
-	return nil, 0, 0, false
+	return g.children, g.refX, g.refY, true
 }
 
 // Sorted ids keep SVG output stable across runs; map iteration alone

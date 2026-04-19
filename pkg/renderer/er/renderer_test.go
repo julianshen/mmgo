@@ -84,9 +84,6 @@ func TestRenderRelationshipCardinalityMarkers(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	// Only end markers are emitted as <marker> defs; start markers are
-	// inlined as <g transform> groups because tdewolff/canvas
-	// mis-positions marker-start when marker-end is also present.
 	for _, want := range []string{
 		`<defs>`,
 		`id="er-zeroOrMore-end"`,

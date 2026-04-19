@@ -93,8 +93,6 @@ func TestBuildERMarkersDeterministicOrder(t *testing.T) {
 	}
 }
 
-// Only end markers are emitted via <marker> defs; start markers are
-// inlined as <g> groups and don't go through buildERMarkers.
 func TestBuildERMarkersFiltersToUsed(t *testing.T) {
 	d := &diagram.ERDiagram{
 		Relationships: []diagram.ERRelationship{

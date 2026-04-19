@@ -106,7 +106,6 @@ type Defs struct {
 type Group struct {
 	XMLName   xml.Name `xml:"g"`
 	Transform string   `xml:"transform,attr,omitempty"`
-	Style     string   `xml:"style,attr,omitempty"`
 	Children  []any    `xml:",any"`
 }
 
