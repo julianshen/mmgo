@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
 type Options struct {
@@ -24,11 +25,6 @@ const (
 	marginY         = 40.0
 	labelGap        = 6.0
 	branchLabelPadX = 8.0
-
-	// avgCharWidthFactor approximates Source Sans Regular's average
-	// glyph advance as a fraction of font size. Used to size the
-	// branch-label gutter without instantiating a full text ruler.
-	avgCharWidthFactor = 0.6
 
 	labelFill     = "#333"
 	dotStrokeFill = "#fff"
@@ -178,7 +174,7 @@ func branchGutterW(branches []string, fontSize float64) float64 {
 			maxLen = n
 		}
 	}
-	return fontSize * avgCharWidthFactor * float64(maxLen)
+	return fontSize * textmeasure.AvgCharWidth * float64(maxLen)
 }
 
 type dotStyle struct {

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
 func TestRenderNilDiagram(t *testing.T) {
@@ -136,7 +137,7 @@ func TestRenderLongLeftLabelFitsInViewBox(t *testing.T) {
 	// bound; if the renderer didn't shift originX right, this would be <= 0.
 	firstAnchorX := firstLeftLabelX(string(lOut))
 	labelLen := len("A very long label on the left")
-	minAnchorX := float64(labelLen) * defaultFontSize * avgCharWidth
+	minAnchorX := float64(labelLen) * defaultFontSize * textmeasure.AvgCharWidth
 	if firstAnchorX < minAnchorX {
 		t.Errorf("first label anchor X = %.2f, want >= %.2f so label fits in viewBox",
 			firstAnchorX, minAnchorX)

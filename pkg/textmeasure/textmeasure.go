@@ -15,12 +15,28 @@ package textmeasure
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/font/sfnt"
 )
+
+// AvgCharWidth is the approximate per-character advance width as a
+// fraction of font size for the bundled Go Regular font. Renderers
+// that need a rough label width without spinning up a Ruler (e.g.
+// for layout pre-passes where exact metrics aren't critical) use
+// this constant. Callers that need accurate widths for non-ASCII or
+// proportional-font output should use Ruler.Measure instead.
+const AvgCharWidth = 0.6
+
+// EstimateWidth returns a cheap approximate rendered width of s at
+// the given font size, using rune count × fontSize × AvgCharWidth.
+// Rune-aware so multi-byte UTF-8 characters aren't overcounted.
+func EstimateWidth(s string, fontSize float64) float64 {
+	return float64(utf8.RuneCountInString(s)) * fontSize * AvgCharWidth
+}
 
 // Ruler measures text dimensions using font metrics. It caches font faces
 // per size for efficiency in layout hot paths.

@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
 type Options struct {
@@ -24,7 +25,6 @@ const (
 	marginY         = 40.0
 	minCanvasH      = 300.0
 	labelGap        = 6.0
-	avgCharWidth    = 0.6
 
 	bgFill        = "#fff"
 	labelFill     = "#333"
@@ -108,8 +108,8 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 			}
 		}
 	}
-	leftPad := fontSize * avgCharWidth * float64(leftMaxLen)
-	rightPad := fontSize * avgCharWidth * float64(rightMaxLen)
+	leftPad := fontSize * textmeasure.AvgCharWidth * float64(leftMaxLen)
+	rightPad := fontSize * textmeasure.AvgCharWidth * float64(rightMaxLen)
 
 	originX := marginX + leftPad
 	viewW := originX + float64(maxCol)*columnSpacing + nodeW + rightPad + marginX
