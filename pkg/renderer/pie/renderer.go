@@ -16,6 +16,12 @@ const (
 	defaultLegendH  = 20.0
 	legendGap       = 5.0
 	legendSwatchW   = 14.0
+
+	// smallSliceThreshold: slices below this fraction of the pie get
+	// an outside leader-line label rather than centered text, since
+	// thin sectors don't have room for inside labels without
+	// colliding with adjacent thin slices.
+	smallSliceThreshold = 0.06
 )
 
 type Options struct {
@@ -97,23 +103,20 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 			children = append(children, arcPath(cx, cy, defaultRadius, startAngle, endAngle, colorFor(i)))
 			startAngle = endAngle
 		}
-		// Slices below this fraction get an outside label connected
-		// by a short leader line — centered in-slice text would
-		// collide with adjacent thin slices.
-		const smallSliceThreshold = 0.06
 		startAngle = -math.Pi / 2
 		for _, s := range d.Slices {
 			frac := s.Value / total
 			sweep := frac * 2 * math.Pi
 			midAngle := startAngle + sweep/2
+			cosA, sinA := math.Cos(midAngle), math.Sin(midAngle)
 			pct := fmt.Sprintf("%.1f%%", frac*100)
 			label := pct
 			if d.ShowData {
 				label = fmt.Sprintf("%s (%.0f)", pct, s.Value)
 			}
 			if frac >= smallSliceThreshold {
-				lx := cx + defaultRadius*0.65*math.Cos(midAngle)
-				ly := cy + defaultRadius*0.65*math.Sin(midAngle)
+				lx := cx + defaultRadius*0.65*cosA
+				ly := cy + defaultRadius*0.65*sinA
 				children = append(children, &text{
 					X: svgFloat(lx), Y: svgFloat(ly),
 					Anchor: "middle", Dominant: "central",
@@ -121,18 +124,17 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 					Content: label,
 				})
 			} else {
-				// Leader line: from the slice edge out to the label.
-				inX := cx + defaultRadius*0.95*math.Cos(midAngle)
-				inY := cy + defaultRadius*0.95*math.Sin(midAngle)
-				outX := cx + defaultRadius*1.12*math.Cos(midAngle)
-				outY := cy + defaultRadius*1.12*math.Sin(midAngle)
+				inX := cx + defaultRadius*0.95*cosA
+				inY := cy + defaultRadius*0.95*sinA
+				outX := cx + defaultRadius*1.12*cosA
+				outY := cy + defaultRadius*1.12*sinA
 				children = append(children, &line{
 					X1: svgFloat(inX), Y1: svgFloat(inY),
 					X2: svgFloat(outX), Y2: svgFloat(outY),
 					Style: "stroke:#666;stroke-width:1",
 				})
 				anchor := "start"
-				if math.Cos(midAngle) < 0 {
+				if cosA < 0 {
 					anchor = "end"
 				}
 				children = append(children, &text{

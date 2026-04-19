@@ -17,7 +17,29 @@ const (
 	barGap          = 6.0
 	sectionLabelW   = 120.0
 	dayWidth        = 20.0
+
+	// avgCharWidth approximates the per-character width as a fraction
+	// of font size for the bundled font. Used to estimate label
+	// extents without instantiating a text ruler. See gitgraph/sankey
+	// for the same heuristic.
+	avgCharWidth = 0.55
+	// labelInsideSlack is the minimum extra bar width (in pixels)
+	// beyond the estimated label width before the label fits inside.
+	labelInsideSlack = 8.0
+	// labelOutsideGap is the gap between the bar's right edge and an
+	// outside label.
+	labelOutsideGap = 4.0
+	// labelEdgeMargin is the extra viewBox padding past the longest
+	// outside label so it doesn't clip at the right edge.
+	labelEdgeMargin = 12.0
 )
+
+// estimateLabelWidth approximates the rendered width of name at the
+// given font size. Used by both the viewBox sizing pass and the
+// per-task inside/outside label decision.
+func estimateLabelWidth(name string, fontSize float64) float64 {
+	return float64(len(name)) * (fontSize - 1) * avgCharWidth
+}
 
 type Options struct {
 	FontSize float64
@@ -56,15 +78,14 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 	chartH := bodyY + float64(rows)*(barH+barGap) + pad
 
 	// Reserve room for outside-the-bar labels on the rightmost task
-	// so they don't clip past the viewBox edge. avgCharWidth is the
-	// same heuristic used for the in-bar fit decision below.
-	maxLabelLen := 0
+	// so they don't clip past the viewBox edge.
+	maxLabelW := 0.0
 	for _, task := range d.Tasks {
-		if n := len(task.Name); n > maxLabelLen {
-			maxLabelLen = n
+		if w := estimateLabelWidth(task.Name, fontSize); w > maxLabelW {
+			maxLabelW = w
 		}
 	}
-	rightLabelPad := float64(maxLabelLen)*(fontSize-1)*0.55 + 12
+	rightLabelPad := maxLabelW + labelEdgeMargin
 	viewW := pad + sectionLabelW + chartW + rightLabelPad + pad
 	viewH := chartH
 
@@ -116,13 +137,12 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 			RX: 3, RY: 3,
 			Style: fmt.Sprintf("fill:%s;stroke:none", color),
 		})
-		// Estimate label width and place the text outside the bar
-		// (right side, dark color) when the bar is too narrow to hold
-		// it without spillover. Inside-bar labels stay white-on-fill.
-		labelW := float64(len(task.Name)) * (fontSize - 1) * 0.55
-		if labelW+8 > barW {
+		// Place the label outside the bar (right, dark) when the bar
+		// is too narrow to hold it without spillover; inside the bar
+		// (centered, white) otherwise.
+		if estimateLabelWidth(task.Name, fontSize)+labelInsideSlack > barW {
 			children = append(children, &text{
-				X: svgFloat(bx + barW + 4), Y: svgFloat(by + barH/2),
+				X: svgFloat(bx + barW + labelOutsideGap), Y: svgFloat(by + barH/2),
 				Anchor: "start", Dominant: "central",
 				Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
 				Content: task.Name,
