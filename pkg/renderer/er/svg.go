@@ -9,4 +9,6 @@ type (
 	line     = svgutil.Line
 	text     = svgutil.Text
 	path     = svgutil.Path
+	circle   = svgutil.Circle
+	defs     = svgutil.Defs
 )

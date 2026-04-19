@@ -72,6 +72,66 @@ func TestRenderRelationship(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+// Crow's-foot markers: every relationship endpoint must reference a
+// marker def matching its cardinality. mmdc renders ER edges with
+// distinct glyphs at each end; mmgo previously emitted bare lines
+// with no markers.
+func TestRenderRelationshipCardinalityMarkers(t *testing.T) {
+	d := &diagram.ERDiagram{
+		Entities: []diagram.EREntity{{Name: "A"}, {Name: "B"}},
+		Relationships: []diagram.ERRelationship{
+			{From: "A", To: "B", FromCard: diagram.ERCardExactlyOne, ToCard: diagram.ERCardZeroOrMore},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{
+		`<defs>`,
+		`id="er-onlyOne-start"`,
+		`id="er-zeroOrMore-end"`,
+		`marker-start="url(#er-onlyOne-start)"`,
+		`marker-end="url(#er-zeroOrMore-end)"`,
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("missing %q in:\n%s", want, raw)
+		}
+	}
+}
+
+// Each cardinality should round-trip to its own marker id pair.
+func TestRenderAllCardinalities(t *testing.T) {
+	cases := []struct {
+		card diagram.ERCardinality
+		name string
+	}{
+		{diagram.ERCardExactlyOne, "onlyOne"},
+		{diagram.ERCardZeroOrOne, "zeroOrOne"},
+		{diagram.ERCardOneOrMore, "oneOrMore"},
+		{diagram.ERCardZeroOrMore, "zeroOrMore"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &diagram.ERDiagram{
+				Entities: []diagram.EREntity{{Name: "A"}, {Name: "B"}},
+				Relationships: []diagram.ERRelationship{
+					{From: "A", To: "B", FromCard: tc.card, ToCard: tc.card},
+				},
+			}
+			out, _ := Render(d, nil)
+			raw := string(out)
+			if !strings.Contains(raw, "id=\"er-"+tc.name+"-start\"") {
+				t.Errorf("missing start marker def for %s", tc.name)
+			}
+			if !strings.Contains(raw, "id=\"er-"+tc.name+"-end\"") {
+				t.Errorf("missing end marker def for %s", tc.name)
+			}
+		})
+	}
+}
+
 func TestRenderMultipleEntities(t *testing.T) {
 	d := &diagram.ERDiagram{
 		Entities: []diagram.EREntity{

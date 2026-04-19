@@ -61,6 +61,7 @@ func Render(d *diagram.ERDiagram, opts *Options) ([]byte, error) {
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
 		Style: "fill:#fff;stroke:none",
 	})
+	children = append(children, &defs{Markers: buildERMarkers()})
 	children = append(children, renderEdges(d, l, pad, fontSize)...)
 	children = append(children, renderEntities(d, l, pad, fontSize)...)
 
@@ -81,6 +82,31 @@ func sanitize(v float64) float64 {
 		return 0
 	}
 	return v
+}
+
+// clipToRectEdge returns the point where the segment from (cx, cy) to
+// (ox, oy) crosses the axis-aligned rectangle of size (w, h) centered
+// at (cx, cy). Used to pull layout edges back from entity centers to
+// entity edges so cardinality markers sit outside the box.
+func clipToRectEdge(cx, cy, w, h, ox, oy float64) layout.Point {
+	dx, dy := ox-cx, oy-cy
+	if dx == 0 && dy == 0 {
+		return layout.Point{X: cx, Y: cy}
+	}
+	halfW, halfH := w/2, h/2
+	adx, ady := math.Abs(dx), math.Abs(dy)
+	var t float64
+	switch {
+	case ady == 0:
+		t = halfW / adx
+	case adx == 0:
+		t = halfH / ady
+	case adx*halfH > ady*halfW:
+		t = halfW / adx
+	default:
+		t = halfH / ady
+	}
+	return layout.Point{X: cx + dx*t, Y: cy + dy*t}
 }
 
 func entitySize(e diagram.EREntity, ruler *textmeasure.Ruler, fontSize float64) (w, h float64) {
@@ -194,20 +220,46 @@ func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64) 
 		for i, p := range el.Points {
 			pts[i] = layout.Point{X: p.X + pad, Y: p.Y + pad}
 		}
+		// Crow's-foot markers anchor at the path endpoints. Layout
+		// emits center-to-center edges; clipping the first/last point
+		// to the entity rectangle puts the markers on the box edge so
+		// the cardinality glyph reads outside the entity.
+		if src, ok := l.Nodes[eid.From]; ok {
+			pts[0] = clipToRectEdge(
+				src.X+pad, src.Y+pad, src.Width, src.Height,
+				pts[1].X, pts[1].Y,
+			)
+		}
+		if dst, ok := l.Nodes[eid.To]; ok {
+			last := len(pts) - 1
+			pts[last] = clipToRectEdge(
+				dst.X+pad, dst.Y+pad, dst.Width, dst.Height,
+				pts[last-1].X, pts[last-1].Y,
+			)
+		}
 
 		style := "stroke:#333;stroke-width:1.5;fill:none"
+		startRef := markerRef(markerID(rel.FromCard, "start"))
+		endRef := markerRef(markerID(rel.ToCard, "end"))
 		if len(pts) == 2 {
 			elems = append(elems, &line{
 				X1: svgFloat(pts[0].X), Y1: svgFloat(pts[0].Y),
 				X2: svgFloat(pts[1].X), Y2: svgFloat(pts[1].Y),
-				Style: style,
+				Style:       style,
+				MarkerStart: startRef,
+				MarkerEnd:   endRef,
 			})
 		} else {
 			pathD := fmt.Sprintf("M%.2f,%.2f", pts[0].X, pts[0].Y)
 			for _, p := range pts[1:] {
 				pathD += fmt.Sprintf(" L%.2f,%.2f", p.X, p.Y)
 			}
-			elems = append(elems, &path{D: pathD, Style: style})
+			elems = append(elems, &path{
+				D:           pathD,
+				Style:       style,
+				MarkerStart: startRef,
+				MarkerEnd:   endRef,
+			})
 		}
 
 		if rel.Label != "" {
