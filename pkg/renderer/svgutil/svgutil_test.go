@@ -41,15 +41,34 @@ func TestNegCoord(t *testing.T) {
 }
 
 func TestInlineMarkerAt(t *testing.T) {
+	// SVG uses Y-down, so atan2(dy, dx) gives angles where:
+	//   east  +X = 0°, south +Y = 90°, west -X = 180°, north -Y = -90°.
+	cases := []struct {
+		name           string
+		start, next    [2]float64
+		wantRotateDeg  string
+	}{
+		{"east", [2]float64{0, 0}, [2]float64{10, 0}, "rotate(0.00)"},
+		{"south", [2]float64{0, 0}, [2]float64{0, 10}, "rotate(90.00)"},
+		{"west", [2]float64{0, 0}, [2]float64{-10, 0}, "rotate(180.00)"},
+		{"north", [2]float64{0, 0}, [2]float64{0, -10}, "rotate(-90.00)"},
+		{"ne-diagonal", [2]float64{0, 0}, [2]float64{10, -10}, "rotate(-45.00)"},
+		{"coincident", [2]float64{5, 5}, [2]float64{5, 5}, "rotate(0.00)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := InlineMarkerAt(tc.start[0], tc.start[1], tc.next[0], tc.next[1], 0, 9, nil)
+			if !strings.Contains(g.Transform, tc.wantRotateDeg) {
+				t.Errorf("expected %q in %q", tc.wantRotateDeg, g.Transform)
+			}
+		})
+	}
+
+	// Threaded fields: anchor translate, negCoord on refX/refY, children.
 	g := InlineMarkerAt(10, 20, 10, 40, 0, 9, []any{&Rect{Width: 1, Height: 1}})
 	if !strings.Contains(g.Transform, "translate(10.00,20.00)") {
 		t.Errorf("missing anchor translate: %q", g.Transform)
 	}
-	// path going straight down → angle = 90°.
-	if !strings.Contains(g.Transform, "rotate(90.00)") {
-		t.Errorf("expected rotate(90.00): %q", g.Transform)
-	}
-	// refX=0 → "0.00" (not "-0.00"), refY=9 → "-9.00".
 	if !strings.Contains(g.Transform, "translate(0.00,-9.00)") {
 		t.Errorf("expected final translate(0.00,-9.00): %q", g.Transform)
 	}

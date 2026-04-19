@@ -348,14 +348,21 @@ type startGeom struct {
 	refX, refY float64
 }
 
-// Start glyphs point into the "parent" end of the edge (e.g. the
-// hollow triangle of <|--, the diamond of *-- and o--). refX places
-// the glyph's tip on the From-side class boundary after rotation.
+// Start glyphs point into the "parent"/"whole" end of the edge: the
+// hollow triangle of <|--, the filled/hollow diamond of *-- and o--.
+// refX=0 anchors the glyph's tip (inheritance) or its inner vertex
+// (diamonds) onto the class edge, with the rest of the glyph extending
+// into the gap toward the child.
 var startGeoms = map[diagram.RelationType]startGeom{
+	// Tip at local (0, 10) → coincides with anchor; base at x=20
+	// flares into the gap. UML: triangle tip touches parent.
 	diagram.RelationTypeInheritance: {
-		children: []any{&polygon{Points: "0,0 20,10 0,20", Style: "fill:white;stroke:#333;stroke-width:1.5"}},
+		children: []any{&polygon{Points: "20,0 0,10 20,20", Style: "fill:white;stroke:#333;stroke-width:1.5"}},
 		refX:     0, refY: 10,
 	},
+	// Left vertex at local (0, 10) on the anchor; opposite vertex at
+	// x=20 pokes into the gap. UML: composition diamond's point
+	// touches the whole.
 	diagram.RelationTypeComposition: {
 		children: []any{&polygon{Points: "0,10 10,0 20,10 10,20", Style: "fill:#333;stroke:#333;stroke-width:1"}},
 		refX:     0, refY: 10,
