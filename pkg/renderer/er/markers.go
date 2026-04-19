@@ -7,9 +7,9 @@ import (
 	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 )
 
-// Cardinality slug used in marker IDs. Distinct from ERCardinality.String(),
-// which returns human-readable names ("zero-or-one"); these slugs match
-// mermaid-cli's marker id naming so SVG diffs against mmdc stay readable.
+// Slugs match mermaid-cli's marker id naming so SVG diffs against
+// mmdc stay readable; ERCardinality.String() returns human-readable
+// names ("zero-or-one") and is unsuitable as an id fragment.
 func cardSlug(c diagram.ERCardinality) string {
 	switch c {
 	case diagram.ERCardExactlyOne:
@@ -45,10 +45,8 @@ func markerRef(id string) string {
 	return "url(#" + id + ")"
 }
 
-// buildERMarkers emits marker defs only for cardinalities the diagram
-// actually uses, in deterministic order. Mirrors the flowchart pattern
-// in pkg/renderer/flowchart/edges.go so empty/single-cardinality
-// diagrams don't carry the full eight defs in their SVG output.
+// Sorted ids keep SVG output stable across runs; map iteration alone
+// is not deterministic.
 func buildERMarkers(d *diagram.ERDiagram) []svgutil.Marker {
 	const stroke = "stroke:#333;stroke-width:1;fill:none"
 	const optionalFill = "fill:#fff;stroke:#333;stroke-width:1"

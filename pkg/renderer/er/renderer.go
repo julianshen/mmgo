@@ -86,9 +86,8 @@ func sanitize(v float64) float64 {
 	return v
 }
 
-// clipToRectEdge returns the point on the box boundary where the ray
-// from (cx, cy) toward (ox, oy) exits the rectangle. Used so crow's-foot
-// markers sit on the entity edge rather than at the layout-emitted center.
+// Crow's-foot markers must sit on the entity rectangle edge, not at
+// the layout-emitted node center.
 func clipToRectEdge(cx, cy, w, h, ox, oy float64) layout.Point {
 	dx, dy := ox-cx, oy-cy
 	if dx == 0 && dy == 0 {
@@ -103,6 +102,12 @@ func clipToRectEdge(cx, cy, w, h, ox, oy float64) layout.Point {
 		if ty := halfH / math.Abs(dy); ty < t {
 			t = ty
 		}
+	}
+	// Cap t at 1 so the clip never overshoots the reference point.
+	// Matters when (ox, oy) lies inside the rectangle (e.g. a future
+	// multi-segment polyline whose next vertex is still in the box).
+	if t > 1 {
+		t = 1
 	}
 	return layout.Point{X: cx + dx*t, Y: cy + dy*t}
 }
@@ -218,9 +223,9 @@ func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64) 
 		for i, p := range el.Points {
 			pts[i] = layout.Point{X: p.X + pad, Y: p.Y + pad}
 		}
-		// Cache direction references before mutating endpoints — for
-		// 2-point edges pts[0] and pts[len-2] alias each other, so
-		// without this the dst clip would use the already-clipped src.
+		// pts[1] and pts[len-2] alias for 2-point edges; cache before
+		// mutating either endpoint, or the dst clip reads the already-
+		// clipped src as its direction reference.
 		srcDir := pts[1]
 		dstDir := pts[len(pts)-2]
 		if src, ok := l.Nodes[eid.From]; ok {
