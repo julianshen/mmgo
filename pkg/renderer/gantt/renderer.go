@@ -55,7 +55,17 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 	rows := len(d.Tasks) + len(d.Sections)
 	chartH := bodyY + float64(rows)*(barH+barGap) + pad
 
-	viewW := pad + sectionLabelW + chartW + pad
+	// Reserve room for outside-the-bar labels on the rightmost task
+	// so they don't clip past the viewBox edge. avgCharWidth is the
+	// same heuristic used for the in-bar fit decision below.
+	maxLabelLen := 0
+	for _, task := range d.Tasks {
+		if n := len(task.Name); n > maxLabelLen {
+			maxLabelLen = n
+		}
+	}
+	rightLabelPad := float64(maxLabelLen)*(fontSize-1)*0.55 + 12
+	viewW := pad + sectionLabelW + chartW + rightLabelPad + pad
 	viewH := chartH
 
 	var children []any
@@ -106,12 +116,25 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 			RX: 3, RY: 3,
 			Style: fmt.Sprintf("fill:%s;stroke:none", color),
 		})
-		children = append(children, &text{
-			X: svgFloat(bx + barW/2), Y: svgFloat(by + barH/2),
-			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:white;font-size:%.0fpx", fontSize-1),
-			Content: task.Name,
-		})
+		// Estimate label width and place the text outside the bar
+		// (right side, dark color) when the bar is too narrow to hold
+		// it without spillover. Inside-bar labels stay white-on-fill.
+		labelW := float64(len(task.Name)) * (fontSize - 1) * 0.55
+		if labelW+8 > barW {
+			children = append(children, &text{
+				X: svgFloat(bx + barW + 4), Y: svgFloat(by + barH/2),
+				Anchor: "start", Dominant: "central",
+				Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
+				Content: task.Name,
+			})
+		} else {
+			children = append(children, &text{
+				X: svgFloat(bx + barW/2), Y: svgFloat(by + barH/2),
+				Anchor: "middle", Dominant: "central",
+				Style:   fmt.Sprintf("fill:white;font-size:%.0fpx", fontSize-1),
+				Content: task.Name,
+			})
+		}
 		curY += barH + barGap
 	}
 

@@ -97,24 +97,51 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 			children = append(children, arcPath(cx, cy, defaultRadius, startAngle, endAngle, colorFor(i)))
 			startAngle = endAngle
 		}
+		// Slices below this fraction get an outside label connected
+		// by a short leader line — centered in-slice text would
+		// collide with adjacent thin slices.
+		const smallSliceThreshold = 0.06
 		startAngle = -math.Pi / 2
 		for _, s := range d.Slices {
 			frac := s.Value / total
 			sweep := frac * 2 * math.Pi
 			midAngle := startAngle + sweep/2
-			lx := cx + defaultRadius*0.65*math.Cos(midAngle)
-			ly := cy + defaultRadius*0.65*math.Sin(midAngle)
 			pct := fmt.Sprintf("%.1f%%", frac*100)
 			label := pct
 			if d.ShowData {
 				label = fmt.Sprintf("%s (%.0f)", pct, s.Value)
 			}
-			children = append(children, &text{
-				X: svgFloat(lx), Y: svgFloat(ly),
-				Anchor: "middle", Dominant: "central",
-				Style:   fmt.Sprintf("fill:white;font-size:%.0fpx;font-weight:bold", fontSize-1),
-				Content: label,
-			})
+			if frac >= smallSliceThreshold {
+				lx := cx + defaultRadius*0.65*math.Cos(midAngle)
+				ly := cy + defaultRadius*0.65*math.Sin(midAngle)
+				children = append(children, &text{
+					X: svgFloat(lx), Y: svgFloat(ly),
+					Anchor: "middle", Dominant: "central",
+					Style:   fmt.Sprintf("fill:white;font-size:%.0fpx;font-weight:bold", fontSize-1),
+					Content: label,
+				})
+			} else {
+				// Leader line: from the slice edge out to the label.
+				inX := cx + defaultRadius*0.95*math.Cos(midAngle)
+				inY := cy + defaultRadius*0.95*math.Sin(midAngle)
+				outX := cx + defaultRadius*1.12*math.Cos(midAngle)
+				outY := cy + defaultRadius*1.12*math.Sin(midAngle)
+				children = append(children, &line{
+					X1: svgFloat(inX), Y1: svgFloat(inY),
+					X2: svgFloat(outX), Y2: svgFloat(outY),
+					Style: "stroke:#666;stroke-width:1",
+				})
+				anchor := "start"
+				if math.Cos(midAngle) < 0 {
+					anchor = "end"
+				}
+				children = append(children, &text{
+					X: svgFloat(outX), Y: svgFloat(outY),
+					Anchor: anchor, Dominant: "central",
+					Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
+					Content: label,
+				})
+			}
 			startAngle += sweep
 		}
 	}
