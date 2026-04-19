@@ -84,15 +84,25 @@ func TestRenderRelationshipCardinalityMarkers(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
+	// Only end markers are emitted as <marker> defs; start markers are
+	// inlined as <g transform> groups because tdewolff/canvas
+	// mis-positions marker-start when marker-end is also present.
 	for _, want := range []string{
 		`<defs>`,
-		`id="er-onlyOne-start"`,
 		`id="er-zeroOrMore-end"`,
-		`marker-start="url(#er-onlyOne-start)"`,
 		`marker-end="url(#er-zeroOrMore-end)"`,
+		`<g transform="translate(`, // inline start marker group
 	} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("missing %q in:\n%s", want, raw)
+		}
+	}
+	for _, unwanted := range []string{
+		`marker-start=`,
+		`id="er-onlyOne-start"`,
+	} {
+		if strings.Contains(raw, unwanted) {
+			t.Errorf("unwanted substring %q in:\n%s", unwanted, raw)
 		}
 	}
 }
@@ -117,11 +127,12 @@ func TestRenderAllCardinalities(t *testing.T) {
 			}
 			out, _ := Render(d, nil)
 			raw := string(out)
-			if !strings.Contains(raw, "id=\"er-"+tc.name+"-start\"") {
-				t.Errorf("missing start marker def for %s", tc.name)
-			}
 			if !strings.Contains(raw, "id=\"er-"+tc.name+"-end\"") {
 				t.Errorf("missing end marker def for %s", tc.name)
+			}
+			// Start markers are inline — just assert the transformed <g>.
+			if !strings.Contains(raw, `<g transform="translate(`) {
+				t.Errorf("missing inline start marker group for %s", tc.name)
 			}
 		})
 	}
