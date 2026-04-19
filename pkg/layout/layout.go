@@ -177,6 +177,17 @@ func Layout(g *graph.Graph, opts Options) *Result {
 		}
 		return sz.width
 	}
+	// rankDim is the dimension PARALLEL to rank progression — height
+	// for TB/BT, width for LR/RL. Without it, rank spacing would be
+	// a fixed RankSep regardless of node size, causing wide nodes to
+	// overlap across ranks in LR layouts.
+	rankDim := func(id string) float64 {
+		sz := sizes[id]
+		if opts.RankDir == RankDirLR || opts.RankDir == RankDirRL {
+			return sz.width
+		}
+		return sz.height
+	}
 
 	acyclic.Run(work)
 	ranks := rank.Run(work)
@@ -184,6 +195,7 @@ func Layout(g *graph.Graph, opts Options) *Result {
 	coords := position.Run(work, ord, packingDim, position.Options{
 		NodeSep: opts.NodeSep,
 		RankSep: opts.RankSep,
+		RankDim: rankDim,
 	})
 
 	nodes, width, height := buildNodesAndBounds(g, coords, sizes, opts.RankDir)
