@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
 const (
@@ -44,6 +45,12 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 		fontSize = opts.FontSize
 	}
 
+	ruler, err := textmeasure.NewDefaultRuler()
+	if err != nil {
+		return nil, fmt.Errorf("pie render: text measurer: %w", err)
+	}
+	defer func() { _ = ruler.Close() }()
+
 	total := 0.0
 	for _, s := range d.Slices {
 		total += s.Value
@@ -58,7 +65,7 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 	if total > 0 && len(d.Slices) > 1 {
 		for _, s := range d.Slices {
 			if s.Value/total < smallSliceThreshold {
-				w := estimateLabelWidth(formatSliceLabel(s, total, d.ShowData), fontSize)
+				w, _ := ruler.Measure(formatSliceLabel(s, total, d.ShowData), fontSize-1)
 				if w > outsideGutter {
 					outsideGutter = w
 				}
@@ -222,9 +229,3 @@ func formatSliceLabel(s diagram.Slice, total float64, showData bool) string {
 	return pct
 }
 
-// estimateLabelWidth approximates the rendered width of s in pixels at
-// the given font size. Same heuristic the gantt renderer uses; lifting
-// to a shared helper is tracked as a follow-up.
-func estimateLabelWidth(s string, fontSize float64) float64 {
-	return float64(len(s)) * (fontSize - 1) * 0.55
-}
