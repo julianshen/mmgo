@@ -49,13 +49,14 @@ type Rect struct {
 }
 
 type Line struct {
-	XMLName   xml.Name `xml:"line"`
-	X1        Float    `xml:"x1,attr"`
-	Y1        Float    `xml:"y1,attr"`
-	X2        Float    `xml:"x2,attr"`
-	Y2        Float    `xml:"y2,attr"`
-	Style     string   `xml:"style,attr,omitempty"`
-	MarkerEnd string   `xml:"marker-end,attr,omitempty"`
+	XMLName     xml.Name `xml:"line"`
+	X1          Float    `xml:"x1,attr"`
+	Y1          Float    `xml:"y1,attr"`
+	X2          Float    `xml:"x2,attr"`
+	Y2          Float    `xml:"y2,attr"`
+	Style       string   `xml:"style,attr,omitempty"`
+	MarkerStart string   `xml:"marker-start,attr,omitempty"`
+	MarkerEnd   string   `xml:"marker-end,attr,omitempty"`
 }
 
 type Text struct {
@@ -90,10 +91,11 @@ type Polyline struct {
 }
 
 type Path struct {
-	XMLName   xml.Name `xml:"path"`
-	D         string   `xml:"d,attr"`
-	Style     string   `xml:"style,attr,omitempty"`
-	MarkerEnd string   `xml:"marker-end,attr,omitempty"`
+	XMLName     xml.Name `xml:"path"`
+	D           string   `xml:"d,attr"`
+	Style       string   `xml:"style,attr,omitempty"`
+	MarkerStart string   `xml:"marker-start,attr,omitempty"`
+	MarkerEnd   string   `xml:"marker-end,attr,omitempty"`
 }
 
 type Defs struct {
