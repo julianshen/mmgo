@@ -108,6 +108,24 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 
 	lastHalfW := widths[n-1] / 2
 	totalW := xs[n-1] + lastHalfW + pad
+	// Notes anchored "right of" the last participant (and "left of"
+	// the first) extend past the participant boxes; reserve room so
+	// the note rect doesn't clip at the viewBox edge.
+	pIndex := make(map[string]int, n)
+	for i, p := range d.Participants {
+		pIndex[p.ID] = i
+	}
+	leftBleed, rightBleed := noteBleed(d.Items, pIndex, n)
+	if extra := leftBleed - pad; extra > 0 {
+		// Shift everything right so left-side notes fit.
+		for i := range xs {
+			xs[i] += extra
+		}
+		totalW += extra
+	}
+	if extra := rightBleed - pad; extra > 0 {
+		totalW += extra
+	}
 	totalH := bodyEnd + pad
 
 	return seqLayout{
@@ -122,6 +140,55 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 
 func actorHeight(fontSize float64) float64 {
 	return 2*defaultActorHeadR + defaultActorBodyH + fontSize + 2
+}
+
+// noteBleed returns the pixel extent past the leftmost and rightmost
+// participants needed to fit any "Note left of" / "Note right of"
+// items. Mirrors the geometry in messageRenderer.renderNote.
+func noteBleed(items []diagram.SequenceItem, pIndex map[string]int, n int) (left, right float64) {
+	const noteHalfW = 60.0  // half of noteW
+	const noteOff = 10.0    // matches noteOffset
+	for _, item := range items {
+		switch {
+		case item.Note != nil && len(item.Note.Participants) > 0:
+			idx, ok := pIndex[item.Note.Participants[0]]
+			if !ok {
+				continue
+			}
+			switch item.Note.Position {
+			case diagram.NotePositionLeft:
+				if idx == 0 {
+					if w := noteOff + 2*noteHalfW; w > left {
+						left = w
+					}
+				}
+			case diagram.NotePositionRight:
+				if idx == n-1 {
+					if w := noteOff + 2*noteHalfW; w > right {
+						right = w
+					}
+				}
+			}
+		case item.Block != nil:
+			l, r := noteBleed(item.Block.Items, pIndex, n)
+			if l > left {
+				left = l
+			}
+			if r > right {
+				right = r
+			}
+			for _, br := range item.Block.Branches {
+				bl, br_ := noteBleed(br.Items, pIndex, n)
+				if bl > left {
+					left = bl
+				}
+				if br_ > right {
+					right = br_
+				}
+			}
+		}
+	}
+	return
 }
 
 func countRows(d *diagram.SequenceDiagram) int {
