@@ -69,8 +69,12 @@ func TestRenderRelationship(t *testing.T) {
 	if !strings.Contains(raw, ">Animal<") || !strings.Contains(raw, ">Dog<") {
 		t.Error("class labels missing")
 	}
-	if !strings.Contains(raw, "marker-end") {
-		t.Error("expected arrow marker on relationship")
+	// Inheritance: glyph sits at the parent end (From side), inlined.
+	if !strings.Contains(raw, `<g transform="translate(`) {
+		t.Error("expected inline start glyph for inheritance")
+	}
+	if strings.Contains(raw, "marker-end") {
+		t.Error("inheritance should not use marker-end")
 	}
 	assertValidSVG(t, out)
 }
@@ -112,32 +116,54 @@ func TestRenderMultipleClasses(t *testing.T) {
 }
 
 func TestRenderAllRelationTypes(t *testing.T) {
-	types := []diagram.RelationType{
-		diagram.RelationTypeInheritance,
-		diagram.RelationTypeComposition,
-		diagram.RelationTypeAggregation,
-		diagram.RelationTypeAssociation,
-		diagram.RelationTypeDependency,
-		diagram.RelationTypeRealization,
-		diagram.RelationTypeLink,
-		diagram.RelationTypeDashedLink,
+	// Start-side glyphs (parent/whole on the left of the arrow).
+	// End-side glyphs (arrow/dependency target on the right).
+	// Link/DashedLink carry no marker.
+	cases := []struct {
+		rt           diagram.RelationType
+		wantStartInline bool
+		wantEndMarker bool
+		wantDashed    bool
+	}{
+		{diagram.RelationTypeInheritance, true, false, false},
+		{diagram.RelationTypeComposition, true, false, false},
+		{diagram.RelationTypeAggregation, true, false, false},
+		{diagram.RelationTypeRealization, false, true, true},
+		{diagram.RelationTypeDependency, false, true, true},
+		{diagram.RelationTypeAssociation, false, true, false},
+		{diagram.RelationTypeLink, false, false, false},
+		{diagram.RelationTypeDashedLink, false, false, true},
 	}
-	for _, rt := range types {
-		t.Run(rt.String(), func(t *testing.T) {
+	for _, tc := range cases {
+		t.Run(tc.rt.String(), func(t *testing.T) {
 			d := &diagram.ClassDiagram{
 				Classes: []diagram.ClassDef{
 					{ID: "A", Label: "A"},
 					{ID: "B", Label: "B"},
 				},
 				Relations: []diagram.ClassRelation{
-					{From: "A", To: "B", RelationType: rt},
+					{From: "A", To: "B", RelationType: tc.rt},
 				},
 			}
 			out, err := Render(d, nil)
 			if err != nil {
 				t.Fatalf("Render: %v", err)
 			}
+			raw := string(out)
 			assertValidSVG(t, out)
+
+			hasStartInline := strings.Contains(raw, `<g transform="translate(`)
+			if hasStartInline != tc.wantStartInline {
+				t.Errorf("%s: start inline glyph: got %v, want %v", tc.rt, hasStartInline, tc.wantStartInline)
+			}
+			hasEndMarker := strings.Contains(raw, `marker-end="url(#`)
+			if hasEndMarker != tc.wantEndMarker {
+				t.Errorf("%s: marker-end: got %v, want %v", tc.rt, hasEndMarker, tc.wantEndMarker)
+			}
+			hasDashed := strings.Contains(raw, "stroke-dasharray")
+			if hasDashed != tc.wantDashed {
+				t.Errorf("%s: stroke-dasharray: got %v, want %v", tc.rt, hasDashed, tc.wantDashed)
+			}
 		})
 	}
 }

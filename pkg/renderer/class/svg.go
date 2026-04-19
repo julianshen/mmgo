@@ -12,4 +12,5 @@ type (
 	path     = svgutil.Path
 	defs     = svgutil.Defs
 	marker   = svgutil.Marker
+	group    = svgutil.Group
 )

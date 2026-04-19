@@ -59,7 +59,9 @@ func Render(d *diagram.ClassDiagram, opts *Options) ([]byte, error) {
 	viewH := sanitize(l.Height) + 2*pad
 
 	var children []any
-	children = append(children, buildDefs(d))
+	if defs := buildDefs(d); defs != nil {
+		children = append(children, defs)
+	}
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
 		Style: "fill:#fff;stroke:none",
@@ -261,9 +263,7 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 		}
 
 		style := "stroke:#333;stroke-width:1.5;fill:none"
-		switch rel.RelationType {
-		case diagram.RelationTypeDependency, diagram.RelationTypeRealization,
-			diagram.RelationTypeDashedLink:
+		if relationIsDashed(rel.RelationType) {
 			style += ";stroke-dasharray:5,5"
 		}
 
@@ -271,24 +271,43 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 		for i, p := range el.Points {
 			pts[i] = layout.Point{X: p.X + pad, Y: p.Y + pad}
 		}
+		// pts[1] and pts[len-2] alias for 2-point edges; cache before
+		// mutating either endpoint, or the dst clip reads the already-
+		// clipped src as its direction reference.
+		srcDir := pts[1]
+		dstDir := pts[len(pts)-2]
+		if src, ok := l.Nodes[eid.From]; ok {
+			pts[0] = clipToRectEdge(src.X+pad, src.Y+pad, src.Width, src.Height, srcDir.X, srcDir.Y)
+		}
+		if dst, ok := l.Nodes[eid.To]; ok {
+			last := len(pts) - 1
+			pts[last] = clipToRectEdge(dst.X+pad, dst.Y+pad, dst.Width, dst.Height, dstDir.X, dstDir.Y)
+		}
 
+		endRef := ""
+		if id := endMarkerID(rel.RelationType); id != "" {
+			endRef = fmt.Sprintf("url(#%s)", id)
+		}
 		if len(pts) == 2 {
-			ln := &line{
+			elems = append(elems, &line{
 				X1: svgFloat(pts[0].X), Y1: svgFloat(pts[0].Y),
 				X2: svgFloat(pts[1].X), Y2: svgFloat(pts[1].Y),
-				Style: style,
-			}
-			ln.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(rel.RelationType))
-			elems = append(elems, ln)
+				Style:     style,
+				MarkerEnd: endRef,
+			})
 		} else {
-			d := fmt.Sprintf("M%.2f,%.2f", pts[0].X, pts[0].Y)
+			pathD := fmt.Sprintf("M%.2f,%.2f", pts[0].X, pts[0].Y)
 			for _, p := range pts[1:] {
-				d += fmt.Sprintf(" L%.2f,%.2f", p.X, p.Y)
+				pathD += fmt.Sprintf(" L%.2f,%.2f", p.X, p.Y)
 			}
 			elems = append(elems, &path{
-				D: d, Style: style,
-				MarkerEnd: fmt.Sprintf("url(#%s)", markerID(rel.RelationType)),
+				D:         pathD,
+				Style:     style,
+				MarkerEnd: endRef,
 			})
+		}
+		if g := startMarkerGroup(rel.RelationType, pts[0], srcDir); g != nil {
+			elems = append(elems, g)
 		}
 
 		if rel.Label != "" {
@@ -305,14 +324,118 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 	return elems
 }
 
-func markerID(rt diagram.RelationType) string {
-	return fmt.Sprintf("cls-%s", rt.String())
+func relationIsDashed(rt diagram.RelationType) bool {
+	switch rt {
+	case diagram.RelationTypeDependency,
+		diagram.RelationTypeRealization,
+		diagram.RelationTypeDashedLink:
+		return true
+	}
+	return false
+}
+
+// Mermaid class arrows put the "parent" or "whole" glyph on the left
+// side of the arrow literal (e.g. A <|-- B, A *-- B). Layout gives us
+// a From→To polyline, so those glyphs must render at the From end,
+// which SVG calls marker-start. See pkg/renderer/er/markers.go for
+// why start glyphs are inlined rather than referenced via marker-start.
+func endMarkerID(rt diagram.RelationType) string {
+	switch rt {
+	case diagram.RelationTypeAssociation,
+		diagram.RelationTypeDependency,
+		diagram.RelationTypeRealization:
+		return "cls-" + rt.String()
+	}
+	return ""
+}
+
+func startMarkerGroup(rt diagram.RelationType, start, next layout.Point) *group {
+	children, refX, refY, ok := startMarkerGeom(rt)
+	if !ok {
+		return nil
+	}
+	angle := math.Atan2(next.Y-start.Y, next.X-start.X) * 180 / math.Pi
+	return &group{
+		Transform: fmt.Sprintf("translate(%.2f,%.2f) rotate(%.2f) translate(%s,%s)",
+			start.X, start.Y, angle, negCoord(refX), negCoord(refY)),
+		Children: children,
+	}
+}
+
+type startGeom struct {
+	children   []any
+	refX, refY float64
+}
+
+// Start glyphs point into the "parent" end of the edge (e.g. the
+// hollow triangle of <|--, the diamond of *-- and o--). refX places
+// the glyph's tip on the From-side class boundary after rotation.
+var startGeoms = map[diagram.RelationType]startGeom{
+	diagram.RelationTypeInheritance: {
+		children: []any{&polygon{Points: "0,0 20,10 0,20", Style: "fill:white;stroke:#333;stroke-width:1.5"}},
+		refX:     0, refY: 10,
+	},
+	diagram.RelationTypeComposition: {
+		children: []any{&polygon{Points: "0,10 10,0 20,10 10,20", Style: "fill:#333;stroke:#333;stroke-width:1"}},
+		refX:     0, refY: 10,
+	},
+	diagram.RelationTypeAggregation: {
+		children: []any{&polygon{Points: "0,10 10,0 20,10 10,20", Style: "fill:white;stroke:#333;stroke-width:1"}},
+		refX:     0, refY: 10,
+	},
+}
+
+func startMarkerGeom(rt diagram.RelationType) (children []any, refX, refY float64, ok bool) {
+	g, ok := startGeoms[rt]
+	if !ok {
+		return nil, 0, 0, false
+	}
+	return g.children, g.refX, g.refY, true
+}
+
+// negCoord formats -v for an SVG transform, avoiding the "-0.00"
+// output that a plain %.2f of -0 produces.
+func negCoord(v float64) string {
+	if v == 0 {
+		return "0.00"
+	}
+	return fmt.Sprintf("%.2f", -v)
+}
+
+// clipToRectEdge returns the point on the axis-aligned rectangle
+// boundary where the ray from (cx, cy) toward (ox, oy) exits. Keeps
+// relationship endpoints on the class edge so glyphs don't render
+// inside the box.
+func clipToRectEdge(cx, cy, w, h, ox, oy float64) layout.Point {
+	dx, dy := ox-cx, oy-cy
+	if dx == 0 && dy == 0 {
+		return layout.Point{X: cx, Y: cy}
+	}
+	halfW, halfH := w/2, h/2
+	t := math.Inf(1)
+	if dx != 0 {
+		t = halfW / math.Abs(dx)
+	}
+	if dy != 0 {
+		if ty := halfH / math.Abs(dy); ty < t {
+			t = ty
+		}
+	}
+	if t > 1 {
+		t = 1
+	}
+	return layout.Point{X: cx + dx*t, Y: cy + dy*t}
 }
 
 func buildDefs(d *diagram.ClassDiagram) *defs {
 	needed := make(map[diagram.RelationType]bool)
 	for _, r := range d.Relations {
-		needed[r.RelationType] = true
+		if endMarkerID(r.RelationType) != "" {
+			needed[r.RelationType] = true
+		}
+	}
+	if len(needed) == 0 {
+		return nil
 	}
 
 	types := make([]diagram.RelationType, 0, len(needed))
@@ -321,32 +444,22 @@ func buildDefs(d *diagram.ClassDiagram) *defs {
 	}
 	sort.Slice(types, func(i, j int) bool { return types[i] < types[j] })
 
-	var markers []marker
+	markers := make([]marker, 0, len(types))
 	for _, rt := range types {
-		markers = append(markers, buildMarker(rt))
+		markers = append(markers, buildEndMarker(rt))
 	}
 	return &defs{Markers: markers}
 }
 
-func buildMarker(rt diagram.RelationType) marker {
+func buildEndMarker(rt diagram.RelationType) marker {
 	m := marker{
-		ID: markerID(rt), ViewBox: "0 0 20 20",
+		ID: "cls-" + rt.String(), ViewBox: "0 0 20 20",
 		RefX: 18, RefY: 10, Width: 12, Height: 12, Orient: "auto",
 	}
 	switch rt {
-	case diagram.RelationTypeInheritance:
-		m.Children = []any{&polygon{Points: "0,0 20,10 0,20", Style: "fill:white;stroke:#333;stroke-width:1.5"}}
 	case diagram.RelationTypeRealization:
 		m.Children = []any{&polygon{Points: "0,0 20,10 0,20", Style: "fill:white;stroke:#333;stroke-width:1.5"}}
-	case diagram.RelationTypeComposition:
-		m.RefX = 20
-		m.Children = []any{&polygon{Points: "0,10 10,0 20,10 10,20", Style: "fill:#333;stroke:#333;stroke-width:1"}}
-	case diagram.RelationTypeAggregation:
-		m.RefX = 20
-		m.Children = []any{&polygon{Points: "0,10 10,0 20,10 10,20", Style: "fill:white;stroke:#333;stroke-width:1"}}
 	case diagram.RelationTypeDependency, diagram.RelationTypeAssociation:
-		m.Children = []any{&polygon{Points: "0,0 20,10 0,20", Style: "fill:#333;stroke:#333;stroke-width:1"}}
-	default:
 		m.Children = []any{&polygon{Points: "0,0 20,10 0,20", Style: "fill:#333;stroke:#333;stroke-width:1"}}
 	}
 	return m
