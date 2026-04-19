@@ -7,6 +7,7 @@ type (
 	svgDoc   = svgutil.Doc
 	rect     = svgutil.Rect
 	circle   = svgutil.Circle
+	line     = svgutil.Line
 	path     = svgutil.Path
 	text     = svgutil.Text
 )

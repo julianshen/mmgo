@@ -124,6 +124,29 @@ func TestRenderProducesArcPaths(t *testing.T) {
 	}
 }
 
+// Slices below smallSliceThreshold get an outside leader-line label
+// instead of centered white text. A 1% slice in this configuration
+// must produce a <line> and a dark-fill label.
+func TestRenderSmallSliceLeaderLine(t *testing.T) {
+	d := &diagram.PieDiagram{
+		Slices: []diagram.Slice{
+			{Label: "Big", Value: 99},
+			{Label: "Tiny", Value: 1},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<line") {
+		t.Error("expected <line> leader for small slice")
+	}
+	if !strings.Contains(raw, "fill:#333") {
+		t.Error("expected dark fill (#333) for outside small-slice label")
+	}
+}
+
 func assertValidSVG(t *testing.T, svgBytes []byte) {
 	t.Helper()
 	body := svgBytes

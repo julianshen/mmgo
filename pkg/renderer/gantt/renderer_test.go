@@ -112,6 +112,30 @@ func TestRenderDeterministic(t *testing.T) {
 	}
 }
 
+// A task whose name doesn't fit inside its bar gets the label
+// rendered to the right of the bar (text-anchor=start, dark fill)
+// instead of centered (white).
+func TestRenderNarrowBarOutsideLabel(t *testing.T) {
+	now := time.Now()
+	d := &diagram.GanttDiagram{
+		Tasks: []diagram.GanttTask{
+			{Name: "An extremely long task name that won't fit",
+				Start: now, End: now.Add(24 * time.Hour)},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, `text-anchor="start"`) {
+		t.Error("expected text-anchor=\"start\" for outside-bar label")
+	}
+	if !strings.Contains(raw, "fill:#333") {
+		t.Error("expected dark fill for outside-bar label")
+	}
+}
+
 func assertValidSVG(t *testing.T, svgBytes []byte) {
 	t.Helper()
 	body := svgBytes

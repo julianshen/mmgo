@@ -16,6 +16,12 @@ const (
 	defaultLegendH  = 20.0
 	legendGap       = 5.0
 	legendSwatchW   = 14.0
+
+	// smallSliceThreshold: slices below this fraction of the pie get
+	// an outside leader-line label rather than centered text, since
+	// thin sectors don't have room for inside labels without
+	// colliding with adjacent thin slices.
+	smallSliceThreshold = 0.06
 )
 
 type Options struct {
@@ -44,13 +50,31 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 	}
 
 	pad := defaultPadding
-	cx := pad + defaultRadius
+	// Reserve a side gutter wide enough to fit the worst-case outside
+	// label for any small slice. Without this, labels at angles near
+	// 180° (anchor=end) clip past x=0, and labels near 0° (anchor=start)
+	// can collide with the legend.
+	outsideGutter := 0.0
+	if total > 0 && len(d.Slices) > 1 {
+		for _, s := range d.Slices {
+			if s.Value/total < smallSliceThreshold {
+				w := estimateLabelWidth(formatSliceLabel(s, total, d.ShowData), fontSize)
+				if w > outsideGutter {
+					outsideGutter = w
+				}
+			}
+		}
+		if outsideGutter > 0 {
+			outsideGutter += 6 // tiny breathing room
+		}
+	}
+	cx := pad + outsideGutter + defaultRadius
 	cy := pad + defaultRadius
 	if d.Title != "" {
 		cy += fontSize + 10
 	}
 
-	legendX := cx + defaultRadius + pad
+	legendX := cx + defaultRadius + outsideGutter + pad
 	legendY := cy - defaultRadius
 
 	viewW := legendX + defaultLegendW + pad
@@ -102,19 +126,38 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 			frac := s.Value / total
 			sweep := frac * 2 * math.Pi
 			midAngle := startAngle + sweep/2
-			lx := cx + defaultRadius*0.65*math.Cos(midAngle)
-			ly := cy + defaultRadius*0.65*math.Sin(midAngle)
-			pct := fmt.Sprintf("%.1f%%", frac*100)
-			label := pct
-			if d.ShowData {
-				label = fmt.Sprintf("%s (%.0f)", pct, s.Value)
+			cosA, sinA := math.Cos(midAngle), math.Sin(midAngle)
+			label := formatSliceLabel(s, total, d.ShowData)
+			if frac >= smallSliceThreshold {
+				lx := cx + defaultRadius*0.65*cosA
+				ly := cy + defaultRadius*0.65*sinA
+				children = append(children, &text{
+					X: svgFloat(lx), Y: svgFloat(ly),
+					Anchor: "middle", Dominant: "central",
+					Style:   fmt.Sprintf("fill:white;font-size:%.0fpx;font-weight:bold", fontSize-1),
+					Content: label,
+				})
+			} else {
+				inX := cx + defaultRadius*0.95*cosA
+				inY := cy + defaultRadius*0.95*sinA
+				outX := cx + defaultRadius*1.12*cosA
+				outY := cy + defaultRadius*1.12*sinA
+				children = append(children, &line{
+					X1: svgFloat(inX), Y1: svgFloat(inY),
+					X2: svgFloat(outX), Y2: svgFloat(outY),
+					Style: "stroke:#666;stroke-width:1",
+				})
+				anchor := "start"
+				if cosA < 0 {
+					anchor = "end"
+				}
+				children = append(children, &text{
+					X: svgFloat(outX), Y: svgFloat(outY),
+					Anchor: anchor, Dominant: "central",
+					Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
+					Content: label,
+				})
 			}
-			children = append(children, &text{
-				X: svgFloat(lx), Y: svgFloat(ly),
-				Anchor: "middle", Dominant: "central",
-				Style:   fmt.Sprintf("fill:white;font-size:%.0fpx;font-weight:bold", fontSize-1),
-				Content: label,
-			})
 			startAngle += sweep
 		}
 	}
@@ -166,4 +209,22 @@ func arcPath(cx, cy, r, startAngle, endAngle float64, color string) *path {
 
 func colorFor(i int) string {
 	return defaultColors[i%len(defaultColors)]
+}
+
+// formatSliceLabel returns the percentage (and optional count) text
+// shown on a pie slice. Used both at render time and during the
+// pre-pass that sizes the outside-label gutter.
+func formatSliceLabel(s diagram.Slice, total float64, showData bool) string {
+	pct := fmt.Sprintf("%.1f%%", (s.Value/total)*100)
+	if showData {
+		return fmt.Sprintf("%s (%.0f)", pct, s.Value)
+	}
+	return pct
+}
+
+// estimateLabelWidth approximates the rendered width of s in pixels at
+// the given font size. Same heuristic the gantt renderer uses; lifting
+// to a shared helper is tracked as a follow-up.
+func estimateLabelWidth(s string, fontSize float64) float64 {
+	return float64(len(s)) * (fontSize - 1) * 0.55
 }
