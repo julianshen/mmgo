@@ -77,16 +77,26 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 	rows := len(d.Tasks) + len(d.Sections)
 	chartH := bodyY + float64(rows)*(barH+barGap) + pad
 
-	// Reserve room for outside-the-bar labels on the rightmost task
-	// so they don't clip past the viewBox edge.
-	maxLabelW := 0.0
+	// Reserve right-edge room only for tasks whose label actually
+	// overflows their bar — adding the worst-case label width to
+	// every chart wastes whitespace on most diagrams.
+	chartX := pad + sectionLabelW
+	rightExtent := chartX + chartW
 	for _, task := range d.Tasks {
-		if w := estimateLabelWidth(task.Name, fontSize); w > maxLabelW {
-			maxLabelW = w
+		startOffset := task.Start.Sub(minDate).Hours() / 24 * dayWidth
+		endOffset := task.End.Sub(minDate).Hours() / 24 * dayWidth
+		barW := endOffset - startOffset
+		if barW < 2 {
+			barW = 2
+		}
+		labelW := estimateLabelWidth(task.Name, fontSize)
+		if labelW+labelInsideSlack > barW {
+			if e := chartX + endOffset + labelOutsideGap + labelW; e > rightExtent {
+				rightExtent = e
+			}
 		}
 	}
-	rightLabelPad := maxLabelW + labelEdgeMargin
-	viewW := pad + sectionLabelW + chartW + rightLabelPad + pad
+	viewW := rightExtent + labelEdgeMargin + pad
 	viewH := chartH
 
 	var children []any
@@ -104,7 +114,6 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 		})
 	}
 
-	chartX := pad + sectionLabelW
 	children = append(children, renderAxis(minDate, totalDays, chartX, axisY, chartW, fontSize)...)
 
 	curY := bodyY

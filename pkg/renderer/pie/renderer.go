@@ -50,13 +50,31 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 	}
 
 	pad := defaultPadding
-	cx := pad + defaultRadius
+	// Reserve a side gutter wide enough to fit the worst-case outside
+	// label for any small slice. Without this, labels at angles near
+	// 180° (anchor=end) clip past x=0, and labels near 0° (anchor=start)
+	// can collide with the legend.
+	outsideGutter := 0.0
+	if total > 0 && len(d.Slices) > 1 {
+		for _, s := range d.Slices {
+			if s.Value/total < smallSliceThreshold {
+				w := estimateLabelWidth(formatSliceLabel(s, total, d.ShowData), fontSize)
+				if w > outsideGutter {
+					outsideGutter = w
+				}
+			}
+		}
+		if outsideGutter > 0 {
+			outsideGutter += 6 // tiny breathing room
+		}
+	}
+	cx := pad + outsideGutter + defaultRadius
 	cy := pad + defaultRadius
 	if d.Title != "" {
 		cy += fontSize + 10
 	}
 
-	legendX := cx + defaultRadius + pad
+	legendX := cx + defaultRadius + outsideGutter + pad
 	legendY := cy - defaultRadius
 
 	viewW := legendX + defaultLegendW + pad
@@ -109,11 +127,7 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 			sweep := frac * 2 * math.Pi
 			midAngle := startAngle + sweep/2
 			cosA, sinA := math.Cos(midAngle), math.Sin(midAngle)
-			pct := fmt.Sprintf("%.1f%%", frac*100)
-			label := pct
-			if d.ShowData {
-				label = fmt.Sprintf("%s (%.0f)", pct, s.Value)
-			}
+			label := formatSliceLabel(s, total, d.ShowData)
 			if frac >= smallSliceThreshold {
 				lx := cx + defaultRadius*0.65*cosA
 				ly := cy + defaultRadius*0.65*sinA
@@ -195,4 +209,22 @@ func arcPath(cx, cy, r, startAngle, endAngle float64, color string) *path {
 
 func colorFor(i int) string {
 	return defaultColors[i%len(defaultColors)]
+}
+
+// formatSliceLabel returns the percentage (and optional count) text
+// shown on a pie slice. Used both at render time and during the
+// pre-pass that sizes the outside-label gutter.
+func formatSliceLabel(s diagram.Slice, total float64, showData bool) string {
+	pct := fmt.Sprintf("%.1f%%", (s.Value/total)*100)
+	if showData {
+		return fmt.Sprintf("%s (%.0f)", pct, s.Value)
+	}
+	return pct
+}
+
+// estimateLabelWidth approximates the rendered width of s in pixels at
+// the given font size. Same heuristic the gantt renderer uses; lifting
+// to a shared helper is tracked as a follow-up.
+func estimateLabelWidth(s string, fontSize float64) float64 {
+	return float64(len(s)) * (fontSize - 1) * 0.55
 }
