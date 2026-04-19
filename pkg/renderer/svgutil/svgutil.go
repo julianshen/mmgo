@@ -103,6 +103,12 @@ type Defs struct {
 	Markers []Marker `xml:"marker,omitempty"`
 }
 
+type Group struct {
+	XMLName   xml.Name `xml:"g"`
+	Transform string   `xml:"transform,attr,omitempty"`
+	Children  []any    `xml:",any"`
+}
+
 type Marker struct {
 	XMLName  xml.Name `xml:"marker"`
 	ID       string   `xml:"id,attr"`

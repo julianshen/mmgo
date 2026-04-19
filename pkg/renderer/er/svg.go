@@ -11,4 +11,5 @@ type (
 	path     = svgutil.Path
 	circle   = svgutil.Circle
 	defs     = svgutil.Defs
+	group    = svgutil.Group
 )

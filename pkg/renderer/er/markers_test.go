@@ -104,19 +104,13 @@ func TestBuildERMarkersFiltersToUsed(t *testing.T) {
 	for _, m := range markers {
 		got[m.ID] = true
 	}
-	want := map[string]bool{
-		"er-onlyOne-start":    true,
-		"er-zeroOrMore-end":   true,
-	}
-	for id := range want {
-		if !got[id] {
-			t.Errorf("missing marker def %q", id)
-		}
+	if !got["er-zeroOrMore-end"] {
+		t.Errorf("missing marker def er-zeroOrMore-end; got: %v", got)
 	}
 	for _, unwanted := range []string{
-		"er-onlyOne-end", "er-zeroOrMore-start",
-		"er-zeroOrOne-start", "er-zeroOrOne-end",
-		"er-oneOrMore-start", "er-oneOrMore-end",
+		"er-onlyOne-end", "er-zeroOrOne-end", "er-oneOrMore-end",
+		"er-onlyOne-start", "er-zeroOrMore-start",
+		"er-zeroOrOne-start", "er-oneOrMore-start",
 	} {
 		if got[unwanted] {
 			t.Errorf("unexpected marker def %q emitted", unwanted)
@@ -128,8 +122,6 @@ func TestBuildERMarkersFiltersToUsed(t *testing.T) {
 // 2-point edges, so srcDir/dstDir must be cached before mutating
 // either endpoint or the dst clip reads the already-clipped src.
 func TestRenderEdgeClipsBothEndpointsIndependently(t *testing.T) {
-	// Two entities side by side; relationship A->B should produce a
-	// horizontal edge with each endpoint clipped to its own box edge.
 	d := &diagram.ERDiagram{
 		Entities: []diagram.EREntity{{Name: "A"}, {Name: "B"}},
 		Relationships: []diagram.ERRelationship{
@@ -141,16 +133,12 @@ func TestRenderEdgeClipsBothEndpointsIndependently(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	// Find the relationship line.
-	if !strings.Contains(raw, `marker-start="url(#er-onlyOne-start)"`) {
-		t.Error("missing start marker")
+	if !strings.Contains(raw, `<g transform="translate(`) {
+		t.Error("missing inline start marker group")
 	}
 	if !strings.Contains(raw, `marker-end="url(#er-onlyOne-end)"`) {
 		t.Error("missing end marker")
 	}
-	// The two endpoints must be on opposite sides of the layout —
-	// if dst clip used the already-clipped src, the line would
-	// degenerate or both endpoints would coincide.
 	if !hasNonDegenerateLine(raw) {
 		t.Errorf("expected non-degenerate relationship line in:\n%s", raw)
 	}

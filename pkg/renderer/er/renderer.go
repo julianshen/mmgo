@@ -86,6 +86,30 @@ func sanitize(v float64) float64 {
 	return v
 }
 
+// See erStartGeoms in markers.go for why start markers are inlined
+// rather than referenced via SVG marker-start.
+func startMarkerGroup(c diagram.ERCardinality, start, next layout.Point) *group {
+	children, refX, refY, ok := startMarkerGeom(c)
+	if !ok {
+		return nil
+	}
+	angle := math.Atan2(next.Y-start.Y, next.X-start.X) * 180 / math.Pi
+	return &group{
+		Transform: fmt.Sprintf("translate(%.2f,%.2f) rotate(%.2f) translate(%s,%s)",
+			start.X, start.Y, angle, negCoord(refX), negCoord(refY)),
+		Children: children,
+	}
+}
+
+// negCoord formats -v for an SVG transform, avoiding the "-0.00"
+// output that a plain %.2f of -0 produces (ugly in golden-file diffs).
+func negCoord(v float64) string {
+	if v == 0 {
+		return "0.00"
+	}
+	return fmt.Sprintf("%.2f", -v)
+}
+
 // Crow's-foot markers must sit on the entity rectangle edge, not at
 // the layout-emitted node center.
 func clipToRectEdge(cx, cy, w, h, ox, oy float64) layout.Point {
@@ -237,15 +261,13 @@ func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64) 
 		}
 
 		style := "stroke:#333;stroke-width:1.5;fill:none"
-		startRef := markerRef(markerStartID(rel.FromCard))
 		endRef := markerRef(markerEndID(rel.ToCard))
 		if len(pts) == 2 {
 			elems = append(elems, &line{
 				X1: svgFloat(pts[0].X), Y1: svgFloat(pts[0].Y),
 				X2: svgFloat(pts[1].X), Y2: svgFloat(pts[1].Y),
-				Style:       style,
-				MarkerStart: startRef,
-				MarkerEnd:   endRef,
+				Style:     style,
+				MarkerEnd: endRef,
 			})
 		} else {
 			pathD := fmt.Sprintf("M%.2f,%.2f", pts[0].X, pts[0].Y)
@@ -253,11 +275,13 @@ func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64) 
 				pathD += fmt.Sprintf(" L%.2f,%.2f", p.X, p.Y)
 			}
 			elems = append(elems, &path{
-				D:           pathD,
-				Style:       style,
-				MarkerStart: startRef,
-				MarkerEnd:   endRef,
+				D:         pathD,
+				Style:     style,
+				MarkerEnd: endRef,
 			})
+		}
+		if g := startMarkerGroup(rel.FromCard, pts[0], srcDir); g != nil {
+			elems = append(elems, g)
 		}
 
 		if rel.Label != "" {
