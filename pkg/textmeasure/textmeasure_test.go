@@ -2,10 +2,33 @@ package textmeasure
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"golang.org/x/image/font/gofont/goregular"
 )
+
+func TestEstimateWidth(t *testing.T) {
+	cases := []struct {
+		name     string
+		s        string
+		fontSize float64
+		want     float64
+	}{
+		{"ascii", "hello", 14, 5 * 14 * 0.6},
+		{"empty", "", 14, 0},
+		{"multi-byte rune", "héllo", 14, 5 * 14 * 0.6}, // 5 runes, not 6 bytes
+		{"zero font size", "abc", 0, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := EstimateWidth(tc.s, tc.fontSize)
+			if math.Abs(got-tc.want) > 1e-9 {
+				t.Errorf("EstimateWidth(%q,%v) = %v, want %v", tc.s, tc.fontSize, got, tc.want)
+			}
+		})
+	}
+}
 
 // --- Construction ---
 

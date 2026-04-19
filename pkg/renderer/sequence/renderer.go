@@ -3,9 +3,9 @@ package sequence
 import (
 	"encoding/xml"
 	"fmt"
-	"unicode/utf8"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
 func Render(d *diagram.SequenceDiagram, opts *Options) ([]byte, error) {
@@ -299,5 +299,5 @@ func renderLifelines(d *diagram.SequenceDiagram, lay seqLayout, th Theme) []any 
 }
 
 func estimateTextWidth(s string, fontSize float64) float64 {
-	return float64(utf8.RuneCountInString(s)) * fontSize * 0.6
+	return textmeasure.EstimateWidth(s, fontSize)
 }
