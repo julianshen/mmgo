@@ -76,7 +76,7 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 		if label == "" {
 			label = p.ID
 		}
-		widths[i] = estimateTextWidth(label, fontSize) + 2*defaultBoxPadX
+		widths[i] = textmeasure.EstimateWidth(label, fontSize) + 2*defaultBoxPadX
 		if widths[i] < defaultParticipantGap*0.6 {
 			widths[i] = defaultParticipantGap * 0.6
 		}
@@ -237,7 +237,7 @@ func renderParticipants(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fon
 }
 
 func renderParticipantBox(cx, topY float64, label string, th Theme, fontSize float64) []any {
-	w := estimateTextWidth(label, fontSize) + 2*defaultBoxPadX
+	w := textmeasure.EstimateWidth(label, fontSize) + 2*defaultBoxPadX
 	h := defaultBoxHeight
 	rx := cx - w/2
 	ry := topY
@@ -298,6 +298,3 @@ func renderLifelines(d *diagram.SequenceDiagram, lay seqLayout, th Theme) []any 
 	return elems
 }
 
-func estimateTextWidth(s string, fontSize float64) float64 {
-	return textmeasure.EstimateWidth(s, fontSize)
-}

@@ -95,21 +95,19 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 	// the rightmost when maxCol > 0; the rightmost column anchors them
 	// rightward (text-anchor=start). Reserve pad on both sides so long
 	// labels don't clip outside the viewBox.
-	var leftMaxLen, rightMaxLen int
+	var leftPad, rightPad float64
 	for _, n := range nodes {
-		onRight := col[n] == maxCol && maxCol > 0
-		if onRight {
-			if len(n) > rightMaxLen {
-				rightMaxLen = len(n)
+		w := textmeasure.EstimateWidth(n, fontSize)
+		if col[n] == maxCol && maxCol > 0 {
+			if w > rightPad {
+				rightPad = w
 			}
 		} else {
-			if len(n) > leftMaxLen {
-				leftMaxLen = len(n)
+			if w > leftPad {
+				leftPad = w
 			}
 		}
 	}
-	leftPad := fontSize * textmeasure.AvgCharWidth * float64(leftMaxLen)
-	rightPad := fontSize * textmeasure.AvgCharWidth * float64(rightMaxLen)
 
 	originX := marginX + leftPad
 	viewW := originX + float64(maxCol)*columnSpacing + nodeW + rightPad + marginX

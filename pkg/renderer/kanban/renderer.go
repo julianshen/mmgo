@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
 type Options struct {
@@ -29,7 +30,6 @@ const (
 	cardRadius      = 6.0
 	lineHeight      = 18.0
 	metaLineHeight  = 15.0
-	avgCharWidth    = 0.55
 
 	bgFill         = "#fff"
 	columnFill     = "#f3f4f6"
@@ -200,8 +200,14 @@ func wrapText(s string, width, fontSize float64) []string {
 	if s == "" {
 		return []string{""}
 	}
-	charW := fontSize * avgCharWidth
-	maxChars := int(width / charW)
+	// Translate width budget into a rough character cap using the
+	// shared per-rune heuristic. Close enough for wrapping word-level
+	// tokens; exact layout still happens at render time.
+	oneCharW := textmeasure.EstimateWidth("x", fontSize)
+	if oneCharW <= 0 {
+		return []string{s}
+	}
+	maxChars := int(width / oneCharW)
 	if maxChars <= 0 {
 		return []string{s}
 	}

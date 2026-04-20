@@ -131,13 +131,11 @@ func TestRenderLongLeftLabelFitsInViewBox(t *testing.T) {
 	if lw <= sw {
 		t.Errorf("viewBox width did not grow for long left label (short=%.2f long=%.2f)", sw, lw)
 	}
-	// And the label's leftmost x must be non-negative: label anchor is
-	// at `nodeX - labelGap` with estimated width `fontSize*avgCharWidth*len`.
-	// Finding the first text x attribute in the SVG gives a concrete lower
-	// bound; if the renderer didn't shift originX right, this would be <= 0.
+	// Long left label must fit before x=0: its anchor has to sit at
+	// least one EstimateWidth past the origin or the renderer forgot
+	// to shift originX right.
 	firstAnchorX := firstLeftLabelX(string(lOut))
-	labelLen := len("A very long label on the left")
-	minAnchorX := float64(labelLen) * defaultFontSize * textmeasure.AvgCharWidth
+	minAnchorX := textmeasure.EstimateWidth("A very long label on the left", defaultFontSize)
 	if firstAnchorX < minAnchorX {
 		t.Errorf("first label anchor X = %.2f, want >= %.2f so label fits in viewBox",
 			firstAnchorX, minAnchorX)
