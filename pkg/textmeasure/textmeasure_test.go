@@ -18,7 +18,9 @@ func TestEstimateWidth(t *testing.T) {
 		{"ascii", "hello", 14, 5 * 14 * 0.6},
 		{"empty", "", 14, 0},
 		{"multi-byte rune", "héllo", 14, 5 * 14 * 0.6}, // 5 runes, not 6 bytes
+		{"cjk 3-byte runes", "日本語", 14, 3 * 14 * 0.6}, // 3 runes, not 9 bytes
 		{"zero font size", "abc", 0, 0},
+		{"negative font size", "abc", -5, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

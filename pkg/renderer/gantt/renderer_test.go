@@ -112,6 +112,30 @@ func TestRenderDeterministic(t *testing.T) {
 	}
 }
 
+// A task whose name fits inside its bar gets the label centered in
+// the bar (text-anchor=middle, white fill). Mirrors the narrow-bar
+// outside-label test so a sign flip on the inside/outside decision
+// fails one of them.
+func TestRenderWideBarInsideLabel(t *testing.T) {
+	now := time.Now()
+	d := &diagram.GanttDiagram{
+		Tasks: []diagram.GanttTask{
+			{Name: "X", Start: now, End: now.Add(60 * 24 * time.Hour)},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, `text-anchor="middle"`) {
+		t.Error(`expected text-anchor="middle" for inside-bar label`)
+	}
+	if !strings.Contains(raw, "fill:white") {
+		t.Error("expected white fill for inside-bar label")
+	}
+}
+
 // A task whose name doesn't fit inside its bar gets the label
 // rendered to the right of the bar (text-anchor=start, dark fill)
 // instead of centered (white).

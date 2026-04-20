@@ -31,7 +31,13 @@ const avgCharWidth = 0.6
 // the given font size. Use it for layout pre-passes where exact
 // metrics aren't critical; use Ruler.Measure for accurate widths,
 // especially with non-ASCII text or proportional-font output.
+//
+// Non-positive fontSize returns 0, matching Ruler.Measure's contract
+// so callers don't need divergent guards.
 func EstimateWidth(s string, fontSize float64) float64 {
+	if fontSize <= 0 {
+		return 0
+	}
 	return float64(utf8.RuneCountInString(s)) * fontSize * avgCharWidth
 }
 

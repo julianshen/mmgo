@@ -19,15 +19,9 @@ const (
 	sectionLabelW   = 120.0
 	dayWidth        = 20.0
 
-	// labelInsideSlack is the minimum extra bar width (in pixels)
-	// beyond the measured label width before the label fits inside.
 	labelInsideSlack = 8.0
-	// labelOutsideGap is the gap between the bar's right edge and an
-	// outside label.
-	labelOutsideGap = 4.0
-	// labelEdgeMargin is the extra viewBox padding past the longest
-	// outside label so it doesn't clip at the right edge.
-	labelEdgeMargin = 12.0
+	labelOutsideGap  = 4.0
+	labelEdgeMargin  = 12.0
 )
 
 type Options struct {
