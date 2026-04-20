@@ -75,9 +75,9 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 	// Reserve right-edge room only for tasks whose label actually
 	// overflows their bar — adding the worst-case label width to
 	// every chart wastes whitespace on most diagrams.
-	// Cache once: the placement loop below makes the same inside-vs-
-	// outside-bar decision per task, so duplicating Measure was both
-	// wasted work and a drift hazard if one site ever changed.
+	// Measured once and reused by the placement loop below so the
+	// viewBox-sizing pass and the inside-vs-outside-bar decision can't
+	// disagree if one site's inputs ever change.
 	taskLabelW := make([]float64, len(d.Tasks))
 	for i, task := range d.Tasks {
 		taskLabelW[i], _ = ruler.Measure(task.Name, fontSize-1)
@@ -86,8 +86,8 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 	chartX := pad + sectionLabelW
 	rightExtent := chartX + chartW
 	for i, task := range d.Tasks {
-		endOffset := task.End.Sub(minDate).Hours() / 24 * dayWidth
 		startOffset := task.Start.Sub(minDate).Hours() / 24 * dayWidth
+		endOffset := task.End.Sub(minDate).Hours() / 24 * dayWidth
 		barW := endOffset - startOffset
 		if barW < 2 {
 			barW = 2

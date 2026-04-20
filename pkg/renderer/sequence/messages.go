@@ -239,9 +239,10 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 	})
 
 	kindLabel := b.Kind.String()
+	kindLabelW := textmeasure.EstimateWidth(kindLabel, mr.fontSize)
 	elems = append(elems, &rect{
 		X: svgFloat(x), Y: svgFloat(startY - defaultRowHeight/4),
-		Width: svgFloat(textmeasure.EstimateWidth(kindLabel, mr.fontSize) + 2*notePad),
+		Width: svgFloat(kindLabelW + 2*notePad),
 		Height: svgFloat(20),
 		Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f",
 			mr.th.ParticipantFill, mr.th.MessageStroke, defaultStrokeWidth),
@@ -255,7 +256,7 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 
 	if b.Label != "" {
 		elems = append(elems, &text{
-			X: svgFloat(x + textmeasure.EstimateWidth(kindLabel, mr.fontSize) + 3*notePad),
+			X: svgFloat(x + kindLabelW + 3*notePad),
 			Y: svgFloat(startY - defaultRowHeight/4 + 14),
 			Anchor: "start", Dominant: "auto",
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize-1),

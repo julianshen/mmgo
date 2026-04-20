@@ -164,9 +164,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 func laneY(lane int) float64   { return marginY + float64(lane)*laneHeight }
 func colorFor(lane int) string { return branchPalette[lane%len(branchPalette)] }
 
-// branchGutterW estimates the width of the longest branch label. An
-// exact measurement would need a font ruler; the estimate avoids
-// loading a TTF just for a gutter size.
+// branchGutterW estimates the width of the longest branch label.
 func branchGutterW(branches []string, fontSize float64) float64 {
 	var max float64
 	for _, b := range branches {
