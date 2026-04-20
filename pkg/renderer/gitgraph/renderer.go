@@ -168,13 +168,13 @@ func colorFor(lane int) string { return branchPalette[lane%len(branchPalette)] }
 // exact measurement would need a font ruler; the estimate avoids
 // loading a TTF just for a gutter size.
 func branchGutterW(branches []string, fontSize float64) float64 {
-	maxLen := 0
+	var max float64
 	for _, b := range branches {
-		if n := len(b); n > maxLen {
-			maxLen = n
+		if w := textmeasure.EstimateWidth(b, fontSize); w > max {
+			max = w
 		}
 	}
-	return fontSize * textmeasure.AvgCharWidth * float64(maxLen)
+	return max
 }
 
 type dotStyle struct {

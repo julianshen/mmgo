@@ -75,18 +75,25 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 	// Reserve right-edge room only for tasks whose label actually
 	// overflows their bar — adding the worst-case label width to
 	// every chart wastes whitespace on most diagrams.
+	// Cache once: the placement loop below makes the same inside-vs-
+	// outside-bar decision per task, so duplicating Measure was both
+	// wasted work and a drift hazard if one site ever changed.
+	taskLabelW := make([]float64, len(d.Tasks))
+	for i, task := range d.Tasks {
+		taskLabelW[i], _ = ruler.Measure(task.Name, fontSize-1)
+	}
+
 	chartX := pad + sectionLabelW
 	rightExtent := chartX + chartW
-	for _, task := range d.Tasks {
-		startOffset := task.Start.Sub(minDate).Hours() / 24 * dayWidth
+	for i, task := range d.Tasks {
 		endOffset := task.End.Sub(minDate).Hours() / 24 * dayWidth
+		startOffset := task.Start.Sub(minDate).Hours() / 24 * dayWidth
 		barW := endOffset - startOffset
 		if barW < 2 {
 			barW = 2
 		}
-		labelW, _ := ruler.Measure(task.Name, fontSize-1)
-		if labelW+labelInsideSlack > barW {
-			if e := chartX + endOffset + labelOutsideGap + labelW; e > rightExtent {
+		if taskLabelW[i]+labelInsideSlack > barW {
+			if e := chartX + endOffset + labelOutsideGap + taskLabelW[i]; e > rightExtent {
 				rightExtent = e
 			}
 		}
@@ -113,7 +120,7 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 
 	curY := bodyY
 	curSection := ""
-	for _, task := range d.Tasks {
+	for i, task := range d.Tasks {
 		if task.Section != curSection && task.Section != "" {
 			curSection = task.Section
 			children = append(children, &text{
@@ -144,8 +151,7 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 		// Place the label outside the bar (right, dark) when the bar
 		// is too narrow to hold it without spillover; inside the bar
 		// (centered, white) otherwise.
-		labelW2, _ := ruler.Measure(task.Name, fontSize-1)
-		if labelW2+labelInsideSlack > barW {
+		if taskLabelW[i]+labelInsideSlack > barW {
 			children = append(children, &text{
 				X: svgFloat(bx + barW + labelOutsideGap), Y: svgFloat(by + barH/2),
 				Anchor: "start", Dominant: "central",
