@@ -67,6 +67,8 @@ type Options struct {
 	Class     *classrenderer.Options
 	ER        *errenderer.Options
 	State     *staterenderer.Options
+	Mindmap   *mindmaprenderer.Options
+	Timeline  *timelinerenderer.Options
 }
 
 // Sizing constants for nodes when no caller-specified theme overrides
@@ -368,7 +370,43 @@ func mergeInitTheme(opts *Options, initCfg *config.Config) *Options {
 	}
 	merged.State.Theme = toStateTheme(tc)
 
+	if merged.Mindmap != nil {
+		clone := *merged.Mindmap
+		merged.Mindmap = &clone
+	} else {
+		merged.Mindmap = &mindmaprenderer.Options{}
+	}
+	merged.Mindmap.Theme = toMindmapTheme(tc)
+
+	if merged.Timeline != nil {
+		clone := *merged.Timeline
+		merged.Timeline = &clone
+	} else {
+		merged.Timeline = &timelinerenderer.Options{}
+	}
+	merged.Timeline.Theme = toTimelineTheme(tc)
+
 	return merged
+}
+
+func toMindmapTheme(tc *config.ThemeColors) mindmaprenderer.Theme {
+	return mindmaprenderer.Theme{
+		LevelColors: tc.PieColors, // reuse the categorical palette
+		NodeText:    tc.Primary,   // text painted over level colors
+		EdgeStroke:  tc.LineColor,
+		Background:  tc.Background,
+	}
+}
+
+func toTimelineTheme(tc *config.ThemeColors) timelinerenderer.Theme {
+	return timelinerenderer.Theme{
+		SectionColors: tc.PieColors,
+		TitleText:     tc.Text,
+		SectionText:   tc.Text,
+		EventText:     tc.Primary,
+		AxisStroke:    tc.MutedText,
+		Background:    tc.Background,
+	}
 }
 
 func toERTheme(tc *config.ThemeColors) errenderer.Theme {
@@ -645,7 +683,11 @@ func renderTimeline(src []byte, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
-	out, err := timelinerenderer.Render(d, nil)
+	var tlOpts *timelinerenderer.Options
+	if opts != nil {
+		tlOpts = opts.Timeline
+	}
+	out, err := timelinerenderer.Render(d, tlOpts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
@@ -657,7 +699,11 @@ func renderMindmap(src []byte, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
-	out, err := mindmaprenderer.Render(d, nil)
+	var mmOpts *mindmaprenderer.Options
+	if opts != nil {
+		mmOpts = opts.Mindmap
+	}
+	out, err := mindmaprenderer.Render(d, mmOpts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}

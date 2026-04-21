@@ -22,10 +22,9 @@ const (
 	sectionGap      = 18.0
 )
 
-var sectionColors = []string{"#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#76b7b2", "#edc948"}
-
 type Options struct {
 	FontSize float64
+	Theme    Theme
 }
 
 func Render(d *diagram.TimelineDiagram, opts *Options) ([]byte, error) {
@@ -37,6 +36,7 @@ func Render(d *diagram.TimelineDiagram, opts *Options) ([]byte, error) {
 	if opts != nil && opts.FontSize > 0 {
 		fontSize = opts.FontSize
 	}
+	th := resolveTheme(opts)
 	pad := defaultPadding
 
 	rows := countRows(d)
@@ -50,14 +50,14 @@ func Render(d *diagram.TimelineDiagram, opts *Options) ([]byte, error) {
 	var children []any
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(totalH),
-		Style: "fill:#fff;stroke:none",
+		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
 	if d.Title != "" {
 		children = append(children, &text{
 			X: svgFloat(viewW / 2), Y: svgFloat(pad + titleH/2),
 			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx;font-weight:bold", fontSize+2),
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize+2),
 			Content: d.Title,
 		})
 	}
@@ -71,13 +71,13 @@ func Render(d *diagram.TimelineDiagram, opts *Options) ([]byte, error) {
 	children = append(children, &line{
 		X1: svgFloat(axis), Y1: svgFloat(startY),
 		X2: svgFloat(axis), Y2: svgFloat(totalH - pad),
-		Style: "stroke:#999;stroke-width:2",
+		Style: fmt.Sprintf("stroke:%s;stroke-width:2", th.AxisStroke),
 	})
 
 	curY := startY + rowGap
 	if len(d.Sections) > 0 {
 		for i, sec := range d.Sections {
-			color := sectionColors[i%len(sectionColors)]
+			color := th.SectionColors[i%len(th.SectionColors)]
 			curY += sectionGap / 2
 			children = append(children, &text{
 				X: svgFloat(axis - 40), Y: svgFloat(curY - 4),
@@ -87,14 +87,14 @@ func Render(d *diagram.TimelineDiagram, opts *Options) ([]byte, error) {
 			})
 			curY += sectionGap / 2
 			for _, ev := range sec.Events {
-				children = append(children, renderEvent(ev, axis, curY, color, fontSize)...)
+				children = append(children, renderEvent(ev, axis, curY, color, fontSize, th)...)
 				curY += eventBoxH + rowGap
 			}
 		}
 	} else {
-		color := sectionColors[0]
+		color := th.SectionColors[0]
 		for _, ev := range d.Events {
-			children = append(children, renderEvent(ev, axis, curY, color, fontSize)...)
+			children = append(children, renderEvent(ev, axis, curY, color, fontSize, th)...)
 			curY += eventBoxH + rowGap
 		}
 	}
@@ -122,17 +122,17 @@ func countRows(d *diagram.TimelineDiagram) int {
 	return len(d.Events)
 }
 
-func renderEvent(ev diagram.TimelineEvent, axis, y float64, color string, fontSize float64) []any {
+func renderEvent(ev diagram.TimelineEvent, axis, y float64, color string, fontSize float64, th Theme) []any {
 	var elems []any
 	elems = append(elems, &text{
 		X: svgFloat(axis - 20), Y: svgFloat(y + eventBoxH/2),
 		Anchor: "end", Dominant: "central",
-		Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx;font-weight:bold", fontSize),
+		Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.SectionText, fontSize),
 		Content: ev.Time,
 	})
 	elems = append(elems, &circle{
 		CX: svgFloat(axis), CY: svgFloat(y + eventBoxH/2), R: svgFloat(dotR),
-		Style: fmt.Sprintf("fill:%s;stroke:white;stroke-width:2", color),
+		Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:2", color, th.Background),
 	})
 	boxX := axis + 20
 	content := strings.Join(ev.Events, ", ")
@@ -145,7 +145,7 @@ func renderEvent(ev diagram.TimelineEvent, axis, y float64, color string, fontSi
 	elems = append(elems, &text{
 		X: svgFloat(boxX + eventBoxW/2), Y: svgFloat(y + eventBoxH/2),
 		Anchor: "middle", Dominant: "central",
-		Style:   fmt.Sprintf("fill:white;font-size:%.0fpx", fontSize-1),
+		Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EventText, fontSize-1),
 		Content: content,
 	})
 	return elems
