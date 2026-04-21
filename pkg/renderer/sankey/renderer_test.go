@@ -243,7 +243,7 @@ func TestRenderRibbonColorMatchesSourceBar(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	colorA := palette[0] // A is the first-appearance node
+	colorA := DefaultTheme().NodeColors[0] // A is the first-appearance node
 	// The color must appear in at least 3 fills (A's bar + 2 ribbons).
 	if strings.Count(raw, "fill:"+colorA) < 3 {
 		t.Errorf("A's color %s should be used for A's bar and both outgoing ribbons; saw %d occurrences\n%s",
