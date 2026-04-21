@@ -83,7 +83,7 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 		Style: "fill:#fff;stroke:none",
 	})
 
-	children = append(children, renderEdges(d, l, pad, fontSize)...)
+	children = append(children, renderEdges(d, l, pad, fontSize, ruler)...)
 	children = append(children, renderNodes(allStates, l, pad, fontSize)...)
 
 	svg := svgDoc{
@@ -210,7 +210,7 @@ func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize floa
 	return elems
 }
 
-func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64) []any {
+func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -272,18 +272,19 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 			t := candidates[0]
 			transMap[key] = candidates[1:]
 			if t.Label != "" {
-				lx, ly := labelPosition(pts, el.LabelPos.X+pad, el.LabelPos.Y+pad)
-				labelW := textmeasure.EstimateWidth(t.Label, fontSize-1)
+				base := layout.Point{X: el.LabelPos.X + pad, Y: el.LabelPos.Y + pad}
+				p := labelPosition(pts, base)
+				labelW, labelH := ruler.Measure(t.Label, fontSize-1)
 				const labelPad = 3.0
 				elems = append(elems, &rect{
-					X:      svgFloat(lx - labelW/2 - labelPad),
-					Y:      svgFloat(ly - (fontSize-1)/2 - labelPad),
+					X:      svgFloat(p.X - labelW/2 - labelPad),
+					Y:      svgFloat(p.Y - labelH/2 - labelPad),
 					Width:  svgFloat(labelW + 2*labelPad),
-					Height: svgFloat(fontSize - 1 + 2*labelPad),
+					Height: svgFloat(labelH + 2*labelPad),
 					Style:  "fill:white;stroke:none",
 				})
 				elems = append(elems, &text{
-					X: svgFloat(lx), Y: svgFloat(ly),
+					X: svgFloat(p.X), Y: svgFloat(p.Y),
 					Anchor: "middle", Dominant: "central",
 					Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
 					Content: t.Label,
@@ -294,27 +295,29 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 	return elems
 }
 
-// labelPosition nudges the layout-emitted label point perpendicular
-// to the edge at that segment so labels on nearby or parallel edges
-// land on the side rather than crowding the same midpoint. Fixed
-// side (+90° CCW of the edge tangent) keeps placement deterministic
-// per edge; edges going different directions naturally spread.
-func labelPosition(pts []layout.Point, lx, ly float64) (float64, float64) {
+// labelPosition nudges the layout-emitted label point to the side of
+// the edge so labels on nearby edges don't pile on the same midpoint.
+// The offset is always on the same side relative to the edge tangent
+// (clockwise 90° in SVG's Y-down coordinates), so anti-parallel edges
+// land on opposite sides and naturally separate — the cyclic-cluster
+// case this targets. Co-directional parallel edges still collide and
+// would need edge-index alternation to fully resolve.
+func labelPosition(pts []layout.Point, base layout.Point) layout.Point {
 	if len(pts) < 2 {
-		return lx, ly
+		return base
 	}
-	mid := len(pts) / 2
-	if mid == 0 {
-		mid = 1
-	}
+	mid := len(pts) / 2 // guaranteed ≥ 1 since len(pts) ≥ 2
 	dx := pts[mid].X - pts[mid-1].X
 	dy := pts[mid].Y - pts[mid-1].Y
 	length := math.Sqrt(dx*dx + dy*dy)
 	if length == 0 {
-		return lx, ly
+		return base
 	}
 	const perpOffset = 10.0
-	return lx + -dy/length*perpOffset, ly + dx/length*perpOffset
+	return layout.Point{
+		X: base.X - dy/length*perpOffset,
+		Y: base.Y + dx/length*perpOffset,
+	}
 }
 
 func isPseudoNode(id string) bool {
