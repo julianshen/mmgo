@@ -65,7 +65,6 @@ func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 	return d, nil
 }
 
-
 func parseNodeContent(s string) (string, diagram.MindmapNodeShape) {
 	if strings.HasPrefix(s, "((") && strings.HasSuffix(s, "))") {
 		return s[2 : len(s)-2], diagram.MindmapShapeCloud

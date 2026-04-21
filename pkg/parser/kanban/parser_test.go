@@ -328,3 +328,25 @@ func TestKanbanDiagramType(t *testing.T) {
 		t.Errorf("Type() = %v", d.Type())
 	}
 }
+
+// Pins the tab-width contract: one tab and four spaces collapse to
+// the same depth, so a section line indented with a tab sits at
+// sibling depth to a section line indented with four spaces rather
+// than being misclassified as a task.
+func TestKanbanMixedTabSpaceIndent(t *testing.T) {
+	input := "kanban\n" +
+		"    Todo\n" +
+		"\tDoing\n"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Sections) != 2 {
+		t.Fatalf("expected 2 sibling sections (tab == 4 spaces), got %d: %+v",
+			len(d.Sections), d.Sections)
+	}
+	if d.Sections[0].Title != "Todo" || d.Sections[1].Title != "Doing" {
+		t.Errorf("section titles = %q, %q; want Todo, Doing",
+			d.Sections[0].Title, d.Sections[1].Title)
+	}
+}
