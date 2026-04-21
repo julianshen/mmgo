@@ -175,3 +175,51 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 		t.Error("viewBox missing")
 	}
 }
+
+func TestRenderAppliesCustomTheme(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Title: "Test",
+		Elements: []diagram.C4Element{
+			{ID: "U", Kind: diagram.C4ElementPerson, Label: "User"},
+			{ID: "S", Kind: diagram.C4ElementSystem, Label: "Sys"},
+		},
+		Relations: []diagram.C4Relation{
+			{From: "U", To: "S", Label: "uses"},
+		},
+	}
+	th := DefaultTheme()
+	th.Background = "#000000"
+	th.TitleText = "#ffffff"
+	th.EdgeStroke = "#ff00ff"
+	th.EdgeText = "#112233"
+	// Override just the Person role to prove partial merges work.
+	th.Roles[diagram.C4ElementPerson] = RolePalette{Fill: "#aaaaaa", Stroke: "#bbbbbb", Text: "#eeeeee"}
+
+	out, err := Render(d, &Options{Theme: th})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{
+		`fill:#000000`,                // background
+		`fill:#ffffff`,                // title text
+		`stroke:#ff00ff`,              // edge
+		`fill:#112233`,                // edge label
+		`fill:#aaaaaa;stroke:#bbbbbb`, // Person role overridden
+		`#1168BD`,                     // System role kept (default merge behavior)
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("themed output missing %q", want)
+		}
+	}
+}
+
+func TestDefaultThemeStable(t *testing.T) {
+	got := DefaultTheme()
+	if got.Roles[diagram.C4ElementPerson].Fill != "#08427B" {
+		t.Errorf("Person fill drifted: %q", got.Roles[diagram.C4ElementPerson].Fill)
+	}
+	if got.Background != "#fff" || got.EdgeStroke != "#333" || got.TitleText != "#333" {
+		t.Errorf("chrome drifted: %+v", got)
+	}
+}
