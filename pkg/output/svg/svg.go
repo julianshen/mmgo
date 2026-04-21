@@ -71,6 +71,8 @@ type Options struct {
 	Timeline  *timelinerenderer.Options
 	Block     *blockrenderer.Options
 	C4        *c4renderer.Options
+	GitGraph  *gitgraphrenderer.Options
+	Sankey    *sankeyrenderer.Options
 }
 
 // Sizing constants for nodes when no caller-specified theme overrides
@@ -404,7 +406,60 @@ func mergeInitTheme(opts *Options, initCfg *config.Config) *Options {
 	}
 	merged.C4.Theme = toC4Theme(tc)
 
+	if merged.GitGraph != nil {
+		clone := *merged.GitGraph
+		merged.GitGraph = &clone
+	} else {
+		merged.GitGraph = &gitgraphrenderer.Options{}
+	}
+	merged.GitGraph.Theme = toGitGraphTheme(tc)
+
+	if merged.Sankey != nil {
+		clone := *merged.Sankey
+		merged.Sankey = &clone
+	} else {
+		merged.Sankey = &sankeyrenderer.Options{}
+	}
+	merged.Sankey.Theme = toSankeyTheme(tc)
+
+	if merged.Pie != nil {
+		clone := *merged.Pie
+		merged.Pie = &clone
+	} else {
+		merged.Pie = &pierenderer.Options{}
+	}
+	merged.Pie.Theme = toPieTheme(tc)
+
 	return merged
+}
+
+func toGitGraphTheme(tc *config.ThemeColors) gitgraphrenderer.Theme {
+	return gitgraphrenderer.Theme{
+		BranchColors:  tc.PieColors,
+		Text:          tc.Text,
+		DotStrokeFill: tc.Background,
+		Background:    tc.Background,
+	}
+}
+
+func toSankeyTheme(tc *config.ThemeColors) sankeyrenderer.Theme {
+	return sankeyrenderer.Theme{
+		NodeColors: tc.PieColors,
+		LabelText:  tc.Text,
+		Background: tc.Background,
+	}
+}
+
+func toPieTheme(tc *config.ThemeColors) pierenderer.Theme {
+	return pierenderer.Theme{
+		SliceColors:  tc.PieColors,
+		TitleText:    tc.Text,
+		InsideText:   tc.Primary,
+		OutsideText:  tc.Text,
+		LeaderStroke: tc.MutedText,
+		LegendText:   tc.Text,
+		Background:   tc.Background,
+	}
 }
 
 func toBlockTheme(tc *config.ThemeColors) blockrenderer.Theme {
@@ -657,7 +712,11 @@ func renderGitGraph(src []byte, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
-	out, err := gitgraphrenderer.Render(d, nil)
+	var gOpts *gitgraphrenderer.Options
+	if opts != nil {
+		gOpts = opts.GitGraph
+	}
+	out, err := gitgraphrenderer.Render(d, gOpts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
@@ -669,7 +728,11 @@ func renderSankey(src []byte, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
-	out, err := sankeyrenderer.Render(d, nil)
+	var sOpts *sankeyrenderer.Options
+	if opts != nil {
+		sOpts = opts.Sankey
+	}
+	out, err := sankeyrenderer.Render(d, sOpts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}

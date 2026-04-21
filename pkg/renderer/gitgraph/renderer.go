@@ -13,6 +13,7 @@ import (
 
 type Options struct {
 	FontSize float64
+	Theme    Theme
 }
 
 const (
@@ -26,16 +27,7 @@ const (
 	labelGap        = 6.0
 	branchLabelPadX = 8.0
 
-	labelFill     = "#333"
-	dotStrokeFill = "#fff"
 )
-
-// branchPalette is cycled by branch declaration order. Lane 0 (main)
-// gets the first color; additional branches cycle through the rest.
-var branchPalette = []string{
-	"#0f62fe", "#24a148", "#f1c21b",
-	"#8a3ffc", "#ff7eb6", "#6fdc8c",
-}
 
 func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 	if d == nil {
@@ -46,6 +38,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 	if opts != nil && opts.FontSize > 0 {
 		fontSize = opts.FontSize
 	}
+	th := resolveTheme(opts)
 
 	laneOf := make(map[string]int, len(d.Branches))
 	for i, b := range d.Branches {
@@ -83,12 +76,12 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 			X: 0, Y: 0,
 			Width:  svgFloat(viewW),
 			Height: svgFloat(viewH),
-			Style:  "fill:#fff;stroke:none",
+			Style:  fmt.Sprintf("fill:%s;stroke:none", th.Background),
 		},
 	}
 
 	for i, b := range d.Branches {
-		color := branchPalette[i%len(branchPalette)]
+		color := colorFor(th, i)
 		y := laneY(i)
 		children = append(children, &text{
 			X:        svgFloat(marginX + branchLabelPadX),
@@ -109,7 +102,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 
 	for _, c := range d.Commits {
 		childX, childY := cx[c.ID], cy[c.ID]
-		color := colorFor(laneOf[c.Branch])
+		color := colorFor(th, laneOf[c.Branch])
 		for _, pid := range c.Parents {
 			px, ok := cx[pid]
 			if !ok {
@@ -129,9 +122,9 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 	// Dots and labels drawn last so they sit above the branch lines and
 	// curves (SVG paints in document order).
 	for _, c := range d.Commits {
-		color := colorFor(laneOf[c.Branch])
+		color := colorFor(th, laneOf[c.Branch])
 		x, y := cx[c.ID], cy[c.ID]
-		children = append(children, commitDot(c, x, y, color)...)
+		children = append(children, commitDot(c, x, y, color, th)...)
 
 		label := c.Tag
 		if label == "" {
@@ -143,7 +136,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 				Y:        svgFloat(y - commitRadius - labelGap),
 				Anchor:   "middle",
 				Dominant: "baseline",
-				Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, fontSize-2),
+				Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.Text, fontSize-2),
 				Content:  label,
 			})
 		}
@@ -161,8 +154,11 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), b...), nil
 }
 
-func laneY(lane int) float64   { return marginY + float64(lane)*laneHeight }
-func colorFor(lane int) string { return branchPalette[lane%len(branchPalette)] }
+func laneY(lane int) float64 { return marginY + float64(lane)*laneHeight }
+
+func colorFor(th Theme, lane int) string {
+	return th.BranchColors[lane%len(th.BranchColors)]
+}
 
 func branchGutterW(branches []string, fontSize float64) float64 {
 	var max float64
@@ -182,21 +178,21 @@ type dotStyle struct {
 	innerR  float64 // non-zero for merge commits — a small white dot on top
 }
 
-func dotStyleFor(c diagram.GitCommit, color string) dotStyle {
+func dotStyleFor(c diagram.GitCommit, color string, th Theme) dotStyle {
 	switch c.Type {
 	case diagram.GitCommitMerge:
-		return dotStyle{r: commitRadius, fill: color, stroke: dotStrokeFill, strokeW: 2, innerR: commitRadius * 0.4}
+		return dotStyle{r: commitRadius, fill: color, stroke: th.DotStrokeFill, strokeW: 2, innerR: commitRadius * 0.4}
 	case diagram.GitCommitHighlight:
-		return dotStyle{r: highlightRadius, fill: color, stroke: labelFill, strokeW: 2}
+		return dotStyle{r: highlightRadius, fill: color, stroke: th.Text, strokeW: 2}
 	case diagram.GitCommitReverse:
 		return dotStyle{r: commitRadius, fill: "none", stroke: color, strokeW: 3}
 	default:
-		return dotStyle{r: commitRadius, fill: color, stroke: labelFill, strokeW: 1.5}
+		return dotStyle{r: commitRadius, fill: color, stroke: th.Text, strokeW: 1.5}
 	}
 }
 
-func commitDot(c diagram.GitCommit, x, y float64, color string) []any {
-	s := dotStyleFor(c, color)
+func commitDot(c diagram.GitCommit, x, y float64, color string, th Theme) []any {
+	s := dotStyleFor(c, color, th)
 	elems := []any{&circle{
 		CX: svgFloat(x), CY: svgFloat(y), R: svgFloat(s.r),
 		Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%g", s.fill, s.stroke, s.strokeW),
@@ -204,7 +200,7 @@ func commitDot(c diagram.GitCommit, x, y float64, color string) []any {
 	if s.innerR > 0 {
 		elems = append(elems, &circle{
 			CX: svgFloat(x), CY: svgFloat(y), R: svgFloat(s.innerR),
-			Style: fmt.Sprintf("fill:%s;stroke:none", dotStrokeFill),
+			Style: fmt.Sprintf("fill:%s;stroke:none", th.DotStrokeFill),
 		})
 	}
 	return elems

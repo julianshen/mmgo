@@ -14,6 +14,7 @@ import (
 
 type Options struct {
 	FontSize float64
+	Theme    Theme
 }
 
 const (
@@ -26,17 +27,8 @@ const (
 	minCanvasH      = 300.0
 	labelGap        = 6.0
 
-	bgFill        = "#fff"
-	labelFill     = "#333"
 	ribbonOpacity = 0.45
 )
-
-// palette cycles by node first-appearance index so the output is
-// deterministic across runs.
-var palette = []string{
-	"#5470c6", "#91cc75", "#fac858", "#ee6666",
-	"#73c0de", "#3ba272", "#fc8452", "#9a60b4",
-}
 
 func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 	if d == nil {
@@ -47,6 +39,7 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 	if opts != nil && opts.FontSize > 0 {
 		fontSize = opts.FontSize
 	}
+	th := resolveTheme(opts)
 
 	nodes := d.Nodes()
 	nodeIdx := make(map[string]int, len(nodes))
@@ -141,7 +134,7 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 		X: 0, Y: 0,
 		Width:  svgFloat(viewW),
 		Height: svgFloat(viewH),
-		Style:  fmt.Sprintf("fill:%s;stroke:none", bgFill),
+		Style:  fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
 	// Ribbons before bars so bars paint over the ribbon edges.
@@ -153,7 +146,7 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 		srcOffset[f.Source] += f.Value
 		tgtOffset[f.Target] += f.Value
 
-		color := palette[nodeIdx[f.Source]%len(palette)]
+		color := th.NodeColors[nodeIdx[f.Source]%len(th.NodeColors)]
 		children = append(children, &path{
 			D:     ribbonPath(sx, syTop, tx, tyTop, f.Value),
 			Style: fmt.Sprintf("fill:%s;stroke:none;opacity:%.2f", color, ribbonOpacity),
@@ -161,7 +154,7 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 	}
 
 	for _, n := range nodes {
-		color := palette[nodeIdx[n]%len(palette)]
+		color := th.NodeColors[nodeIdx[n]%len(th.NodeColors)]
 		children = append(children, &rect{
 			X: svgFloat(nodeX[n]), Y: svgFloat(nodeY[n]),
 			Width:  svgFloat(nodeW),
@@ -180,7 +173,7 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 			Y:        svgFloat(nodeY[n] + nodeH[n]/2),
 			Anchor:   anchor,
 			Dominant: "central",
-			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, fontSize),
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.LabelText, fontSize),
 			Content:  n,
 		})
 	}

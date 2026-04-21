@@ -27,12 +27,7 @@ const (
 
 type Options struct {
 	FontSize float64
-}
-
-var defaultColors = []string{
-	"#4e79a7", "#f28e2b", "#e15759", "#76b7b2",
-	"#59a14f", "#edc948", "#b07aa1", "#ff9da7",
-	"#9c755f", "#bab0ac",
+	Theme    Theme
 }
 
 func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
@@ -44,6 +39,7 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 	if opts != nil && opts.FontSize > 0 {
 		fontSize = opts.FontSize
 	}
+	th := resolveTheme(opts)
 
 	ruler, err := textmeasure.NewDefaultRuler()
 	if err != nil {
@@ -91,14 +87,14 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 	children = append(children, &rect{
 		X: 0, Y: 0,
 		Width: svgFloat(viewW), Height: svgFloat(viewH),
-		Style: "fill:white;stroke:none",
+		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
 	if d.Title != "" {
 		children = append(children, &text{
 			X: svgFloat(cx), Y: svgFloat(pad + fontSize),
 			Anchor: "middle", Dominant: "auto",
-			Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx;font-weight:bold", fontSize+2),
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize+2),
 			Content: d.Title,
 		})
 	}
@@ -107,7 +103,7 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 		s := d.Slices[0]
 		children = append(children, &circle{
 			CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(defaultRadius),
-			Style: fmt.Sprintf("fill:%s;stroke:white;stroke-width:2", colorFor(0)),
+			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:2", colorFor(th, 0), th.Background),
 		})
 		label := "100.0%"
 		if d.ShowData {
@@ -116,7 +112,7 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 		children = append(children, &text{
 			X: svgFloat(cx), Y: svgFloat(cy),
 			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:white;font-size:%.0fpx;font-weight:bold", fontSize-1),
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.InsideText, fontSize-1),
 			Content: label,
 		})
 	} else if total > 0 {
@@ -125,7 +121,7 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 			frac := s.Value / total
 			sweep := frac * 2 * math.Pi
 			endAngle := startAngle + sweep
-			children = append(children, arcPath(cx, cy, defaultRadius, startAngle, endAngle, colorFor(i)))
+			children = append(children, arcPath(cx, cy, defaultRadius, startAngle, endAngle, colorFor(th, i), th.Background))
 			startAngle = endAngle
 		}
 		startAngle = -math.Pi / 2
@@ -141,7 +137,7 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 				children = append(children, &text{
 					X: svgFloat(lx), Y: svgFloat(ly),
 					Anchor: "middle", Dominant: "central",
-					Style:   fmt.Sprintf("fill:white;font-size:%.0fpx;font-weight:bold", fontSize-1),
+					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.InsideText, fontSize-1),
 					Content: label,
 				})
 			} else {
@@ -152,7 +148,7 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 				children = append(children, &line{
 					X1: svgFloat(inX), Y1: svgFloat(inY),
 					X2: svgFloat(outX), Y2: svgFloat(outY),
-					Style: "stroke:#666;stroke-width:1",
+					Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.LeaderStroke),
 				})
 				anchor := "start"
 				if cosA < 0 {
@@ -161,7 +157,7 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 				children = append(children, &text{
 					X: svgFloat(outX), Y: svgFloat(outY),
 					Anchor: anchor, Dominant: "central",
-					Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
+					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.OutsideText, fontSize-1),
 					Content: label,
 				})
 			}
@@ -174,12 +170,12 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 		children = append(children, &rect{
 			X: svgFloat(legendX), Y: svgFloat(y),
 			Width: svgFloat(legendSwatchW), Height: svgFloat(legendSwatchW),
-			Style: fmt.Sprintf("fill:%s", colorFor(i)),
+			Style: fmt.Sprintf("fill:%s", colorFor(th, i)),
 		})
 		children = append(children, &text{
 			X: svgFloat(legendX + legendSwatchW + 6), Y: svgFloat(y + legendSwatchW/2),
 			Anchor: "start", Dominant: "central",
-			Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize),
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.LegendText, fontSize),
 			Content: s.Label,
 		})
 	}
@@ -197,7 +193,7 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 	return append(xmlDecl, svgBytes...), nil
 }
 
-func arcPath(cx, cy, r, startAngle, endAngle float64, color string) *path {
+func arcPath(cx, cy, r, startAngle, endAngle float64, color, stroke string) *path {
 	x1 := cx + r*math.Cos(startAngle)
 	y1 := cy + r*math.Sin(startAngle)
 	x2 := cx + r*math.Cos(endAngle)
@@ -210,12 +206,12 @@ func arcPath(cx, cy, r, startAngle, endAngle float64, color string) *path {
 		cx, cy, x1, y1, r, r, largeArc, x2, y2)
 	return &path{
 		D:     d,
-		Style: fmt.Sprintf("fill:%s;stroke:white;stroke-width:2", color),
+		Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:2", color, stroke),
 	}
 }
 
-func colorFor(i int) string {
-	return defaultColors[i%len(defaultColors)]
+func colorFor(th Theme, i int) string {
+	return th.SliceColors[i%len(th.SliceColors)]
 }
 
 // formatSliceLabel returns the percentage (and optional count) text
