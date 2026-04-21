@@ -73,6 +73,9 @@ type Options struct {
 	C4        *c4renderer.Options
 	GitGraph  *gitgraphrenderer.Options
 	Sankey    *sankeyrenderer.Options
+	Gantt     *ganttrenderer.Options
+	XYChart   *xychartrenderer.Options
+	Kanban    *kanbanrenderer.Options
 }
 
 // Sizing constants for nodes when no caller-specified theme overrides
@@ -430,7 +433,65 @@ func mergeInitTheme(opts *Options, initCfg *config.Config) *Options {
 	}
 	merged.Pie.Theme = toPieTheme(tc)
 
+	if merged.Gantt != nil {
+		clone := *merged.Gantt
+		merged.Gantt = &clone
+	} else {
+		merged.Gantt = &ganttrenderer.Options{}
+	}
+	merged.Gantt.Theme = toGanttTheme(tc)
+
+	if merged.XYChart != nil {
+		clone := *merged.XYChart
+		merged.XYChart = &clone
+	} else {
+		merged.XYChart = &xychartrenderer.Options{}
+	}
+	merged.XYChart.Theme = toXYChartTheme(tc)
+
+	if merged.Kanban != nil {
+		clone := *merged.Kanban
+		merged.Kanban = &clone
+	} else {
+		merged.Kanban = &kanbanrenderer.Options{}
+	}
+	merged.Kanban.Theme = toKanbanTheme(tc)
+
 	return merged
+}
+
+// toGanttTheme preserves the semantic status colors (Done/Active/Crit
+// are visual conventions) and only remaps chrome surfaces.
+func toGanttTheme(tc *config.ThemeColors) ganttrenderer.Theme {
+	th := ganttrenderer.DefaultTheme()
+	th.TitleText = tc.Text
+	th.SectionText = tc.Text
+	th.AxisStroke = tc.MutedText
+	th.AxisLabel = tc.MutedText
+	th.OutsideBarText = tc.Text
+	th.InsideBarText = tc.Primary
+	th.Background = tc.Background
+	return th
+}
+
+func toXYChartTheme(tc *config.ThemeColors) xychartrenderer.Theme {
+	return xychartrenderer.Theme{
+		SeriesColors: tc.PieColors,
+		LabelFill:    tc.Text,
+		AxisStroke:   tc.MutedText,
+		GridStroke:   tc.Tertiary,
+		MarkerStroke: tc.Background,
+		Background:   tc.Background,
+	}
+}
+
+// toKanbanTheme keeps the grey-scale card/column look intact (kanban
+// uses a different visual language than the other Mermaid diagrams)
+// and only remaps the background so it blends with the active theme.
+func toKanbanTheme(tc *config.ThemeColors) kanbanrenderer.Theme {
+	th := kanbanrenderer.DefaultTheme()
+	th.Background = tc.Background
+	return th
 }
 
 func toGitGraphTheme(tc *config.ThemeColors) gitgraphrenderer.Theme {
@@ -684,7 +745,11 @@ func renderGantt(src []byte, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
-	out, err := ganttrenderer.Render(d, nil)
+	var gOpts *ganttrenderer.Options
+	if opts != nil {
+		gOpts = opts.Gantt
+	}
+	out, err := ganttrenderer.Render(d, gOpts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
@@ -744,7 +809,11 @@ func renderXYChart(src []byte, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
-	out, err := xychartrenderer.Render(d, nil)
+	var xOpts *xychartrenderer.Options
+	if opts != nil {
+		xOpts = opts.XYChart
+	}
+	out, err := xychartrenderer.Render(d, xOpts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
@@ -768,7 +837,11 @@ func renderKanban(src []byte, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
-	out, err := kanbanrenderer.Render(d, nil)
+	var kOpts *kanbanrenderer.Options
+	if opts != nil {
+		kOpts = opts.Kanban
+	}
+	out, err := kanbanrenderer.Render(d, kOpts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
