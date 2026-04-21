@@ -55,7 +55,7 @@ func Parse(r io.Reader) (*diagram.KanbanDiagram, error) {
 			headerSeen = true
 			continue
 		}
-		indent := leadingSpaces(raw)
+		indent := parserutil.IndentWidth(raw)
 		if sectionIndent == -1 {
 			sectionIndent = indent
 		}
@@ -99,18 +99,6 @@ func Parse(r io.Reader) (*diagram.KanbanDiagram, error) {
 		return nil, fmt.Errorf("missing %s header", headerKeyword)
 	}
 	return d, nil
-}
-
-func leadingSpaces(s string) int {
-	n := 0
-	for n < len(s) {
-		c := s[n]
-		if c != ' ' && c != '\t' {
-			break
-		}
-		n++
-	}
-	return n
 }
 
 // parseElement splits a kanban element into (id, text, metadata). The
