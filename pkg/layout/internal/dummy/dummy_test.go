@@ -13,9 +13,12 @@ func TestNoDummiesForAdjacentEdges(t *testing.T) {
 	g.SetEdge("A", "B", graph.EdgeAttrs{})
 	ranks := map[string]int{"A": 0, "B": 1}
 
-	chains := Run(g, ranks)
-	if len(chains) != 0 {
-		t.Errorf("expected no chains for 1-span edge, got %d", len(chains))
+	res := Run(g, ranks)
+	if len(res.Chains) != 0 {
+		t.Errorf("expected no chains for 1-span edge, got %d", len(res.Chains))
+	}
+	if len(res.Dummies) != 0 {
+		t.Errorf("expected no dummies for 1-span edge, got %d", len(res.Dummies))
 	}
 	if g.NodeCount() != 2 {
 		t.Errorf("expected 2 nodes (no dummies), got %d", g.NodeCount())
@@ -28,34 +31,34 @@ func TestInsertsDummiesForLongSpan(t *testing.T) {
 	g.SetNode("B", graph.NodeAttrs{})
 	g.SetNode("C", graph.NodeAttrs{})
 	g.SetNode("D", graph.NodeAttrs{})
-	// Long-span edge A → D spans 3 ranks; should get 2 dummies.
 	g.SetEdge("A", "D", graph.EdgeAttrs{})
 	ranks := map[string]int{"A": 0, "B": 1, "C": 2, "D": 3}
 
-	chains := Run(g, ranks)
+	res := Run(g, ranks)
 
 	key := Key{From: "A", To: "D"}
-	if len(chains[key]) != 1 {
-		t.Fatalf("expected 1 chain for A→D, got %d", len(chains[key]))
+	if len(res.Chains[key]) != 1 {
+		t.Fatalf("expected 1 chain for A→D, got %d", len(res.Chains[key]))
 	}
-	if got := len(chains[key][0].Dummies); got != 2 {
-		t.Errorf("expected 2 dummies for 3-span edge, got %d", got)
+	chain := res.Chains[key][0]
+	if len(chain.Dummies) != 2 {
+		t.Errorf("expected 2 dummies for 3-span edge, got %d", len(chain.Dummies))
 	}
-	// Dummies assigned ranks 1 and 2 respectively.
-	for i, d := range chains[key][0].Dummies {
-		wantRank := i + 1
-		if ranks[d] != wantRank {
-			t.Errorf("dummy %q: rank=%d, want %d", d, ranks[d], wantRank)
+	if len(res.Dummies) != 2 {
+		t.Errorf("Result.Dummies should list both inserted ids, got %d", len(res.Dummies))
+	}
+	for i, d := range chain.Dummies {
+		if ranks[d] != i+1 {
+			t.Errorf("dummy %q: rank=%d, want %d", d, ranks[d], i+1)
 		}
 	}
-	// Original edge removed; chain of short edges inserted.
 	if g.HasEdge("A", "D") {
 		t.Error("original long-span edge should be removed")
 	}
-	if !g.HasEdge("A", chains[key][0].Dummies[0]) {
+	if !g.HasEdge("A", chain.Dummies[0]) {
 		t.Error("first short edge missing")
 	}
-	if !g.HasEdge(chains[key][0].Dummies[1], "D") {
+	if !g.HasEdge(chain.Dummies[1], "D") {
 		t.Error("final short edge missing")
 	}
 }
@@ -64,24 +67,22 @@ func TestMultipleLongEdgesBetweenSamePair(t *testing.T) {
 	g := graph.New()
 	g.SetNode("A", graph.NodeAttrs{})
 	g.SetNode("D", graph.NodeAttrs{})
-	// Two parallel edges A → D across 3 ranks.
 	g.SetEdge("A", "D", graph.EdgeAttrs{Label: "first"})
 	g.SetEdge("A", "D", graph.EdgeAttrs{Label: "second"})
 	ranks := map[string]int{"A": 0, "D": 3}
 
-	chains := Run(g, ranks)
+	res := Run(g, ranks)
 	key := Key{From: "A", To: "D"}
-	if len(chains[key]) != 2 {
-		t.Fatalf("expected 2 chains for parallel A→D edges, got %d", len(chains[key]))
+	if len(res.Chains[key]) != 2 {
+		t.Fatalf("expected 2 chains for parallel A→D edges, got %d", len(res.Chains[key]))
 	}
-	// Dummy IDs must be distinct between the two chains.
-	dummies := map[string]bool{}
-	for _, chain := range chains[key] {
+	seen := map[string]bool{}
+	for _, chain := range res.Chains[key] {
 		for _, d := range chain.Dummies {
-			if dummies[d] {
+			if seen[d] {
 				t.Errorf("duplicate dummy id %q between parallel chains", d)
 			}
-			dummies[d] = true
+			seen[d] = true
 		}
 	}
 }
@@ -93,16 +94,16 @@ func TestDummyIDsAreReproducible(t *testing.T) {
 		g.SetNode("D", graph.NodeAttrs{})
 		g.SetEdge("A", "D", graph.EdgeAttrs{})
 		ranks := map[string]int{"A": 0, "D": 3}
-		return Run(g, ranks)
+		return Run(g, ranks).Chains
 	}
 	first := build()
-	for i := 0; i < 5; i++ {
+	for iter := 0; iter < 5; iter++ {
 		next := build()
 		for k, chains := range first {
-			for i, c := range chains {
-				for j, d := range c.Dummies {
-					if d != next[k][i].Dummies[j] {
-						t.Fatalf("iter %d: dummy id drift at %s chain %d pos %d", i, d, i, j)
+			for ci, c := range chains {
+				for pos, d := range c.Dummies {
+					if d != next[k][ci].Dummies[pos] {
+						t.Fatalf("iter %d: dummy id drift at key=%v chain=%d pos=%d", iter, k, ci, pos)
 					}
 				}
 			}
@@ -116,9 +117,9 @@ func TestSelfLoopSkipped(t *testing.T) {
 	g.SetEdge("A", "A", graph.EdgeAttrs{})
 	ranks := map[string]int{"A": 0}
 
-	chains := Run(g, ranks)
-	if len(chains) != 0 {
-		t.Errorf("expected no chains for self-loop, got %d", len(chains))
+	res := Run(g, ranks)
+	if len(res.Chains) != 0 {
+		t.Errorf("expected no chains for self-loop, got %d", len(res.Chains))
 	}
 	if !g.HasEdge("A", "A") {
 		t.Error("self-loop should be preserved")

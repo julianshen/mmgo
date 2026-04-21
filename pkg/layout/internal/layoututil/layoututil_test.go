@@ -7,6 +7,46 @@ import (
 	"github.com/julianshen/mmgo/pkg/layout/graph"
 )
 
+func TestCompareEdgeIDs(t *testing.T) {
+	cases := []struct {
+		name string
+		a, b graph.EdgeID
+		want int // sign comparison
+	}{
+		{"by From", graph.EdgeID{From: "a"}, graph.EdgeID{From: "b"}, -1},
+		{"by To", graph.EdgeID{From: "a", To: "a"}, graph.EdgeID{From: "a", To: "b"}, -1},
+		{"by ID", graph.EdgeID{From: "a", To: "b", ID: 1}, graph.EdgeID{From: "a", To: "b", ID: 2}, -1},
+		{"equal", graph.EdgeID{From: "a", To: "b", ID: 1}, graph.EdgeID{From: "a", To: "b", ID: 1}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := CompareEdgeIDs(tc.a, tc.b)
+			if (got < 0) != (tc.want < 0) || (got == 0) != (tc.want == 0) {
+				t.Errorf("CompareEdgeIDs(%v, %v) = %d, want sign %d", tc.a, tc.b, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSortEdges(t *testing.T) {
+	edges := []graph.EdgeID{
+		{From: "b", To: "a", ID: 1},
+		{From: "a", To: "b", ID: 2},
+		{From: "a", To: "b", ID: 1},
+	}
+	SortEdges(edges)
+	want := []graph.EdgeID{
+		{From: "a", To: "b", ID: 1},
+		{From: "a", To: "b", ID: 2},
+		{From: "b", To: "a", ID: 1},
+	}
+	for i, e := range edges {
+		if e != want[i] {
+			t.Errorf("idx %d: got %v, want %v", i, e, want[i])
+		}
+	}
+}
+
 func TestBuildAdjacency(t *testing.T) {
 	g := graph.New()
 	g.SetEdge("a", "b", graph.EdgeAttrs{})

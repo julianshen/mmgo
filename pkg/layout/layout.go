@@ -24,19 +24,17 @@
 // and restores the original edge directions in the output.
 //
 // TODO(features): subgraph (compound graph) support, orthogonal edge
-// routing, dummy-node insertion for long-span edges, and edge-label
-// collision avoidance are not yet implemented. Long-span edges are
-// currently rendered as straight lines. See individual internal
-// package TODOs for details.
+// routing, and edge-label collision avoidance are not yet implemented.
+// See individual internal package TODOs for details.
 package layout
 
 import (
 	"math"
-	"sort"
 
 	"github.com/julianshen/mmgo/pkg/layout/graph"
 	"github.com/julianshen/mmgo/pkg/layout/internal/acyclic"
 	"github.com/julianshen/mmgo/pkg/layout/internal/dummy"
+	"github.com/julianshen/mmgo/pkg/layout/internal/layoututil"
 	"github.com/julianshen/mmgo/pkg/layout/internal/order"
 	"github.com/julianshen/mmgo/pkg/layout/internal/position"
 	"github.com/julianshen/mmgo/pkg/layout/internal/rank"
@@ -193,19 +191,11 @@ func Layout(g *graph.Graph, opts Options) *Result {
 
 	acyclic.Run(work)
 	ranks := rank.Run(work)
-	// Dummy insertion splits edges spanning >1 rank into chains of
-	// rank-adjacent edges. The dummy nodes get real coordinates from
-	// the position phase and serve as polyline waypoints so the final
-	// edge doesn't cut through unrelated real nodes at intermediate
-	// ranks. Dummies are filtered out of the public Nodes map and
-	// bounds computation below.
-	chains := dummy.Run(work, ranks)
-	// Extend sizes for every dummy so packingDim/rankDim can look
-	// them up. All dummies are 1×1 by convention in dummy.Run.
-	for _, id := range work.Nodes() {
-		if _, ok := sizes[id]; !ok {
-			sizes[id] = nodeSize{width: 1, height: 1}
-		}
+	// Dummies route long-span edges through intermediate-rank
+	// waypoints; bounds + the public Nodes map filter them out.
+	dRes := dummy.Run(work, ranks)
+	for _, id := range dRes.Dummies {
+		sizes[id] = nodeSize{width: 1, height: 1}
 	}
 	ord := order.Run(work, ranks)
 	coords := position.Run(work, ord, packingDim, position.Options{
@@ -214,8 +204,8 @@ func Layout(g *graph.Graph, opts Options) *Result {
 		RankDim: rankDim,
 	})
 
-	nodes, width, height := buildNodesAndBounds(g, coords, sizes, opts.RankDir)
-	edges := buildEdges(g, ranks, chains, coords, sizes, opts.RankDir, nodes, width, height)
+	nodes, offsetX, offsetY, width, height := buildNodesAndBounds(g, coords, sizes, opts.RankDir)
+	edges := buildEdges(g, ranks, dRes.Chains, coords, opts.RankDir, nodes, offsetX, offsetY)
 
 	return &Result{
 		Nodes:  nodes,
@@ -256,10 +246,10 @@ func buildNodesAndBounds(
 	coords position.Result,
 	sizes map[string]nodeSize,
 	dir RankDir,
-) (nodes map[string]NodeLayout, width, height float64) {
+) (nodes map[string]NodeLayout, offsetX, offsetY, width, height float64) {
 	nodes = make(map[string]NodeLayout, g.NodeCount())
 	if g.NodeCount() == 0 {
-		return nodes, 0, 0
+		return nodes, 0, 0, 0, 0
 	}
 
 	// For BT and RL the direction transform needs the post-TB max Y to
@@ -315,7 +305,7 @@ func buildNodesAndBounds(
 			Height: sz.height,
 		}
 	}
-	return nodes, maxX - minX, maxY - minY
+	return nodes, minX, minY, maxX - minX, maxY - minY
 }
 
 // transformPoint applies the rank-direction coordinate transform to a
@@ -337,33 +327,25 @@ func transformPoint(p position.Point, dir RankDir, flipAround float64) Point {
 	}
 }
 
-// buildEdges produces the public EdgeLayout map. For edges spanning
-// one rank it emits a 2-point polyline from source to destination
-// center. For longer edges it threads the polyline through each dummy
-// node's position, yielding a rank-by-rank polyline that routes around
-// unrelated real nodes at intermediate ranks.
+// buildEdges threads each original edge's polyline through any dummy
+// chain inserted by dummy.Run. Two-point straight-line edges remain
+// 2 points; longer edges become rank-by-rank polylines.
 //
-// Direction handling: dummies are inserted on the work graph in
-// rank-ascending order, so a chain keyed (u, v) has dummies from
-// rank(u)+1 → rank(v)-1. If the original edge is a back-edge
-// (ranks[origFrom] > ranks[origTo]) the chain's dummies are in the
-// opposite of the polyline direction and must be reversed.
+// Direction: dummies are inserted in rank-ascending order, so for a
+// back-edge (ranks[origFrom] > ranks[origTo]) the chain runs against
+// the polyline direction and must be reversed.
 //
-// Multi-edges between the same rank-ordered pair are consumed from
-// the chain slice in iteration order — matching the order dummy.Run
-// sorted them during insertion.
+// Multi-edges between the same rank-ordered pair consume distinct
+// chains in CompareEdgeIDs order — same order dummy.Run produced.
 func buildEdges(
 	g *graph.Graph,
 	ranks map[string]int,
 	chains map[dummy.Key][]dummy.Chain,
 	coords position.Result,
-	sizes map[string]nodeSize,
 	dir RankDir,
 	nodes map[string]NodeLayout,
-	width, height float64,
+	offsetX, offsetY float64,
 ) map[graph.EdgeID]EdgeLayout {
-	// All-node positions including dummies, translated to public
-	// (top-left-origin) coordinates like NodeLayout uses.
 	var flipAround float64
 	if dir == RankDirBT || dir == RankDirRL {
 		for _, p := range coords {
@@ -372,34 +354,17 @@ func buildEdges(
 			}
 		}
 	}
-	// Offsets: subtract the min of real-node coords to match
-	// buildNodesAndBounds. For a real node, nodes[id].X already
-	// captures that offset — so derive it once.
-	var offsetX, offsetY float64
-	for id, nl := range nodes {
-		if !dummy.IsDummy(id) {
-			p := transformPoint(coords[id], dir, flipAround)
-			offsetX = p.X - nl.X
-			offsetY = p.Y - nl.Y
-			break
-		}
-	}
 	pointOf := func(id string) Point {
 		if nl, ok := nodes[id]; ok {
 			return Point{X: nl.X, Y: nl.Y}
 		}
-		// Dummy: transform its work-coord and apply the offset.
 		p := transformPoint(coords[id], dir, flipAround)
 		return Point{X: p.X - offsetX, Y: p.Y - offsetY}
 	}
 
-	// Ordered sort of original edges so multi-edge chain consumption
-	// matches dummy.Run's sort order.
 	origEdges := g.Edges()
-	sortEdges(origEdges)
+	layoututil.SortEdges(origEdges)
 
-	// Per-key consumption index so parallel edges draw from distinct
-	// chains in order.
 	consumed := make(map[dummy.Key]int)
 
 	edges := make(map[graph.EdgeID]EdgeLayout, len(origEdges))
@@ -408,35 +373,15 @@ func buildEdges(
 		dstPt := pointOf(eid.To)
 		pts := []Point{srcPt, dstPt}
 
-		if eid.From != eid.To {
-			srcRank, dstRank := ranks[eid.From], ranks[eid.To]
-			var key dummy.Key
-			reversed := false
-			if srcRank <= dstRank {
-				key = dummy.Key{From: eid.From, To: eid.To}
-			} else {
-				key = dummy.Key{From: eid.To, To: eid.From}
-				reversed = true
-			}
-			idx := consumed[key]
-			if idx < len(chains[key]) {
-				chain := chains[key][idx]
-				mid := make([]Point, len(chain.Dummies))
-				for i, d := range chain.Dummies {
-					mid[i] = pointOf(d)
-				}
-				if reversed {
-					// Chain is stored in rank-ascending order (target
-					// → source from the original edge's perspective);
-					// reverse so the polyline runs source → target.
-					for i, j := 0, len(mid)-1; i < j; i, j = i+1, j-1 {
-						mid[i], mid[j] = mid[j], mid[i]
-					}
-				}
-				pts = append([]Point{srcPt}, mid...)
-				pts = append(pts, dstPt)
-			}
-			consumed[key] = idx + 1
+		switch {
+		case eid.From == eid.To:
+			// Self-loop: no chain.
+		case ranks[eid.From] <= ranks[eid.To]:
+			pts = applyChain(pts, srcPt, dstPt, chains, consumed,
+				dummy.Key{From: eid.From, To: eid.To}, false, pointOf)
+		default:
+			pts = applyChain(pts, srcPt, dstPt, chains, consumed,
+				dummy.Key{From: eid.To, To: eid.From}, true, pointOf)
 		}
 
 		edges[eid] = EdgeLayout{
@@ -447,19 +392,35 @@ func buildEdges(
 	return edges
 }
 
-// sortEdges orders edges by (From, To, ID) so buildEdges iterates
-// them in the same order dummy.Run inserted them, making multi-edge
-// chain consumption align.
-func sortEdges(edges []graph.EdgeID) {
-	sort.Slice(edges, func(i, j int) bool {
-		if edges[i].From != edges[j].From {
-			return edges[i].From < edges[j].From
+// applyChain returns the polyline for an edge, threading through the
+// next chain available at key. Pass reversed=true when the chain's
+// rank-ascending order is the OPPOSITE of the polyline direction
+// (back-edges).
+func applyChain(
+	pts []Point, srcPt, dstPt Point,
+	chains map[dummy.Key][]dummy.Chain, consumed map[dummy.Key]int,
+	key dummy.Key, reversed bool,
+	pointOf func(string) Point,
+) []Point {
+	idx := consumed[key]
+	consumed[key] = idx + 1
+	if idx >= len(chains[key]) {
+		return pts
+	}
+	chain := chains[key][idx]
+	out := make([]Point, 0, len(chain.Dummies)+2)
+	out = append(out, srcPt)
+	if reversed {
+		for i := len(chain.Dummies) - 1; i >= 0; i-- {
+			out = append(out, pointOf(chain.Dummies[i]))
 		}
-		if edges[i].To != edges[j].To {
-			return edges[i].To < edges[j].To
+	} else {
+		for _, d := range chain.Dummies {
+			out = append(out, pointOf(d))
 		}
-		return edges[i].ID < edges[j].ID
-	})
+	}
+	out = append(out, dstPt)
+	return out
 }
 
 // midpointOf returns the polyline midpoint by length. For a 2-point

@@ -6,9 +6,32 @@ package layoututil
 
 import (
 	"slices"
+	"sort"
+	"strings"
 
 	"github.com/julianshen/mmgo/pkg/layout/graph"
 )
+
+// CompareEdgeIDs orders edges lexicographically by From, then To,
+// then ID. Used wherever a phase needs a deterministic edge iteration
+// order — Go map iteration is randomized, and without this several
+// phases would produce non-reproducible output across runs.
+func CompareEdgeIDs(a, b graph.EdgeID) int {
+	if a.From != b.From {
+		return strings.Compare(a.From, b.From)
+	}
+	if a.To != b.To {
+		return strings.Compare(a.To, b.To)
+	}
+	return a.ID - b.ID
+}
+
+// SortEdges sorts edges in place using CompareEdgeIDs.
+func SortEdges(edges []graph.EdgeID) {
+	sort.Slice(edges, func(i, j int) bool {
+		return CompareEdgeIDs(edges[i], edges[j]) < 0
+	})
+}
 
 // BuildAdjacency returns deduped predecessor and successor lists for
 // every node in g. Called once before a layout phase's main loop to
