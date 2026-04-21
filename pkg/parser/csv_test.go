@@ -24,6 +24,12 @@ func TestSplitUnquotedCommas(t *testing.T) {
 		{`'x " y',z`, []string{`'x " y'`, "z"}},
 		// Unterminated quote consumes the rest as one token.
 		{`a,"unterminated, b`, []string{"a", `"unterminated, b`}},
+		// Backslash escapes the next character inside a quoted span
+		// so \" doesn't close the quote. Backslash + byte are
+		// preserved verbatim in the output.
+		{`"a\"b",c`, []string{`"a\"b"`, "c"}},
+		// Backslash outside a quote is just a literal character.
+		{`a\,b`, []string{`a\`, "b"}},
 	}
 	for _, c := range cases {
 		got := SplitUnquotedCommas(c.in)

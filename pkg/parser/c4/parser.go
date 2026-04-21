@@ -171,36 +171,15 @@ func parseElement(kind diagram.C4ElementKind, rest string) (diagram.C4Element, b
 	return elem, true
 }
 
-// splitArgs splits a parenthesized argument list on commas, respecting
-// double-quoted strings. Backslash-escaped quotes inside strings are
-// treated as literal and don't toggle the quote state.
+// splitArgs splits a parenthesized argument list on commas outside
+// quotes and trims each field. Thin wrapper around the shared
+// parserutil.SplitUnquotedCommas, which handles backslash escapes
+// inside quoted spans.
 func splitArgs(s string) []string {
-	var args []string
-	var cur strings.Builder
-	inQuote := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == '\\' && i+1 < len(s) {
-			cur.WriteByte(c)
-			cur.WriteByte(s[i+1])
-			i++
-			continue
-		}
-		if c == '"' {
-			inQuote = !inQuote
-			cur.WriteByte(c)
-			continue
-		}
-		if c == ',' && !inQuote {
-			args = append(args, strings.TrimSpace(cur.String()))
-			cur.Reset()
-			continue
-		}
-		cur.WriteByte(c)
+	raw := parserutil.SplitUnquotedCommas(s)
+	for i, v := range raw {
+		raw[i] = strings.TrimSpace(v)
 	}
-	if cur.Len() > 0 {
-		args = append(args, strings.TrimSpace(cur.String()))
-	}
-	return args
+	return raw
 }
 
