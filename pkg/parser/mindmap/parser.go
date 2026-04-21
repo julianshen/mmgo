@@ -39,7 +39,7 @@ func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 			continue
 		}
 
-		indent := countIndent(raw)
+		indent := parserutil.IndentWidth(raw)
 		text, shape := parseNodeContent(trimmed)
 		node := &diagram.MindmapNode{Text: text, Shape: shape}
 
@@ -63,21 +63,6 @@ func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 		return nil, fmt.Errorf("missing mindmap header")
 	}
 	return d, nil
-}
-
-func countIndent(line string) int {
-	count := 0
-	for _, c := range line {
-		switch c {
-		case ' ':
-			count++
-		case '\t':
-			count += 4
-		default:
-			return count
-		}
-	}
-	return count
 }
 
 func parseNodeContent(s string) (string, diagram.MindmapNodeShape) {
