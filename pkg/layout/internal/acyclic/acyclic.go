@@ -10,9 +10,9 @@ package acyclic
 import (
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/julianshen/mmgo/pkg/layout/graph"
+	"github.com/julianshen/mmgo/pkg/layout/internal/layoututil"
 )
 
 // Run reverses a set of feedback edges in g so that the non-self-loop
@@ -49,7 +49,7 @@ func Run(g *graph.Graph) []graph.EdgeID {
 			backEdges = append(backEdges, eid)
 		}
 	}
-	slices.SortFunc(backEdges, compareEdgeIDs)
+	slices.SortFunc(backEdges, layoututil.CompareEdgeIDs)
 
 	reversed := make([]graph.EdgeID, 0, len(backEdges))
 	for _, eid := range backEdges {
@@ -60,18 +60,6 @@ func Run(g *graph.Graph) []graph.EdgeID {
 		reversed = append(reversed, newID)
 	}
 	return reversed
-}
-
-// compareEdgeIDs orders edges by From, then To, then ID for stable
-// deterministic iteration.
-func compareEdgeIDs(a, b graph.EdgeID) int {
-	if a.From != b.From {
-		return strings.Compare(a.From, b.From)
-	}
-	if a.To != b.To {
-		return strings.Compare(a.To, b.To)
-	}
-	return a.ID - b.ID
 }
 
 // Undo reverses the edges listed in reversed, restoring their original
