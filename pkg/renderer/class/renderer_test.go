@@ -273,3 +273,51 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 		t.Error("viewBox missing")
 	}
 }
+
+func TestRenderAppliesCustomTheme(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{
+			{ID: "A", Label: "A"},
+			{ID: "B", Label: "B"},
+		},
+		Relations: []diagram.ClassRelation{
+			{From: "A", To: "B", RelationType: diagram.RelationTypeAssociation, Label: "uses"},
+		},
+	}
+	out, err := Render(d, &Options{Theme: Theme{
+		NodeFill:   "#111111",
+		NodeStroke: "#aabbcc",
+		NodeText:   "#ddeeff",
+		EdgeStroke: "#223344",
+		EdgeText:   "#556677",
+		Background: "#000000",
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{
+		`fill:#000000`, // background
+		`fill:#111111;stroke:#aabbcc`, // class rect
+		`fill:#ddeeff`, // class label
+		`stroke:#223344`, // edge line
+		`fill:#556677`, // edge label
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("themed output missing %q", want)
+		}
+	}
+	// Defaults must not leak through when the theme is set.
+	for _, unwanted := range []string{`fill:#ECECFF`, `stroke:#9370DB`} {
+		if strings.Contains(raw, unwanted) {
+			t.Errorf("themed output still contains default color %q", unwanted)
+		}
+	}
+}
+
+func TestDefaultThemeRoundtrip(t *testing.T) {
+	th := DefaultTheme()
+	if th.NodeFill != "#ECECFF" || th.NodeStroke != "#9370DB" || th.EdgeStroke != "#333" {
+		t.Errorf("DefaultTheme drifted: %+v", th)
+	}
+}

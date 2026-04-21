@@ -64,6 +64,7 @@ type Options struct {
 	Flowchart *flowchartrenderer.Options
 	Sequence  *sequencerenderer.Options
 	Pie       *pierenderer.Options
+	Class     *classrenderer.Options
 }
 
 // Sizing constants for nodes when no caller-specified theme overrides
@@ -341,7 +342,27 @@ func mergeInitTheme(opts *Options, initCfg *config.Config) *Options {
 	}
 	merged.Sequence.Theme = toSequenceTheme(tc)
 
+	if merged.Class != nil {
+		clone := *merged.Class
+		merged.Class = &clone
+	} else {
+		merged.Class = &classrenderer.Options{}
+	}
+	merged.Class.Theme = toClassTheme(tc)
+
 	return merged
+}
+
+func toClassTheme(tc *config.ThemeColors) classrenderer.Theme {
+	return classrenderer.Theme{
+		NodeFill:       tc.Secondary,
+		NodeStroke:     tc.LineColor,
+		NodeText:       tc.Text,
+		AnnotationText: tc.Text,
+		EdgeStroke:     tc.LineColor,
+		EdgeText:       tc.Text,
+		Background:     tc.Background,
+	}
 }
 
 func toFlowchartTheme(tc *config.ThemeColors) flowchartrenderer.Theme {
@@ -437,7 +458,11 @@ func renderClass(src []byte, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
-	out, err := classrenderer.Render(d, nil)
+	var classOpts *classrenderer.Options
+	if opts != nil {
+		classOpts = opts.Class
+	}
+	out, err := classrenderer.Render(d, classOpts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}

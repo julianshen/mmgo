@@ -26,6 +26,7 @@ const (
 
 type Options struct {
 	FontSize float64
+	Theme    Theme
 }
 
 func Render(d *diagram.ClassDiagram, opts *Options) ([]byte, error) {
@@ -37,6 +38,7 @@ func Render(d *diagram.ClassDiagram, opts *Options) ([]byte, error) {
 	if opts != nil && opts.FontSize > 0 {
 		fontSize = opts.FontSize
 	}
+	th := resolveTheme(opts)
 
 	ruler, err := textmeasure.NewDefaultRuler()
 	if err != nil {
@@ -65,11 +67,11 @@ func Render(d *diagram.ClassDiagram, opts *Options) ([]byte, error) {
 	}
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
-		Style: "fill:#fff;stroke:none",
+		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
-	children = append(children, renderEdges(d, l, pad, fontSize)...)
-	children = append(children, renderClasses(d, l, pad, fontSize)...)
+	children = append(children, renderEdges(d, l, pad, fontSize, th)...)
+	children = append(children, renderClasses(d, l, pad, fontSize, th)...)
 
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
@@ -151,7 +153,7 @@ func memberText(m diagram.ClassMember) string {
 	return prefix + name
 }
 
-func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float64) []any {
+func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float64, th Theme) []any {
 	var elems []any
 	for _, c := range d.Classes {
 		nl, ok := l.Nodes[c.ID]
@@ -168,7 +170,7 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 		elems = append(elems, &rect{
 			X: svgFloat(x), Y: svgFloat(y),
 			Width: svgFloat(w), Height: svgFloat(h),
-			Style: "fill:#ECECFF;stroke:#9370DB;stroke-width:1.5",
+			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.NodeFill, th.NodeStroke),
 		})
 
 		curY := y + headerH/2
@@ -176,7 +178,7 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 			elems = append(elems, &text{
 				X: svgFloat(cx), Y: svgFloat(y + 14),
 				Anchor: "middle", Dominant: "auto",
-				Style:   fmt.Sprintf("fill:#999;font-size:%.0fpx;font-style:italic", fontSize-2),
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-style:italic", th.AnnotationText, fontSize-2),
 				Content: "«" + c.Annotation.String() + "»",
 			})
 			curY = y + headerH/2 + memberRowH/2
@@ -185,7 +187,7 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 		elems = append(elems, &text{
 			X: svgFloat(cx), Y: svgFloat(curY),
 			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx;font-weight:bold", fontSize),
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.NodeText, fontSize),
 			Content: c.Label,
 		})
 
@@ -196,34 +198,34 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 
 		fields, methods := splitMembers(c.Members)
 		if len(fields) > 0 {
-			elems, sectionY = appendMemberSection(elems, fields, x, w, sectionY, fontSize)
+			elems, sectionY = appendMemberSection(elems, fields, x, w, sectionY, fontSize, th)
 		}
 		if len(methods) > 0 {
-			elems, _ = appendMemberSection(elems, methods, x, w, sectionY, fontSize)
+			elems, _ = appendMemberSection(elems, methods, x, w, sectionY, fontSize, th)
 		}
 	}
 	return elems
 }
 
-func appendMemberSection(elems []any, members []diagram.ClassMember, x, w, sectionY, fontSize float64) ([]any, float64) {
+func appendMemberSection(elems []any, members []diagram.ClassMember, x, w, sectionY, fontSize float64, th Theme) ([]any, float64) {
 	elems = append(elems, &line{
 		X1: svgFloat(x), Y1: svgFloat(sectionY),
 		X2: svgFloat(x + w), Y2: svgFloat(sectionY),
-		Style: "stroke:#9370DB;stroke-width:1",
+		Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.NodeStroke),
 	})
 	for i, m := range members {
 		my := sectionY + classPadY/2 + float64(i)*memberRowH + memberRowH/2
 		elems = append(elems, &text{
 			X: svgFloat(x + classPadX), Y: svgFloat(my),
 			Anchor: "start", Dominant: "central",
-			Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.NodeText, fontSize-1),
 			Content: memberText(m),
 		})
 	}
 	return elems, sectionY + classPadY + float64(len(members))*memberRowH
 }
 
-func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float64) []any {
+func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float64, th Theme) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -256,7 +258,7 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 			continue
 		}
 
-		style := "stroke:#333;stroke-width:1.5;fill:none"
+		style := fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke)
 		if relationIsDashed(rel.RelationType) {
 			style += ";stroke-dasharray:5,5"
 		}
@@ -308,7 +310,7 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 			elems = append(elems, &text{
 				X: svgFloat(lx), Y: svgFloat(ly),
 				Anchor: "middle", Dominant: "central",
-				Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, fontSize-1),
 				Content: rel.Label,
 			})
 		}
