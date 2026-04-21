@@ -233,7 +233,8 @@ func parseSeries(t diagram.XYSeriesType, s string) (diagram.XYSeries, error) {
 // parseBracketList takes `[a, b, "c, d", e]` and returns
 // ["a", "b", "c, d", "e"]. The opening bracket must be the first
 // character; the closing bracket must be present before end-of-string.
-// Commas inside double-quoted items are preserved.
+// Surrounding quotes on each item are stripped; commas inside
+// quoted items are preserved.
 func parseBracketList(s string) ([]string, error) {
 	if !strings.HasPrefix(s, "[") {
 		return nil, fmt.Errorf("expected '['")
@@ -242,24 +243,9 @@ func parseBracketList(s string) ([]string, error) {
 	if end < 0 {
 		return nil, fmt.Errorf("missing closing ']'")
 	}
-	body := s[1:end]
-	var out []string
-	var cur strings.Builder
-	inQuote := false
-	for i := 0; i < len(body); i++ {
-		c := body[i]
-		switch {
-		case c == '"':
-			inQuote = !inQuote
-		case c == ',' && !inQuote:
-			out = append(out, strings.TrimSpace(cur.String()))
-			cur.Reset()
-		default:
-			cur.WriteByte(c)
-		}
+	items := parserutil.SplitUnquotedCommas(s[1:end])
+	for i, v := range items {
+		items[i] = parserutil.Unquote(v)
 	}
-	if cur.Len() > 0 || len(out) > 0 {
-		out = append(out, strings.TrimSpace(cur.String()))
-	}
-	return out, nil
+	return items, nil
 }
