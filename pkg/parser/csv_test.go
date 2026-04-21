@@ -30,6 +30,11 @@ func TestSplitUnquotedCommas(t *testing.T) {
 		{`"a\"b",c`, []string{`"a\"b"`, "c"}},
 		// Backslash outside a quote is just a literal character.
 		{`a\,b`, []string{`a\`, "b"}},
+		// Trailing backslash inside an unterminated quote: the
+		// i+1 < len(s) guard falls through and keeps the quote
+		// state, so everything past the opening quote is one token.
+		{`"foo\`, []string{`"foo\`}},
+		{`"ok","x\`, []string{`"ok"`, `"x\`}},
 	}
 	for _, c := range cases {
 		got := SplitUnquotedCommas(c.in)
