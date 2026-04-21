@@ -115,3 +115,51 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 		t.Error("viewBox missing")
 	}
 }
+
+func TestRenderAppliesCustomTheme(t *testing.T) {
+	d := &diagram.TimelineDiagram{
+		Events: []diagram.TimelineEvent{
+			{Time: "2024", Events: []string{"E"}},
+		},
+	}
+	out, err := Render(d, &Options{Theme: Theme{
+		SectionColors: []string{"#aabbcc"},
+		TitleText:     "#112233",
+		SectionText:   "#223344",
+		EventText:     "#ffeedd",
+		AxisStroke:    "#445566",
+		Background:    "#000000",
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{`fill:#000000`, `stroke:#445566`, `fill:#223344`, `fill:#aabbcc`, `fill:#ffeedd`} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("themed output missing %q", want)
+		}
+	}
+}
+
+func TestDefaultThemeStable(t *testing.T) {
+	got := DefaultTheme()
+	want := Theme{
+		SectionColors: []string{"#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#76b7b2", "#edc948"},
+		TitleText:     "#333",
+		SectionText:   "#333",
+		EventText:     "#fff",
+		AxisStroke:    "#999",
+		Background:    "#fff",
+	}
+	if len(got.SectionColors) != len(want.SectionColors) {
+		t.Fatalf("SectionColors len drift")
+	}
+	for i := range got.SectionColors {
+		if got.SectionColors[i] != want.SectionColors[i] {
+			t.Errorf("SectionColors[%d] drifted: %q vs %q", i, got.SectionColors[i], want.SectionColors[i])
+		}
+	}
+	if got.TitleText != want.TitleText || got.EventText != want.EventText || got.AxisStroke != want.AxisStroke {
+		t.Errorf("DefaultTheme drifted: %+v", got)
+	}
+}

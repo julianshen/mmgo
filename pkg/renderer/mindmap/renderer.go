@@ -20,10 +20,9 @@ const (
 	minNodeH        = 35.0
 )
 
-var levelColors = []string{"#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948"}
-
 type Options struct {
 	FontSize float64
+	Theme    Theme
 }
 
 func Render(d *diagram.MindmapDiagram, opts *Options) ([]byte, error) {
@@ -35,6 +34,7 @@ func Render(d *diagram.MindmapDiagram, opts *Options) ([]byte, error) {
 	if opts != nil && opts.FontSize > 0 {
 		fontSize = opts.FontSize
 	}
+	th := resolveTheme(opts)
 
 	ruler, err := textmeasure.NewDefaultRuler()
 	if err != nil {
@@ -57,12 +57,12 @@ func Render(d *diagram.MindmapDiagram, opts *Options) ([]byte, error) {
 	var children []any
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
-		Style: "fill:#fff;stroke:none",
+		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
 	if d.Root != nil {
-		children = append(children, renderEdges(l, pad)...)
-		children = append(children, renderNodes(d.Root, l, pad, fontSize, 0, ids)...)
+		children = append(children, renderEdges(l, pad, th)...)
+		children = append(children, renderNodes(d.Root, l, pad, fontSize, 0, ids, th)...)
 	}
 
 	svg := svgDoc{
@@ -122,7 +122,7 @@ func nodeSize(text string, ruler *textmeasure.Ruler, fontSize float64) (w, h flo
 	return w, h
 }
 
-func renderNodes(node *diagram.MindmapNode, l *layout.Result, pad, fontSize float64, depth int, ids *idGen) []any {
+func renderNodes(node *diagram.MindmapNode, l *layout.Result, pad, fontSize float64, depth int, ids *idGen, th Theme) []any {
 	var elems []any
 	id := ids.id(node)
 	nl, ok := l.Nodes[id]
@@ -137,7 +137,7 @@ func renderNodes(node *diagram.MindmapNode, l *layout.Result, pad, fontSize floa
 	x := cx - w/2
 	y := cy - h/2
 
-	color := levelColors[depth%len(levelColors)]
+	color := th.LevelColors[depth%len(th.LevelColors)]
 	rx := svgFloat(0)
 	switch node.Shape {
 	case diagram.MindmapShapeRound, diagram.MindmapShapeCloud:
@@ -157,17 +157,17 @@ func renderNodes(node *diagram.MindmapNode, l *layout.Result, pad, fontSize floa
 	elems = append(elems, &text{
 		X: svgFloat(cx), Y: svgFloat(cy),
 		Anchor: "middle", Dominant: "central",
-		Style:   fmt.Sprintf("fill:white;font-size:%.0fpx;font-weight:bold", fontSize),
+		Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.NodeText, fontSize),
 		Content: node.Text,
 	})
 
 	for _, child := range node.Children {
-		elems = append(elems, renderNodes(child, l, pad, fontSize, depth+1, ids)...)
+		elems = append(elems, renderNodes(child, l, pad, fontSize, depth+1, ids, th)...)
 	}
 	return elems
 }
 
-func renderEdges(l *layout.Result, pad float64) []any {
+func renderEdges(l *layout.Result, pad float64, th Theme) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -179,7 +179,7 @@ func renderEdges(l *layout.Result, pad float64) []any {
 		return edgeKeys[i].To < edgeKeys[j].To
 	})
 	var elems []any
-	style := "stroke:#999;stroke-width:2;fill:none"
+	style := fmt.Sprintf("stroke:%s;stroke-width:2;fill:none", th.EdgeStroke)
 	for _, eid := range edgeKeys {
 		el := l.Edges[eid]
 		if len(el.Points) < 2 {

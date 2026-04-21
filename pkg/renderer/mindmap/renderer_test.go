@@ -178,3 +178,43 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 		t.Error("viewBox missing")
 	}
 }
+
+func TestRenderAppliesCustomTheme(t *testing.T) {
+	d := &diagram.MindmapDiagram{
+		Root: &diagram.MindmapNode{
+			Text:     "Root",
+			Children: []*diagram.MindmapNode{{Text: "Child"}},
+		},
+	}
+	out, err := Render(d, &Options{Theme: Theme{
+		LevelColors: []string{"#aabbcc", "#ccbbaa"},
+		NodeText:    "#112233",
+		EdgeStroke:  "#445566",
+		Background:  "#000000",
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{`#aabbcc`, `#ccbbaa`, `fill:#112233`, `stroke:#445566`, `fill:#000000`} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("themed output missing %q", want)
+		}
+	}
+}
+
+func TestDefaultThemeStable(t *testing.T) {
+	got := DefaultTheme()
+	wantLevels := []string{"#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948"}
+	if len(got.LevelColors) != len(wantLevels) {
+		t.Fatalf("LevelColors len drift: %d != %d", len(got.LevelColors), len(wantLevels))
+	}
+	for i, c := range wantLevels {
+		if got.LevelColors[i] != c {
+			t.Errorf("LevelColors[%d] = %q, want %q", i, got.LevelColors[i], c)
+		}
+	}
+	if got.NodeText != "#fff" || got.EdgeStroke != "#999" || got.Background != "#fff" {
+		t.Errorf("DefaultTheme drifted: %+v", got)
+	}
+}
