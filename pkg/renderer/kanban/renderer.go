@@ -16,6 +16,7 @@ import (
 
 type Options struct {
 	FontSize float64
+	Theme    Theme
 }
 
 const (
@@ -31,14 +32,6 @@ const (
 	lineHeight      = 18.0
 	metaLineHeight  = 15.0
 
-	bgFill         = "#fff"
-	columnFill     = "#f3f4f6"
-	columnStroke   = "#d1d5db"
-	columnTitle    = "#1f2937"
-	cardFill       = "#ffffff"
-	cardStroke     = "#d1d5db"
-	cardText       = "#111827"
-	metaFill       = "#6b7280"
 )
 
 func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
@@ -49,6 +42,7 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 	if opts != nil && opts.FontSize > 0 {
 		fontSize = opts.FontSize
 	}
+	th := resolveTheme(opts)
 
 	nCols := len(d.Sections)
 	viewW := 2*marginX + float64(nCols)*columnWidth + float64(max(nCols-1, 0))*columnGap
@@ -119,7 +113,7 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 		X: 0, Y: 0,
 		Width:  svgFloat(viewW),
 		Height: svgFloat(viewH),
-		Style:  fmt.Sprintf("fill:%s;stroke:none", bgFill),
+		Style:  fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
 	for i, s := range d.Sections {
@@ -131,7 +125,7 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 			Width:  svgFloat(columnWidth),
 			Height: svgFloat(canvasH),
 			RX:     svgFloat(cardRadius), RY: svgFloat(cardRadius),
-			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1", columnFill, columnStroke),
+			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1", th.ColumnFill, th.ColumnStroke),
 		})
 		children = append(children, &text{
 			X:        svgFloat(colX + columnWidth/2),
@@ -139,7 +133,7 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 			Anchor:   "middle",
 			Dominant: "central",
 			Style: fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold",
-				columnTitle, titleSize),
+				th.ColumnTitle, titleSize),
 			Content: s.Title,
 		})
 
@@ -151,7 +145,7 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 				Width:  svgFloat(columnWidth - cardGap),
 				Height: svgFloat(c.height),
 				RX:     svgFloat(cardRadius), RY: svgFloat(cardRadius),
-				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1", cardFill, cardStroke),
+				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1", th.CardFill, th.CardStroke),
 			})
 			textY := cardY + cardPadding + lineHeight/2
 			for _, ln := range c.lines {
@@ -159,7 +153,7 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 					X:        svgFloat(colX + cardGap/2 + cardPadding),
 					Y:        svgFloat(textY),
 					Dominant: "central",
-					Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", cardText, fontSize),
+					Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.CardText, fontSize),
 					Content:  ln,
 				})
 				textY += lineHeight
@@ -170,7 +164,7 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 					X:        svgFloat(colX + cardGap/2 + cardPadding),
 					Y:        svgFloat(metaY),
 					Dominant: "central",
-					Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", metaFill, metaSize),
+					Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.MetaText, metaSize),
 					Content:  m,
 				})
 				metaY += metaLineHeight

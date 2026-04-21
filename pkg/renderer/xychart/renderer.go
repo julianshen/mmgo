@@ -17,6 +17,7 @@ import (
 
 type Options struct {
 	FontSize float64
+	Theme    Theme
 }
 
 const (
@@ -28,21 +29,10 @@ const (
 	tickSize        = 5.0
 	plotW           = 520.0
 	plotH           = 320.0
-	labelFill       = "#333"
-	axisStroke      = "#999"
-	gridStroke      = "#e5e5e5"
-	bgFill          = "#fff"
-	barInsetRatio   = 0.15 // fraction of category slot left blank on each side
-	yRangeHeadroom  = 0.10 // 10% visual padding above the max data value
-	tickFontDelta   = 2.0  // tick/category labels render this many px below base
+	barInsetRatio  = 0.15 // fraction of category slot left blank on each side
+	yRangeHeadroom = 0.10 // 10% visual padding above the max data value
+	tickFontDelta  = 2.0  // tick/category labels render this many px below base
 )
-
-// seriesPalette cycles by series index so output is deterministic
-// without depending on map iteration.
-var seriesPalette = []string{
-	"#5470c6", "#91cc75", "#fac858", "#ee6666",
-	"#73c0de", "#3ba272", "#fc8452", "#9a60b4",
-}
 
 func Render(d *diagram.XYChartDiagram, opts *Options) ([]byte, error) {
 	if d == nil {
@@ -52,6 +42,7 @@ func Render(d *diagram.XYChartDiagram, opts *Options) ([]byte, error) {
 	if opts != nil && opts.FontSize > 0 {
 		fontSize = opts.FontSize
 	}
+	th := resolveTheme(opts)
 
 	categories := d.XAxis.Categories
 	if len(categories) == 0 {
@@ -101,7 +92,7 @@ func Render(d *diagram.XYChartDiagram, opts *Options) ([]byte, error) {
 		X: 0, Y: 0,
 		Width:  svgFloat(viewW),
 		Height: svgFloat(viewH),
-		Style:  fmt.Sprintf("fill:%s;stroke:none", bgFill),
+		Style:  fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
 	if d.Title != "" {
@@ -110,13 +101,13 @@ func Render(d *diagram.XYChartDiagram, opts *Options) ([]byte, error) {
 			Y:        svgFloat(marginY + titleH/2),
 			Anchor:   "middle",
 			Dominant: "central",
-			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", labelFill, fontSize+2),
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.LabelFill, fontSize+2),
 			Content:  d.Title,
 		})
 	}
 
-	children = append(children, renderAxes(d, categories, yMin, yMax, plotX0, plotY0, plotX1, plotY1, fontSize)...)
-	children = append(children, renderSeries(d, categories, yMin, yMax, plotX0, plotY0, plotX1, plotY1)...)
+	children = append(children, renderAxes(d, categories, yMin, yMax, plotX0, plotY0, plotX1, plotY1, fontSize, th)...)
+	children = append(children, renderSeries(d, categories, yMin, yMax, plotX0, plotY0, plotX1, plotY1, th)...)
 
 	doc := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
@@ -177,7 +168,7 @@ func maxSeriesLen(series []diagram.XYSeries) int {
 // renderAxes draws gridlines, tick marks/labels, axis lines, and
 // axis titles. Axis lines come last so the ticks/grid don't overdraw
 // them.
-func renderAxes(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, y0, x1, y1, fontSize float64) []any {
+func renderAxes(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, y0, x1, y1, fontSize float64, th Theme) []any {
 	var elems []any
 	const nYTicks = 5
 	for i := 0; i <= nYTicks; i++ {
@@ -187,14 +178,14 @@ func renderAxes(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, 
 		elems = append(elems, &line{
 			X1: svgFloat(x0), Y1: svgFloat(yPix),
 			X2: svgFloat(x1), Y2: svgFloat(yPix),
-			Style: fmt.Sprintf("stroke:%s;stroke-width:1", gridStroke),
+			Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.GridStroke),
 		})
 		elems = append(elems, &text{
 			X:        svgFloat(x0 - tickSize - 2),
 			Y:        svgFloat(yPix),
 			Anchor:   "end",
 			Dominant: "central",
-			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, fontSize-tickFontDelta),
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.LabelFill, fontSize-tickFontDelta),
 			Content:  formatTick(val),
 		})
 	}
@@ -204,14 +195,14 @@ func renderAxes(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, 
 		elems = append(elems, &line{
 			X1: svgFloat(x), Y1: svgFloat(y1),
 			X2: svgFloat(x), Y2: svgFloat(y1 + tickSize),
-			Style: fmt.Sprintf("stroke:%s;stroke-width:1", axisStroke),
+			Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.AxisStroke),
 		})
 		elems = append(elems, &text{
 			X:        svgFloat(x),
 			Y:        svgFloat(y1 + tickSize + float64(fontSize)),
 			Anchor:   "middle",
 			Dominant: "hanging",
-			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, fontSize-tickFontDelta),
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.LabelFill, fontSize-tickFontDelta),
 			Content:  c,
 		})
 	}
@@ -219,12 +210,12 @@ func renderAxes(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, 
 	elems = append(elems, &line{
 		X1: svgFloat(x0), Y1: svgFloat(y1),
 		X2: svgFloat(x1), Y2: svgFloat(y1),
-		Style: fmt.Sprintf("stroke:%s;stroke-width:1.5", axisStroke),
+		Style: fmt.Sprintf("stroke:%s;stroke-width:1.5", th.AxisStroke),
 	})
 	elems = append(elems, &line{
 		X1: svgFloat(x0), Y1: svgFloat(y0),
 		X2: svgFloat(x0), Y2: svgFloat(y1),
-		Style: fmt.Sprintf("stroke:%s;stroke-width:1.5", axisStroke),
+		Style: fmt.Sprintf("stroke:%s;stroke-width:1.5", th.AxisStroke),
 	})
 
 	if d.XAxis.Title != "" {
@@ -233,7 +224,7 @@ func renderAxes(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, 
 			Y:        svgFloat(y1 + axisLabelGap + titleGap/2),
 			Anchor:   "middle",
 			Dominant: "central",
-			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, fontSize),
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.LabelFill, fontSize),
 			Content:  d.XAxis.Title,
 		})
 	}
@@ -248,7 +239,7 @@ func renderAxes(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, 
 			Y:         svgFloat(midY),
 			Anchor:    "middle",
 			Dominant:  "central",
-			Style:     fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, fontSize),
+			Style:     fmt.Sprintf("fill:%s;font-size:%.0fpx", th.LabelFill, fontSize),
 			Transform: fmt.Sprintf("rotate(-90 %.2f %.2f)", tx, midY),
 			Content:   d.YAxis.Title,
 		})
@@ -258,7 +249,7 @@ func renderAxes(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, 
 
 // renderSeries draws each series. Multiple bar series share the
 // category slot and split it into equal bands; line series overlay.
-func renderSeries(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, y0, x1, y1 float64) []any {
+func renderSeries(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, y0, x1, y1 float64, th Theme) []any {
 	var elems []any
 	nCols := len(categories)
 	slotW := (x1 - x0) / float64(nCols)
@@ -271,7 +262,7 @@ func renderSeries(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0
 	}
 
 	for seriesIdx, s := range d.Series {
-		color := seriesPalette[seriesIdx%len(seriesPalette)]
+		color := th.SeriesColors[seriesIdx%len(th.SeriesColors)]
 		switch s.Type {
 		case diagram.XYSeriesBar:
 			barSlot := barIndexes[seriesIdx]
@@ -308,7 +299,7 @@ func renderSeries(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0
 				py := yPix(s.Data[i], yMin, yMax, y0, y1)
 				elems = append(elems, &circle{
 					CX: svgFloat(cx), CY: svgFloat(py), R: 3,
-					Style: fmt.Sprintf("fill:%s;stroke:#fff;stroke-width:1", color),
+					Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1", color, th.MarkerStroke),
 				})
 			}
 		}

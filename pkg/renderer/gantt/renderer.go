@@ -26,14 +26,16 @@ const (
 
 type Options struct {
 	FontSize float64
+	Theme    Theme
 }
 
 func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 	if d == nil {
 		return nil, fmt.Errorf("gantt render: diagram is nil")
 	}
+	th := resolveTheme(opts)
 	if len(d.Tasks) == 0 {
-		return renderEmpty(d)
+		return renderEmpty(d, th)
 	}
 
 	fontSize := defaultFontSize
@@ -98,19 +100,19 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 	var children []any
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
-		Style: "fill:#fff;stroke:none",
+		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
 	if d.Title != "" {
 		children = append(children, &text{
 			X: svgFloat(viewW / 2), Y: svgFloat(pad + titleH/2),
 			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx;font-weight:bold", fontSize+2),
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize+2),
 			Content: d.Title,
 		})
 	}
 
-	children = append(children, renderAxis(minDate, totalDays, chartX, axisY, chartW, fontSize)...)
+	children = append(children, renderAxis(minDate, totalDays, chartX, axisY, chartW, fontSize, th)...)
 
 	curY := bodyY
 	curSection := ""
@@ -120,7 +122,7 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 			children = append(children, &text{
 				X: svgFloat(pad + sectionLabelW - 8), Y: svgFloat(curY + barH/2),
 				Anchor: "end", Dominant: "central",
-				Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx;font-weight:bold", fontSize),
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.SectionText, fontSize),
 				Content: curSection,
 			})
 			curY += barH + barGap
@@ -135,7 +137,7 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 		bx := chartX + startOffset
 		by := curY
 
-		color := taskColor(task.Status)
+		color := th.taskColor(task.Status)
 		children = append(children, &rect{
 			X: svgFloat(bx), Y: svgFloat(by),
 			Width: svgFloat(barW), Height: svgFloat(barH),
@@ -149,14 +151,14 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 			children = append(children, &text{
 				X: svgFloat(bx + barW + labelOutsideGap), Y: svgFloat(by + barH/2),
 				Anchor: "start", Dominant: "central",
-				Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.OutsideBarText, fontSize-1),
 				Content: task.Name,
 			})
 		} else {
 			children = append(children, &text{
 				X: svgFloat(bx + barW/2), Y: svgFloat(by + barH/2),
 				Anchor: "middle", Dominant: "central",
-				Style:   fmt.Sprintf("fill:white;font-size:%.0fpx", fontSize-1),
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.InsideBarText, fontSize-1),
 				Content: task.Name,
 			})
 		}
@@ -175,7 +177,7 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), svgBytes...), nil
 }
 
-func renderEmpty(d *diagram.GanttDiagram) ([]byte, error) {
+func renderEmpty(d *diagram.GanttDiagram, th Theme) ([]byte, error) {
 	pad := defaultPadding
 	h := 2 * pad
 	w := 2 * pad
@@ -186,13 +188,13 @@ func renderEmpty(d *diagram.GanttDiagram) ([]byte, error) {
 	var children []any
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(w), Height: svgFloat(h),
-		Style: "fill:#fff;stroke:none",
+		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 	if d.Title != "" {
 		children = append(children, &text{
 			X: svgFloat(w / 2), Y: svgFloat(pad + titleH/2),
 			Anchor: "middle", Dominant: "central",
-			Style:   "fill:#333;font-size:15px;font-weight:bold",
+			Style:   fmt.Sprintf("fill:%s;font-size:15px;font-weight:bold", th.TitleText),
 			Content: d.Title,
 		})
 	}
@@ -208,12 +210,12 @@ func renderEmpty(d *diagram.GanttDiagram) ([]byte, error) {
 	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), svgBytes...), nil
 }
 
-func renderAxis(minDate time.Time, totalDays float64, x, y, w, fontSize float64) []any {
+func renderAxis(minDate time.Time, totalDays float64, x, y, w, fontSize float64, th Theme) []any {
 	var elems []any
 	elems = append(elems, &line{
 		X1: svgFloat(x), Y1: svgFloat(y + axisH),
 		X2: svgFloat(x + w), Y2: svgFloat(y + axisH),
-		Style: "stroke:#ccc;stroke-width:1",
+		Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.AxisStroke),
 	})
 
 	interval := axisInterval(totalDays)
@@ -224,13 +226,13 @@ func renderAxis(minDate time.Time, totalDays float64, x, y, w, fontSize float64)
 		elems = append(elems, &text{
 			X: svgFloat(dx), Y: svgFloat(y + axisH - 6),
 			Anchor: "middle", Dominant: "auto",
-			Style:   fmt.Sprintf("fill:#666;font-size:%.0fpx", fontSize-2),
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.AxisLabel, fontSize-2),
 			Content: label,
 		})
 		elems = append(elems, &line{
 			X1: svgFloat(dx), Y1: svgFloat(y + axisH - 3),
 			X2: svgFloat(dx), Y2: svgFloat(y + axisH + 3),
-			Style: "stroke:#ccc;stroke-width:1",
+			Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.AxisStroke),
 		})
 	}
 	return elems
@@ -263,16 +265,4 @@ func dateRange(tasks []diagram.GanttTask) (min, max time.Time) {
 	return min, max
 }
 
-func taskColor(s diagram.TaskStatus) string {
-	switch s {
-	case diagram.TaskStatusDone:
-		return "#9370DB"
-	case diagram.TaskStatusActive:
-		return "#4e79a7"
-	case diagram.TaskStatusCrit:
-		return "#e15759"
-	default:
-		return "#76b7b2"
-	}
-}
 
