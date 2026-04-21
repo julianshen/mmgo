@@ -30,6 +30,7 @@ const (
 
 type Options struct {
 	FontSize float64
+	Theme    Theme
 }
 
 func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
@@ -41,6 +42,7 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	if opts != nil && opts.FontSize > 0 {
 		fontSize = opts.FontSize
 	}
+	th := resolveTheme(opts)
 
 	ruler, err := textmeasure.NewDefaultRuler()
 	if err != nil {
@@ -77,14 +79,14 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	viewH := sanitize(l.Height) + 2*pad
 
 	var children []any
-	children = append(children, &defs{Markers: []marker{buildArrowMarker()}})
+	children = append(children, &defs{Markers: []marker{buildArrowMarker(th)}})
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
-		Style: "fill:#fff;stroke:none",
+		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
-	children = append(children, renderEdges(d, l, pad, fontSize, ruler)...)
-	children = append(children, renderNodes(allStates, l, pad, fontSize)...)
+	children = append(children, renderEdges(d, l, pad, fontSize, ruler, th)...)
+	children = append(children, renderNodes(allStates, l, pad, fontSize, th)...)
 
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
@@ -136,7 +138,7 @@ func stateNodeSize(s diagram.StateDef, ruler *textmeasure.Ruler, fontSize float6
 	return w, h
 }
 
-func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize float64) []any {
+func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize float64, th Theme) []any {
 	var elems []any
 	for _, s := range states {
 		nl, ok := l.Nodes[s.ID]
@@ -151,7 +153,7 @@ func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize floa
 			elems = append(elems, &rect{
 				X: svgFloat(cx - forkBarW/2), Y: svgFloat(cy - forkBarH/2),
 				Width: svgFloat(forkBarW), Height: svgFloat(forkBarH),
-				Style: "fill:#333;stroke:none",
+				Style: fmt.Sprintf("fill:%s;stroke:none", th.PseudoMark),
 			})
 		case diagram.StateKindChoice:
 			pts := fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
@@ -159,7 +161,10 @@ func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize floa
 				cx+choiceSize/2, cy,
 				cx, cy+choiceSize/2,
 				cx-choiceSize/2, cy)
-			elems = append(elems, &polygon{Points: pts, Style: "fill:#ECECFF;stroke:#333;stroke-width:1.5"})
+			elems = append(elems, &polygon{
+				Points: pts,
+				Style:  fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.StateFill, th.ChoiceFill),
+			})
 		default:
 			w := nl.Width
 			h := nl.Height
@@ -169,12 +174,12 @@ func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize floa
 				X: svgFloat(x), Y: svgFloat(y),
 				Width: svgFloat(w), Height: svgFloat(h),
 				RX: 8, RY: 8,
-				Style: "fill:#ECECFF;stroke:#9370DB;stroke-width:1.5",
+				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.StateFill, th.StateStroke),
 			})
 			elems = append(elems, &text{
 				X: svgFloat(cx), Y: svgFloat(cy),
 				Anchor: "middle", Dominant: "central",
-				Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize),
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize),
 				Content: s.Label,
 			})
 		}
@@ -194,23 +199,23 @@ func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize floa
 		if isStartNode(id) {
 			elems = append(elems, &circle{
 				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(startEndR),
-				Style: "fill:#333;stroke:#333",
+				Style: fmt.Sprintf("fill:%s;stroke:%s", th.PseudoMark, th.PseudoMark),
 			})
 		} else {
 			elems = append(elems, &circle{
 				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(startEndR),
-				Style: "fill:#fff;stroke:#333;stroke-width:2",
+				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:2", th.Background, th.PseudoMark),
 			})
 			elems = append(elems, &circle{
 				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(startEndR - 3),
-				Style: "fill:#333;stroke:none",
+				Style: fmt.Sprintf("fill:%s;stroke:none", th.PseudoMark),
 			})
 		}
 	}
 	return elems
 }
 
-func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler) []any {
+func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler, th Theme) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -242,7 +247,7 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 			pts[i] = layout.Point{X: p.X + pad, Y: p.Y + pad}
 		}
 
-		style := "stroke:#333;stroke-width:1.5;fill:none"
+		style := fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke)
 		if len(pts) == 2 {
 			elems = append(elems, &line{
 				X1: svgFloat(pts[0].X), Y1: svgFloat(pts[0].Y),
@@ -281,12 +286,12 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 					Y:      svgFloat(p.Y - labelH/2 - labelPad),
 					Width:  svgFloat(labelW + 2*labelPad),
 					Height: svgFloat(labelH + 2*labelPad),
-					Style:  "fill:white;stroke:none",
+					Style:  fmt.Sprintf("fill:%s;stroke:none", th.LabelBackdrop),
 				})
 				elems = append(elems, &text{
 					X: svgFloat(p.X), Y: svgFloat(p.Y),
 					Anchor: "middle", Dominant: "central",
-					Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
+					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, fontSize-1),
 					Content: t.Label,
 				})
 			}
@@ -332,10 +337,10 @@ func isEndNode(id string) bool {
 	return len(id) > len(pseudoEndPrefix) && id[:len(pseudoEndPrefix)] == pseudoEndPrefix
 }
 
-func buildArrowMarker() marker {
+func buildArrowMarker(th Theme) marker {
 	return marker{
 		ID: "state-arrow", ViewBox: "0 0 10 10",
 		RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto",
-		Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: "fill:#333"}},
+		Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", th.EdgeStroke)}},
 	}
 }

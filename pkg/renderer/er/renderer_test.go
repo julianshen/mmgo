@@ -194,3 +194,67 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 		t.Error("viewBox missing")
 	}
 }
+
+func TestRenderAppliesCustomTheme(t *testing.T) {
+	d := &diagram.ERDiagram{
+		Entities: []diagram.EREntity{
+			{Name: "A", Attributes: []diagram.ERAttribute{{Type: "int", Name: "id"}}},
+			{Name: "B"},
+		},
+		Relationships: []diagram.ERRelationship{
+			{From: "A", To: "B", FromCard: diagram.ERCardExactlyOne, ToCard: diagram.ERCardZeroOrMore, Label: "has"},
+		},
+	}
+	out, err := Render(d, &Options{Theme: Theme{
+		EntityFill:   "#111111",
+		EntityStroke: "#aabbcc",
+		EntityText:   "#ddeeff",
+		EdgeStroke:   "#223344",
+		EdgeText:     "#556677",
+		Background:   "#000000",
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{
+		`fill:#000000`,
+		`fill:#111111;stroke:#aabbcc`,
+		`fill:#ddeeff`,
+		`stroke:#223344`,
+		`fill:#556677`,
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("themed output missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{`fill:#ECECFF`, `stroke:#9370DB`} {
+		if strings.Contains(raw, unwanted) {
+			t.Errorf("themed output still contains default color %q", unwanted)
+		}
+	}
+}
+
+func TestDefaultThemeStable(t *testing.T) {
+	got := DefaultTheme()
+	want := Theme{
+		EntityFill:   "#ECECFF",
+		EntityStroke: "#9370DB",
+		EntityText:   "#333",
+		EdgeStroke:   "#333",
+		EdgeText:     "#333",
+		Background:   "#fff",
+	}
+	if got != want {
+		t.Errorf("DefaultTheme drifted:\n got  %+v\n want %+v", got, want)
+	}
+}
+
+func TestResolveThemeNilOpts(t *testing.T) {
+	if resolveTheme(nil) != DefaultTheme() {
+		t.Error("resolveTheme(nil) should return DefaultTheme exactly")
+	}
+	if resolveTheme(&Options{}) != DefaultTheme() {
+		t.Error("resolveTheme with zero Options should return DefaultTheme exactly")
+	}
+}

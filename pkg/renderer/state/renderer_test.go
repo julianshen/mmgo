@@ -223,7 +223,7 @@ func TestRenderEdgeLabelBackdropPrecedesText(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	rectWhite := strings.Index(raw, `fill:white;stroke:none`)
+	rectWhite := strings.Index(raw, `fill:#fff;stroke:none`)
 	// Find the specific "go" label text. rectWhite must come before.
 	textGo := strings.Index(raw, ">go<")
 	if rectWhite < 0 || textGo < 0 {
@@ -231,5 +231,69 @@ func TestRenderEdgeLabelBackdropPrecedesText(t *testing.T) {
 	}
 	if rectWhite > textGo {
 		t.Errorf("white rect at %d should precede label text at %d", rectWhite, textGo)
+	}
+}
+
+func TestRenderAppliesCustomTheme(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "A", Label: "A"},
+			{ID: "B", Label: "B"},
+		},
+		Transitions: []diagram.StateTransition{
+			{From: "A", To: "B", Label: "go"},
+		},
+	}
+	out, err := Render(d, &Options{Theme: Theme{
+		StateFill:     "#111111",
+		StateStroke:   "#aabbcc",
+		StateText:     "#ddeeff",
+		EdgeStroke:    "#223344",
+		EdgeText:      "#556677",
+		LabelBackdrop: "#eeeeee",
+		Background:    "#000000",
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{
+		`fill:#000000`,
+		`fill:#111111;stroke:#aabbcc`,
+		`fill:#ddeeff`,
+		`stroke:#223344`,
+		`fill:#556677`,
+		`fill:#eeeeee;stroke:none`,
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("themed output missing %q", want)
+		}
+	}
+}
+
+func TestDefaultThemeStable(t *testing.T) {
+	got := DefaultTheme()
+	want := Theme{
+		StateFill:     "#ECECFF",
+		StateStroke:   "#9370DB",
+		StateText:     "#333",
+		ChoiceFill:    "#333",
+		PseudoMark:    "#333",
+		EdgeStroke:    "#333",
+		EdgeText:      "#333",
+		LabelBackdrop: "#fff",
+		Background:    "#fff",
+	}
+	if got != want {
+		t.Errorf("DefaultTheme drifted:\n got  %+v\n want %+v", got, want)
+	}
+}
+
+func TestResolveThemeNilOpts(t *testing.T) {
+	if resolveTheme(nil) != DefaultTheme() {
+		t.Error("resolveTheme(nil) should return DefaultTheme exactly")
+	}
+	if resolveTheme(&Options{}) != DefaultTheme() {
+		t.Error("resolveTheme with zero Options should return DefaultTheme exactly")
 	}
 }

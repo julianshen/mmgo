@@ -26,6 +26,7 @@ const (
 
 type Options struct {
 	FontSize float64
+	Theme    Theme
 }
 
 func Render(d *diagram.ERDiagram, opts *Options) ([]byte, error) {
@@ -37,6 +38,7 @@ func Render(d *diagram.ERDiagram, opts *Options) ([]byte, error) {
 	if opts != nil && opts.FontSize > 0 {
 		fontSize = opts.FontSize
 	}
+	th := resolveTheme(opts)
 
 	ruler, err := textmeasure.NewDefaultRuler()
 	if err != nil {
@@ -61,13 +63,13 @@ func Render(d *diagram.ERDiagram, opts *Options) ([]byte, error) {
 	var children []any
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
-		Style: "fill:#fff;stroke:none",
+		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 	if markers := buildERMarkers(d); len(markers) > 0 {
 		children = append(children, &defs{Markers: markers})
 	}
-	children = append(children, renderEdges(d, l, pad, fontSize)...)
-	children = append(children, renderEntities(d, l, pad, fontSize)...)
+	children = append(children, renderEdges(d, l, pad, fontSize, th)...)
+	children = append(children, renderEntities(d, l, pad, fontSize, th)...)
 
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
@@ -135,7 +137,7 @@ func attrText(a diagram.ERAttribute) string {
 	return s
 }
 
-func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64) []any {
+func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64, th Theme) []any {
 	var elems []any
 	for _, e := range d.Entities {
 		nl, ok := l.Nodes[e.Name]
@@ -152,12 +154,12 @@ func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float6
 		elems = append(elems, &rect{
 			X: svgFloat(x), Y: svgFloat(y),
 			Width: svgFloat(w), Height: svgFloat(h),
-			Style: "fill:#ECECFF;stroke:#9370DB;stroke-width:1.5",
+			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.EntityFill, th.EntityStroke),
 		})
 		elems = append(elems, &text{
 			X: svgFloat(cx), Y: svgFloat(y + headerH/2),
 			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx;font-weight:bold", fontSize),
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.EntityText, fontSize),
 			Content: e.Name,
 		})
 
@@ -166,14 +168,14 @@ func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float6
 			elems = append(elems, &line{
 				X1: svgFloat(x), Y1: svgFloat(sepY),
 				X2: svgFloat(x + w), Y2: svgFloat(sepY),
-				Style: "stroke:#9370DB;stroke-width:1",
+				Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.EntityStroke),
 			})
 			for i, a := range e.Attributes {
 				ay := sepY + entityPadY/2 + float64(i)*attrRowH + attrRowH/2
 				elems = append(elems, &text{
 					X: svgFloat(x + entityPadX), Y: svgFloat(ay),
 					Anchor: "start", Dominant: "central",
-					Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
+					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EntityText, fontSize-1),
 					Content: attrText(a),
 				})
 			}
@@ -182,7 +184,7 @@ func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float6
 	return elems
 }
 
-func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64) []any {
+func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64, th Theme) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -233,7 +235,7 @@ func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64) 
 			pts[last] = layout.Point{X: x, Y: y}
 		}
 
-		style := "stroke:#333;stroke-width:1.5;fill:none"
+		style := fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke)
 		endRef := markerRef(markerEndID(rel.ToCard))
 		if len(pts) == 2 {
 			elems = append(elems, &line{
@@ -259,7 +261,7 @@ func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64) 
 			elems = append(elems, &text{
 				X: svgFloat(lx), Y: svgFloat(ly),
 				Anchor: "middle", Dominant: "central",
-				Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, fontSize-1),
 				Content: rel.Label,
 			})
 		}
