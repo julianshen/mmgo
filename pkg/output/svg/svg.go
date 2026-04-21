@@ -65,6 +65,8 @@ type Options struct {
 	Sequence  *sequencerenderer.Options
 	Pie       *pierenderer.Options
 	Class     *classrenderer.Options
+	ER        *errenderer.Options
+	State     *staterenderer.Options
 }
 
 // Sizing constants for nodes when no caller-specified theme overrides
@@ -350,7 +352,48 @@ func mergeInitTheme(opts *Options, initCfg *config.Config) *Options {
 	}
 	merged.Class.Theme = toClassTheme(tc)
 
+	if merged.ER != nil {
+		clone := *merged.ER
+		merged.ER = &clone
+	} else {
+		merged.ER = &errenderer.Options{}
+	}
+	merged.ER.Theme = toERTheme(tc)
+
+	if merged.State != nil {
+		clone := *merged.State
+		merged.State = &clone
+	} else {
+		merged.State = &staterenderer.Options{}
+	}
+	merged.State.Theme = toStateTheme(tc)
+
 	return merged
+}
+
+func toERTheme(tc *config.ThemeColors) errenderer.Theme {
+	return errenderer.Theme{
+		EntityFill:   tc.Secondary,
+		EntityStroke: tc.LineColor,
+		EntityText:   tc.Text,
+		EdgeStroke:   tc.LineColor,
+		EdgeText:     tc.Text,
+		Background:   tc.Background,
+	}
+}
+
+func toStateTheme(tc *config.ThemeColors) staterenderer.Theme {
+	return staterenderer.Theme{
+		StateFill:     tc.Secondary,
+		StateStroke:   tc.LineColor,
+		StateText:     tc.Text,
+		ChoiceFill:    tc.LineColor,
+		PseudoMark:    tc.LineColor,
+		EdgeStroke:    tc.LineColor,
+		EdgeText:      tc.Text,
+		LabelBackdrop: tc.Background,
+		Background:    tc.Background,
+	}
 }
 
 func toClassTheme(tc *config.ThemeColors) classrenderer.Theme {
@@ -474,7 +517,11 @@ func renderState(src []byte, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
-	out, err := staterenderer.Render(d, nil)
+	var stateOpts *staterenderer.Options
+	if opts != nil {
+		stateOpts = opts.State
+	}
+	out, err := staterenderer.Render(d, stateOpts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
@@ -486,7 +533,11 @@ func renderER(src []byte, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
-	out, err := errenderer.Render(d, nil)
+	var erOpts *errenderer.Options
+	if opts != nil {
+		erOpts = opts.ER
+	}
+	out, err := errenderer.Render(d, erOpts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
