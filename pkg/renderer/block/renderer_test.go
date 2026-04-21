@@ -172,3 +172,42 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 		t.Error("viewBox missing")
 	}
 }
+
+func TestRenderAppliesCustomTheme(t *testing.T) {
+	d := &diagram.BlockDiagram{
+		Nodes: []diagram.BlockNode{{ID: "A", Label: "A"}, {ID: "B", Label: "B"}},
+		Edges: []diagram.BlockEdge{{From: "A", To: "B", Label: "go"}},
+	}
+	out, err := Render(d, &Options{Theme: Theme{
+		NodeFill:   "#111111",
+		NodeStroke: "#aabbcc",
+		NodeText:   "#ddeeff",
+		EdgeStroke: "#223344",
+		EdgeText:   "#556677",
+		Background: "#000000",
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{`fill:#000000`, `fill:#111111;stroke:#aabbcc`, `fill:#ddeeff`, `stroke:#223344`, `fill:#556677`} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("themed output missing %q", want)
+		}
+	}
+}
+
+func TestDefaultThemeStable(t *testing.T) {
+	got := DefaultTheme()
+	want := Theme{
+		NodeFill:   "#ECECFF",
+		NodeStroke: "#9370DB",
+		NodeText:   "#333",
+		EdgeStroke: "#333",
+		EdgeText:   "#333",
+		Background: "#fff",
+	}
+	if got != want {
+		t.Errorf("DefaultTheme drifted:\n got  %+v\n want %+v", got, want)
+	}
+}

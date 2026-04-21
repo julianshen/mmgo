@@ -23,25 +23,9 @@ const (
 	kindLabelH      = 18.0
 )
 
-// Colors per C4 convention: people = blue, systems = dark blue,
-// external = gray, containers = medium blue, components = light blue.
-type palette struct {
-	fill, stroke, text string
-}
-
-var palettes = map[diagram.C4ElementKind]palette{
-	diagram.C4ElementPerson:       {"#08427B", "#073B6F", "white"},
-	diagram.C4ElementPersonExt:    {"#686868", "#4D4D4D", "white"},
-	diagram.C4ElementSystem:       {"#1168BD", "#0B4884", "white"},
-	diagram.C4ElementSystemExt:    {"#999999", "#6B6B6B", "white"},
-	diagram.C4ElementSystemDB:     {"#1168BD", "#0B4884", "white"},
-	diagram.C4ElementContainer:    {"#438DD5", "#3C7FC0", "white"},
-	diagram.C4ElementContainerDB: {"#438DD5", "#3C7FC0", "white"},
-	diagram.C4ElementComponent:    {"#85BBF0", "#78A8D8", "#000"},
-}
-
 type Options struct {
 	FontSize float64
+	Theme    Theme
 }
 
 func Render(d *diagram.C4Diagram, opts *Options) ([]byte, error) {
@@ -53,6 +37,7 @@ func Render(d *diagram.C4Diagram, opts *Options) ([]byte, error) {
 	if opts != nil && opts.FontSize > 0 {
 		fontSize = opts.FontSize
 	}
+	th := resolveTheme(opts)
 
 	ruler, err := textmeasure.NewDefaultRuler()
 	if err != nil {
@@ -80,23 +65,23 @@ func Render(d *diagram.C4Diagram, opts *Options) ([]byte, error) {
 	viewH := sanitize(l.Height) + 2*pad + titleOffset
 
 	var children []any
-	children = append(children, &defs{Markers: []marker{buildArrowMarker()}})
+	children = append(children, &defs{Markers: []marker{buildArrowMarker(th)}})
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
-		Style: "fill:#fff;stroke:none",
+		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
 	if d.Title != "" {
 		children = append(children, &text{
 			X: svgFloat(viewW / 2), Y: svgFloat(pad + titleH/2),
 			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx;font-weight:bold", fontSize+2),
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize+2),
 			Content: d.Title,
 		})
 	}
 
-	children = append(children, renderEdges(d, l, pad, titleOffset, fontSize)...)
-	children = append(children, renderElements(d, l, pad, titleOffset, fontSize)...)
+	children = append(children, renderEdges(d, l, pad, titleOffset, fontSize, th)...)
+	children = append(children, renderElements(d, l, pad, titleOffset, fontSize, th)...)
 
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
@@ -144,7 +129,7 @@ func elementSize(e diagram.C4Element, ruler *textmeasure.Ruler, fontSize float64
 	return w, h
 }
 
-func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize float64) []any {
+func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize float64, th Theme) []any {
 	var elems []any
 	for _, e := range d.Elements {
 		nl, ok := l.Nodes[e.ID]
@@ -158,10 +143,7 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 		x := cx - w/2
 		y := cy - h/2
 
-		p := palettes[e.Kind]
-		if p.fill == "" {
-			p = palette{"#1168BD", "#0B4884", "white"}
-		}
+		p := th.roleOf(e.Kind)
 
 		rx := svgFloat(0)
 		if e.Kind == diagram.C4ElementPerson || e.Kind == diagram.C4ElementPersonExt {
@@ -172,7 +154,7 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 			X: svgFloat(x), Y: svgFloat(y),
 			Width: svgFloat(w), Height: svgFloat(h),
 			RX: rx, RY: rx,
-			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", p.fill, p.stroke),
+			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", p.Fill, p.Stroke),
 		})
 
 		curY := y + kindLabelH
@@ -180,13 +162,13 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 		elems = append(elems, &text{
 			X: svgFloat(cx), Y: svgFloat(y + kindLabelH/2 + 2),
 			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-style:italic;opacity:0.85", p.text, fontSize-3),
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-style:italic;opacity:0.85", p.Text, fontSize-3),
 			Content: kindLabel,
 		})
 		elems = append(elems, &text{
 			X: svgFloat(cx), Y: svgFloat(curY + fontSize/2),
 			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", p.text, fontSize),
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", p.Text, fontSize),
 			Content: e.Label,
 		})
 		curY += fontSize + 4
@@ -194,7 +176,7 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 			elems = append(elems, &text{
 				X: svgFloat(cx), Y: svgFloat(curY),
 				Anchor: "middle", Dominant: "central",
-				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", p.text, fontSize-2),
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", p.Text, fontSize-2),
 				Content: "[" + e.Technology + "]",
 			})
 			curY += fontSize - 2
@@ -203,7 +185,7 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 			elems = append(elems, &text{
 				X: svgFloat(cx), Y: svgFloat(curY),
 				Anchor: "middle", Dominant: "central",
-				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;opacity:0.9", p.text, fontSize-2),
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;opacity:0.9", p.Text, fontSize-2),
 				Content: e.Description,
 			})
 		}
@@ -234,7 +216,7 @@ func kindDisplayLabel(k diagram.C4ElementKind) string {
 	}
 }
 
-func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize float64) []any {
+func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize float64, th Theme) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -271,7 +253,7 @@ func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize
 			pts[i] = layout.Point{X: p.X + pad, Y: p.Y + pad + titleOff}
 		}
 
-		style := "stroke:#333;stroke-width:1.5;fill:none"
+		style := fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke)
 		if len(pts) == 2 {
 			elems = append(elems, &line{
 				X1: svgFloat(pts[0].X), Y1: svgFloat(pts[0].Y),
@@ -296,7 +278,7 @@ func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize
 			elems = append(elems, &text{
 				X: svgFloat(lx), Y: svgFloat(ly),
 				Anchor: "middle", Dominant: "central",
-				Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-2),
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, fontSize-2),
 				Content: label,
 			})
 		}
@@ -304,10 +286,10 @@ func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize
 	return elems
 }
 
-func buildArrowMarker() marker {
+func buildArrowMarker(th Theme) marker {
 	return marker{
 		ID: "c4-arrow", ViewBox: "0 0 10 10",
 		RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto",
-		Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: "fill:#333"}},
+		Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", th.EdgeStroke)}},
 	}
 }

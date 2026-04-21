@@ -25,6 +25,7 @@ const (
 
 type Options struct {
 	FontSize float64
+	Theme    Theme
 }
 
 func Render(d *diagram.BlockDiagram, opts *Options) ([]byte, error) {
@@ -36,6 +37,7 @@ func Render(d *diagram.BlockDiagram, opts *Options) ([]byte, error) {
 	if opts != nil && opts.FontSize > 0 {
 		fontSize = opts.FontSize
 	}
+	th := resolveTheme(opts)
 
 	ruler, err := textmeasure.NewDefaultRuler()
 	if err != nil {
@@ -65,14 +67,14 @@ func Render(d *diagram.BlockDiagram, opts *Options) ([]byte, error) {
 	viewH := sanitize(l.Height) + 2*pad
 
 	var children []any
-	children = append(children, &defs{Markers: []marker{buildArrowMarker()}})
+	children = append(children, &defs{Markers: []marker{buildArrowMarker(th)}})
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
-		Style: "fill:#fff;stroke:none",
+		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
-	children = append(children, renderEdges(d, l, pad, fontSize)...)
-	children = append(children, renderNodes(d, l, pad, fontSize)...)
+	children = append(children, renderEdges(d, l, pad, fontSize, th)...)
+	children = append(children, renderNodes(d, l, pad, fontSize, th)...)
 
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
@@ -113,7 +115,7 @@ func nodeSize(n diagram.BlockNode, ruler *textmeasure.Ruler, fontSize float64) (
 	return w, h
 }
 
-func renderNodes(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float64) []any {
+func renderNodes(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float64, th Theme) []any {
 	var elems []any
 	for _, n := range d.Nodes {
 		nl, ok := l.Nodes[n.ID]
@@ -127,7 +129,7 @@ func renderNodes(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float6
 		x := cx - w/2
 		y := cy - h/2
 
-		style := "fill:#ECECFF;stroke:#9370DB;stroke-width:1.5"
+		style := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.NodeFill, th.NodeStroke)
 		switch n.Shape {
 		case diagram.BlockShapeDiamond:
 			pts := fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
@@ -168,14 +170,14 @@ func renderNodes(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float6
 		elems = append(elems, &text{
 			X: svgFloat(cx), Y: svgFloat(cy),
 			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize),
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.NodeText, fontSize),
 			Content: n.Label,
 		})
 	}
 	return elems
 }
 
-func renderEdges(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float64) []any {
+func renderEdges(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float64, th Theme) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -213,7 +215,7 @@ func renderEdges(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float6
 		for i, p := range el.Points {
 			pts[i] = layout.Point{X: p.X + pad, Y: p.Y + pad}
 		}
-		style := "stroke:#333;stroke-width:1.5;fill:none"
+		style := fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke)
 		if len(pts) == 2 {
 			elems = append(elems, &line{
 				X1: svgFloat(pts[0].X), Y1: svgFloat(pts[0].Y),
@@ -235,7 +237,7 @@ func renderEdges(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float6
 			elems = append(elems, &text{
 				X: svgFloat(lx), Y: svgFloat(ly),
 				Anchor: "middle", Dominant: "central",
-				Style:   fmt.Sprintf("fill:#333;font-size:%.0fpx", fontSize-1),
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, fontSize-1),
 				Content: edge.Label,
 			})
 		}
@@ -243,10 +245,10 @@ func renderEdges(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float6
 	return elems
 }
 
-func buildArrowMarker() marker {
+func buildArrowMarker(th Theme) marker {
 	return marker{
 		ID: "block-arrow", ViewBox: "0 0 10 10",
 		RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto",
-		Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: "fill:#333"}},
+		Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", th.EdgeStroke)}},
 	}
 }

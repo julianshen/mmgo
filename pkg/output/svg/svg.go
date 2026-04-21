@@ -69,6 +69,8 @@ type Options struct {
 	State     *staterenderer.Options
 	Mindmap   *mindmaprenderer.Options
 	Timeline  *timelinerenderer.Options
+	Block     *blockrenderer.Options
+	C4        *c4renderer.Options
 }
 
 // Sizing constants for nodes when no caller-specified theme overrides
@@ -386,7 +388,47 @@ func mergeInitTheme(opts *Options, initCfg *config.Config) *Options {
 	}
 	merged.Timeline.Theme = toTimelineTheme(tc)
 
+	if merged.Block != nil {
+		clone := *merged.Block
+		merged.Block = &clone
+	} else {
+		merged.Block = &blockrenderer.Options{}
+	}
+	merged.Block.Theme = toBlockTheme(tc)
+
+	if merged.C4 != nil {
+		clone := *merged.C4
+		merged.C4 = &clone
+	} else {
+		merged.C4 = &c4renderer.Options{}
+	}
+	merged.C4.Theme = toC4Theme(tc)
+
 	return merged
+}
+
+func toBlockTheme(tc *config.ThemeColors) blockrenderer.Theme {
+	return blockrenderer.Theme{
+		NodeFill:   tc.Secondary,
+		NodeStroke: tc.LineColor,
+		NodeText:   tc.Text,
+		EdgeStroke: tc.LineColor,
+		EdgeText:   tc.Text,
+		Background: tc.Background,
+	}
+}
+
+// toC4Theme returns a theme that keeps the Mermaid-classic role
+// palette intact (C4 conventions are a visual contract). Chrome
+// surfaces pick up the config theme so the surrounding diagram
+// blends with the active palette.
+func toC4Theme(tc *config.ThemeColors) c4renderer.Theme {
+	th := c4renderer.DefaultTheme()
+	th.TitleText = tc.Text
+	th.EdgeStroke = tc.LineColor
+	th.EdgeText = tc.Text
+	th.Background = tc.Background
+	return th
 }
 
 func toMindmapTheme(tc *config.ThemeColors) mindmaprenderer.Theme {
@@ -599,7 +641,11 @@ func renderBlock(src []byte, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
-	out, err := blockrenderer.Render(d, nil)
+	var bOpts *blockrenderer.Options
+	if opts != nil {
+		bOpts = opts.Block
+	}
+	out, err := blockrenderer.Render(d, bOpts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
@@ -671,7 +717,11 @@ func renderC4(src []byte, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
-	out, err := c4renderer.Render(d, nil)
+	var cOpts *c4renderer.Options
+	if opts != nil {
+		cOpts = opts.C4
+	}
+	out, err := c4renderer.Render(d, cOpts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
