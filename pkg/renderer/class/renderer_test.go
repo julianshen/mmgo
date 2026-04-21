@@ -277,7 +277,9 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 func TestRenderAppliesCustomTheme(t *testing.T) {
 	d := &diagram.ClassDiagram{
 		Classes: []diagram.ClassDef{
-			{ID: "A", Label: "A"},
+			// Include an interface class so the AnnotationText path
+			// is exercised.
+			{ID: "A", Label: "A", Annotation: diagram.AnnotationInterface},
 			{ID: "B", Label: "B"},
 		},
 		Relations: []diagram.ClassRelation{
@@ -285,39 +287,91 @@ func TestRenderAppliesCustomTheme(t *testing.T) {
 		},
 	}
 	out, err := Render(d, &Options{Theme: Theme{
-		NodeFill:   "#111111",
-		NodeStroke: "#aabbcc",
-		NodeText:   "#ddeeff",
-		EdgeStroke: "#223344",
-		EdgeText:   "#556677",
-		Background: "#000000",
+		NodeFill:       "#111111",
+		NodeStroke:     "#aabbcc",
+		NodeText:       "#ddeeff",
+		AnnotationText: "#778899",
+		EdgeStroke:     "#223344",
+		EdgeText:       "#556677",
+		Background:     "#000000",
 	}})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
 	for _, want := range []string{
-		`fill:#000000`, // background
+		`fill:#000000`,                // background
 		`fill:#111111;stroke:#aabbcc`, // class rect
-		`fill:#ddeeff`, // class label
-		`stroke:#223344`, // edge line
-		`fill:#556677`, // edge label
+		`fill:#ddeeff`,                // class label
+		`fill:#778899`,                // «interface» annotation
+		`stroke:#223344`,              // edge line
+		`fill:#556677`,                // edge label
 	} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("themed output missing %q", want)
 		}
 	}
 	// Defaults must not leak through when the theme is set.
-	for _, unwanted := range []string{`fill:#ECECFF`, `stroke:#9370DB`} {
+	for _, unwanted := range []string{`fill:#ECECFF`, `stroke:#9370DB`, `fill:#999`} {
 		if strings.Contains(raw, unwanted) {
 			t.Errorf("themed output still contains default color %q", unwanted)
 		}
 	}
 }
 
-func TestDefaultThemeRoundtrip(t *testing.T) {
-	th := DefaultTheme()
-	if th.NodeFill != "#ECECFF" || th.NodeStroke != "#9370DB" || th.EdgeStroke != "#333" {
-		t.Errorf("DefaultTheme drifted: %+v", th)
+// Pins the default-theme palette end-to-end so Render(d, nil) paints
+// with the exact prior-to-theming colors. Without this, a drift in
+// DefaultTheme, resolveTheme, or a Sprintf template could silently
+// break every untuned diagram.
+func TestRenderDefaultThemeColorsInSVG(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{
+			{ID: "A", Label: "A", Annotation: diagram.AnnotationInterface},
+			{ID: "B", Label: "B"},
+		},
+		Relations: []diagram.ClassRelation{
+			{From: "A", To: "B", RelationType: diagram.RelationTypeAssociation, Label: "uses"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{
+		`fill:#fff;stroke:none`,       // background
+		`fill:#ECECFF;stroke:#9370DB`, // class rect
+		`fill:#333`,                   // class label + edge label
+		`fill:#999`,                   // «interface» annotation
+		`stroke:#9370DB`,              // member divider
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("default-theme output missing %q", want)
+		}
+	}
+}
+
+func TestDefaultThemeStable(t *testing.T) {
+	got := DefaultTheme()
+	want := Theme{
+		NodeFill:       "#ECECFF",
+		NodeStroke:     "#9370DB",
+		NodeText:       "#333",
+		AnnotationText: "#999",
+		EdgeStroke:     "#333",
+		EdgeText:       "#333",
+		Background:     "#fff",
+	}
+	if got != want {
+		t.Errorf("DefaultTheme drifted:\n got  %+v\n want %+v", got, want)
+	}
+}
+
+func TestResolveThemeNilOpts(t *testing.T) {
+	if resolveTheme(nil) != DefaultTheme() {
+		t.Error("resolveTheme(nil) should return DefaultTheme exactly")
+	}
+	if resolveTheme(&Options{}) != DefaultTheme() {
+		t.Error("resolveTheme with zero-value Options should return DefaultTheme exactly")
 	}
 }

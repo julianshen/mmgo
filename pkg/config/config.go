@@ -66,7 +66,11 @@ type ThemeColors struct {
 	Background string
 	LineColor  string
 	NoteFill   string
-	PieColors  []string
+	// MutedText is the de-emphasized text color used for stereotypes
+	// like class «interface» tags, section dividers, and similar
+	// secondary labels. Falls between Text and Background in contrast.
+	MutedText string
+	PieColors []string
 }
 
 func BuiltInTheme(name ThemeName) (*ThemeColors, error) {
@@ -80,6 +84,7 @@ func BuiltInTheme(name ThemeName) (*ThemeColors, error) {
 			Background: "#fff",
 			LineColor:  "#333",
 			NoteFill:   "#ffffcc",
+			MutedText:  "#999",
 			PieColors:  []string{"#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948", "#b07aa1", "#ff9da7", "#9c755f", "#bab0ac"},
 		}, nil
 	case ThemeDark:
@@ -91,6 +96,7 @@ func BuiltInTheme(name ThemeName) (*ThemeColors, error) {
 			Background: "#1f2020",
 			LineColor:  "#81B1DB",
 			NoteFill:   "#fff5ad",
+			MutedText:  "#888",
 			PieColors:  []string{"#81B1DB", "#FA6800", "#0F0F0F", "#CD5C5C", "#2E8B57", "#DAA520", "#BA55D3", "#FF69B4", "#8B4513", "#778899"},
 		}, nil
 	case ThemeForest:
@@ -102,6 +108,7 @@ func BuiltInTheme(name ThemeName) (*ThemeColors, error) {
 			Background: "#fff",
 			LineColor:  "#333",
 			NoteFill:   "#ffffcc",
+			MutedText:  "#666",
 			PieColors:  []string{"#0b6623", "#2e8b57", "#50c878", "#8fbc8f", "#006400", "#3cb371", "#228b22", "#90ee90", "#32cd32", "#9acd32"},
 		}, nil
 	case ThemeNeutral:
@@ -113,6 +120,7 @@ func BuiltInTheme(name ThemeName) (*ThemeColors, error) {
 			Background: "#fff",
 			LineColor:  "#666",
 			NoteFill:   "#ffffcc",
+			MutedText:  "#888",
 			PieColors:  []string{"#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948", "#b07aa1", "#ff9da7", "#9c755f", "#bab0ac"},
 		}, nil
 	default:

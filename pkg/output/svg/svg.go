@@ -358,7 +358,7 @@ func toClassTheme(tc *config.ThemeColors) classrenderer.Theme {
 		NodeFill:       tc.Secondary,
 		NodeStroke:     tc.LineColor,
 		NodeText:       tc.Text,
-		AnnotationText: tc.Text,
+		AnnotationText: tc.MutedText,
 		EdgeStroke:     tc.LineColor,
 		EdgeText:       tc.Text,
 		Background:     tc.Background,
