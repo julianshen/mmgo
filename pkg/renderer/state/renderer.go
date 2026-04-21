@@ -272,8 +272,16 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 			t := candidates[0]
 			transMap[key] = candidates[1:]
 			if t.Label != "" {
-				lx := el.LabelPos.X + pad
-				ly := el.LabelPos.Y + pad
+				lx, ly := labelPosition(pts, el.LabelPos.X+pad, el.LabelPos.Y+pad)
+				labelW := textmeasure.EstimateWidth(t.Label, fontSize-1)
+				const labelPad = 3.0
+				elems = append(elems, &rect{
+					X:      svgFloat(lx - labelW/2 - labelPad),
+					Y:      svgFloat(ly - (fontSize-1)/2 - labelPad),
+					Width:  svgFloat(labelW + 2*labelPad),
+					Height: svgFloat(fontSize - 1 + 2*labelPad),
+					Style:  "fill:white;stroke:none",
+				})
 				elems = append(elems, &text{
 					X: svgFloat(lx), Y: svgFloat(ly),
 					Anchor: "middle", Dominant: "central",
@@ -284,6 +292,29 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		}
 	}
 	return elems
+}
+
+// labelPosition nudges the layout-emitted label point perpendicular
+// to the edge at that segment so labels on nearby or parallel edges
+// land on the side rather than crowding the same midpoint. Fixed
+// side (+90° CCW of the edge tangent) keeps placement deterministic
+// per edge; edges going different directions naturally spread.
+func labelPosition(pts []layout.Point, lx, ly float64) (float64, float64) {
+	if len(pts) < 2 {
+		return lx, ly
+	}
+	mid := len(pts) / 2
+	if mid == 0 {
+		mid = 1
+	}
+	dx := pts[mid].X - pts[mid-1].X
+	dy := pts[mid].Y - pts[mid-1].Y
+	length := math.Sqrt(dx*dx + dy*dy)
+	if length == 0 {
+		return lx, ly
+	}
+	const perpOffset = 10.0
+	return lx + -dy/length*perpOffset, ly + dx/length*perpOffset
 }
 
 func isPseudoNode(id string) bool {
