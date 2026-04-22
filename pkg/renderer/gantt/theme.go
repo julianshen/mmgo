@@ -4,12 +4,16 @@ import "github.com/julianshen/mmgo/pkg/diagram"
 
 // Theme holds gantt color surfaces. TaskColors maps task status to
 // its bar fill; a missing entry falls back to the Default entry.
+// SectionBands cycles per section in document order — mmdc tints the
+// full row background so the eye can group related bars at a glance.
 type Theme struct {
 	TaskColors     map[diagram.TaskStatus]string
 	TitleText      string
 	SectionText    string
 	AxisStroke     string
 	AxisLabel      string
+	GridStroke     string
+	SectionBands   []string // alternating row tints; len==0 disables banding
 	InsideBarText  string
 	OutsideBarText string
 	Background     string
@@ -18,15 +22,20 @@ type Theme struct {
 func DefaultTheme() Theme {
 	return Theme{
 		TaskColors: map[diagram.TaskStatus]string{
-			diagram.TaskStatusDone:   "#9370DB",
-			diagram.TaskStatusActive: "#4e79a7",
+			// done → muted gray, matching mmdc's "completed" treatment.
+			diagram.TaskStatusDone: "#bfc7d1",
+			// active bar reads slightly lighter than the default accent
+			// so an in-progress task stands out against plain bars.
+			diagram.TaskStatusActive: "#8aa7cc",
 			diagram.TaskStatusCrit:   "#e15759",
-			diagram.TaskStatusNone:   "#76b7b2",
+			diagram.TaskStatusNone:   "#8a8aca",
 		},
 		TitleText:      "#333",
 		SectionText:    "#333",
-		AxisStroke:     "#ccc",
-		AxisLabel:      "#666",
+		AxisStroke:     "#999",
+		AxisLabel:      "#333",
+		GridStroke:     "#d0d0d0",
+		SectionBands:   []string{"#eaeaff", "#ffffff", "#fffbe6"},
 		InsideBarText:  "white",
 		OutsideBarText: "#333",
 		Background:     "#fff",
@@ -65,6 +74,12 @@ func resolveTheme(opts *Options) Theme {
 	}
 	if opts.Theme.AxisLabel != "" {
 		th.AxisLabel = opts.Theme.AxisLabel
+	}
+	if opts.Theme.GridStroke != "" {
+		th.GridStroke = opts.Theme.GridStroke
+	}
+	if len(opts.Theme.SectionBands) > 0 {
+		th.SectionBands = opts.Theme.SectionBands
 	}
 	if opts.Theme.InsideBarText != "" {
 		th.InsideBarText = opts.Theme.InsideBarText

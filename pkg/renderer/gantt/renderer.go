@@ -65,7 +65,11 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 	axisY := headerY
 	bodyY := axisY + axisH
 
-	rows := len(d.Tasks) + len(d.Sections)
+	// One row per task; sections no longer get their own empty row —
+	// the label is vertically centered in the section's first bar row
+	// (mmdc-style), so a bare section header line wastes vertical
+	// space.
+	rows := len(d.Tasks)
 	chartH := bodyY + float64(rows)*(barH+barGap) + pad
 
 	// Reserve right-edge room only for tasks whose label actually
@@ -112,20 +116,63 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 		})
 	}
 
-	children = append(children, renderAxis(minDate, totalDays, chartX, axisY, chartW, fontSize, th)...)
+	rowH := barH + barGap
+	// Each task gets one row; rowY(i) returns its top. Section bands
+	// and grid lines are drawn first so bars paint on top of them.
+	rowY := func(i int) float64 { return bodyY + float64(i)*rowH }
 
-	curY := bodyY
-	curSection := ""
-	for i, task := range d.Tasks {
-		if task.Section != curSection && task.Section != "" {
-			curSection = task.Section
-			children = append(children, &text{
-				X: svgFloat(pad + sectionLabelW - 8), Y: svgFloat(curY + barH/2),
-				Anchor: "end", Dominant: "central",
-				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.SectionText, fontSize),
-				Content: curSection,
+	// Section bands: group tasks by contiguous section and tint the
+	// full-width row range behind them so the eye can cluster related
+	// bars without tracing the section label across the chart.
+	if len(th.SectionBands) > 0 {
+		sectionIdx := -1
+		prev := "__unset__"
+		bandStart := 0
+		flush := func(end int) {
+			if sectionIdx < 0 || end <= bandStart {
+				return
+			}
+			color := th.SectionBands[sectionIdx%len(th.SectionBands)]
+			children = append(children, &rect{
+				X: svgFloat(pad), Y: svgFloat(rowY(bandStart)),
+				Width: svgFloat(viewW - 2*pad), Height: svgFloat(float64(end-bandStart) * rowH),
+				Style: fmt.Sprintf("fill:%s;stroke:none", color),
 			})
-			curY += barH + barGap
+		}
+		for i, task := range d.Tasks {
+			if task.Section != prev {
+				flush(i)
+				prev = task.Section
+				bandStart = i
+				sectionIdx++
+			}
+		}
+		flush(len(d.Tasks))
+	}
+
+	children = append(children, renderAxis(minDate, totalDays, chartX, axisY, chartW, rowH*float64(rows), fontSize, th)...)
+
+	// Bars + labels. The per-section label is emitted once per section,
+	// vertically centered across the section's row range.
+	sectionStart := -1
+	sectionName := "__unset__"
+	flushSectionLabel := func(endRow int) {
+		if sectionStart < 0 || sectionName == "" {
+			return
+		}
+		centerY := rowY(sectionStart) + float64(endRow-sectionStart)*rowH/2
+		children = append(children, &text{
+			X: svgFloat(pad + sectionLabelW - 8), Y: svgFloat(centerY),
+			Anchor: "end", Dominant: "central",
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.SectionText, fontSize),
+			Content: sectionName,
+		})
+	}
+	for i, task := range d.Tasks {
+		if task.Section != sectionName {
+			flushSectionLabel(i)
+			sectionName = task.Section
+			sectionStart = i
 		}
 
 		startOffset := task.Start.Sub(minDate).Hours() / 24 * dayWidth
@@ -135,7 +182,7 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 			barW = 2
 		}
 		bx := chartX + startOffset
-		by := curY
+		by := rowY(i) + barGap/2
 
 		color := th.taskColor(task.Status)
 		children = append(children, &rect{
@@ -144,9 +191,6 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 			RX: 3, RY: 3,
 			Style: fmt.Sprintf("fill:%s;stroke:none", color),
 		})
-		// Place the label outside the bar (right, dark) when the bar
-		// is too narrow to hold it without spillover; inside the bar
-		// (centered, white) otherwise.
 		if taskLabelW[i]+labelInsideSlack > barW {
 			children = append(children, &text{
 				X: svgFloat(bx + barW + labelOutsideGap), Y: svgFloat(by + barH/2),
@@ -162,8 +206,8 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 				Content: task.Name,
 			})
 		}
-		curY += barH + barGap
 	}
+	flushSectionLabel(len(d.Tasks))
 
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
@@ -210,7 +254,10 @@ func renderEmpty(d *diagram.GanttDiagram, th Theme) ([]byte, error) {
 	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), svgBytes...), nil
 }
 
-func renderAxis(minDate time.Time, totalDays float64, x, y, w, fontSize float64, th Theme) []any {
+// renderAxis draws the axis baseline, tick labels, and full-height
+// vertical grid lines at each tick so bars read against a timeline.
+// bodyH is the vertical extent of the task area below the axis.
+func renderAxis(minDate time.Time, totalDays float64, x, y, w, bodyH, fontSize float64, th Theme) []any {
 	var elems []any
 	elems = append(elems, &line{
 		X1: svgFloat(x), Y1: svgFloat(y + axisH),
@@ -219,10 +266,13 @@ func renderAxis(minDate time.Time, totalDays float64, x, y, w, fontSize float64,
 	})
 
 	interval := axisInterval(totalDays)
+	gridStyle := fmt.Sprintf("stroke:%s;stroke-width:1", th.GridStroke)
 	for day := 0; float64(day) <= totalDays; day += interval {
 		dx := x + float64(day)*dayWidth
 		date := minDate.AddDate(0, 0, day)
-		label := date.Format("Jan 02")
+		// ISO-8601 (yyyy-mm-dd) matches mmdc's axis format and
+		// disambiguates year/century compared to "Jan 02".
+		label := date.Format("2006-01-02")
 		elems = append(elems, &text{
 			X: svgFloat(dx), Y: svgFloat(y + axisH - 6),
 			Anchor: "middle", Dominant: "auto",
@@ -230,9 +280,9 @@ func renderAxis(minDate time.Time, totalDays float64, x, y, w, fontSize float64,
 			Content: label,
 		})
 		elems = append(elems, &line{
-			X1: svgFloat(dx), Y1: svgFloat(y + axisH - 3),
-			X2: svgFloat(dx), Y2: svgFloat(y + axisH + 3),
-			Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.AxisStroke),
+			X1: svgFloat(dx), Y1: svgFloat(y + axisH),
+			X2: svgFloat(dx), Y2: svgFloat(y + axisH + bodyH),
+			Style: gridStyle,
 		})
 	}
 	return elems
