@@ -176,10 +176,12 @@ func Sanitize(v float64) float64 {
 const xmlDecl = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
 
 type Doc struct {
-	XMLName  xml.Name `xml:"svg"`
-	XMLNS    string   `xml:"xmlns,attr"`
-	ViewBox  string   `xml:"viewBox,attr"`
-	Children []any    `xml:",any"`
+	XMLName             xml.Name `xml:"svg"`
+	XMLNS               string   `xml:"xmlns,attr"`
+	ViewBox             string   `xml:"viewBox,attr"`
+	Role                string   `xml:"role,attr,omitempty"`
+	AriaRoleDescription string   `xml:"aria-roledescription,attr,omitempty"`
+	Children            []any    `xml:",any"`
 }
 
 type Rect struct {
@@ -250,6 +252,7 @@ type Defs struct {
 
 type Group struct {
 	XMLName   xml.Name `xml:"g"`
+	Class     string   `xml:"class,attr,omitempty"`
 	Transform string   `xml:"transform,attr,omitempty"`
 	Children  []any    `xml:",any"`
 }

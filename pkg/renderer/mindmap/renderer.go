@@ -3,11 +3,11 @@ package mindmap
 import (
 	"encoding/xml"
 	"fmt"
-	"sort"
+	"math"
+	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
-	"github.com/julianshen/mmgo/pkg/layout"
-	"github.com/julianshen/mmgo/pkg/layout/graph"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -18,11 +18,42 @@ const (
 	nodePadY        = 10.0
 	minNodeW        = 80.0
 	minNodeH        = 35.0
+	levelSpacing    = 120.0
+	boldWidthFactor = 1.1
 )
 
 type Options struct {
 	FontSize float64
 	Theme    Theme
+	Ruler    *textmeasure.Ruler
+}
+
+type layoutNode struct {
+	node      *diagram.MindmapNode
+	x, y      float64
+	width     float64
+	height    float64
+	depth     int
+	section   int
+	leafCount int
+	segments  []textSegment
+	children  []*layoutNode
+}
+
+type svgText struct {
+	XMLName  xml.Name `xml:"text"`
+	X        svgFloat `xml:"x,attr"`
+	Y        svgFloat `xml:"y,attr"`
+	Anchor   string   `xml:"text-anchor,attr,omitempty"`
+	Dominant string   `xml:"dominant-baseline,attr,omitempty"`
+	Style    string   `xml:"style,attr,omitempty"`
+	Children []any    `xml:",any"`
+}
+
+type svgTspan struct {
+	XMLName xml.Name `xml:"tspan"`
+	Style   string   `xml:"style,attr,omitempty"`
+	Content string   `xml:",chardata"`
 }
 
 func Render(d *diagram.MindmapDiagram, opts *Options) ([]byte, error) {
@@ -36,168 +67,359 @@ func Render(d *diagram.MindmapDiagram, opts *Options) ([]byte, error) {
 	}
 	th := resolveTheme(opts)
 
-	ruler, err := textmeasure.NewDefaultRuler()
-	if err != nil {
-		return nil, fmt.Errorf("mindmap render: text measurer: %w", err)
+	var ruler *textmeasure.Ruler
+	if opts != nil && opts.Ruler != nil {
+		ruler = opts.Ruler
+	} else {
+		var err error
+		ruler, err = textmeasure.NewDefaultRuler()
+		if err != nil {
+			return nil, fmt.Errorf("mindmap render: text measurer: %w", err)
+		}
+		defer func() { _ = ruler.Close() }()
 	}
-	defer func() { _ = ruler.Close() }()
 
-	g := graph.New()
-	ids := &idGen{m: make(map[*diagram.MindmapNode]string)}
-	if d.Root != nil {
-		addNodeToGraph(g, d.Root, ruler, fontSize, ids)
+	if d.Root == nil {
+		return marshalDoc(svgutil.ViewBox(100, 100), th,
+			&rect{X: 0, Y: 0, Width: 100, Height: 100, Style: fmt.Sprintf("fill:%s;stroke:none", th.Background)},
+		)
 	}
 
-	l := layout.Layout(g, layout.Options{RankDir: layout.RankDirTB})
+	root := buildTree(d.Root, ruler, fontSize, 0, make(map[*diagram.MindmapNode]bool))
+
+	layoutRadial(root, levelSpacing)
+	bounds := computeBounds(root)
 	pad := defaultPadding
 
-	viewW := sanitize(l.Width) + 2*pad
-	viewH := sanitize(l.Height) + 2*pad
+	viewW := bounds.maxX - bounds.minX + 2*pad
+	viewH := bounds.maxY - bounds.minY + 2*pad
+	offX := -bounds.minX + pad
+	offY := -bounds.minY + pad
 
 	var children []any
 	children = append(children, &rect{
-		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
+		X: 0, Y: 0, Width: svgutil.Float(viewW), Height: svgutil.Float(viewH),
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
-	if d.Root != nil {
-		children = append(children, renderEdges(l, pad, th)...)
-		children = append(children, renderNodes(d.Root, l, pad, fontSize, 0, ids, th)...)
+	var edgeElems, nodeElems []any
+	renderElements(root, offX, offY, fontSize, th, &edgeElems, &nodeElems)
+
+	if len(edgeElems) > 0 {
+		children = append(children, &group{Children: edgeElems})
+	}
+	if len(nodeElems) > 0 {
+		children = append(children, &group{Children: nodeElems})
 	}
 
-	svg := svgDoc{
-		XMLNS:    "http://www.w3.org/2000/svg",
-		ViewBox:  fmt.Sprintf("0 0 %.2f %.2f", viewW, viewH),
-		Children: children,
-	}
-	svgBytes, err := xml.Marshal(svg)
-	if err != nil {
-		return nil, fmt.Errorf("mindmap render: %w", err)
-	}
-	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), svgBytes...), nil
+	return marshalDoc(svgutil.ViewBox(viewW, viewH), th, children...)
 }
 
-func sanitize(v float64) float64 {
-	if v != v || v < 0 {
-		return 0
+func marshalDoc(viewBox string, th Theme, children ...any) ([]byte, error) {
+	doc := svgDoc{
+		XMLNS:               "http://www.w3.org/2000/svg",
+		ViewBox:             viewBox,
+		Role:                "graphics-document document",
+		AriaRoleDescription: "mindmap",
+		Children:            children,
 	}
-	return v
+	return svgutil.MarshalSVG(svgutil.Doc(doc))
 }
 
-type idGen struct {
-	m       map[*diagram.MindmapNode]string
-	counter int
-}
-
-func (g *idGen) id(n *diagram.MindmapNode) string {
-	if id, ok := g.m[n]; ok {
-		return id
+func buildTree(n *diagram.MindmapNode, ruler *textmeasure.Ruler, fontSize float64, depth int, visited map[*diagram.MindmapNode]bool) *layoutNode {
+	if n == nil {
+		return nil
 	}
-	g.counter++
-	id := fmt.Sprintf("mm_%d", g.counter)
-	g.m[n] = id
-	return id
-}
-
-func addNodeToGraph(g *graph.Graph, node *diagram.MindmapNode, ruler *textmeasure.Ruler, fontSize float64, ids *idGen) {
-	id := ids.id(node)
-	w, h := nodeSize(node.Text, ruler, fontSize)
-	g.SetNode(id, graph.NodeAttrs{Label: node.Text, Width: w, Height: h})
-	for _, child := range node.Children {
-		addNodeToGraph(g, child, ruler, fontSize, ids)
-		g.SetEdge(id, ids.id(child), graph.EdgeAttrs{})
+	if visited[n] {
+		return nil
 	}
-}
+	visited[n] = true
+	segments := parseMarkdown(n.Text)
+	plainText := stripMarkdownFromSegments(segments)
+	tw, textH := ruler.Measure(plainText, fontSize)
 
-func nodeSize(text string, ruler *textmeasure.Ruler, fontSize float64) (w, h float64) {
-	tw, th := ruler.Measure(text, fontSize)
-	w = tw + 2*nodePadX
-	h = th + 2*nodePadY
+	hasBold := false
+	for _, seg := range segments {
+		if seg.bold {
+			hasBold = true
+			break
+		}
+	}
+	if hasBold {
+		tw = tw * boldWidthFactor
+	}
+
+	w := tw + 2*nodePadX
+	h := textH + 2*nodePadY
 	if w < minNodeW {
 		w = minNodeW
 	}
 	if h < minNodeH {
 		h = minNodeH
 	}
-	return w, h
+
+	ln := &layoutNode{
+		node:     n,
+		width:    w,
+		height:   h,
+		depth:    depth,
+		segments: segments,
+	}
+	leafCount := 0
+	for _, child := range n.Children {
+		cn := buildTree(child, ruler, fontSize, depth+1, visited)
+		if cn != nil {
+			ln.children = append(ln.children, cn)
+			leafCount += cn.leafCount
+		}
+	}
+	if leafCount == 0 {
+		leafCount = 1
+	}
+	ln.leafCount = leafCount
+	return ln
 }
 
-func renderNodes(node *diagram.MindmapNode, l *layout.Result, pad, fontSize float64, depth int, ids *idGen, th Theme) []any {
-	var elems []any
-	id := ids.id(node)
-	nl, ok := l.Nodes[id]
-	if !ok {
-		return elems
+func stripMarkdownFromSegments(segs []textSegment) string {
+	var sb strings.Builder
+	for _, seg := range segs {
+		sb.WriteString(seg.text)
+	}
+	return sb.String()
+}
+
+func layoutRadial(root *layoutNode, spacing float64) {
+	root.x = 0
+	root.y = 0
+	if len(root.children) == 0 {
+		return
 	}
 
-	cx := nl.X + pad
-	cy := nl.Y + pad
-	w := nl.Width
-	h := nl.Height
-	x := cx - w/2
-	y := cy - h/2
+	totalLeaves := root.leafCount
 
-	color := th.LevelColors[depth%len(th.LevelColors)]
-	rx := svgFloat(0)
-	switch node.Shape {
-	case diagram.MindmapShapeRound, diagram.MindmapShapeCloud:
-		rx = svgFloat(h / 2)
+	startAngle := -math.Pi / 2
+	for i, child := range root.children {
+		child.section = i
+		assignSectionRecursive(child, i)
+		angleSpan := 2 * math.Pi * float64(child.leafCount) / float64(totalLeaves)
+		mid := startAngle + angleSpan/2
+		child.x = root.x + spacing*math.Cos(mid)
+		child.y = root.y + spacing*math.Sin(mid)
+		layoutRadialSubtree(child, startAngle, angleSpan, spacing)
+		startAngle += angleSpan
+	}
+}
+
+func assignSectionRecursive(n *layoutNode, section int) {
+	n.section = section
+	for _, c := range n.children {
+		assignSectionRecursive(c, section)
+	}
+}
+
+func layoutRadialSubtree(n *layoutNode, startAngle, angleSpan, spacing float64) {
+	if len(n.children) == 0 {
+		return
+	}
+
+	totalLeaves := n.leafCount
+
+	childStart := startAngle
+	for _, child := range n.children {
+		childSpan := angleSpan * float64(child.leafCount) / float64(totalLeaves)
+		mid := childStart + childSpan/2
+		child.x = n.x + spacing*math.Cos(mid)
+		child.y = n.y + spacing*math.Sin(mid)
+		layoutRadialSubtree(child, childStart, childSpan, spacing)
+		childStart += childSpan
+	}
+}
+
+type bounds struct {
+	minX, minY, maxX, maxY float64
+}
+
+func computeBounds(n *layoutNode) bounds {
+	b := bounds{
+		minX: n.x - n.width/2,
+		minY: n.y - n.height/2,
+		maxX: n.x + n.width/2,
+		maxY: n.y + n.height/2,
+	}
+	for _, c := range n.children {
+		cb := computeBounds(c)
+		if cb.minX < b.minX {
+			b.minX = cb.minX
+		}
+		if cb.minY < b.minY {
+			b.minY = cb.minY
+		}
+		if cb.maxX > b.maxX {
+			b.maxX = cb.maxX
+		}
+		if cb.maxY > b.maxY {
+			b.maxY = cb.maxY
+		}
+	}
+	return b
+}
+
+func renderElements(n *layoutNode, offX, offY, fontSize float64, th Theme, edges, nodes *[]any) {
+	cx := n.x + offX
+	cy := n.y + offY
+
+	for _, child := range n.children {
+		px := n.x + offX
+		py := n.y + offY
+		ccx := child.x + offX
+		ccy := child.y + offY
+
+		edgeCol := edgeColor(child.section, th)
+		sw := edgeStrokeWidth(child.depth)
+
+		*edges = append(*edges, &path{
+			D:     curvedEdgePath(px, py, ccx, ccy),
+			Style: fmt.Sprintf("stroke:%s;stroke-width:%.0f;fill:none", edgeCol, sw),
+		})
+
+		renderElements(child, offX, offY, fontSize, th, edges, nodes)
+	}
+
+	var classStr string
+	if n.depth == 0 {
+		classStr = "mindmap-node section-root"
+	} else {
+		classStr = fmt.Sprintf("mindmap-node section-%d", n.section)
+	}
+	if n.node.Class != "" {
+		classStr += " " + n.node.Class
+	}
+
+	*nodes = append(*nodes, &group{
+		Class:     classStr,
+		Transform: fmt.Sprintf("translate(%.2f,%.2f)", cx, cy),
+		Children:  renderShapeElements(n, fontSize, th),
+	})
+}
+
+func curvedEdgePath(x1, y1, x2, y2 float64) string {
+	dx := x2 - x1
+	dy := y2 - y1
+	dist := math.Sqrt(dx*dx + dy*dy)
+	if dist < 1 {
+		return fmt.Sprintf("M%.2f,%.2f L%.2f,%.2f", x1, y1, x2, y2)
+	}
+
+	nx := -dy / dist
+	ny := dx / dist
+	offset := dist * 0.08
+
+	mx := (x1+x2)/2 + nx*offset
+	my := (y1+y2)/2 + ny*offset
+
+	return fmt.Sprintf("M%.2f,%.2f Q%.2f,%.2f %.2f,%.2f",
+		x1, y1, mx, my, x2, y2)
+}
+
+func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
+	w := n.width
+	h := n.height
+	fill := shapeFillColor(n.section, n.depth, th)
+	textCol := shapeTextColor(n.depth, th)
+	style := fmt.Sprintf("fill:%s;stroke:none", fill)
+
+	var children []any
+
+	switch n.node.Shape {
+	case diagram.MindmapShapeRound:
+		children = append(children, &rect{
+			X: svgutil.Float(-w / 2), Y: svgutil.Float(-h / 2),
+			Width: svgutil.Float(w), Height: svgutil.Float(h),
+			RX: svgutil.Float(h / 2), RY: svgutil.Float(h / 2),
+			Style: style,
+		})
 	case diagram.MindmapShapeSquare:
-		rx = 0
+		children = append(children, &rect{
+			X: svgutil.Float(-w / 2), Y: svgutil.Float(-h / 2),
+			Width: svgutil.Float(w), Height: svgutil.Float(h),
+			Style: style,
+		})
+	case diagram.MindmapShapeCircle:
+		r := w / 2
+		if h/2 > r {
+			r = h / 2
+		}
+		children = append(children, &circle{
+			CX:    0,
+			CY:    0,
+			R:     svgutil.Float(r),
+			Style: style,
+		})
+	case diagram.MindmapShapeCloud:
+		children = append(children, &path{
+			D:     cloudPath(w, h),
+			Style: style,
+		})
+	case diagram.MindmapShapeBang:
+		children = append(children, &path{
+			D:     bangPath(w, h),
+			Style: style,
+		})
+	case diagram.MindmapShapeHexagon:
+		children = append(children, &polygon{
+			Points: hexagonPoints(w, h),
+			Style:  style,
+		})
 	default:
-		rx = 5
+		children = append(children, &path{
+			D:     defaultNodePath(w, h),
+			Style: style,
+		})
+		children = append(children, &line{
+			X1:    svgutil.Float(-w / 2),
+			Y1:    svgutil.Float(h / 2),
+			X2:    svgutil.Float(w / 2),
+			Y2:    svgutil.Float(h / 2),
+			Style: fmt.Sprintf("stroke:%s;stroke-width:2;fill:none", fill),
+		})
 	}
 
-	elems = append(elems, &rect{
-		X: svgFloat(x), Y: svgFloat(y),
-		Width: svgFloat(w), Height: svgFloat(h),
-		RX: rx, RY: rx,
-		Style: fmt.Sprintf("fill:%s;stroke:none", color),
-	})
-	elems = append(elems, &text{
-		X: svgFloat(cx), Y: svgFloat(cy),
-		Anchor: "middle", Dominant: "central",
-		Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.NodeText, fontSize),
-		Content: node.Text,
+	textStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", textCol, fontSize)
+	// Fast path: when the whole label is a single plain segment
+	// (no bold/italic), emit plain chardata instead of a <tspan>.
+	// The tdewolff/canvas PNG rasterizer doesn't render text whose
+	// content sits inside <tspan> children, so wrapping plain labels
+	// in tspan silently drops every mindmap label from the PNG.
+	if len(n.segments) == 1 && !n.segments[0].bold && !n.segments[0].italic {
+		children = append(children, &text{
+			X:        0,
+			Y:        0,
+			Anchor:   "middle",
+			Dominant: "central",
+			Style:    textStyle,
+			Content:  n.segments[0].text,
+		})
+		return children
+	}
+	var tspans []any
+	for _, seg := range n.segments {
+		segStyle := textStyle
+		if seg.bold {
+			segStyle += ";font-weight:bold"
+		}
+		if seg.italic {
+			segStyle += ";font-style:italic"
+		}
+		tspans = append(tspans, &svgTspan{Style: segStyle, Content: seg.text})
+	}
+	children = append(children, &svgText{
+		X:        0,
+		Y:        0,
+		Anchor:   "middle",
+		Dominant: "central",
+		Style:    textStyle,
+		Children: tspans,
 	})
 
-	for _, child := range node.Children {
-		elems = append(elems, renderNodes(child, l, pad, fontSize, depth+1, ids, th)...)
-	}
-	return elems
-}
-
-func renderEdges(l *layout.Result, pad float64, th Theme) []any {
-	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
-	for eid := range l.Edges {
-		edgeKeys = append(edgeKeys, eid)
-	}
-	sort.Slice(edgeKeys, func(i, j int) bool {
-		if edgeKeys[i].From != edgeKeys[j].From {
-			return edgeKeys[i].From < edgeKeys[j].From
-		}
-		return edgeKeys[i].To < edgeKeys[j].To
-	})
-	var elems []any
-	style := fmt.Sprintf("stroke:%s;stroke-width:2;fill:none", th.EdgeStroke)
-	for _, eid := range edgeKeys {
-		el := l.Edges[eid]
-		if len(el.Points) < 2 {
-			continue
-		}
-		if len(el.Points) == 2 {
-			elems = append(elems, &line{
-				X1: svgFloat(el.Points[0].X + pad), Y1: svgFloat(el.Points[0].Y + pad),
-				X2: svgFloat(el.Points[1].X + pad), Y2: svgFloat(el.Points[1].Y + pad),
-				Style: style,
-			})
-			continue
-		}
-		d := fmt.Sprintf("M%.2f,%.2f", el.Points[0].X+pad, el.Points[0].Y+pad)
-		for _, p := range el.Points[1:] {
-			d += fmt.Sprintf(" L%.2f,%.2f", p.X+pad, p.Y+pad)
-		}
-		elems = append(elems, &path{D: d, Style: style})
-	}
-	return elems
+	return children
 }

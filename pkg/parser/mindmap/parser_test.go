@@ -74,11 +74,14 @@ func TestParseNodeShapes(t *testing.T) {
 		{"plain text", diagram.MindmapShapeDefault, "plain text"},
 		{"(rounded)", diagram.MindmapShapeRound, "rounded"},
 		{"[squared]", diagram.MindmapShapeSquare, "squared"},
-		{"((cloud))", diagram.MindmapShapeCloud, "cloud"},
-		{"{{bang}}", diagram.MindmapShapeBang, "bang"},
+		{"((circle))", diagram.MindmapShapeCircle, "circle"},
+		{"{{hexagon}}", diagram.MindmapShapeHexagon, "hexagon"},
+		{"))bang((", diagram.MindmapShapeBang, "bang"},
+		{")cloud(", diagram.MindmapShapeCloud, "cloud"},
+		{"(-cloud-)", diagram.MindmapShapeCloud, "cloud"},
 	}
 	for _, tc := range cases {
-		t.Run(tc.want.String(), func(t *testing.T) {
+		t.Run(tc.input, func(t *testing.T) {
 			input := "mindmap\n    " + tc.input
 			d, err := Parse(strings.NewReader(input))
 			if err != nil {
@@ -91,6 +94,74 @@ func TestParseNodeShapes(t *testing.T) {
 				t.Errorf("text = %q, want %q", d.Root.Text, tc.text)
 			}
 		})
+	}
+}
+
+func TestParseNodeWithID(t *testing.T) {
+	cases := []struct {
+		input string
+		id    string
+		text  string
+		shape diagram.MindmapNodeShape
+	}{
+		{"A[Hello]", "A", "Hello", diagram.MindmapShapeSquare},
+		{"B(World)", "B", "World", diagram.MindmapShapeRound},
+		{"C((Circle))", "C", "Circle", diagram.MindmapShapeCircle},
+		{"D{{Hex}}", "D", "Hex", diagram.MindmapShapeHexagon},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			input := "mindmap\n    " + tc.input
+			d, err := Parse(strings.NewReader(input))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if d.Root.ID != tc.id {
+				t.Errorf("id = %q, want %q", d.Root.ID, tc.id)
+			}
+			if d.Root.Text != tc.text {
+				t.Errorf("text = %q, want %q", d.Root.Text, tc.text)
+			}
+			if d.Root.Shape != tc.shape {
+				t.Errorf("shape = %v, want %v", d.Root.Shape, tc.shape)
+			}
+		})
+	}
+}
+
+func TestParseIconDecoration(t *testing.T) {
+	input := `mindmap
+    Root
+        Child
+            ::icon(fa fa-user)`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Root.Children) != 1 {
+		t.Fatalf("want 1 child, got %d", len(d.Root.Children))
+	}
+	child := d.Root.Children[0]
+	if child.Text != "Child" {
+		t.Errorf("child text = %q", child.Text)
+	}
+	if child.Icon != "fa fa-user" {
+		t.Errorf("child icon = %q, want %q", child.Icon, "fa fa-user")
+	}
+}
+
+func TestParseClassDecoration(t *testing.T) {
+	input := `mindmap
+    Root
+        Child
+            :::urgent`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	child := d.Root.Children[0]
+	if child.Class != "urgent" {
+		t.Errorf("child class = %q, want %q", child.Class, "urgent")
 	}
 }
 
@@ -132,5 +203,57 @@ func TestParseDeepNesting(t *testing.T) {
 	c := b.Children[0]
 	if len(c.Children) != 1 || c.Children[0].Text != "D" {
 		t.Errorf("C children: %+v", c.Children)
+	}
+}
+
+func TestParseIconBeforeNode(t *testing.T) {
+	input := "mindmap\n    ::icon(fa fa-check)\n    Root"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Root.Icon != "" {
+		t.Errorf("icon before node should be ignored, got %q", d.Root.Icon)
+	}
+}
+
+func TestParseClassBeforeNode(t *testing.T) {
+	input := "mindmap\n    :::urgent\n    Root"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Root.Class != "" {
+		t.Errorf("class before node should be ignored, got %q", d.Root.Class)
+	}
+}
+
+func TestParseUnclosedIcon(t *testing.T) {
+	input := "mindmap\n    Root\n        Child\n            ::icon(no-close"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	child := d.Root.Children[0]
+	if child.Icon != "" {
+		t.Errorf("unclosed icon should not be set, got %q", child.Icon)
+	}
+}
+
+func TestParseEmptyShape(t *testing.T) {
+	input := "mindmap\n    A[]"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Root.Shape != diagram.MindmapShapeDefault {
+		t.Errorf("empty brackets should be default shape, got %v", d.Root.Shape)
+	}
+}
+
+func TestParseMissingHeader(t *testing.T) {
+	_, err := Parse(strings.NewReader(""))
+	if err == nil {
+		t.Fatal("expected error for empty input")
 	}
 }
