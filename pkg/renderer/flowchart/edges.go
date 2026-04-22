@@ -184,10 +184,14 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 
 		labelW, labelH := measureLabel(ruler, e.Label, fontSize)
 		const labelPad = 4.0
+		// Chip-style backdrop matches mmdc — takes the theme's
+		// background so labels over edges read cleanly regardless
+		// of the active palette (lavender on white, dark on dark).
 		elems = append(elems, &Rect{
 			X: svgFloat(lx - labelW/2 - labelPad), Y: svgFloat(ly - labelH/2 - labelPad),
 			Width: svgFloat(labelW + 2*labelPad), Height: svgFloat(labelH + 2*labelPad),
-			Style: "fill:white;stroke:none",
+			RX: 3, RY: 3,
+			Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 		})
 		elems = append(elems, &Text{
 			X: svgFloat(lx), Y: svgFloat(ly),
@@ -229,7 +233,10 @@ func buildCurvePath(pts []layout.Point) string {
 	}
 	d := fmt.Sprintf("M%.2f,%.2f", pts[0].X, pts[0].Y)
 
-	tension := 0.5
+	// Catmull-Rom tension. 0.5 gave noticeably exaggerated swoops
+	// when dummy-node waypoints sat off the straight-line path; 0.3
+	// produces a softer, more mmdc-like curve.
+	tension := 0.3
 	for i := 0; i < len(pts)-1; i++ {
 		p0 := pts[max(i-1, 0)]
 		p1 := pts[i]

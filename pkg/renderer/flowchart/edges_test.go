@@ -230,15 +230,17 @@ func TestRenderEdgeLabelBackgroundRect(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16, ruler, nil, graph.EdgeID{})
+	th := DefaultTheme()
+	elems := renderEdge(e, el, 0, th, 16, ruler, nil, graph.EdgeID{})
 	hasBgRect := false
+	wantFill := "fill:" + th.Background
 	for _, elem := range elems {
-		if r, ok := elem.(*Rect); ok && strings.Contains(r.Style, "fill:white") {
+		if r, ok := elem.(*Rect); ok && strings.Contains(r.Style, wantFill) {
 			hasBgRect = true
 		}
 	}
 	if !hasBgRect {
-		t.Error("edge label should have a white background rect")
+		t.Errorf("edge label should have a background rect with %q", wantFill)
 	}
 }
 
@@ -254,15 +256,17 @@ func TestRenderEdgeLabelBackgroundRectWithRuler(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 200, Y: 0}},
 		LabelPos: layout.Point{X: 100, Y: 0},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16, ruler, nil, graph.EdgeID{})
+	th := DefaultTheme()
+	elems := renderEdge(e, el, 0, th, 16, ruler, nil, graph.EdgeID{})
 	var bgRect *Rect
+	wantFill := "fill:" + th.Background
 	for _, elem := range elems {
-		if r, ok := elem.(*Rect); ok && strings.Contains(r.Style, "fill:white") {
+		if r, ok := elem.(*Rect); ok && strings.Contains(r.Style, wantFill) {
 			bgRect = r
 		}
 	}
 	if bgRect == nil {
-		t.Fatal("edge label should have a white background rect")
+		t.Fatalf("edge label should have a background rect with %q", wantFill)
 	}
 	if bgRect.Width <= 40 {
 		t.Errorf("long label rect width should exceed fallback 40, got %.2f", bgRect.Width)

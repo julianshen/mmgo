@@ -4,11 +4,11 @@ import "testing"
 
 func TestDefaultTheme(t *testing.T) {
 	th := DefaultTheme()
-	if th.NodeFill != "#fff" {
-		t.Errorf("NodeFill = %q, want %q", th.NodeFill, "#fff")
+	if th.NodeFill != "#ECECFF" {
+		t.Errorf("NodeFill = %q, want %q", th.NodeFill, "#ECECFF")
 	}
-	if th.NodeStroke != "#333" {
-		t.Errorf("NodeStroke = %q, want %q", th.NodeStroke, "#333")
+	if th.NodeStroke != "#9370DB" {
+		t.Errorf("NodeStroke = %q, want %q", th.NodeStroke, "#9370DB")
 	}
 	if th.NodeText != "#333" {
 		t.Errorf("NodeText = %q, want %q", th.NodeText, "#333")

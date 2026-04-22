@@ -30,8 +30,11 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 
 	switch n.Shape {
 	case diagram.NodeShapeRectangle:
+		// Slight rounding matches mermaid-cli's default rectangle
+		// look; sharp corners read as "severe" and don't match the
+		// rest of the Mermaid visual language.
 		elems = append(elems, &Rect{
-			X: svgFloat(cx - w/2), Y: svgFloat(cy - h/2), Width: svgFloat(w), Height: svgFloat(h), Style: shapeStyle,
+			X: svgFloat(cx - w/2), Y: svgFloat(cy - h/2), Width: svgFloat(w), Height: svgFloat(h), RX: 2, RY: 2, Style: shapeStyle,
 		})
 	case diagram.NodeShapeRoundedRectangle:
 		elems = append(elems, &Rect{

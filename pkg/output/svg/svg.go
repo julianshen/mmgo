@@ -606,7 +606,7 @@ func toClassTheme(tc *config.ThemeColors) classrenderer.Theme {
 
 func toFlowchartTheme(tc *config.ThemeColors) flowchartrenderer.Theme {
 	return flowchartrenderer.Theme{
-		NodeFill:       tc.Primary,
+		NodeFill:       tc.Secondary,
 		NodeStroke:     tc.LineColor,
 		NodeText:       tc.Text,
 		EdgeStroke:     tc.LineColor,
