@@ -70,7 +70,7 @@ func Render(d *diagram.ClassDiagram, opts *Options) ([]byte, error) {
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
-	children = append(children, renderEdges(d, l, pad, fontSize, th)...)
+	children = append(children, renderEdges(d, l, pad, fontSize, th, ruler)...)
 	children = append(children, renderClasses(d, l, pad, fontSize, th)...)
 
 	svg := svgDoc{
@@ -143,14 +143,14 @@ func memberText(m diagram.ClassMember) string {
 	case diagram.VisibilityPackage:
 		prefix = "~"
 	}
-	name := m.Name
 	if m.IsMethod {
-		name += "()"
+		body := m.Name + "(" + m.Args + ")"
+		if m.ReturnType != "" {
+			body += " : " + m.ReturnType
+		}
+		return prefix + body
 	}
-	if m.ReturnType != "" {
-		return prefix + name + " : " + m.ReturnType
-	}
-	return prefix + name
+	return prefix + m.Name
 }
 
 func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float64, th Theme) []any {
@@ -225,7 +225,7 @@ func appendMemberSection(elems []any, members []diagram.ClassMember, x, w, secti
 	return elems, sectionY + classPadY + float64(len(members))*memberRowH
 }
 
-func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float64, th Theme) []any {
+func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float64, th Theme, ruler *textmeasure.Ruler) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -307,10 +307,24 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 		if rel.Label != "" {
 			lx := el.LabelPos.X + pad
 			ly := el.LabelPos.Y + pad
+			labelFont := fontSize - 1
+			labelW, labelH := ruler.Measure(rel.Label, labelFont)
+			const labelPad = 4.0
+			// Chip backdrop tinted with the theme background, mirroring
+			// the flowchart edge-label treatment (PR #73). Without it,
+			// long association labels visually merge with the edge line
+			// and any class boxes they cross.
+			elems = append(elems, &rect{
+				X: svgFloat(lx - labelW/2 - labelPad), Y: svgFloat(ly - labelH/2 - labelPad),
+				Width:  svgFloat(labelW + 2*labelPad),
+				Height: svgFloat(labelH + 2*labelPad),
+				RX:     3, RY: 3,
+				Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
+			})
 			elems = append(elems, &text{
 				X: svgFloat(lx), Y: svgFloat(ly),
 				Anchor: "middle", Dominant: "central",
-				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, fontSize-1),
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, labelFont),
 				Content: rel.Label,
 			})
 		}

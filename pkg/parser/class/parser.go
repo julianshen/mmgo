@@ -123,24 +123,21 @@ func parseMember(line string) diagram.ClassMember {
 	}
 	if idx := strings.Index(line, "("); idx >= 0 {
 		m.IsMethod = true
-		if closeIdx := strings.Index(line, ")"); closeIdx >= 0 {
+		if closeIdx := strings.Index(line[idx+1:], ")"); closeIdx >= 0 {
+			closeIdx += idx + 1
 			m.Name = strings.TrimSpace(line[:idx])
-			if closeIdx+1 < len(line) {
-				m.ReturnType = strings.TrimSpace(line[closeIdx+1:])
-			}
+			m.Args = strings.TrimSpace(line[idx+1 : closeIdx])
+			// Allow either `foo() bar` or `foo(): bar`; mermaid accepts both.
+			m.ReturnType = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line[closeIdx+1:]), ":"))
 		} else {
 			m.Name = strings.TrimSpace(line)
 		}
 	} else {
-		parts := strings.Fields(line)
-		switch len(parts) {
-		case 0:
-		case 1:
-			m.Name = parts[0]
-		default:
-			m.ReturnType = parts[0]
-			m.Name = parts[1]
-		}
+		// Preserve fields verbatim. Both `String name` (Java/C#) and
+		// `name: String` (TypeScript) are valid mermaid; splitting on
+		// whitespace inverts the former, splitting on `:` mangles the
+		// latter (`-template: String` → `-String : template:`).
+		m.Name = strings.TrimSpace(line)
 	}
 	return m
 }

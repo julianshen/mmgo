@@ -46,11 +46,68 @@ func TestParseClassWithMembers(t *testing.T) {
 	if len(c.Members) != 3 {
 		t.Fatalf("want 3 members, got %d", len(c.Members))
 	}
-	if c.Members[0].Name != "name" || c.Members[0].Visibility != diagram.VisibilityPublic {
+	// Fields are stored verbatim (post-visibility) so the renderer can
+	// preserve the source's chosen "type name" or "name: type" ordering.
+	if c.Members[0].Name != "String name" || c.Members[0].Visibility != diagram.VisibilityPublic {
 		t.Errorf("member[0] = %+v", c.Members[0])
 	}
 	if !c.Members[2].IsMethod {
 		t.Error("eat should be a method")
+	}
+	if c.Members[2].Name != "eat" || c.Members[2].Args != "food" || c.Members[2].ReturnType != "bool" {
+		t.Errorf("member[2] = %+v", c.Members[2])
+	}
+}
+
+// Regression: `name: type` field syntax was previously mangled by a
+// whitespace split that dropped the colon onto the wrong half — the mvc
+// example rendered `-template: String` as `-String : template:`.
+func TestParseFieldColonSyntax(t *testing.T) {
+	input := `classDiagram
+    class View {
+        -template: String
+    }`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	got := d.Classes[0].Members[0]
+	if got.Name != "template: String" || got.IsMethod || got.ReturnType != "" {
+		t.Errorf("member = %+v, want Name=\"template: String\"", got)
+	}
+}
+
+// Regression: method arguments were dropped — the parser only captured
+// the name before `(` and never read the text inside the parens.
+func TestParseMethodArgsPreserved(t *testing.T) {
+	cases := []struct {
+		src      string
+		wantName string
+		wantArgs string
+		wantRet  string
+	}{
+		{"+get(key) Value", "get", "key", "Value"},
+		{"+set(key, value) void", "set", "key, value", "void"},
+		{"+render(data): String", "render", "data", "String"},
+		{"+save()", "save", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.src, func(t *testing.T) {
+			input := "classDiagram\n    class C {\n        " + tc.src + "\n    }"
+			d, err := Parse(strings.NewReader(input))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			m := d.Classes[0].Members[0]
+			if !m.IsMethod {
+				t.Fatalf("expected method, got %+v", m)
+			}
+			if m.Name != tc.wantName || m.Args != tc.wantArgs || m.ReturnType != tc.wantRet {
+				t.Errorf("got Name=%q Args=%q ReturnType=%q; want %q/%q/%q",
+					m.Name, m.Args, m.ReturnType,
+					tc.wantName, tc.wantArgs, tc.wantRet)
+			}
+		})
 	}
 }
 
