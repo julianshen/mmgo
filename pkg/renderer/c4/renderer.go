@@ -149,9 +149,9 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 
 		switch e.Kind {
 		case diagram.C4ElementSystemDB, diagram.C4ElementContainerDB:
-			// Database elements render as a cylinder (top/bottom
-			// ellipse + sides) — matches mmdc's "DB" glyph.
-			elems = append(elems, &path{D: cylinderPath(cx, cy, w, h), Style: shapeStyle})
+			// Cylinder glyph signals "this is a datastore" — the
+			// shape mmdc uses for DB-kind C4 elements.
+			elems = append(elems, &path{D: svgutil.CylinderPath(cx, cy, w, h), Style: shapeStyle})
 		case diagram.C4ElementPerson, diagram.C4ElementPersonExt:
 			// Strongly rounded corners hint at a "person" shape
 			// without requiring an embedded icon.
@@ -331,22 +331,6 @@ func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize
 		}
 	}
 	return elems
-}
-
-// cylinderEllipseRY governs how "tall" the top/bottom caps look
-// relative to the body — same value the flowchart cylinder shape uses.
-const cylinderEllipseRY = 0.1
-
-func cylinderPath(cx, cy, w, h float64) string {
-	ry := h * cylinderEllipseRY
-	top := cy - h/2 + ry
-	bot := cy + h/2 - ry
-	return fmt.Sprintf("M%.2f,%.2f L%.2f,%.2f A%.2f,%.2f 0 0,0 %.2f,%.2f "+
-		"L%.2f,%.2f A%.2f,%.2f 0 0,0 %.2f,%.2f "+
-		"M%.2f,%.2f A%.2f,%.2f 0 0,0 %.2f,%.2f",
-		cx-w/2, top, cx-w/2, bot, w/2, ry, cx+w/2, bot,
-		cx+w/2, top, w/2, ry, cx-w/2, top,
-		cx-w/2, top, w/2, ry, cx+w/2, top)
 }
 
 // buildArrowMarker — width/height 12 matches state, class, ER. The

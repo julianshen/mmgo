@@ -45,6 +45,29 @@ func CatmullRomPath(pts []layout.Point, tension float64) string {
 	return sb.String()
 }
 
+// CylinderEllipseRY is the cap-to-body height ratio for cylinder
+// shapes. 0.1 matches mmdc's flowchart database glyph; the C4
+// SystemDB/ContainerDB shapes reuse the same value for visual parity.
+const CylinderEllipseRY = 0.1
+
+// CylinderPath returns an SVG path "d" attribute for a vertical
+// cylinder centered at (cx, cy) with overall size (w, h). The shape is
+// rendered as two side lines, a bottom-cap arc, and a separate top-cap
+// arc (drawn with a second moveto so the rim reads as an ellipse over
+// an open top). Used by the flowchart cylinder node and the C4 DB
+// element shapes.
+func CylinderPath(cx, cy, w, h float64) string {
+	ry := h * CylinderEllipseRY
+	top := cy - h/2 + ry
+	bot := cy + h/2 - ry
+	return fmt.Sprintf("M%.2f,%.2f L%.2f,%.2f A%.2f,%.2f 0 0,0 %.2f,%.2f "+
+		"L%.2f,%.2f A%.2f,%.2f 0 0,0 %.2f,%.2f "+
+		"M%.2f,%.2f A%.2f,%.2f 0 0,0 %.2f,%.2f",
+		cx-w/2, top, cx-w/2, bot, w/2, ry, cx+w/2, bot,
+		cx+w/2, top, w/2, ry, cx-w/2, top,
+		cx-w/2, top, w/2, ry, cx+w/2, top)
+}
+
 // LabelChip returns a centered rounded-rect "chip" sized to wrap a
 // label of (textW, textH) with the given padding on every side.
 // The chip's center sits at (cx, cy) so callers can place it directly
