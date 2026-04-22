@@ -4,7 +4,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
@@ -295,7 +294,7 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 			})
 		} else {
 			elems = append(elems, &path{
-				D:         curvePathD(pts),
+				D:         svgutil.CatmullRomPath(pts, svgutil.CatmullRomTension),
 				Style:     style,
 				MarkerEnd: endRef,
 			})
@@ -330,30 +329,6 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 		}
 	}
 	return elems
-}
-
-// curvePathD turns dagre's polyline waypoints into a smooth Catmull-Rom
-// cubic spline (tension 0.3 — same value flowchart uses, see PR #73 for
-// why 0.5 was too swoopy at dummy-node waypoints).
-func curvePathD(pts []layout.Point) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "M%.2f,%.2f", pts[0].X, pts[0].Y)
-	const tension = 0.3
-	for i := 0; i < len(pts)-1; i++ {
-		p0 := pts[max(i-1, 0)]
-		p1 := pts[i]
-		p2 := pts[i+1]
-		p3 := pts[min(i+2, len(pts)-1)]
-
-		cp1x := p1.X + (p2.X-p0.X)*tension/3
-		cp1y := p1.Y + (p2.Y-p0.Y)*tension/3
-		cp2x := p2.X - (p3.X-p1.X)*tension/3
-		cp2y := p2.Y - (p3.Y-p1.Y)*tension/3
-
-		fmt.Fprintf(&sb, " C%.2f,%.2f %.2f,%.2f %.2f,%.2f",
-			cp1x, cp1y, cp2x, cp2y, p2.X, p2.Y)
-	}
-	return sb.String()
 }
 
 func relationIsDashed(rt diagram.RelationType) bool {

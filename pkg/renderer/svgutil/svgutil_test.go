@@ -4,13 +4,15 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/julianshen/mmgo/pkg/layout"
 )
 
 func TestClipToRectEdge(t *testing.T) {
 	cases := []struct {
-		name                   string
-		cx, cy, w, h, ox, oy   float64
-		wantX, wantY           float64
+		name                 string
+		cx, cy, w, h, ox, oy float64
+		wantX, wantY         float64
 	}{
 		{"east", 0, 0, 10, 6, 100, 0, 5, 0},
 		{"west", 0, 0, 10, 6, -100, 0, -5, 0},
@@ -44,9 +46,9 @@ func TestInlineMarkerAt(t *testing.T) {
 	// SVG uses Y-down, so atan2(dy, dx) gives angles where:
 	//   east  +X = 0°, south +Y = 90°, west -X = 180°, north -Y = -90°.
 	cases := []struct {
-		name           string
-		start, next    [2]float64
-		wantRotateDeg  string
+		name          string
+		start, next   [2]float64
+		wantRotateDeg string
 	}{
 		{"east", [2]float64{0, 0}, [2]float64{10, 0}, "rotate(0.00)"},
 		{"south", [2]float64{0, 0}, [2]float64{0, 10}, "rotate(90.00)"},
@@ -102,6 +104,26 @@ func TestViewBox(t *testing.T) {
 	vb := ViewBox(100.5, 200)
 	if vb != "0 0 100.50 200.00" {
 		t.Errorf("ViewBox = %q", vb)
+	}
+}
+
+func TestCatmullRomPath(t *testing.T) {
+	// Fewer than 3 points: nothing to curve.
+	if got := CatmullRomPath(nil, CatmullRomTension); got != "" {
+		t.Errorf("nil pts: got %q, want empty", got)
+	}
+	if got := CatmullRomPath([]layout.Point{{X: 0, Y: 0}, {X: 10, Y: 0}}, CatmullRomTension); got != "" {
+		t.Errorf("2 pts: got %q, want empty", got)
+	}
+
+	// 3+ points: starts with a moveto and emits one cubic per segment.
+	pts := []layout.Point{{X: 0, Y: 0}, {X: 10, Y: 5}, {X: 20, Y: 0}}
+	d := CatmullRomPath(pts, CatmullRomTension)
+	if !strings.HasPrefix(d, "M0.00,0.00") {
+		t.Errorf("missing moveto: %q", d)
+	}
+	if strings.Count(d, " C") != len(pts)-1 {
+		t.Errorf("expected %d cubic segments in %q", len(pts)-1, d)
 	}
 }
 
