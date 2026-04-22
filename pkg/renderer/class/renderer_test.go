@@ -3,6 +3,7 @@ package class
 import (
 	"bytes"
 	"encoding/xml"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -205,8 +206,34 @@ func TestRenderEdgeWithLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if !strings.Contains(string(out), ">uses<") {
+	raw := string(out)
+	if !strings.Contains(raw, ">uses<") {
 		t.Error("edge label missing")
+	}
+	// Chip backdrop: a Rect filled with the theme background sits
+	// behind the label so it stays legible against crossing lines.
+	bg := DefaultTheme().Background
+	if !strings.Contains(raw, fmt.Sprintf(`fill:%s;stroke:none`, bg)) {
+		t.Errorf("expected edge-label chip backdrop with fill:%s", bg)
+	}
+}
+
+// Method args must survive the parser→renderer round-trip. Previously
+// the renderer always emitted empty parens; now it includes Args.
+func TestRenderMethodArgs(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{
+			{ID: "M", Label: "M", Members: []diagram.ClassMember{
+				{Name: "set", Args: "key, value", ReturnType: "void", IsMethod: true, Visibility: diagram.VisibilityPublic},
+			}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "+set(key, value) : void") {
+		t.Errorf("expected `+set(key, value) : void` in output:\n%s", string(out))
 	}
 }
 

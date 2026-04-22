@@ -14,8 +14,20 @@ var visibilityNames = []string{"none", "public", "private", "protected", "packag
 
 func (v Visibility) String() string { return enumString(v, visibilityNames) }
 
+// ClassMember holds one entry inside a class body.
+//
+// For methods (IsMethod=true), Name/Args/ReturnType are parsed apart so
+// the renderer can emit the canonical `name(args) : returnType` form
+// regardless of which Mermaid syntax variant the source used.
+//
+// For fields, Name carries the *raw* post-visibility text (e.g. the full
+// "String name" or "name: String"), Args is unused, ReturnType is empty.
+// The renderer prints fields verbatim — splitting on whitespace would
+// silently invert "type name" vs "name type" orderings, and splitting
+// on `:` would mangle TypeScript-style declarations.
 type ClassMember struct {
 	Name       string
+	Args       string
 	ReturnType string
 	Visibility Visibility
 	IsMethod   bool

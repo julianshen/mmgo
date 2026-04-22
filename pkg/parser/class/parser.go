@@ -123,26 +123,44 @@ func parseMember(line string) diagram.ClassMember {
 	}
 	if idx := strings.Index(line, "("); idx >= 0 {
 		m.IsMethod = true
-		if closeIdx := strings.Index(line, ")"); closeIdx >= 0 {
+		// Match the closing `)` by depth so args containing grouped
+		// expressions like `execute(callback (x, y))` aren't truncated
+		// at the first inner `)`.
+		if closeIdx := matchCloseParen(line, idx); closeIdx >= 0 {
 			m.Name = strings.TrimSpace(line[:idx])
-			if closeIdx+1 < len(line) {
-				m.ReturnType = strings.TrimSpace(line[closeIdx+1:])
-			}
+			m.Args = strings.TrimSpace(line[idx+1 : closeIdx])
+			// Allow either `foo() bar` or `foo(): bar`; mermaid accepts both.
+			tail := strings.TrimSpace(line[closeIdx+1:])
+			m.ReturnType = strings.TrimSpace(strings.TrimPrefix(tail, ":"))
 		} else {
 			m.Name = strings.TrimSpace(line)
 		}
 	} else {
-		parts := strings.Fields(line)
-		switch len(parts) {
-		case 0:
-		case 1:
-			m.Name = parts[0]
-		default:
-			m.ReturnType = parts[0]
-			m.Name = parts[1]
-		}
+		// Preserve fields verbatim. Both `String name` (Java/C#) and
+		// `name: String` (TypeScript) are valid mermaid; splitting on
+		// whitespace inverts the former, splitting on `:` mangles the
+		// latter (`-template: String` → `-String : template:`).
+		m.Name = strings.TrimSpace(line)
 	}
 	return m
+}
+
+// matchCloseParen returns the index of the `)` that pairs with the `(`
+// at openIdx, or -1 if unbalanced. Tracks nesting depth.
+func matchCloseParen(line string, openIdx int) int {
+	depth := 0
+	for i := openIdx; i < len(line); i++ {
+		switch line[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 func parseAnnotation(s string) diagram.ClassAnnotation {
