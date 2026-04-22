@@ -30,6 +30,10 @@ const (
 	branchLabelR    = 10.0 // pill corner radius
 	branchPathW     = 4.0  // thick colored path between a branch's own commits
 	branchPathOp    = 1.0  // mmdc's branch paths are fully opaque
+	tagPadX         = 6.0
+	tagPadY         = 3.0
+	tagGap          = 14.0 // vertical gap from commit center to tag callout
+	tagCornerR      = 4.0  // tag callout corner radius
 )
 
 func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
@@ -209,12 +213,13 @@ type dotStyle struct {
 	innerR  float64 // non-zero for merge commits — a small white dot on top
 }
 
+// dotStyleFor returns the circle style for a commit. Highlight commits
+// are handled separately in commitDot (they render as a square) and
+// never reach this function.
 func dotStyleFor(c diagram.GitCommit, color string, th Theme) dotStyle {
 	switch c.Type {
 	case diagram.GitCommitMerge:
 		return dotStyle{r: commitRadius, fill: color, stroke: th.DotStrokeFill, strokeW: 2, innerR: commitRadius * 0.4}
-	case diagram.GitCommitHighlight:
-		return dotStyle{r: highlightRadius, fill: color, stroke: th.Text, strokeW: 2}
 	case diagram.GitCommitReverse:
 		return dotStyle{r: commitRadius, fill: "none", stroke: color, strokeW: 3}
 	default:
@@ -254,19 +259,17 @@ func commitDot(c diagram.GitCommit, x, y float64, color string, th Theme) []any 
 // theme's tag color, containing the tag text. mmdc shows the tag as a
 // floating callout distinct from the plain commit-id text.
 func tagCallout(tag string, x, y, fontSize float64, th Theme) []any {
-	const padX = 6.0
-	const padY = 3.0
-	const gap = 14.0 // vertical gap from commit center to callout
-	tw := textmeasure.EstimateWidth(tag, fontSize-2)
-	w := tw + 2*padX
-	h := (fontSize - 2) + 2*padY
+	tagFont := fontSize - 2
+	tw := textmeasure.EstimateWidth(tag, tagFont)
+	w := tw + 2*tagPadX
+	h := tagFont + 2*tagPadY
 	bx := x - w/2
-	by := y - gap - h
+	by := y - tagGap - h
 	return []any{
 		&rect{
 			X: svgFloat(bx), Y: svgFloat(by),
 			Width: svgFloat(w), Height: svgFloat(h),
-			RX: 4, RY: 4,
+			RX: svgFloat(tagCornerR), RY: svgFloat(tagCornerR),
 			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1", th.TagFill, th.TagStroke),
 		},
 		&text{
@@ -274,7 +277,7 @@ func tagCallout(tag string, x, y, fontSize float64, th Theme) []any {
 			Y:        svgFloat(by + h/2),
 			Anchor:   "middle",
 			Dominant: "central",
-			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.TagText, fontSize-2),
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.TagText, tagFont),
 			Content:  tag,
 		},
 	}
