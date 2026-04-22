@@ -25,6 +25,7 @@ const (
 type Options struct {
 	FontSize float64
 	Theme    Theme
+	Ruler    *textmeasure.Ruler
 }
 
 type layoutNode struct {
@@ -66,11 +67,17 @@ func Render(d *diagram.MindmapDiagram, opts *Options) ([]byte, error) {
 	}
 	th := resolveTheme(opts)
 
-	ruler, err := textmeasure.NewDefaultRuler()
-	if err != nil {
-		return nil, fmt.Errorf("mindmap render: text measurer: %w", err)
+	var ruler *textmeasure.Ruler
+	if opts != nil && opts.Ruler != nil {
+		ruler = opts.Ruler
+	} else {
+		var err error
+		ruler, err = textmeasure.NewDefaultRuler()
+		if err != nil {
+			return nil, fmt.Errorf("mindmap render: text measurer: %w", err)
+		}
+		defer func() { _ = ruler.Close() }()
 	}
-	defer func() { _ = ruler.Close() }()
 
 	if d.Root == nil {
 		return marshalDoc(svgutil.ViewBox(100, 100), th,
@@ -78,7 +85,7 @@ func Render(d *diagram.MindmapDiagram, opts *Options) ([]byte, error) {
 		)
 	}
 
-	root := buildTree(d.Root, ruler, fontSize, 0)
+	root := buildTree(d.Root, ruler, fontSize, 0, make(map[*diagram.MindmapNode]bool))
 
 	layoutRadial(root, levelSpacing)
 	bounds := computeBounds(root)
@@ -119,13 +126,17 @@ func marshalDoc(viewBox string, th Theme, children ...any) ([]byte, error) {
 	return svgutil.MarshalSVG(svgutil.Doc(doc))
 }
 
-func buildTree(n *diagram.MindmapNode, ruler *textmeasure.Ruler, fontSize float64, depth int) *layoutNode {
+func buildTree(n *diagram.MindmapNode, ruler *textmeasure.Ruler, fontSize float64, depth int, visited map[*diagram.MindmapNode]bool) *layoutNode {
 	if n == nil {
 		return nil
 	}
+	if visited[n] {
+		return nil
+	}
+	visited[n] = true
 	segments := parseMarkdown(n.Text)
 	plainText := stripMarkdownFromSegments(segments)
-	tw, th := ruler.Measure(plainText, fontSize)
+	tw, textH := ruler.Measure(plainText, fontSize)
 
 	hasBold := false
 	for _, seg := range segments {
@@ -139,7 +150,7 @@ func buildTree(n *diagram.MindmapNode, ruler *textmeasure.Ruler, fontSize float6
 	}
 
 	w := tw + 2*nodePadX
-	h := th + 2*nodePadY
+	h := textH + 2*nodePadY
 	if w < minNodeW {
 		w = minNodeW
 	}
@@ -156,7 +167,7 @@ func buildTree(n *diagram.MindmapNode, ruler *textmeasure.Ruler, fontSize float6
 	}
 	leafCount := 0
 	for _, child := range n.Children {
-		cn := buildTree(child, ruler, fontSize, depth+1)
+		cn := buildTree(child, ruler, fontSize, depth+1, visited)
 		if cn != nil {
 			ln.children = append(ln.children, cn)
 			leafCount += cn.leafCount
@@ -264,7 +275,7 @@ func renderElements(n *layoutNode, offX, offY, fontSize float64, th Theme, edges
 		ccy := child.y + offY
 
 		edgeCol := edgeColor(child.section, th)
-		sw := edgeStrokeWidth(child.depth - 1)
+		sw := edgeStrokeWidth(child.depth)
 
 		*edges = append(*edges, &path{
 			D:     curvedEdgePath(px, py, ccx, ccy),

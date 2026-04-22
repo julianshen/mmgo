@@ -99,6 +99,9 @@ func hexagonPoints(w, h float64) string {
 	hw := w / 2
 	hh := h / 2
 	m := h / 4
+	if m > hw {
+		m = hw
+	}
 	pts := [6]struct{ x, y float64 }{
 		{-hw + m, -hh},
 		{hw - m, -hh},
@@ -136,7 +139,11 @@ func shapeTextColor(depth int, th Theme) string {
 }
 
 func edgeStrokeWidth(depth int) float64 {
-	w := 17.0 - 3.0*float64(depth)
+	edgeDepth := depth - 1
+	if edgeDepth < 0 {
+		edgeDepth = 0
+	}
+	w := 17.0 - 3.0*float64(edgeDepth)
 	if w < 2 {
 		w = 2
 	}

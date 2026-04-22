@@ -551,7 +551,7 @@ func toMindmapTheme(tc *config.ThemeColors) mindmaprenderer.Theme {
 		SectionColors: tc.PieColors,
 		RootColor:     tc.Primary,
 		NodeText:      tc.Primary,
-		RootText:      "#fff",
+		RootText:      tc.Text,
 		EdgeStroke:    tc.LineColor,
 		Background:    tc.Background,
 	}

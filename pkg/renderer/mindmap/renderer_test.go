@@ -308,3 +308,28 @@ func TestRenderIconAndClass(t *testing.T) {
 	}
 	assertValidSVG(t, out)
 }
+
+func TestRenderCyclicGraph(t *testing.T) {
+	a := &diagram.MindmapNode{Text: "A"}
+	b := &diagram.MindmapNode{Text: "B"}
+	a.Children = []*diagram.MindmapNode{b}
+	b.Children = []*diagram.MindmapNode{a}
+	d := &diagram.MindmapDiagram{Root: a}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderEmptyDiagramBounds(t *testing.T) {
+	d := &diagram.MindmapDiagram{}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, `viewBox="0 0 100.00 100.00"`) {
+		t.Error("empty diagram should have 100x100 viewBox")
+	}
+}

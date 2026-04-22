@@ -205,3 +205,55 @@ func TestParseDeepNesting(t *testing.T) {
 		t.Errorf("C children: %+v", c.Children)
 	}
 }
+
+func TestParseIconBeforeNode(t *testing.T) {
+	input := "mindmap\n    ::icon(fa fa-check)\n    Root"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Root.Icon != "" {
+		t.Errorf("icon before node should be ignored, got %q", d.Root.Icon)
+	}
+}
+
+func TestParseClassBeforeNode(t *testing.T) {
+	input := "mindmap\n    :::urgent\n    Root"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Root.Class != "" {
+		t.Errorf("class before node should be ignored, got %q", d.Root.Class)
+	}
+}
+
+func TestParseUnclosedIcon(t *testing.T) {
+	input := "mindmap\n    Root\n        Child\n            ::icon(no-close"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	child := d.Root.Children[0]
+	if child.Icon != "" {
+		t.Errorf("unclosed icon should not be set, got %q", child.Icon)
+	}
+}
+
+func TestParseEmptyShape(t *testing.T) {
+	input := "mindmap\n    A[]"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Root.Shape != diagram.MindmapShapeDefault {
+		t.Errorf("empty brackets should be default shape, got %v", d.Root.Shape)
+	}
+}
+
+func TestParseMissingHeader(t *testing.T) {
+	_, err := Parse(strings.NewReader(""))
+	if err == nil {
+		t.Fatal("expected error for empty input")
+	}
+}
