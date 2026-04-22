@@ -144,7 +144,7 @@ func TestRenderEdgeStraightLine(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
-	elems := renderEdge(e, el, 10, DefaultTheme(), 16, nil)
+	elems := renderEdge(e, el, 10, DefaultTheme(), 16, nil, nil, graph.EdgeID{})
 	if len(elems) < 1 {
 		t.Fatal("expected at least 1 element")
 	}
@@ -174,7 +174,7 @@ func TestRenderEdgeWithLabel(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16, ruler)
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, ruler, nil, graph.EdgeID{})
 	hasLabel := false
 	for _, elem := range elems {
 		if txt, ok := elem.(*Text); ok && txt.Content == "yes" {
@@ -197,7 +197,7 @@ func TestRenderEdgeLabelBackgroundRect(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16, ruler)
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, ruler, nil, graph.EdgeID{})
 	hasBgRect := false
 	for _, elem := range elems {
 		if r, ok := elem.(*Rect); ok && strings.Contains(r.Style, "fill:white") {
@@ -221,7 +221,7 @@ func TestRenderEdgeLabelBackgroundRectWithRuler(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 200, Y: 0}},
 		LabelPos: layout.Point{X: 100, Y: 0},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16, ruler)
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, ruler, nil, graph.EdgeID{})
 	var bgRect *Rect
 	for _, elem := range elems {
 		if r, ok := elem.(*Rect); ok && strings.Contains(r.Style, "fill:white") {
@@ -250,7 +250,7 @@ func TestRenderEdgeNilRulerWithLabelDoesNotPanic(t *testing.T) {
 			t.Fatalf("renderEdge panicked with nil ruler: %v", r)
 		}
 	}()
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil)
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{})
 	if len(elems) == 0 {
 		t.Error("expected fallback elements")
 	}
@@ -262,7 +262,7 @@ func TestRenderEdgeDotted(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil)
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{})
 	line, ok := elems[0].(*Line)
 	if !ok {
 		t.Fatalf("expected *Line, got %T", elems[0])
@@ -278,7 +278,7 @@ func TestRenderEdgeNoMarker(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil)
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{})
 	line, ok := elems[0].(*Line)
 	if !ok {
 		t.Fatalf("expected *Line, got %T", elems[0])
@@ -294,7 +294,7 @@ func TestRenderEdgeCurve(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 50, Y: 50}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 25},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil)
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{})
 	path, ok := elems[0].(*Path)
 	if !ok {
 		t.Fatalf("expected *Path for 3-point edge, got %T", elems[0])
