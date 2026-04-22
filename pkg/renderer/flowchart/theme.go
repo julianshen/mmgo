@@ -31,10 +31,14 @@ type Theme struct {
 	Background     string
 }
 
+// DefaultTheme returns the Mermaid-classic flowchart palette: light
+// lavender fill with dark-purple stroke for nodes, matching mermaid-
+// cli's "default" theme. The config-driven mapping in
+// pkg/output/svg overrides these when an explicit theme is selected.
 func DefaultTheme() Theme {
 	return Theme{
-		NodeFill:       "#fff",
-		NodeStroke:     "#333",
+		NodeFill:       "#ECECFF",
+		NodeStroke:     "#9370DB",
 		NodeText:       "#333",
 		EdgeStroke:     "#333",
 		EdgeText:       "#333",
