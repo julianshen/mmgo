@@ -11,4 +11,5 @@ type (
 	circle   = svgutil.Circle
 	polygon  = svgutil.Polygon
 	group    = svgutil.Group
+	text     = svgutil.Text
 )

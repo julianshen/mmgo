@@ -385,6 +385,22 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 	}
 
 	textStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", textCol, fontSize)
+	// Fast path: when the whole label is a single plain segment
+	// (no bold/italic), emit plain chardata instead of a <tspan>.
+	// The tdewolff/canvas PNG rasterizer doesn't render text whose
+	// content sits inside <tspan> children, so wrapping plain labels
+	// in tspan silently drops every mindmap label from the PNG.
+	if len(n.segments) == 1 && !n.segments[0].bold && !n.segments[0].italic {
+		children = append(children, &text{
+			X:        0,
+			Y:        0,
+			Anchor:   "middle",
+			Dominant: "central",
+			Style:    textStyle,
+			Content:  n.segments[0].text,
+		})
+		return children
+	}
 	var tspans []any
 	for _, seg := range n.segments {
 		segStyle := textStyle
