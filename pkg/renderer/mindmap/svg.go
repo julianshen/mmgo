@@ -8,5 +8,7 @@ type (
 	rect     = svgutil.Rect
 	line     = svgutil.Line
 	path     = svgutil.Path
-	text     = svgutil.Text
+	circle   = svgutil.Circle
+	polygon  = svgutil.Polygon
+	group    = svgutil.Group
 )

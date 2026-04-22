@@ -4,19 +4,24 @@ type MindmapNodeShape int8
 
 const (
 	MindmapShapeDefault MindmapNodeShape = iota
-	MindmapShapeRound                    // (text)
-	MindmapShapeSquare                   // [text]
-	MindmapShapeCloud                    // ((text))
-	MindmapShapeBang                     // {{text}}
+	MindmapShapeRound
+	MindmapShapeSquare
+	MindmapShapeCircle
+	MindmapShapeCloud
+	MindmapShapeBang
+	MindmapShapeHexagon
 )
 
-var mindmapShapeNames = []string{"default", "round", "square", "cloud", "bang"}
+var mindmapShapeNames = []string{"default", "round", "square", "circle", "cloud", "bang", "hexagon"}
 
 func (s MindmapNodeShape) String() string { return enumString(s, mindmapShapeNames) }
 
 type MindmapNode struct {
+	ID       string
 	Text     string
 	Shape    MindmapNodeShape
+	Icon     string
+	Class    string
 	Children []*MindmapNode
 }
 

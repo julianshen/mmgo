@@ -179,6 +179,8 @@ type Doc struct {
 	XMLName  xml.Name `xml:"svg"`
 	XMLNS    string   `xml:"xmlns,attr"`
 	ViewBox  string   `xml:"viewBox,attr"`
+	Role     string   `xml:"role,attr,omitempty"`
+	AriaRole string   `xml:"aria-roledescription,attr,omitempty"`
 	Children []any    `xml:",any"`
 }
 
@@ -250,6 +252,7 @@ type Defs struct {
 
 type Group struct {
 	XMLName   xml.Name `xml:"g"`
+	Class     string   `xml:"class,attr,omitempty"`
 	Transform string   `xml:"transform,attr,omitempty"`
 	Children  []any    `xml:",any"`
 }

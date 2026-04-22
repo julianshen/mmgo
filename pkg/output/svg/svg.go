@@ -19,38 +19,38 @@ import (
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
 	parserutil "github.com/julianshen/mmgo/pkg/parser"
-	classparser "github.com/julianshen/mmgo/pkg/parser/class"
-	erparser "github.com/julianshen/mmgo/pkg/parser/er"
-	ganttparser "github.com/julianshen/mmgo/pkg/parser/gantt"
-	gitgraphparser "github.com/julianshen/mmgo/pkg/parser/gitgraph"
-	mindmapparser "github.com/julianshen/mmgo/pkg/parser/mindmap"
-	sankeyparser "github.com/julianshen/mmgo/pkg/parser/sankey"
-	xychartparser "github.com/julianshen/mmgo/pkg/parser/xychart"
-	quadrantparser "github.com/julianshen/mmgo/pkg/parser/quadrant"
-	kanbanparser "github.com/julianshen/mmgo/pkg/parser/kanban"
 	blockparser "github.com/julianshen/mmgo/pkg/parser/block"
 	c4parser "github.com/julianshen/mmgo/pkg/parser/c4"
-	timelineparser "github.com/julianshen/mmgo/pkg/parser/timeline"
+	classparser "github.com/julianshen/mmgo/pkg/parser/class"
+	erparser "github.com/julianshen/mmgo/pkg/parser/er"
 	flowchartparser "github.com/julianshen/mmgo/pkg/parser/flowchart"
+	ganttparser "github.com/julianshen/mmgo/pkg/parser/gantt"
+	gitgraphparser "github.com/julianshen/mmgo/pkg/parser/gitgraph"
+	kanbanparser "github.com/julianshen/mmgo/pkg/parser/kanban"
+	mindmapparser "github.com/julianshen/mmgo/pkg/parser/mindmap"
 	pieparser "github.com/julianshen/mmgo/pkg/parser/pie"
+	quadrantparser "github.com/julianshen/mmgo/pkg/parser/quadrant"
+	sankeyparser "github.com/julianshen/mmgo/pkg/parser/sankey"
 	sequenceparser "github.com/julianshen/mmgo/pkg/parser/sequence"
 	stateparser "github.com/julianshen/mmgo/pkg/parser/state"
-	classrenderer "github.com/julianshen/mmgo/pkg/renderer/class"
-	errenderer "github.com/julianshen/mmgo/pkg/renderer/er"
-	ganttrenderer "github.com/julianshen/mmgo/pkg/renderer/gantt"
-	gitgraphrenderer "github.com/julianshen/mmgo/pkg/renderer/gitgraph"
-	mindmaprenderer "github.com/julianshen/mmgo/pkg/renderer/mindmap"
-	sankeyrenderer "github.com/julianshen/mmgo/pkg/renderer/sankey"
-	xychartrenderer "github.com/julianshen/mmgo/pkg/renderer/xychart"
-	quadrantrenderer "github.com/julianshen/mmgo/pkg/renderer/quadrant"
-	kanbanrenderer "github.com/julianshen/mmgo/pkg/renderer/kanban"
+	timelineparser "github.com/julianshen/mmgo/pkg/parser/timeline"
+	xychartparser "github.com/julianshen/mmgo/pkg/parser/xychart"
 	blockrenderer "github.com/julianshen/mmgo/pkg/renderer/block"
 	c4renderer "github.com/julianshen/mmgo/pkg/renderer/c4"
-	timelinerenderer "github.com/julianshen/mmgo/pkg/renderer/timeline"
+	classrenderer "github.com/julianshen/mmgo/pkg/renderer/class"
+	errenderer "github.com/julianshen/mmgo/pkg/renderer/er"
 	flowchartrenderer "github.com/julianshen/mmgo/pkg/renderer/flowchart"
+	ganttrenderer "github.com/julianshen/mmgo/pkg/renderer/gantt"
+	gitgraphrenderer "github.com/julianshen/mmgo/pkg/renderer/gitgraph"
+	kanbanrenderer "github.com/julianshen/mmgo/pkg/renderer/kanban"
+	mindmaprenderer "github.com/julianshen/mmgo/pkg/renderer/mindmap"
 	pierenderer "github.com/julianshen/mmgo/pkg/renderer/pie"
+	quadrantrenderer "github.com/julianshen/mmgo/pkg/renderer/quadrant"
+	sankeyrenderer "github.com/julianshen/mmgo/pkg/renderer/sankey"
 	sequencerenderer "github.com/julianshen/mmgo/pkg/renderer/sequence"
 	staterenderer "github.com/julianshen/mmgo/pkg/renderer/state"
+	timelinerenderer "github.com/julianshen/mmgo/pkg/renderer/timeline"
+	xychartrenderer "github.com/julianshen/mmgo/pkg/renderer/xychart"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -59,8 +59,8 @@ import (
 type Options struct {
 	// Layout.RankDir is intentionally ignored — direction comes from
 	// the diagram header.
-	Layout layout.Options
-	Theme  config.ThemeName
+	Layout    layout.Options
+	Theme     config.ThemeName
 	Flowchart *flowchartrenderer.Options
 	Sequence  *sequencerenderer.Options
 	Pie       *pierenderer.Options
@@ -278,7 +278,6 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 	}
 	return kindUnknown, fmt.Errorf("empty input: no diagram header found")
 }
-
 
 // renderFlowchart runs parse → size → layout → render for a flowchart
 // diagram. The font size used for node sizing is read from the
@@ -549,10 +548,12 @@ func toC4Theme(tc *config.ThemeColors) c4renderer.Theme {
 
 func toMindmapTheme(tc *config.ThemeColors) mindmaprenderer.Theme {
 	return mindmaprenderer.Theme{
-		LevelColors: tc.PieColors, // reuse the categorical palette
-		NodeText:    tc.Primary,   // text painted over level colors
-		EdgeStroke:  tc.LineColor,
-		Background:  tc.Background,
+		SectionColors: tc.PieColors,
+		RootColor:     tc.Primary,
+		NodeText:      tc.Primary,
+		RootText:      "#fff",
+		EdgeStroke:    tc.LineColor,
+		Background:    tc.Background,
 	}
 }
 

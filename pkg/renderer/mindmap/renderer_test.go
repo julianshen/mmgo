@@ -86,8 +86,10 @@ func TestRenderAllShapes(t *testing.T) {
 			Children: []*diagram.MindmapNode{
 				{Text: "R", Shape: diagram.MindmapShapeRound},
 				{Text: "S", Shape: diagram.MindmapShapeSquare},
-				{Text: "C", Shape: diagram.MindmapShapeCloud},
+				{Text: "Ci", Shape: diagram.MindmapShapeCircle},
+				{Text: "Cl", Shape: diagram.MindmapShapeCloud},
 				{Text: "B", Shape: diagram.MindmapShapeBang},
+				{Text: "H", Shape: diagram.MindmapShapeHexagon},
 			},
 		},
 	}
@@ -96,7 +98,7 @@ func TestRenderAllShapes(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	for _, name := range []string{"Center", "R", "S", "C", "B"} {
+	for _, name := range []string{"Center", "R", "S", "Ci", "Cl", "B", "H"} {
 		if !strings.Contains(raw, ">"+name+"<") {
 			t.Errorf("missing %q", name)
 		}
@@ -187,16 +189,18 @@ func TestRenderAppliesCustomTheme(t *testing.T) {
 		},
 	}
 	out, err := Render(d, &Options{Theme: Theme{
-		LevelColors: []string{"#aabbcc", "#ccbbaa"},
-		NodeText:    "#112233",
-		EdgeStroke:  "#445566",
-		Background:  "#000000",
+		SectionColors: []string{"#aabbcc", "#ccbbaa"},
+		RootColor:     "#112233",
+		NodeText:      "#445566",
+		RootText:      "#778899",
+		EdgeStroke:    "#aabbcc",
+		Background:    "#000000",
 	}})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	for _, want := range []string{`#aabbcc`, `#ccbbaa`, `fill:#112233`, `stroke:#445566`, `fill:#000000`} {
+	for _, want := range []string{`#aabbcc`, `#ccbbaa`, `#112233`, `#000000`} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("themed output missing %q", want)
 		}
@@ -205,16 +209,100 @@ func TestRenderAppliesCustomTheme(t *testing.T) {
 
 func TestDefaultThemeStable(t *testing.T) {
 	got := DefaultTheme()
-	wantLevels := []string{"#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948"}
-	if len(got.LevelColors) != len(wantLevels) {
-		t.Fatalf("LevelColors len drift: %d != %d", len(got.LevelColors), len(wantLevels))
+	wantSections := []string{"#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948", "#b07aa1"}
+	if len(got.SectionColors) != len(wantSections) {
+		t.Fatalf("SectionColors len drift: %d != %d", len(got.SectionColors), len(wantSections))
 	}
-	for i, c := range wantLevels {
-		if got.LevelColors[i] != c {
-			t.Errorf("LevelColors[%d] = %q, want %q", i, got.LevelColors[i], c)
+	for i, c := range wantSections {
+		if got.SectionColors[i] != c {
+			t.Errorf("SectionColors[%d] = %q, want %q", i, got.SectionColors[i], c)
 		}
 	}
-	if got.NodeText != "#fff" || got.EdgeStroke != "#999" || got.Background != "#fff" {
+	if got.RootColor != "#4e79a7" || got.NodeText != "#fff" || got.RootText != "#fff" || got.EdgeStroke != "#999" || got.Background != "#fff" {
 		t.Errorf("DefaultTheme drifted: %+v", got)
 	}
+}
+
+func TestRenderAccessibility(t *testing.T) {
+	d := &diagram.MindmapDiagram{
+		Root: &diagram.MindmapNode{Text: "A"},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, `role="graphics-document document"`) {
+		t.Error("missing role attribute")
+	}
+	if !strings.Contains(raw, `aria-roledescription="mindmap"`) {
+		t.Error("missing aria-roledescription attribute")
+	}
+}
+
+func TestRenderSectionGrouping(t *testing.T) {
+	d := &diagram.MindmapDiagram{
+		Root: &diagram.MindmapNode{
+			Text: "Root",
+			Children: []*diagram.MindmapNode{
+				{Text: "A"},
+				{Text: "B"},
+			},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "section-root") {
+		t.Error("missing section-root class")
+	}
+	if !strings.Contains(raw, "section-0") {
+		t.Error("missing section-0 class")
+	}
+	if !strings.Contains(raw, "section-1") {
+		t.Error("missing section-1 class")
+	}
+}
+
+func TestRenderMarkdownBold(t *testing.T) {
+	d := &diagram.MindmapDiagram{
+		Root: &diagram.MindmapNode{Text: "**Bold** text"},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "Bold") {
+		t.Error("bold text content missing")
+	}
+	if !strings.Contains(raw, "text") {
+		t.Error("plain text content missing")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderIconAndClass(t *testing.T) {
+	d := &diagram.MindmapDiagram{
+		Root: &diagram.MindmapNode{
+			Text: "Root",
+			Children: []*diagram.MindmapNode{
+				{Text: "A", Icon: "fa fa-user", Class: "urgent"},
+			},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "urgent") {
+		t.Error("custom class not in output")
+	}
+	if !strings.Contains(raw, ">A<") {
+		t.Error("child text missing")
+	}
+	assertValidSVG(t, out)
 }
