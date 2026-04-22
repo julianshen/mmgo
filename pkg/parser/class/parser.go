@@ -128,7 +128,8 @@ func parseMember(line string) diagram.ClassMember {
 			m.Name = strings.TrimSpace(line[:idx])
 			m.Args = strings.TrimSpace(line[idx+1 : closeIdx])
 			// Allow either `foo() bar` or `foo(): bar`; mermaid accepts both.
-			m.ReturnType = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line[closeIdx+1:]), ":"))
+			tail := strings.TrimSpace(line[closeIdx+1:])
+			m.ReturnType = strings.TrimSpace(strings.TrimPrefix(tail, ":"))
 		} else {
 			m.Name = strings.TrimSpace(line)
 		}
