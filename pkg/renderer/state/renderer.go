@@ -21,15 +21,18 @@ const (
 	minStateH          = 40.0
 	statePadX          = 20.0
 	statePadY          = 12.0
-	startEndR          = 10.0
-	startDotR          = 7.0
-	endRingR           = 9.0
-	endDotR            = 4.0
-	forkBarW           = 60.0
-	forkBarH           = 6.0
-	choiceSize         = 30.0
-	pseudoStartPrefix  = "__start_"
-	pseudoEndPrefix    = "__end_"
+	// pseudoNodeR sizes the layout box dagre reserves for each pseudo
+	// (start/end) node — kept slightly larger than the visual radii so
+	// edges clip at the box and the glyph sits comfortably inside.
+	pseudoNodeR       = 10.0
+	startDotR         = 7.0
+	endRingR          = 9.0
+	endDotR           = 4.0
+	forkBarW          = 60.0
+	forkBarH          = 6.0
+	choiceSize        = 30.0
+	pseudoStartPrefix = "__start_"
+	pseudoEndPrefix   = "__end_"
 )
 
 type Options struct {
@@ -66,12 +69,12 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 		if from == "[*]" {
 			startIdx++
 			from = fmt.Sprintf("%s%d__", pseudoStartPrefix, startIdx)
-			g.SetNode(from, graph.NodeAttrs{Width: startEndR * 2, Height: startEndR * 2})
+			g.SetNode(from, graph.NodeAttrs{Width: pseudoNodeR * 2, Height: pseudoNodeR * 2})
 		}
 		if to == "[*]" {
 			startIdx++
 			to = fmt.Sprintf("%s%d__", pseudoEndPrefix, startIdx)
-			g.SetNode(to, graph.NodeAttrs{Width: startEndR * 2, Height: startEndR * 2})
+			g.SetNode(to, graph.NodeAttrs{Width: pseudoNodeR * 2, Height: pseudoNodeR * 2})
 		}
 		g.SetEdge(from, to, graph.EdgeAttrs{Label: t.Label})
 	}
