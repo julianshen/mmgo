@@ -22,6 +22,9 @@ const (
 	statePadX          = 20.0
 	statePadY          = 12.0
 	startEndR          = 10.0
+	startDotR          = 7.0  // filled start lollipop
+	endRingR           = 9.0  // outer ring of the end-state glyph
+	endDotR            = 4.0  // inner filled dot — small enough that the ring reads
 	forkBarW           = 60.0
 	forkBarH           = 6.0
 	choiceSize         = 30.0
@@ -199,16 +202,20 @@ func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize floa
 		cy := nl.Y + pad
 		if isStartNode(id) {
 			elems = append(elems, &circle{
-				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(startEndR),
-				Style: fmt.Sprintf("fill:%s;stroke:%s", th.PseudoMark, th.PseudoMark),
+				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(startDotR),
+				Style: fmt.Sprintf("fill:%s;stroke:none", th.PseudoMark),
 			})
 		} else {
+			// End glyph: outer outlined ring with a smaller filled dot
+			// inside. Without the wider gap (endRingR vs endDotR), the
+			// ring reads as a slightly thicker dot and loses its
+			// "stop"/end semantics against a white background.
 			elems = append(elems, &circle{
-				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(startEndR),
-				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:2", th.Background, th.PseudoMark),
+				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(endRingR),
+				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.Background, th.PseudoMark),
 			})
 			elems = append(elems, &circle{
-				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(startEndR - 3),
+				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(endDotR),
 				Style: fmt.Sprintf("fill:%s;stroke:none", th.PseudoMark),
 			})
 		}
@@ -256,12 +263,10 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 				Style: style, MarkerEnd: "url(#state-arrow)",
 			})
 		} else {
-			d := fmt.Sprintf("M%.2f,%.2f", pts[0].X, pts[0].Y)
-			for _, p := range pts[1:] {
-				d += fmt.Sprintf(" L%.2f,%.2f", p.X, p.Y)
-			}
 			elems = append(elems, &path{
-				D: d, Style: style, MarkerEnd: "url(#state-arrow)",
+				D:         svgutil.CatmullRomPath(pts, svgutil.CatmullRomTension),
+				Style:     style,
+				MarkerEnd: "url(#state-arrow)",
 			})
 		}
 
@@ -331,10 +336,13 @@ func isEndNode(id string) bool {
 	return len(id) > len(pseudoEndPrefix) && id[:len(pseudoEndPrefix)] == pseudoEndPrefix
 }
 
+// buildArrowMarker — width/height 12 was chosen empirically: 8 was
+// barely visible at default font size against the 1.5px stroke; mmdc's
+// arrows render around 10–12px wide.
 func buildArrowMarker(th Theme) marker {
 	return marker{
 		ID: "state-arrow", ViewBox: "0 0 10 10",
-		RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto",
+		RefX: 9, RefY: 5, Width: 12, Height: 12, Orient: "auto",
 		Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", th.EdgeStroke)}},
 	}
 }
