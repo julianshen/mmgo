@@ -138,6 +138,39 @@ func TestBuildMarkersDotted(t *testing.T) {
 	}
 }
 
+// Pins the endpoint-clipping behavior — arrowheads must land on the
+// target rect edge, not at its center where they'd be buried under
+// the node's own fill. Regressing the clip would put X2 back at the
+// node center (at x=100 in this fixture).
+func TestRenderEdgeClipsEndpointsToNodeBounds(t *testing.T) {
+	// Two 40×20 nodes centered at (0,0) and (100,0), so the source's
+	// right edge is at x=20 and the target's left edge is at x=80.
+	l := &layout.Result{
+		Nodes: map[string]layout.NodeLayout{
+			"A": {X: 0, Y: 0, Width: 40, Height: 20},
+			"B": {X: 100, Y: 0, Width: 40, Height: 20},
+		},
+	}
+	e := diagram.Edge{From: "A", To: "B", ArrowHead: diagram.ArrowHeadArrow}
+	el := layout.EdgeLayout{
+		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
+		LabelPos: layout.Point{X: 50, Y: 0},
+	}
+	eid := graph.EdgeID{From: "A", To: "B"}
+
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, l, eid)
+	line, ok := elems[0].(*Line)
+	if !ok {
+		t.Fatalf("expected *Line, got %T", elems[0])
+	}
+	if line.X1 != 20 {
+		t.Errorf("source X clipped to %.2f, want 20 (right edge of A)", line.X1)
+	}
+	if line.X2 != 80 {
+		t.Errorf("target X clipped to %.2f, want 80 (left edge of B)", line.X2)
+	}
+}
+
 func TestRenderEdgeStraightLine(t *testing.T) {
 	e := diagram.Edge{From: "A", To: "B", ArrowHead: diagram.ArrowHeadArrow}
 	el := layout.EdgeLayout{

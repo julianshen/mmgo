@@ -137,6 +137,11 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 	// arrowheads don't land inside (and get covered by) the node rect.
 	// Cache direction references before mutating either endpoint —
 	// pts[1] and pts[len-2] alias for 2-point edges.
+	//
+	// The l != nil guard exists because several unit tests construct
+	// an EdgeLayout directly and pass nil (they don't exercise the
+	// clip path); production paths always go through renderEdges
+	// which has a non-nil *layout.Result.
 	if l != nil && len(pts) >= 2 {
 		srcDir := pts[1]
 		dstDir := pts[len(pts)-2]
