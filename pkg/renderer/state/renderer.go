@@ -257,6 +257,21 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		for i, p := range el.Points {
 			pts[i] = layout.Point{X: p.X + pad, Y: p.Y + pad}
 		}
+		// Clip endpoints to source/target node boundaries so the
+		// marker-end arrowhead lands on the edge of the destination
+		// shape, not buried inside it. Cache direction references
+		// before mutating either endpoint — pts[1]/pts[len-2] alias
+		// for 2-point edges.
+		srcDir := pts[1]
+		dstDir := pts[len(pts)-2]
+		if src, ok := l.Nodes[eid.From]; ok {
+			x, y := clipNodeEdge(eid.From, src, pad, srcDir)
+			pts[0] = layout.Point{X: x, Y: y}
+		}
+		if dst, ok := l.Nodes[eid.To]; ok {
+			x, y := clipNodeEdge(eid.To, dst, pad, dstDir)
+			pts[len(pts)-1] = layout.Point{X: x, Y: y}
+		}
 
 		style := fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke)
 		if len(pts) == 2 {
@@ -329,6 +344,23 @@ func labelPosition(pts []layout.Point, base layout.Point) layout.Point {
 
 func isPseudoNode(id string) bool {
 	return isStartNode(id) || isEndNode(id)
+}
+
+// clipNodeEdge picks the right boundary clip for a state node. Regular
+// states are rounded rects so a rect clip suffices; pseudo (start/end)
+// nodes are circles, and clipping to their visible radius keeps the
+// arrowhead tucked against the glyph instead of floating in the
+// 20×20 layout box reserved around it.
+func clipNodeEdge(id string, n layout.NodeLayout, pad float64, dir layout.Point) (float64, float64) {
+	cx := n.X + pad
+	cy := n.Y + pad
+	if isStartNode(id) {
+		return svgutil.ClipToCircleEdge(cx, cy, startDotR, dir.X, dir.Y)
+	}
+	if isEndNode(id) {
+		return svgutil.ClipToCircleEdge(cx, cy, endRingR, dir.X, dir.Y)
+	}
+	return svgutil.ClipToRectEdge(cx, cy, n.Width, n.Height, dir.X, dir.Y)
 }
 
 func isStartNode(id string) bool {

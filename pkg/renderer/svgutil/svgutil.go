@@ -93,6 +93,18 @@ func ClipToRectEdge(cx, cy, w, h, ox, oy float64) (x, y float64) {
 	return cx + dx*t, cy + dy*t
 }
 
+// ClipToCircleEdge returns the point on the circle (center (cx, cy),
+// radius r) along the ray toward (ox, oy). If (ox, oy) coincides
+// with the center the center is returned unchanged.
+func ClipToCircleEdge(cx, cy, r, ox, oy float64) (x, y float64) {
+	dx, dy := ox-cx, oy-cy
+	d := math.Sqrt(dx*dx + dy*dy)
+	if d == 0 {
+		return cx, cy
+	}
+	return cx + dx/d*r, cy + dy/d*r
+}
+
 // NegCoord formats -v for an SVG transform attribute, avoiding the
 // "-0.00" output that a plain %.2f of -0 produces (ugly in
 // golden-file diffs).
