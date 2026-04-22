@@ -25,8 +25,11 @@ const (
 	marginX         = 40.0
 	marginY         = 40.0
 	labelGap        = 6.0
-	branchLabelPadX = 8.0
-
+	branchLabelPadX = 10.0
+	branchLabelPadY = 5.0
+	branchLabelR    = 10.0 // pill corner radius
+	branchPathW     = 4.0  // thick colored path between a branch's own commits
+	branchPathOp    = 1.0  // mmdc's branch paths are fully opaque
 )
 
 func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
@@ -80,22 +83,49 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		},
 	}
 
+	// Swimlane baselines drawn first so colored branch paths and
+	// commit dots paint on top. Dashed neutral line runs full-width
+	// across each lane, matching mmdc's faint lane guide.
+	baselineX1 := originX - commitStride/2
+	baselineX2 := viewW - marginX
+	for i := range d.Branches {
+		y := laneY(i)
+		children = append(children, &line{
+			X1: svgFloat(baselineX1), Y1: svgFloat(y),
+			X2: svgFloat(baselineX2), Y2: svgFloat(y),
+			Style: fmt.Sprintf("stroke:%s;stroke-width:1;stroke-dasharray:4,4;fill:none", th.LaneGuide),
+		})
+	}
+
 	for i, b := range d.Branches {
 		color := colorFor(th, i)
 		y := laneY(i)
+		// Pill label: rounded rect filled with the branch color, white
+		// text centered inside — matches mmdc's branch-tag affordance.
+		labelW := textmeasure.EstimateWidth(b, fontSize)
+		pillW := labelW + 2*branchLabelPadX
+		pillH := fontSize + 2*branchLabelPadY
+		children = append(children, &rect{
+			X:      svgFloat(marginX),
+			Y:      svgFloat(y - pillH/2),
+			Width:  svgFloat(pillW),
+			Height: svgFloat(pillH),
+			RX:     svgFloat(branchLabelR), RY: svgFloat(branchLabelR),
+			Style: fmt.Sprintf("fill:%s;stroke:none", color),
+		})
 		children = append(children, &text{
-			X:        svgFloat(marginX + branchLabelPadX),
+			X:        svgFloat(marginX + pillW/2),
 			Y:        svgFloat(y),
-			Anchor:   "start",
+			Anchor:   "middle",
 			Dominant: "central",
-			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", color, fontSize),
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.BranchLabelText, fontSize),
 			Content:  b,
 		})
 		if r, ok := branchRange[b]; ok {
 			children = append(children, &line{
 				X1: svgFloat(r[0]), Y1: svgFloat(y),
 				X2: svgFloat(r[1]), Y2: svgFloat(y),
-				Style: fmt.Sprintf("stroke:%s;stroke-width:3;fill:none;opacity:0.6", color),
+				Style: fmt.Sprintf("stroke:%s;stroke-width:%g;fill:none;opacity:%g", color, branchPathW, branchPathOp),
 			})
 		}
 	}
@@ -126,18 +156,19 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		x, y := cx[c.ID], cy[c.ID]
 		children = append(children, commitDot(c, x, y, color, th)...)
 
-		label := c.Tag
-		if label == "" {
-			label = c.ID
-		}
-		if label != "" {
+		// Tag takes precedence over id when both exist: mmdc shows the
+		// tag as a rounded callout above the commit, the commit id as
+		// plain text below.
+		if c.Tag != "" {
+			children = append(children, tagCallout(c.Tag, x, y, fontSize, th)...)
+		} else if c.ID != "" {
 			children = append(children, &text{
 				X:        svgFloat(x),
 				Y:        svgFloat(y - commitRadius - labelGap),
 				Anchor:   "middle",
 				Dominant: "baseline",
 				Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.Text, fontSize-2),
-				Content:  label,
+				Content:  c.ID,
 			})
 		}
 	}
@@ -192,6 +223,19 @@ func dotStyleFor(c diagram.GitCommit, color string, th Theme) dotStyle {
 }
 
 func commitDot(c diagram.GitCommit, x, y float64, color string, th Theme) []any {
+	// HIGHLIGHT commits render as an outlined square instead of a
+	// bigger circle — matches mmdc's "callout" glyph for emphasized
+	// commits and makes them distinct from merge/reverse dots.
+	if c.Type == diagram.GitCommitHighlight {
+		side := highlightRadius * 2
+		return []any{&rect{
+			X:      svgFloat(x - highlightRadius),
+			Y:      svgFloat(y - highlightRadius),
+			Width:  svgFloat(side),
+			Height: svgFloat(side),
+			Style:  fmt.Sprintf("fill:%s;stroke:%s;stroke-width:2", th.DotStrokeFill, color),
+		}}
+	}
 	s := dotStyleFor(c, color, th)
 	elems := []any{&circle{
 		CX: svgFloat(x), CY: svgFloat(y), R: svgFloat(s.r),
@@ -204,6 +248,36 @@ func commitDot(c diagram.GitCommit, x, y float64, color string, th Theme) []any 
 		})
 	}
 	return elems
+}
+
+// tagCallout draws a small rounded rect above (x,y) filled with the
+// theme's tag color, containing the tag text. mmdc shows the tag as a
+// floating callout distinct from the plain commit-id text.
+func tagCallout(tag string, x, y, fontSize float64, th Theme) []any {
+	const padX = 6.0
+	const padY = 3.0
+	const gap = 14.0 // vertical gap from commit center to callout
+	tw := textmeasure.EstimateWidth(tag, fontSize-2)
+	w := tw + 2*padX
+	h := (fontSize - 2) + 2*padY
+	bx := x - w/2
+	by := y - gap - h
+	return []any{
+		&rect{
+			X: svgFloat(bx), Y: svgFloat(by),
+			Width: svgFloat(w), Height: svgFloat(h),
+			RX: 4, RY: 4,
+			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1", th.TagFill, th.TagStroke),
+		},
+		&text{
+			X:        svgFloat(x),
+			Y:        svgFloat(by + h/2),
+			Anchor:   "middle",
+			Dominant: "central",
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.TagText, fontSize-2),
+			Content:  tag,
+		},
+	}
 }
 
 // curvePath draws a cubic Bezier that leaves parent (x1,y1) horizontal
