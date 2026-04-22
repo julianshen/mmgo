@@ -6,7 +6,44 @@ import (
 	"encoding/xml"
 	"fmt"
 	"math"
+	"strings"
+
+	"github.com/julianshen/mmgo/pkg/layout"
 )
+
+// CatmullRomTension is the default tension used when smoothing dagre's
+// polyline waypoints into cubic splines. 0.5 produced noticeably
+// exaggerated swoops at dummy-node waypoints; 0.3 yields a softer,
+// more mmdc-like curve and is what the flowchart and class renderers
+// settled on (see PR #73).
+const CatmullRomTension = 0.3
+
+// CatmullRomPath turns a polyline of 3+ waypoints into an SVG path "d"
+// attribute drawn as a Catmull-Rom cubic spline at the given tension.
+// For fewer than 3 points it returns the empty string — callers should
+// emit a straight <line> for the 2-point case and skip empty edges.
+func CatmullRomPath(pts []layout.Point, tension float64) string {
+	if len(pts) < 3 {
+		return ""
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "M%.2f,%.2f", pts[0].X, pts[0].Y)
+	for i := 0; i < len(pts)-1; i++ {
+		p0 := pts[max(i-1, 0)]
+		p1 := pts[i]
+		p2 := pts[i+1]
+		p3 := pts[min(i+2, len(pts)-1)]
+
+		cp1x := p1.X + (p2.X-p0.X)*tension/3
+		cp1y := p1.Y + (p2.Y-p0.Y)*tension/3
+		cp2x := p2.X - (p3.X-p1.X)*tension/3
+		cp2y := p2.Y - (p3.Y-p1.Y)*tension/3
+
+		fmt.Fprintf(&sb, " C%.2f,%.2f %.2f,%.2f %.2f,%.2f",
+			cp1x, cp1y, cp2x, cp2y, p2.X, p2.Y)
+	}
+	return sb.String()
+}
 
 // ClipToRectEdge returns the point on the axis-aligned rectangle
 // boundary (center (cx, cy), size (w, h)) where the ray toward

@@ -4,7 +4,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
@@ -295,7 +294,7 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 			})
 		} else {
 			elems = append(elems, &path{
-				D:         polylineD(pts),
+				D:         svgutil.CatmullRomPath(pts, svgutil.CatmullRomTension),
 				Style:     style,
 				MarkerEnd: endRef,
 			})
@@ -330,15 +329,6 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 		}
 	}
 	return elems
-}
-
-func polylineD(pts []layout.Point) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "M%.2f,%.2f", pts[0].X, pts[0].Y)
-	for _, p := range pts[1:] {
-		fmt.Fprintf(&sb, " L%.2f,%.2f", p.X, p.Y)
-	}
-	return sb.String()
 }
 
 func relationIsDashed(rt diagram.RelationType) bool {

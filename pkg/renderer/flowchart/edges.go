@@ -170,7 +170,7 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 		}
 		elems = append(elems, line)
 	} else if len(pts) >= 3 {
-		p := &Path{D: buildCurvePath(pts), Style: style}
+		p := &Path{D: svgutil.CatmullRomPath(pts, svgutil.CatmullRomTension), Style: style}
 		if e.ArrowHead != diagram.ArrowHeadNone && e.ArrowHead != diagram.ArrowHeadUnknown {
 			p.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
 		}
@@ -224,31 +224,4 @@ func edgeStyle(th Theme, ls diagram.LineStyle) string {
 		extra = "stroke-width:3;"
 	}
 	return fmt.Sprintf("stroke:%s;stroke-width:%.2f;fill:none;%s", th.EdgeStroke, defaultStrokeWidth, extra)
-}
-
-func buildCurvePath(pts []layout.Point) string {
-	if len(pts) < 3 {
-		return ""
-	}
-	d := fmt.Sprintf("M%.2f,%.2f", pts[0].X, pts[0].Y)
-
-	// Catmull-Rom tension. 0.5 gave noticeably exaggerated swoops
-	// when dummy-node waypoints sat off the straight-line path; 0.3
-	// produces a softer, more mmdc-like curve.
-	tension := 0.3
-	for i := 0; i < len(pts)-1; i++ {
-		p0 := pts[max(i-1, 0)]
-		p1 := pts[i]
-		p2 := pts[i+1]
-		p3 := pts[min(i+2, len(pts)-1)]
-
-		cp1x := p1.X + (p2.X-p0.X)*tension/3
-		cp1y := p1.Y + (p2.Y-p0.Y)*tension/3
-		cp2x := p2.X - (p3.X-p1.X)*tension/3
-		cp2y := p2.Y - (p3.Y-p1.Y)*tension/3
-
-		d += fmt.Sprintf(" C%.2f,%.2f %.2f,%.2f %.2f,%.2f",
-			cp1x, cp1y, cp2x, cp2y, p2.X, p2.Y)
-	}
-	return d
 }
