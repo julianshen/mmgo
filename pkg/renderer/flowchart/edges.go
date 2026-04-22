@@ -7,6 +7,7 @@ import (
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -116,12 +117,12 @@ func renderEdges(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th 
 		ae := candidates[0]
 		fromTo[key] = candidates[1:]
 
-		elems = append(elems, renderEdge(ae, elayout, pad, th, fontSize, ruler)...)
+		elems = append(elems, renderEdge(ae, elayout, pad, th, fontSize, ruler, l, eid)...)
 	}
 	return elems
 }
 
-func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fontSize float64, ruler *textmeasure.Ruler) []any {
+func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fontSize float64, ruler *textmeasure.Ruler, l *layout.Result, eid graph.EdgeID) []any {
 	pts := make([]layout.Point, len(el.Points))
 	copy(pts, el.Points)
 	if len(pts) == 0 {
@@ -131,6 +132,28 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 	for i := range pts {
 		pts[i].X += pad
 		pts[i].Y += pad
+	}
+	// Clip endpoints to source/target node boundaries so marker-end
+	// arrowheads don't land inside (and get covered by) the node rect.
+	// Cache direction references before mutating either endpoint —
+	// pts[1] and pts[len-2] alias for 2-point edges.
+	//
+	// The l != nil guard exists because several unit tests construct
+	// an EdgeLayout directly and pass nil (they don't exercise the
+	// clip path); production paths always go through renderEdges
+	// which has a non-nil *layout.Result.
+	if l != nil && len(pts) >= 2 {
+		srcDir := pts[1]
+		dstDir := pts[len(pts)-2]
+		if src, ok := l.Nodes[eid.From]; ok {
+			x, y := svgutil.ClipToRectEdge(src.X+pad, src.Y+pad, src.Width, src.Height, srcDir.X, srcDir.Y)
+			pts[0] = layout.Point{X: x, Y: y}
+		}
+		if dst, ok := l.Nodes[eid.To]; ok {
+			last := len(pts) - 1
+			x, y := svgutil.ClipToRectEdge(dst.X+pad, dst.Y+pad, dst.Width, dst.Height, dstDir.X, dstDir.Y)
+			pts[last] = layout.Point{X: x, Y: y}
+		}
 	}
 
 	style := edgeStyle(th, e.LineStyle)
