@@ -7,11 +7,11 @@ import (
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 )
 
 const (
 	polygonSkew        = 0.15
-	cylinderEllipseRY  = 0.1
 	defaultStrokeWidth = 1.5
 	doubleCircleGap    = 3.0
 	subroutineBand     = 0.1
@@ -68,7 +68,7 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 	case diagram.NodeShapeAsymmetric:
 		elems = append(elems, &Polygon{Points: asymmetricPoints(cx, cy, w, h), Style: shapeStyle})
 	case diagram.NodeShapeCylinder:
-		elems = append(elems, &Path{D: cylinderPath(cx, cy, w, h), Style: shapeStyle})
+		elems = append(elems, &Path{D: svgutil.CylinderPath(cx, cy, w, h), Style: shapeStyle})
 	case diagram.NodeShapeSubroutine:
 		elems = append(elems, &Rect{
 			X: svgFloat(cx - w/2), Y: svgFloat(cy - h/2), Width: svgFloat(w), Height: svgFloat(h), Style: shapeStyle,
@@ -141,14 +141,3 @@ func asymmetricPoints(cx, cy, w, h float64) string {
 		cx+w/2, cy+h/2, cx-w/2, cy+h/2)
 }
 
-func cylinderPath(cx, cy, w, h float64) string {
-	ry := h * cylinderEllipseRY
-	top := cy - h/2 + ry
-	bot := cy + h/2 - ry
-	return fmt.Sprintf("M%.2f,%.2f L%.2f,%.2f A%.2f,%.2f 0 0,0 %.2f,%.2f "+
-		"L%.2f,%.2f A%.2f,%.2f 0 0,0 %.2f,%.2f "+
-		"M%.2f,%.2f A%.2f,%.2f 0 0,0 %.2f,%.2f",
-		cx-w/2, top, cx-w/2, bot, w/2, ry, cx+w/2, bot,
-		cx+w/2, top, w/2, ry, cx-w/2, top,
-		cx-w/2, top, w/2, ry, cx+w/2, top)
-}

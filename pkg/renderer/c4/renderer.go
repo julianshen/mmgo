@@ -9,6 +9,7 @@ import (
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -80,7 +81,7 @@ func Render(d *diagram.C4Diagram, opts *Options) ([]byte, error) {
 		})
 	}
 
-	children = append(children, renderEdges(d, l, pad, titleOffset, fontSize, th)...)
+	children = append(children, renderEdges(d, l, pad, titleOffset, fontSize, th, ruler)...)
 	children = append(children, renderElements(d, l, pad, titleOffset, fontSize, th)...)
 
 	svg := svgDoc{
@@ -144,18 +145,29 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 		y := cy - h/2
 
 		p := th.roleOf(e.Kind)
+		shapeStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", p.Fill, p.Stroke)
 
-		rx := svgFloat(0)
-		if e.Kind == diagram.C4ElementPerson || e.Kind == diagram.C4ElementPersonExt {
-			rx = svgFloat(h / 4)
+		switch e.Kind {
+		case diagram.C4ElementSystemDB, diagram.C4ElementContainerDB:
+			// Cylinder glyph signals "this is a datastore" — the
+			// shape mmdc uses for DB-kind C4 elements.
+			elems = append(elems, &path{D: svgutil.CylinderPath(cx, cy, w, h), Style: shapeStyle})
+		case diagram.C4ElementPerson, diagram.C4ElementPersonExt:
+			// Strongly rounded corners hint at a "person" shape
+			// without requiring an embedded icon.
+			rx := svgFloat(h / 4)
+			elems = append(elems, &rect{
+				X: svgFloat(x), Y: svgFloat(y),
+				Width: svgFloat(w), Height: svgFloat(h),
+				RX: rx, RY: rx, Style: shapeStyle,
+			})
+		default:
+			elems = append(elems, &rect{
+				X: svgFloat(x), Y: svgFloat(y),
+				Width: svgFloat(w), Height: svgFloat(h),
+				Style: shapeStyle,
+			})
 		}
-
-		elems = append(elems, &rect{
-			X: svgFloat(x), Y: svgFloat(y),
-			Width: svgFloat(w), Height: svgFloat(h),
-			RX: rx, RY: rx,
-			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", p.Fill, p.Stroke),
-		})
 
 		curY := y + kindLabelH
 		kindLabel := kindDisplayLabel(e.Kind)
@@ -193,30 +205,36 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 	return elems
 }
 
+// kindDisplayLabel returns the stereotype tag shown above an element's
+// label. Format mirrors mmdc: lowercase snake_case wrapped in `<<...>>`
+// (e.g. `<<container_db>>`, `<<external_system>>`) instead of the
+// French-quote `«Person»` style mmgo originally used.
 func kindDisplayLabel(k diagram.C4ElementKind) string {
+	name := ""
 	switch k {
 	case diagram.C4ElementPerson:
-		return "«Person»"
+		name = "person"
 	case diagram.C4ElementPersonExt:
-		return "«Person, External»"
+		name = "external_person"
 	case diagram.C4ElementSystem:
-		return "«System»"
+		name = "system"
 	case diagram.C4ElementSystemExt:
-		return "«System, External»"
+		name = "external_system"
 	case diagram.C4ElementSystemDB:
-		return "«Database»"
+		name = "system_db"
 	case diagram.C4ElementContainer:
-		return "«Container»"
+		name = "container"
 	case diagram.C4ElementContainerDB:
-		return "«Database»"
+		name = "container_db"
 	case diagram.C4ElementComponent:
-		return "«Component»"
+		name = "component"
 	default:
 		return ""
 	}
+	return "<<" + name + ">>"
 }
 
-func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize float64, th Theme) []any {
+func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize float64, th Theme, ruler *textmeasure.Ruler) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -252,6 +270,19 @@ func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize
 		for i, p := range el.Points {
 			pts[i] = layout.Point{X: p.X + pad, Y: p.Y + pad + titleOff}
 		}
+		// Cache direction references before clipping (pts[1] and
+		// pts[len-2] alias for 2-point edges) so the destination clip
+		// doesn't read the already-clipped source as its direction.
+		srcDir := pts[1]
+		dstDir := pts[len(pts)-2]
+		if src, ok := l.Nodes[eid.From]; ok {
+			x, y := svgutil.ClipToRectEdge(src.X+pad, src.Y+pad+titleOff, src.Width, src.Height, srcDir.X, srcDir.Y)
+			pts[0] = layout.Point{X: x, Y: y}
+		}
+		if dst, ok := l.Nodes[eid.To]; ok {
+			x, y := svgutil.ClipToRectEdge(dst.X+pad, dst.Y+pad+titleOff, dst.Width, dst.Height, dstDir.X, dstDir.Y)
+			pts[len(pts)-1] = layout.Point{X: x, Y: y}
+		}
 
 		style := fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke)
 		if len(pts) == 2 {
@@ -261,35 +292,53 @@ func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize
 				Style: style, MarkerEnd: "url(#c4-arrow)",
 			})
 		} else {
-			pathD := fmt.Sprintf("M%.2f,%.2f", pts[0].X, pts[0].Y)
-			for _, p := range pts[1:] {
-				pathD += fmt.Sprintf(" L%.2f,%.2f", p.X, p.Y)
-			}
-			elems = append(elems, &path{D: pathD, Style: style, MarkerEnd: "url(#c4-arrow)"})
+			elems = append(elems, &path{
+				D:         svgutil.CatmullRomPath(pts, svgutil.CatmullRomTension),
+				Style:     style,
+				MarkerEnd: "url(#c4-arrow)",
+			})
 		}
 
 		if rel.Label != "" {
 			lx := el.LabelPos.X + pad
 			ly := el.LabelPos.Y + pad + titleOff
-			label := rel.Label
+			labelFont := fontSize - 2
+			// Label on first line, optional [technology] on the second
+			// — matches how mmdc breaks long edge captions.
+			lines := []string{rel.Label}
 			if rel.Technology != "" {
-				label = rel.Label + " [" + rel.Technology + "]"
+				lines = append(lines, "["+rel.Technology+"]")
 			}
-			elems = append(elems, &text{
-				X: svgFloat(lx), Y: svgFloat(ly),
-				Anchor: "middle", Dominant: "central",
-				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, fontSize-2),
-				Content: label,
-			})
+			lineH := labelFont * 1.2
+			totalH := lineH * float64(len(lines))
+			var maxW float64
+			for _, ln := range lines {
+				w, _ := ruler.Measure(ln, labelFont)
+				if w > maxW {
+					maxW = w
+				}
+			}
+			elems = append(elems, svgutil.LabelChip(lx, ly, maxW, totalH, 4, th.Background, 3))
+			startY := ly - totalH/2 + lineH/2
+			for i, ln := range lines {
+				elems = append(elems, &text{
+					X: svgFloat(lx), Y: svgFloat(startY + float64(i)*lineH),
+					Anchor: "middle", Dominant: "central",
+					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, labelFont),
+					Content: ln,
+				})
+			}
 		}
 	}
 	return elems
 }
 
+// buildArrowMarker — width/height 12 matches state, class, ER. The
+// previous 8×8 was barely visible against the 1.5px edge stroke.
 func buildArrowMarker(th Theme) marker {
 	return marker{
 		ID: "c4-arrow", ViewBox: "0 0 10 10",
-		RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto",
+		RefX: 9, RefY: 5, Width: 12, Height: 12, Orient: "auto",
 		Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", th.EdgeStroke)}},
 	}
 }
