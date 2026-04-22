@@ -45,10 +45,42 @@ func TestRenderEntityWithAttributes(t *testing.T) {
 	if !strings.Contains(raw, ">CUSTOMER<") {
 		t.Error("entity name missing")
 	}
-	if !strings.Contains(raw, "int id PK") {
-		t.Error("attribute with key missing")
+	// Type and name now live in separate <text> cells; the key marker
+	// trails the name in the same cell. Assert each piece independently.
+	for _, want := range []string{">int<", ">id PK<", ">string<", ">name<"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("missing %q in output", want)
+		}
 	}
 	assertValidSVG(t, out)
+}
+
+// Two-column attribute layout invariants: a vertical column divider
+// between the type and name cells, plus a horizontal divider between
+// each pair of attribute rows (in addition to the header divider).
+func TestRenderAttributeGrid(t *testing.T) {
+	d := &diagram.ERDiagram{
+		Entities: []diagram.EREntity{{
+			Name: "T",
+			Attributes: []diagram.ERAttribute{
+				{Type: "int", Name: "a"},
+				{Type: "string", Name: "b"},
+				{Type: "date", Name: "c"},
+			},
+		}},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// 3 attributes ⇒ header divider + 2 inter-row dividers + 1 column
+	// divider = at least 4 stroke-bearing <line> elements with the
+	// theme stroke color in the entity section.
+	const wantStrokeStyle = `stroke:#9370DB;stroke-width:1`
+	if got := strings.Count(raw, wantStrokeStyle); got < 4 {
+		t.Errorf("expected ≥4 divider lines with %q, got %d", wantStrokeStyle, got)
+	}
 }
 
 func TestRenderRelationship(t *testing.T) {
@@ -68,6 +100,11 @@ func TestRenderRelationship(t *testing.T) {
 	raw := string(out)
 	if !strings.Contains(raw, ">has<") {
 		t.Error("relationship label missing")
+	}
+	// Chip backdrop behind the label, mirroring flowchart/class.
+	bg := DefaultTheme().Background
+	if !strings.Contains(raw, "fill:"+bg+";stroke:none") {
+		t.Errorf("expected edge-label chip backdrop with fill:%s", bg)
 	}
 	assertValidSVG(t, out)
 }

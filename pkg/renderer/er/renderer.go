@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
@@ -20,8 +19,11 @@ const (
 	entityPadX      = 15.0
 	entityPadY      = 10.0
 	headerH         = 30.0
-	attrRowH        = 20.0
+	attrRowH        = 24.0
 	minEntityW      = 120.0
+	// attrCellGap separates the type column from the name column inside
+	// each attribute row. Matches the visual spacing mmdc uses.
+	attrCellGap = 16.0
 )
 
 type Options struct {
@@ -68,8 +70,8 @@ func Render(d *diagram.ERDiagram, opts *Options) ([]byte, error) {
 	if markers := buildERMarkers(d); len(markers) > 0 {
 		children = append(children, &defs{Markers: markers})
 	}
-	children = append(children, renderEdges(d, l, pad, fontSize, th)...)
-	children = append(children, renderEntities(d, l, pad, fontSize, th)...)
+	children = append(children, renderEdges(d, l, pad, fontSize, th, ruler)...)
+	children = append(children, renderEntities(d, l, pad, fontSize, th, ruler)...)
 
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
@@ -90,15 +92,6 @@ func sanitize(v float64) float64 {
 	return v
 }
 
-func polylineD(pts []layout.Point) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "M%.2f,%.2f", pts[0].X, pts[0].Y)
-	for _, p := range pts[1:] {
-		fmt.Fprintf(&sb, " L%.2f,%.2f", p.X, p.Y)
-	}
-	return sb.String()
-}
-
 // See erStartGeoms in markers.go for why start markers are inlined
 // rather than referenced via SVG marker-start.
 func startMarkerGroup(c diagram.ERCardinality, start, next layout.Point) *group {
@@ -114,30 +107,46 @@ func entitySize(e diagram.EREntity, ruler *textmeasure.Ruler, fontSize float64) 
 	w = tw + 2*entityPadX
 	h = headerH
 	if len(e.Attributes) > 0 {
-		h += entityPadY + float64(len(e.Attributes))*attrRowH
-		for _, a := range e.Attributes {
-			aw, _ := ruler.Measure(attrText(a), fontSize-1)
-			if aw+2*entityPadX > w {
-				w = aw + 2*entityPadX
-			}
+		typeColW, nameColW := attrColumnWidths(e.Attributes, ruler, fontSize-1)
+		rowW := 2*entityPadX + typeColW + attrCellGap + nameColW
+		if rowW > w {
+			w = rowW
 		}
+		h += float64(len(e.Attributes)) * attrRowH
 	}
 	if w < minEntityW {
 		w = minEntityW
 	}
-	h += entityPadY
 	return w, h
 }
 
-func attrText(a diagram.ERAttribute) string {
-	s := a.Type + " " + a.Name
-	if a.Key != diagram.ERKeyNone {
-		s += " " + a.Key.String()
+// attrColumnWidths returns the widest type-cell and the widest name-cell
+// across all attributes. The Key suffix (PK/FK/UK) is appended to the
+// name cell, so keys influence nameColW only.
+func attrColumnWidths(attrs []diagram.ERAttribute, ruler *textmeasure.Ruler, fontSize float64) (typeColW, nameColW float64) {
+	for _, a := range attrs {
+		tw, _ := ruler.Measure(a.Type, fontSize)
+		if tw > typeColW {
+			typeColW = tw
+		}
+		nw, _ := ruler.Measure(nameCellText(a), fontSize)
+		if nw > nameColW {
+			nameColW = nw
+		}
 	}
-	return s
+	return typeColW, nameColW
 }
 
-func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64, th Theme) []any {
+// nameCellText is what shows in the name column. The key marker
+// (PK/FK/UK) trails the name, mirroring mmdc's row layout.
+func nameCellText(a diagram.ERAttribute) string {
+	if a.Key != diagram.ERKeyNone {
+		return a.Name + " " + a.Key.String()
+	}
+	return a.Name
+}
+
+func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64, th Theme, ruler *textmeasure.Ruler) []any {
 	var elems []any
 	for _, e := range d.Entities {
 		nl, ok := l.Nodes[e.Name]
@@ -163,28 +172,59 @@ func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float6
 			Content: e.Name,
 		})
 
-		if len(e.Attributes) > 0 {
-			sepY := y + headerH
-			elems = append(elems, &line{
-				X1: svgFloat(x), Y1: svgFloat(sepY),
-				X2: svgFloat(x + w), Y2: svgFloat(sepY),
-				Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.EntityStroke),
-			})
-			for i, a := range e.Attributes {
-				ay := sepY + entityPadY/2 + float64(i)*attrRowH + attrRowH/2
-				elems = append(elems, &text{
-					X: svgFloat(x + entityPadX), Y: svgFloat(ay),
-					Anchor: "start", Dominant: "central",
-					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EntityText, fontSize-1),
-					Content: attrText(a),
+		if len(e.Attributes) == 0 {
+			continue
+		}
+
+		dividerStyle := fmt.Sprintf("stroke:%s;stroke-width:1", th.EntityStroke)
+		typeColW, _ := attrColumnWidths(e.Attributes, ruler, fontSize-1)
+		colDividerX := x + entityPadX + typeColW + attrCellGap/2
+
+		headerSepY := y + headerH
+		elems = append(elems, &line{
+			X1: svgFloat(x), Y1: svgFloat(headerSepY),
+			X2: svgFloat(x + w), Y2: svgFloat(headerSepY),
+			Style: dividerStyle,
+		})
+		// Vertical divider between type and name columns spans the
+		// whole attribute section.
+		attrSectionH := float64(len(e.Attributes)) * attrRowH
+		elems = append(elems, &line{
+			X1: svgFloat(colDividerX), Y1: svgFloat(headerSepY),
+			X2: svgFloat(colDividerX), Y2: svgFloat(headerSepY + attrSectionH),
+			Style: dividerStyle,
+		})
+
+		nameCellX := x + entityPadX + typeColW + attrCellGap
+		attrTextStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EntityText, fontSize-1)
+		for i, a := range e.Attributes {
+			rowTop := headerSepY + float64(i)*attrRowH
+			rowMid := rowTop + attrRowH/2
+			if i > 0 {
+				elems = append(elems, &line{
+					X1: svgFloat(x), Y1: svgFloat(rowTop),
+					X2: svgFloat(x + w), Y2: svgFloat(rowTop),
+					Style: dividerStyle,
 				})
 			}
+			elems = append(elems, &text{
+				X: svgFloat(x + entityPadX), Y: svgFloat(rowMid),
+				Anchor: "start", Dominant: "central",
+				Style:   attrTextStyle,
+				Content: a.Type,
+			})
+			elems = append(elems, &text{
+				X: svgFloat(nameCellX), Y: svgFloat(rowMid),
+				Anchor: "start", Dominant: "central",
+				Style:   attrTextStyle,
+				Content: nameCellText(a),
+			})
 		}
 	}
 	return elems
 }
 
-func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64, th Theme) []any {
+func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64, th Theme, ruler *textmeasure.Ruler) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -246,7 +286,7 @@ func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64, 
 			})
 		} else {
 			elems = append(elems, &path{
-				D:         polylineD(pts),
+				D:         svgutil.CatmullRomPath(pts, svgutil.CatmullRomTension),
 				Style:     style,
 				MarkerEnd: endRef,
 			})
@@ -258,10 +298,24 @@ func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64, 
 		if rel.Label != "" {
 			lx := el.LabelPos.X + pad
 			ly := el.LabelPos.Y + pad
+			labelFont := fontSize - 1
+			labelW, labelH := ruler.Measure(rel.Label, labelFont)
+			const labelPad = 4.0
+			// Chip backdrop tinted with the theme background — same
+			// pattern as flowchart (PR #73) and class (PR #74). Without
+			// it, ER labels overlap cardinality markers and crossing
+			// lines (most visible in examples/er/blog.svg).
+			elems = append(elems, &rect{
+				X: svgFloat(lx - labelW/2 - labelPad), Y: svgFloat(ly - labelH/2 - labelPad),
+				Width:  svgFloat(labelW + 2*labelPad),
+				Height: svgFloat(labelH + 2*labelPad),
+				RX:     3, RY: 3,
+				Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
+			})
 			elems = append(elems, &text{
 				X: svgFloat(lx), Y: svgFloat(ly),
 				Anchor: "middle", Dominant: "central",
-				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, fontSize-1),
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, labelFont),
 				Content: rel.Label,
 			})
 		}
