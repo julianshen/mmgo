@@ -184,8 +184,11 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 func TestRenderAppliesCustomTheme(t *testing.T) {
 	d := &diagram.MindmapDiagram{
 		Root: &diagram.MindmapNode{
-			Text:     "Root",
-			Children: []*diagram.MindmapNode{{Text: "Child"}},
+			Text: "Root",
+			Children: []*diagram.MindmapNode{
+				{Text: "Child1"},
+				{Text: "Child2"},
+			},
 		},
 	}
 	out, err := Render(d, &Options{Theme: Theme{
@@ -255,14 +258,10 @@ func TestRenderSectionGrouping(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	if !strings.Contains(raw, "section-root") {
-		t.Error("missing section-root class")
-	}
-	if !strings.Contains(raw, "section-0") {
-		t.Error("missing section-0 class")
-	}
-	if !strings.Contains(raw, "section-1") {
-		t.Error("missing section-1 class")
+	for _, want := range []string{"section-root", "section-0", "section-1"} {
+		if !strings.Contains(raw, `class="mindmap-node `+want) {
+			t.Errorf("no <g> with class containing %q", want)
+		}
 	}
 }
 
@@ -275,10 +274,13 @@ func TestRenderMarkdownBold(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	if !strings.Contains(raw, "Bold") {
+	if !strings.Contains(raw, "font-weight:bold") {
+		t.Error("bold tspan missing font-weight:bold style")
+	}
+	if !strings.Contains(raw, ">Bold<") {
 		t.Error("bold text content missing")
 	}
-	if !strings.Contains(raw, "text") {
+	if !strings.Contains(raw, "> text<") && !strings.Contains(raw, ">text<") {
 		t.Error("plain text content missing")
 	}
 	assertValidSVG(t, out)
@@ -298,8 +300,8 @@ func TestRenderIconAndClass(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	if !strings.Contains(raw, "urgent") {
-		t.Error("custom class not in output")
+	if !strings.Contains(raw, `class="mindmap-node section-0 urgent"`) {
+		t.Error("no <g> with class containing 'urgent'")
 	}
 	if !strings.Contains(raw, ">A<") {
 		t.Error("child text missing")

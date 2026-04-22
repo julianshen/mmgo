@@ -81,7 +81,7 @@ func TestParseNodeShapes(t *testing.T) {
 		{"(-cloud-)", diagram.MindmapShapeCloud, "cloud"},
 	}
 	for _, tc := range cases {
-		t.Run(tc.want.String(), func(t *testing.T) {
+		t.Run(tc.input, func(t *testing.T) {
 			input := "mindmap\n    " + tc.input
 			d, err := Parse(strings.NewReader(input))
 			if err != nil {

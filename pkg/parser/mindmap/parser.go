@@ -23,6 +23,11 @@ var shapePatterns = []struct {
 	{")", "(", diagram.MindmapShapeCloud},
 }
 
+const (
+	iconPrefix  = "::icon("
+	classPrefix = ":::"
+)
+
 func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
@@ -53,7 +58,7 @@ func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 			continue
 		}
 
-		if strings.HasPrefix(trimmed, "::icon(") {
+		if strings.HasPrefix(trimmed, iconPrefix) {
 			if lastNode != nil {
 				icon := parseIconDecoration(trimmed)
 				if icon != "" {
@@ -62,9 +67,9 @@ func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 			}
 			continue
 		}
-		if strings.HasPrefix(trimmed, ":::") && len(trimmed) > 3 {
+		if strings.HasPrefix(trimmed, classPrefix) && len(trimmed) > len(classPrefix) {
 			if lastNode != nil {
-				cls := strings.TrimSpace(trimmed[3:])
+				cls := strings.TrimSpace(trimmed[len(classPrefix):])
 				if cls != "" {
 					lastNode.Class = cls
 				}
@@ -100,10 +105,10 @@ func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 }
 
 func parseIconDecoration(s string) string {
-	inner := s[7:]
+	inner := s[len(iconPrefix):]
 	closeIdx := strings.Index(inner, ")")
 	if closeIdx < 0 {
-		return inner
+		return ""
 	}
 	return inner[:closeIdx]
 }

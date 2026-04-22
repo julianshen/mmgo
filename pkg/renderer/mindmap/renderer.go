@@ -19,6 +19,7 @@ const (
 	minNodeW        = 80.0
 	minNodeH        = 35.0
 	levelSpacing    = 120.0
+	boldWidthFactor = 1.1
 )
 
 type Options struct {
@@ -54,11 +55,6 @@ type svgTspan struct {
 	Content string   `xml:",chardata"`
 }
 
-type svgStyle struct {
-	XMLName xml.Name `xml:"style"`
-	Content string   `xml:",chardata"`
-}
-
 func Render(d *diagram.MindmapDiagram, opts *Options) ([]byte, error) {
 	if d == nil {
 		return nil, fmt.Errorf("mindmap render: diagram is nil")
@@ -83,11 +79,6 @@ func Render(d *diagram.MindmapDiagram, opts *Options) ([]byte, error) {
 	}
 
 	root := buildTree(d.Root, ruler, fontSize, 0)
-	if root == nil {
-		return marshalDoc(svgutil.ViewBox(100, 100), th,
-			&rect{X: 0, Y: 0, Width: 100, Height: 100, Style: fmt.Sprintf("fill:%s;stroke:none", th.Background)},
-		)
-	}
 
 	layoutRadial(root, levelSpacing)
 	bounds := computeBounds(root)
@@ -104,8 +95,6 @@ func Render(d *diagram.MindmapDiagram, opts *Options) ([]byte, error) {
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
-	children = append(children, &svgStyle{Content: generateCSS(th)})
-
 	var edgeElems, nodeElems []any
 	renderElements(root, offX, offY, fontSize, th, &edgeElems, &nodeElems)
 
@@ -121,11 +110,11 @@ func Render(d *diagram.MindmapDiagram, opts *Options) ([]byte, error) {
 
 func marshalDoc(viewBox string, th Theme, children ...any) ([]byte, error) {
 	doc := svgDoc{
-		XMLNS:    "http://www.w3.org/2000/svg",
-		ViewBox:  viewBox,
-		Role:     "graphics-document document",
-		AriaRole: "mindmap",
-		Children: children,
+		XMLNS:               "http://www.w3.org/2000/svg",
+		ViewBox:             viewBox,
+		Role:                "graphics-document document",
+		AriaRoleDescription: "mindmap",
+		Children:            children,
 	}
 	return svgutil.MarshalSVG(svgutil.Doc(doc))
 }
@@ -137,6 +126,18 @@ func buildTree(n *diagram.MindmapNode, ruler *textmeasure.Ruler, fontSize float6
 	segments := parseMarkdown(n.Text)
 	plainText := stripMarkdownFromSegments(segments)
 	tw, th := ruler.Measure(plainText, fontSize)
+
+	hasBold := false
+	for _, seg := range segments {
+		if seg.bold {
+			hasBold = true
+			break
+		}
+	}
+	if hasBold {
+		tw = tw * boldWidthFactor
+	}
+
 	w := tw + 2*nodePadX
 	h := th + 2*nodePadY
 	if w < minNodeW {
@@ -394,36 +395,4 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 	})
 
 	return children
-}
-
-func generateCSS(th Theme) string {
-	var sb strings.Builder
-	colors := th.SectionColors
-	maxSec := len(colors)
-	if maxSec > 12 {
-		maxSec = 12
-	}
-
-	for i := 0; i < maxSec; i++ {
-		col := colors[i%len(colors)]
-		sw := edgeStrokeWidth(i)
-		fmt.Fprintf(&sb,
-			".section-%d rect,.section-%d path,.section-%d circle,.section-%d polygon{fill:%s}"+
-				".section-%d text{fill:%s}"+
-				".section-edge-%d{stroke:%s}"+
-				".edge-depth-%d{stroke-width:%.0f}",
-			i, i, i, i, col,
-			i, th.NodeText,
-			i, col,
-			i, sw,
-		)
-	}
-	fmt.Fprintf(&sb,
-		".section-root rect,.section-root path,.section-root circle,.section-root polygon{fill:%s}"+
-			".section-root text{fill:%s}"+
-			".edge{fill:none}"+
-			".mindmap-node-label{text-anchor:middle;dominant-baseline:central}",
-		th.RootColor, th.RootText,
-	)
-	return sb.String()
 }
