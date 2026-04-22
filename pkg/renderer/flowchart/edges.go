@@ -184,9 +184,8 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 
 		labelW, labelH := measureLabel(ruler, e.Label, fontSize)
 		const labelPad = 4.0
-		// Chip-style backdrop matches mmdc — takes the theme's
-		// background so labels over edges read cleanly regardless
-		// of the active palette (lavender on white, dark on dark).
+		// Backdrop fill follows the theme background so labels stay
+		// readable on dark themes (a hardcoded white would punch holes).
 		elems = append(elems, &Rect{
 			X: svgFloat(lx - labelW/2 - labelPad), Y: svgFloat(ly - labelH/2 - labelPad),
 			Width: svgFloat(labelW + 2*labelPad), Height: svgFloat(labelH + 2*labelPad),
