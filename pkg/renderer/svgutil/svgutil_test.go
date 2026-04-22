@@ -33,6 +33,29 @@ func TestClipToRectEdge(t *testing.T) {
 	}
 }
 
+func TestClipToCircleEdge(t *testing.T) {
+	cases := []struct {
+		name              string
+		cx, cy, r, ox, oy float64
+		wantX, wantY      float64
+	}{
+		{"east", 0, 0, 5, 100, 0, 5, 0},
+		{"west", 0, 0, 5, -100, 0, -5, 0},
+		{"north", 0, 0, 5, 0, -100, 0, -5},
+		{"south", 0, 0, 5, 0, 100, 0, 5},
+		{"diagonal-NE", 0, 0, 10, 30, 40, 6, 8},
+		{"offset-center", 3, 4, 5, 3, 4, 3, 4},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			x, y := ClipToCircleEdge(tc.cx, tc.cy, tc.r, tc.ox, tc.oy)
+			if math.Abs(x-tc.wantX) > 1e-9 || math.Abs(y-tc.wantY) > 1e-9 {
+				t.Errorf("ClipToCircleEdge=(%v,%v) want=(%v,%v)", x, y, tc.wantX, tc.wantY)
+			}
+		})
+	}
+}
+
 func TestNegCoord(t *testing.T) {
 	cases := map[float64]string{0: "0.00", 9: "-9.00", -4: "4.00", 1.234: "-1.23"}
 	for in, want := range cases {

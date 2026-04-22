@@ -355,25 +355,12 @@ func clipNodeEdge(id string, n layout.NodeLayout, pad float64, dir layout.Point)
 	cx := n.X + pad
 	cy := n.Y + pad
 	if isStartNode(id) {
-		return clipCircleEdge(cx, cy, startDotR, dir.X, dir.Y)
+		return svgutil.ClipToCircleEdge(cx, cy, startDotR, dir.X, dir.Y)
 	}
 	if isEndNode(id) {
-		return clipCircleEdge(cx, cy, endRingR, dir.X, dir.Y)
+		return svgutil.ClipToCircleEdge(cx, cy, endRingR, dir.X, dir.Y)
 	}
 	return svgutil.ClipToRectEdge(cx, cy, n.Width, n.Height, dir.X, dir.Y)
-}
-
-// clipCircleEdge returns the point on the circle (center cx,cy,
-// radius r) along the ray toward (ox, oy). If (ox,oy) is at the
-// center, returns the center unchanged.
-func clipCircleEdge(cx, cy, r, ox, oy float64) (float64, float64) {
-	dx := ox - cx
-	dy := oy - cy
-	d := math.Sqrt(dx*dx + dy*dy)
-	if d == 0 {
-		return cx, cy
-	}
-	return cx + dx/d*r, cy + dy/d*r
 }
 
 func isStartNode(id string) bool {
