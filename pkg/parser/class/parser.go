@@ -123,8 +123,10 @@ func parseMember(line string) diagram.ClassMember {
 	}
 	if idx := strings.Index(line, "("); idx >= 0 {
 		m.IsMethod = true
-		if closeIdx := strings.Index(line[idx+1:], ")"); closeIdx >= 0 {
-			closeIdx += idx + 1
+		// Match the closing `)` by depth so args containing grouped
+		// expressions like `execute(callback (x, y))` aren't truncated
+		// at the first inner `)`.
+		if closeIdx := matchCloseParen(line, idx); closeIdx >= 0 {
 			m.Name = strings.TrimSpace(line[:idx])
 			m.Args = strings.TrimSpace(line[idx+1 : closeIdx])
 			// Allow either `foo() bar` or `foo(): bar`; mermaid accepts both.
@@ -141,6 +143,24 @@ func parseMember(line string) diagram.ClassMember {
 		m.Name = strings.TrimSpace(line)
 	}
 	return m
+}
+
+// matchCloseParen returns the index of the `)` that pairs with the `(`
+// at openIdx, or -1 if unbalanced. Tracks nesting depth.
+func matchCloseParen(line string, openIdx int) int {
+	depth := 0
+	for i := openIdx; i < len(line); i++ {
+		switch line[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 func parseAnnotation(s string) diagram.ClassAnnotation {

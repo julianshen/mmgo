@@ -90,6 +90,9 @@ func TestParseMethodArgsPreserved(t *testing.T) {
 		{"+set(key, value) void", "set", "key, value", "void"},
 		{"+render(data): String", "render", "data", "String"},
 		{"+save()", "save", "", ""},
+		// Nested parens in args (lambda or grouped expression style)
+		// must not be truncated at the first inner `)`.
+		{"+execute(callback (x, y)) void", "execute", "callback (x, y)", "void"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.src, func(t *testing.T) {
