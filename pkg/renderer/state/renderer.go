@@ -9,6 +9,7 @@ import (
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -280,14 +281,7 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 				base := layout.Point{X: el.LabelPos.X + pad, Y: el.LabelPos.Y + pad}
 				p := labelPosition(pts, base)
 				labelW, labelH := ruler.Measure(t.Label, fontSize-1)
-				const labelPad = 3.0
-				elems = append(elems, &rect{
-					X:      svgFloat(p.X - labelW/2 - labelPad),
-					Y:      svgFloat(p.Y - labelH/2 - labelPad),
-					Width:  svgFloat(labelW + 2*labelPad),
-					Height: svgFloat(labelH + 2*labelPad),
-					Style:  fmt.Sprintf("fill:%s;stroke:none", th.LabelBackdrop),
-				})
+				elems = append(elems, svgutil.LabelChip(p.X, p.Y, labelW, labelH, 3, th.LabelBackdrop, 0))
 				elems = append(elems, &text{
 					X: svgFloat(p.X), Y: svgFloat(p.Y),
 					Anchor: "middle", Dominant: "central",

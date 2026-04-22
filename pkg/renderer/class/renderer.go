@@ -308,18 +308,11 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 			ly := el.LabelPos.Y + pad
 			labelFont := fontSize - 1
 			labelW, labelH := ruler.Measure(rel.Label, labelFont)
-			const labelPad = 4.0
 			// Chip backdrop tinted with the theme background, mirroring
 			// the flowchart edge-label treatment (PR #73). Without it,
 			// long association labels visually merge with the edge line
 			// and any class boxes they cross.
-			elems = append(elems, &rect{
-				X: svgFloat(lx - labelW/2 - labelPad), Y: svgFloat(ly - labelH/2 - labelPad),
-				Width:  svgFloat(labelW + 2*labelPad),
-				Height: svgFloat(labelH + 2*labelPad),
-				RX:     3, RY: 3,
-				Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
-			})
+			elems = append(elems, svgutil.LabelChip(lx, ly, labelW, labelH, 4, th.Background, 3))
 			elems = append(elems, &text{
 				X: svgFloat(lx), Y: svgFloat(ly),
 				Anchor: "middle", Dominant: "central",
