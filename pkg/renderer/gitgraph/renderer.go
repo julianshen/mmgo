@@ -52,7 +52,11 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		laneOf[b] = i
 	}
 
-	originX := marginX + branchGutterW(d.Branches, fontSize) + 2*branchLabelPadX
+	// `2*branchLabelPadX` covers the pill's own horizontal padding;
+	// `commitRadius` keeps the first commit's dot clear of the pill
+	// even when that commit sits on the branch with the longest name
+	// (otherwise the dot's left edge would overlap the pill's right).
+	originX := marginX + branchGutterW(d.Branches, fontSize) + 2*branchLabelPadX + commitRadius
 
 	cx := make(map[string]float64, len(d.Commits))
 	cy := make(map[string]float64, len(d.Commits))
@@ -164,7 +168,15 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		// tag as a rounded callout above the commit, the commit id as
 		// plain text below.
 		if c.Tag != "" {
-			children = append(children, tagCallout(c.Tag, x, y, fontSize, th)...)
+			// HIGHLIGHT commits are squares reaching ±highlightRadius from
+			// the center; the default tagGap (14) leaves only 3px over a
+			// highlight square. Widen the gap for those so the callout
+			// doesn't kiss the glyph.
+			gap := tagGap
+			if c.Type == diagram.GitCommitHighlight {
+				gap = highlightRadius + labelGap
+			}
+			children = append(children, tagCallout(c.Tag, x, y, gap, fontSize, th)...)
 		} else if c.ID != "" {
 			children = append(children, &text{
 				X:        svgFloat(x),
@@ -258,13 +270,13 @@ func commitDot(c diagram.GitCommit, x, y float64, color string, th Theme) []any 
 // tagCallout draws a small rounded rect above (x,y) filled with the
 // theme's tag color, containing the tag text. mmdc shows the tag as a
 // floating callout distinct from the plain commit-id text.
-func tagCallout(tag string, x, y, fontSize float64, th Theme) []any {
+func tagCallout(tag string, x, y, gap, fontSize float64, th Theme) []any {
 	tagFont := fontSize - 2
 	tw := textmeasure.EstimateWidth(tag, tagFont)
 	w := tw + 2*tagPadX
 	h := tagFont + 2*tagPadY
 	bx := x - w/2
-	by := y - tagGap - h
+	by := y - gap - h
 	return []any{
 		&rect{
 			X: svgFloat(bx), Y: svgFloat(by),
