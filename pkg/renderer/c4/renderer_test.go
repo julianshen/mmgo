@@ -52,7 +52,9 @@ func TestRenderElements(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	for _, want := range []string{">User<", ">System<", ">Uses<", "«Person»", "«System»"} {
+	// `<` is XML-escaped in text content, so the stereotype tag appears
+	// as `&lt;&lt;person&gt;&gt;` in the SVG body.
+	for _, want := range []string{">User<", ">System<", ">Uses<", "&lt;&lt;person&gt;&gt;", "&lt;&lt;system&gt;&gt;"} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("missing %q", want)
 		}
@@ -94,10 +96,38 @@ func TestRenderRelationWithTechnology(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if !strings.Contains(string(out), "Calls [HTTP]") {
-		t.Error("label with technology missing")
+	raw := string(out)
+	// Label and tech now render as separate <text> elements (one per
+	// line), matching mmdc.
+	if !strings.Contains(raw, ">Calls<") {
+		t.Error("label text missing")
+	}
+	if !strings.Contains(raw, ">[HTTP]<") {
+		t.Error("technology text missing on its own line")
 	}
 	assertValidSVG(t, out)
+}
+
+// DB elements (SystemDB / ContainerDB) render as a cylinder, not a
+// plain rect — matches mmdc's database glyph.
+func TestRenderDBCylinder(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Elements: []diagram.C4Element{
+			{ID: "db", Kind: diagram.C4ElementContainerDB, Label: "Postgres"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<path") {
+		t.Error("expected <path> for cylinder body")
+	}
+	// Cylinder uses elliptic arcs ('A' command); a plain rect would not.
+	if !strings.Contains(raw, " A") {
+		t.Error("expected elliptic arc command in cylinder path")
+	}
 }
 
 func TestRenderCustomFontSize(t *testing.T) {
