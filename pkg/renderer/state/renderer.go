@@ -22,9 +22,9 @@ const (
 	statePadX          = 20.0
 	statePadY          = 12.0
 	startEndR          = 10.0
-	startDotR          = 7.0  // filled start lollipop
-	endRingR           = 9.0  // outer ring of the end-state glyph
-	endDotR            = 4.0  // inner filled dot — small enough that the ring reads
+	startDotR          = 7.0
+	endRingR           = 9.0
+	endDotR            = 4.0
 	forkBarW           = 60.0
 	forkBarH           = 6.0
 	choiceSize         = 30.0
@@ -336,9 +336,9 @@ func isEndNode(id string) bool {
 	return len(id) > len(pseudoEndPrefix) && id[:len(pseudoEndPrefix)] == pseudoEndPrefix
 }
 
-// buildArrowMarker — width/height 12 was chosen empirically: 8 was
-// barely visible at default font size against the 1.5px stroke; mmdc's
-// arrows render around 10–12px wide.
+// Width/height 12 was chosen empirically: 8 was barely visible at the
+// default font size against the 1.5px stroke; mmdc's arrows render
+// around 10–12px wide.
 func buildArrowMarker(th Theme) marker {
 	return marker{
 		ID: "state-arrow", ViewBox: "0 0 10 10",
