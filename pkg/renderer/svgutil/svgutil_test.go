@@ -127,6 +127,28 @@ func TestCatmullRomPath(t *testing.T) {
 	}
 }
 
+func TestLabelChip(t *testing.T) {
+	chip := LabelChip(50, 30, 20, 10, 4, "#fff", 3)
+	if chip.X != 36 || chip.Y != 21 {
+		t.Errorf("origin = (%v,%v), want (36,21)", chip.X, chip.Y)
+	}
+	if chip.Width != 28 || chip.Height != 18 {
+		t.Errorf("size = (%v,%v), want (28,18)", chip.Width, chip.Height)
+	}
+	if chip.RX != 3 || chip.RY != 3 {
+		t.Errorf("corners = (%v,%v), want (3,3)", chip.RX, chip.RY)
+	}
+	if !strings.Contains(chip.Style, "fill:#fff") || !strings.Contains(chip.Style, "stroke:none") {
+		t.Errorf("style = %q, want fill:#fff and stroke:none", chip.Style)
+	}
+
+	// Square chip (cornerR=0) leaves rx/ry off via omitempty.
+	square := LabelChip(0, 0, 10, 10, 2, "#000", 0)
+	if square.RX != 0 || square.RY != 0 {
+		t.Errorf("square corners = (%v,%v), want (0,0)", square.RX, square.RY)
+	}
+}
+
 func TestMarshalSVG(t *testing.T) {
 	doc := Doc{XMLNS: "http://www.w3.org/2000/svg", ViewBox: "0 0 100 100"}
 	out, err := MarshalSVG(doc)

@@ -45,6 +45,28 @@ func CatmullRomPath(pts []layout.Point, tension float64) string {
 	return sb.String()
 }
 
+// LabelChip returns a centered rounded-rect "chip" sized to wrap a
+// label of (textW, textH) with the given padding on every side.
+// The chip's center sits at (cx, cy) so callers can place it directly
+// behind a centered <text> element. fill is applied as the rect's fill
+// style with stroke disabled; cornerR controls the rx/ry rounding (use
+// 0 for square corners).
+//
+// Used by class/ER/state edge labels. The flowchart renderer keeps its
+// own rect construction because its local Rect type carries an extra
+// Class attribute exercised by type assertions in tests.
+func LabelChip(cx, cy, textW, textH, padding float64, fill string, cornerR float64) *Rect {
+	return &Rect{
+		X:      Float(cx - textW/2 - padding),
+		Y:      Float(cy - textH/2 - padding),
+		Width:  Float(textW + 2*padding),
+		Height: Float(textH + 2*padding),
+		RX:     Float(cornerR),
+		RY:     Float(cornerR),
+		Style:  fmt.Sprintf("fill:%s;stroke:none", fill),
+	}
+}
+
 // ClipToRectEdge returns the point on the axis-aligned rectangle
 // boundary (center (cx, cy), size (w, h)) where the ray toward
 // (ox, oy) exits. If (ox, oy) already lies inside the rect the

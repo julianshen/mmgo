@@ -179,15 +179,22 @@ func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float6
 		dividerStyle := fmt.Sprintf("stroke:%s;stroke-width:1", th.EntityStroke)
 		typeColW, _ := attrColumnWidths(e.Attributes, ruler, fontSize-1)
 		colDividerX := x + entityPadX + typeColW + attrCellGap/2
-
+		nameCellX := x + entityPadX + typeColW + attrCellGap
+		attrTextStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EntityText, fontSize-1)
 		headerSepY := y + headerH
-		elems = append(elems, &line{
-			X1: svgFloat(x), Y1: svgFloat(headerSepY),
-			X2: svgFloat(x + w), Y2: svgFloat(headerSepY),
-			Style: dividerStyle,
-		})
-		// Vertical divider between type and name columns spans the
-		// whole attribute section.
+
+		// Horizontal dividers above each row. The i=0 line is also the
+		// header/attribute separator; the entity's outer rect closes
+		// off the bottom, so no trailing bottom line is needed.
+		for i := range e.Attributes {
+			rowTop := headerSepY + float64(i)*attrRowH
+			elems = append(elems, &line{
+				X1: svgFloat(x), Y1: svgFloat(rowTop),
+				X2: svgFloat(x + w), Y2: svgFloat(rowTop),
+				Style: dividerStyle,
+			})
+		}
+		// Vertical divider between the type and name columns.
 		attrSectionH := float64(len(e.Attributes)) * attrRowH
 		elems = append(elems, &line{
 			X1: svgFloat(colDividerX), Y1: svgFloat(headerSepY),
@@ -195,18 +202,8 @@ func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float6
 			Style: dividerStyle,
 		})
 
-		nameCellX := x + entityPadX + typeColW + attrCellGap
-		attrTextStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EntityText, fontSize-1)
 		for i, a := range e.Attributes {
-			rowTop := headerSepY + float64(i)*attrRowH
-			rowMid := rowTop + attrRowH/2
-			if i > 0 {
-				elems = append(elems, &line{
-					X1: svgFloat(x), Y1: svgFloat(rowTop),
-					X2: svgFloat(x + w), Y2: svgFloat(rowTop),
-					Style: dividerStyle,
-				})
-			}
+			rowMid := headerSepY + float64(i)*attrRowH + attrRowH/2
 			elems = append(elems, &text{
 				X: svgFloat(x + entityPadX), Y: svgFloat(rowMid),
 				Anchor: "start", Dominant: "central",
@@ -296,27 +293,18 @@ func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64, 
 		// edges, but the start glyph paints on top of the chip — a label
 		// sitting close to the source endpoint must not erase the
 		// cardinality marker.
+		var lx, ly, labelFont float64
 		if rel.Label != "" {
-			lx := el.LabelPos.X + pad
-			ly := el.LabelPos.Y + pad
-			labelFont := fontSize - 1
+			lx = el.LabelPos.X + pad
+			ly = el.LabelPos.Y + pad
+			labelFont = fontSize - 1
 			labelW, labelH := ruler.Measure(rel.Label, labelFont)
-			const labelPad = 4.0
-			elems = append(elems, &rect{
-				X: svgFloat(lx - labelW/2 - labelPad), Y: svgFloat(ly - labelH/2 - labelPad),
-				Width:  svgFloat(labelW + 2*labelPad),
-				Height: svgFloat(labelH + 2*labelPad),
-				RX:     3, RY: 3,
-				Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
-			})
+			elems = append(elems, svgutil.LabelChip(lx, ly, labelW, labelH, 4, th.Background, 3))
 		}
 		if g := startMarkerGroup(rel.FromCard, pts[0], srcDir); g != nil {
 			elems = append(elems, g)
 		}
 		if rel.Label != "" {
-			lx := el.LabelPos.X + pad
-			ly := el.LabelPos.Y + pad
-			labelFont := fontSize - 1
 			elems = append(elems, &text{
 				X: svgFloat(lx), Y: svgFloat(ly),
 				Anchor: "middle", Dominant: "central",
