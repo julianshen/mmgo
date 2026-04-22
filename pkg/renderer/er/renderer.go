@@ -291,20 +291,17 @@ func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64, 
 				MarkerEnd: endRef,
 			})
 		}
-		if g := startMarkerGroup(rel.FromCard, pts[0], srcDir); g != nil {
-			elems = append(elems, g)
-		}
-
+		// Layer order: line/path → chip backdrop → start marker → label.
+		// Chip sits above the line so the label background masks crossing
+		// edges, but the start glyph paints on top of the chip — a label
+		// sitting close to the source endpoint must not erase the
+		// cardinality marker.
 		if rel.Label != "" {
 			lx := el.LabelPos.X + pad
 			ly := el.LabelPos.Y + pad
 			labelFont := fontSize - 1
 			labelW, labelH := ruler.Measure(rel.Label, labelFont)
 			const labelPad = 4.0
-			// Chip backdrop tinted with the theme background — same
-			// pattern as flowchart (PR #73) and class (PR #74). Without
-			// it, ER labels overlap cardinality markers and crossing
-			// lines (most visible in examples/er/blog.svg).
 			elems = append(elems, &rect{
 				X: svgFloat(lx - labelW/2 - labelPad), Y: svgFloat(ly - labelH/2 - labelPad),
 				Width:  svgFloat(labelW + 2*labelPad),
@@ -312,6 +309,14 @@ func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64, 
 				RX:     3, RY: 3,
 				Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 			})
+		}
+		if g := startMarkerGroup(rel.FromCard, pts[0], srcDir); g != nil {
+			elems = append(elems, g)
+		}
+		if rel.Label != "" {
+			lx := el.LabelPos.X + pad
+			ly := el.LabelPos.Y + pad
+			labelFont := fontSize - 1
 			elems = append(elems, &text{
 				X: svgFloat(lx), Y: svgFloat(ly),
 				Anchor: "middle", Dominant: "central",
