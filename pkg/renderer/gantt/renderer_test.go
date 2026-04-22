@@ -160,6 +160,124 @@ func TestRenderNarrowBarOutsideLabel(t *testing.T) {
 	}
 }
 
+// Section bands emit one theme-colored backdrop rect per contiguous
+// named section, cycling through the palette in document order.
+func TestRenderSectionBands(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &diagram.GanttDiagram{
+		Tasks: []diagram.GanttTask{
+			{Name: "A", Section: "Design", Start: start, End: start.Add(3 * 24 * time.Hour)},
+			{Name: "B", Section: "Design", Start: start.Add(3 * 24 * time.Hour), End: start.Add(6 * 24 * time.Hour)},
+			{Name: "C", Section: "Build", Start: start.Add(6 * 24 * time.Hour), End: start.Add(9 * 24 * time.Hour)},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// Both palette tints (slots 0 and 1) must appear behind the two
+	// named sections.
+	bands := DefaultTheme().SectionBands
+	for _, want := range []string{"fill:" + bands[0], "fill:" + bands[1]} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected band %q in output", want)
+		}
+	}
+}
+
+// Leading unnamed tasks (Section="") must not consume palette[0] —
+// the first *named* section should still get the first tint.
+func TestRenderSectionBandsSkipsUnnamed(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &diagram.GanttDiagram{
+		Tasks: []diagram.GanttTask{
+			{Name: "unsectioned", Start: start, End: start.Add(3 * 24 * time.Hour)},
+			{Name: "first", Section: "S1", Start: start.Add(3 * 24 * time.Hour), End: start.Add(6 * 24 * time.Hour)},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	bands := DefaultTheme().SectionBands
+	// Palette[0] must land on the named section — not the unnamed one.
+	if !strings.Contains(raw, "fill:"+bands[0]) {
+		t.Errorf("expected palette[0] %q behind first named section", bands[0])
+	}
+	// palette[1] must NOT appear: only one named span exists.
+	if strings.Contains(raw, "fill:"+bands[1]) {
+		t.Errorf("unexpected palette[1] %q — only one named section", bands[1])
+	}
+}
+
+// Axis labels use ISO-8601 (`2024-01-01`), not the old `Jan 01`.
+func TestRenderAxisISOFormat(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &diagram.GanttDiagram{
+		Tasks: []diagram.GanttTask{
+			{Name: "X", Start: start, End: start.Add(3 * 24 * time.Hour)},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">2024-01-01<") {
+		t.Error("expected ISO-8601 axis label 2024-01-01")
+	}
+	if strings.Contains(raw, ">Jan 01<") {
+		t.Error("old `Jan 01` axis label should be gone")
+	}
+}
+
+// The new muted palette: done is gray, active is a lighter accent,
+// neither falls back to the `none` color.
+func TestRenderDoneActiveColors(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &diagram.GanttDiagram{
+		Tasks: []diagram.GanttTask{
+			{Name: "D", Start: start, End: start.Add(3 * 24 * time.Hour), Status: diagram.TaskStatusDone},
+			{Name: "A", Start: start.Add(3 * 24 * time.Hour), End: start.Add(6 * 24 * time.Hour), Status: diagram.TaskStatusActive},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	th := DefaultTheme()
+	if !strings.Contains(raw, "fill:"+th.TaskColors[diagram.TaskStatusDone]) {
+		t.Errorf("done task missing color %q", th.TaskColors[diagram.TaskStatusDone])
+	}
+	if !strings.Contains(raw, "fill:"+th.TaskColors[diagram.TaskStatusActive]) {
+		t.Errorf("active task missing color %q", th.TaskColors[diagram.TaskStatusActive])
+	}
+}
+
+// Full-height vertical grid lines at every axis tick. Previously a
+// tick was a ±3px mark; now it spans the full body height.
+func TestRenderVerticalGrid(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &diagram.GanttDiagram{
+		Tasks: []diagram.GanttTask{
+			{Name: "A", Start: start, End: start.Add(3 * 24 * time.Hour)},
+			{Name: "B", Start: start.Add(3 * 24 * time.Hour), End: start.Add(6 * 24 * time.Hour)},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	grid := DefaultTheme().GridStroke
+	if !strings.Contains(raw, "stroke:"+grid) {
+		t.Errorf("expected grid lines with stroke %q", grid)
+	}
+}
+
 func assertValidSVG(t *testing.T, svgBytes []byte) {
 	t.Helper()
 	body := svgBytes

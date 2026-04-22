@@ -117,64 +117,45 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 	}
 
 	rowH := barH + barGap
-	// Each task gets one row; rowY(i) returns its top. Section bands
-	// and grid lines are drawn first so bars paint on top of them.
 	rowY := func(i int) float64 { return bodyY + float64(i)*rowH }
+	spans := sectionSpans(d.Tasks)
 
-	// Section bands: group tasks by contiguous section and tint the
-	// full-width row range behind them so the eye can cluster related
-	// bars without tracing the section label across the chart.
+	// Bands drawn first so the axis grid lines and bars paint on top.
+	// Band X/width extend from `pad` to `viewW - pad` — wider than the
+	// chart body — so the section label column and the overflow-label
+	// margin both sit on the tint, matching mmdc. Unnamed spans get no
+	// band (and no palette slot, via sectionSpans.index=-1), consistent
+	// with unnamed spans also getting no section label.
 	if len(th.SectionBands) > 0 {
-		sectionIdx := -1
-		prev := "__unset__"
-		bandStart := 0
-		flush := func(end int) {
-			if sectionIdx < 0 || end <= bandStart {
-				return
+		for _, sp := range spans {
+			if sp.index < 0 {
+				continue
 			}
-			color := th.SectionBands[sectionIdx%len(th.SectionBands)]
+			color := th.SectionBands[sp.index%len(th.SectionBands)]
 			children = append(children, &rect{
-				X: svgFloat(pad), Y: svgFloat(rowY(bandStart)),
-				Width: svgFloat(viewW - 2*pad), Height: svgFloat(float64(end-bandStart) * rowH),
+				X: svgFloat(pad), Y: svgFloat(rowY(sp.start)),
+				Width: svgFloat(viewW - 2*pad), Height: svgFloat(float64(sp.end-sp.start) * rowH),
 				Style: fmt.Sprintf("fill:%s;stroke:none", color),
 			})
 		}
-		for i, task := range d.Tasks {
-			if task.Section != prev {
-				flush(i)
-				prev = task.Section
-				bandStart = i
-				sectionIdx++
-			}
-		}
-		flush(len(d.Tasks))
 	}
 
 	children = append(children, renderAxis(minDate, totalDays, chartX, axisY, chartW, rowH*float64(rows), fontSize, th)...)
 
-	// Bars + labels. The per-section label is emitted once per section,
-	// vertically centered across the section's row range.
-	sectionStart := -1
-	sectionName := "__unset__"
-	flushSectionLabel := func(endRow int) {
-		if sectionStart < 0 || sectionName == "" {
-			return
+	// Per-section label vertically centered across its bar rows.
+	for _, sp := range spans {
+		if sp.name == "" {
+			continue
 		}
-		centerY := rowY(sectionStart) + float64(endRow-sectionStart)*rowH/2
+		centerY := rowY(sp.start) + float64(sp.end-sp.start)*rowH/2
 		children = append(children, &text{
 			X: svgFloat(pad + sectionLabelW - 8), Y: svgFloat(centerY),
 			Anchor: "end", Dominant: "central",
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.SectionText, fontSize),
-			Content: sectionName,
+			Content: sp.name,
 		})
 	}
 	for i, task := range d.Tasks {
-		if task.Section != sectionName {
-			flushSectionLabel(i)
-			sectionName = task.Section
-			sectionStart = i
-		}
-
 		startOffset := task.Start.Sub(minDate).Hours() / 24 * dayWidth
 		endOffset := task.End.Sub(minDate).Hours() / 24 * dayWidth
 		barW := endOffset - startOffset
@@ -207,7 +188,6 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 			})
 		}
 	}
-	flushSectionLabel(len(d.Tasks))
 
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
@@ -299,6 +279,42 @@ func axisInterval(totalDays float64) int {
 	default:
 		return 90
 	}
+}
+
+// sectionSpan describes one contiguous run of tasks sharing the same
+// Section. index counts named spans only — unnamed runs (Section="")
+// are represented in the slice but carry index=-1 so callers can skip
+// painting bands or labels for them without desynchronizing the
+// palette cycle across the diagram.
+type sectionSpan struct {
+	start, end, index int
+	name              string
+}
+
+func sectionSpans(tasks []diagram.GanttTask) []sectionSpan {
+	if len(tasks) == 0 {
+		return nil
+	}
+	spans := []sectionSpan{{start: 0, name: tasks[0].Section}}
+	for i := 1; i < len(tasks); i++ {
+		if tasks[i].Section != spans[len(spans)-1].name {
+			spans[len(spans)-1].end = i
+			spans = append(spans, sectionSpan{start: i, name: tasks[i].Section})
+		}
+	}
+	spans[len(spans)-1].end = len(tasks)
+	// Assign palette indices only to named spans so a leading run of
+	// unsectioned tasks doesn't consume palette[0].
+	idx := 0
+	for i := range spans {
+		if spans[i].name == "" {
+			spans[i].index = -1
+			continue
+		}
+		spans[i].index = idx
+		idx++
+	}
+	return spans
 }
 
 func dateRange(tasks []diagram.GanttTask) (min, max time.Time) {
