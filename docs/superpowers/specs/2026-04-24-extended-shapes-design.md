@@ -2,7 +2,7 @@
 
 ## Problem
 
-Mermaid v11.3.0+ supports 45 node shapes via the `@{ shape: short-name, label: "..." }` annotation syntax. mmgo currently supports only 14 shapes via traditional delimiters (`[]`, `()`, `{}`, etc.). Users writing modern Mermaid flowcharts with extended shapes get parse errors.
+Mermaid v11.3.0+ supports 40+ node shapes via the `@{ shape: short-name, label: "..." }` annotation syntax. mmgo currently supports 14 shapes via traditional delimiters (`[]`, `()`, `{}`, etc.). Users writing modern Mermaid flowcharts with extended shapes get parse errors.
 
 ## Scope
 
@@ -29,14 +29,32 @@ A["old label"]@{ shape: diamond, label: "new label" }
 
 In `parseNodeDef()`, after extracting the node ID and before matching traditional shape delimiters:
 
-1. Scan the remaining text for `@{`
-2. If found, extract content between `@{` and `}`, parse as comma-separated key-value pairs
-3. Split on `,`, then on first `:`, trim whitespace, handle quoted values
-4. Look up `shape` value in a map of short-name/alias → `NodeShape`
-5. If `label` is present, it overrides any label from traditional delimiters
-6. If both `@{ shape: ... }` and traditional delimiters exist, `@{}` wins for shape
+1. Call `stripInlineClass()` first (already done — strips trailing `:::cls`)
+2. Scan the remaining text for `@{`
+3. If found, extract content between `@{` and `}`, parse as comma-separated key-value pairs
+4. Split on `,`, then on first `:`, trim whitespace, handle quoted values
+5. Look up `shape` value in a map of short-name/alias → `NodeShape`
+6. If `label` is present, it overrides any label from traditional delimiters
+7. If both `@{ shape: ... }` and traditional delimiters exist, `@{}` wins for shape
 
 The key-value parser is a simple hand-rolled splitter — no YAML dependency needed. The practical subset is just `shape: name` and `label: "text"`.
+
+### Parsing Precedence
+
+The processing order within `parseNodeDef()` is:
+1. Extract node ID (alphanumeric + `_` + hyphen between ID chars)
+2. `stripInlineClass()` — removes trailing `:::cls` tokens
+3. `parseShapeAnnotation()` — consumes `@{...}` if present, returns shape + label override
+4. Traditional delimiter matching (`[]`, `()`, `{}`, etc.) — only if `@{}` did not supply a shape
+
+The `@{}` annotation must appear after `:::` class tokens: `A:::cls@{ shape: diamond }` is valid; `A@{ shape: diamond }:::cls` is not (the `:::` would be inside the node definition after `@{}` is consumed, causing a parse error for unrecognized text).
+
+### Interaction with Edge ID Syntax
+
+Both `@{}` and edge IDs use `@`: edge IDs use trailing `@` (e.g., `A e1@-->B` via `extractEdgeID()`), while `@{}` always has `{` after `@`. These don't conflict because:
+- `extractEdgeID()` only matches `@` followed by an ID character (not `{`)
+- `parseShapeAnnotation()` only matches `@{`
+- `findArrow()` naturally handles `{`/`}` in its depth tracking, so `@{...}` doesn't interfere with arrow detection
 
 ### Alias Resolution
 
@@ -52,36 +70,36 @@ A single map `shapeAliases map[string]diagram.NodeShape` covers all 45 Mermaid s
 |---|---|---|
 | `NodeShapeCloud` | `cloud` | Arc-based cloud `<path>` |
 | `NodeShapeHourglass` | `hourglass`, `collate` | Two triangles `<polygon>` |
-| `NodeShapeBolt` | `com-link`, `lightning-bolt` | Zigzag `<path>` |
+| `NodeShapeBolt` | `bolt`, `com-link`, `lightning-bolt` | Zigzag `<path>` |
 | `NodeShapeDocument` | `doc`, `document` | Rect + wavy bottom `<path>` |
-| `NodeShapeLinedDocument` | `lined-document`, `lin-doc` | Document + horizontal line |
+| `NodeShapeLinedDocument` | `lin-doc`, `lined-document` | Document + horizontal line |
 | `NodeShapeDelay` | `delay`, `half-rounded-rectangle` | Rect rounded on left only |
 | `NodeShapeHorizontalCylinder` | `h-cyl`, `das`, `horizontal-cylinder` | Rotated cylinder `<path>` |
 | `NodeShapeLinedCylinder` | `lin-cyl`, `disk`, `lined-cylinder` | Cylinder + horizontal stripe |
-| `NodeShapeCurvedTrapezoid` | `curv-trap`, `display` | Curved-side trapezoid `<path>` |
-| `NodeShapeDividedRect` | `div-rect`, `divided-process` | Rect + horizontal divider `<line>` |
-| `NodeShapeTriangle` | `tri`, `extract` | Triangle `<polygon>` |
-| `NodeShapeFlippedTriangle` | `flip-tri`, `manual-file` | Upside-down triangle `<polygon>` |
-| `NodeShapeWindowPane` | `win-pane`, `internal-storage` | Rect + cross `<line>`s |
-| `NodeShapeFilledCircle` | `f-circ`, `junction` | Filled `<circle>` |
-| `NodeShapeSmallCircle` | `sm-circ`, `start` | Small `<circle>` |
-| `NodeShapeFramedCircle` | `fr-circ`, `stop` | Circle with thick stroke |
-| `NodeShapeNotchedRect` | `notch-rect`, `card` | Rect path with corner notch |
-| `NodeShapeLinedRect` | `lin-rect`, `lined-process` | Rect + vertical `<line>` |
+| `NodeShapeCurvedTrapezoid` | `curv-trap`, `curved-trapezoid`, `display` | Curved-side trapezoid `<path>` |
+| `NodeShapeDividedRect` | `div-rect`, `div-proc`, `divided-process`, `divided-rectangle` | Rect + horizontal divider `<line>` |
+| `NodeShapeTriangle` | `tri`, `extract`, `triangle` | Triangle `<polygon>` |
+| `NodeShapeFlippedTriangle` | `flip-tri`, `flipped-triangle`, `manual-file` | Upside-down triangle `<polygon>` |
+| `NodeShapeWindowPane` | `win-pane`, `internal-storage`, `window-pane` | Rect + cross `<line>`s |
+| `NodeShapeFilledCircle` | `f-circ`, `filled-circle`, `junction` | Filled `<circle>` |
+| `NodeShapeSmallCircle` | `sm-circ`, `small-circle`, `start` | Small `<circle>` |
+| `NodeShapeFramedCircle` | `fr-circ`, `framed-circle`, `stop` | Circle with thick stroke |
+| `NodeShapeNotchedRect` | `notch-rect`, `card`, `notched-rectangle` | Rect path with corner notch |
+| `NodeShapeLinedRect` | `lin-rect`, `lin-proc`, `lined-process`, `lined-rectangle`, `shaded-process` | Rect + vertical `<line>` |
 | `NodeShapeForkJoin` | `fork`, `join` | Tall thin filled `<rect>` |
-| `NodeShapeStackedRect` | `st-rect`, `stacked-rectangle` | Two offset `<rect>`s |
-| `NodeShapeStackedDocument` | `docs`, `stacked-document` | Two offset document shapes |
-| `NodeShapeBowTieRect` | `bow-rect`, `stored-data` | Hourglass rectangle `<path>` |
-| `NodeShapeCrossCircle` | `cross-circ`, `summary` | Circle + X `<line>`s |
-| `NodeShapeTaggedRect` | `tag-rect`, `tagged-process` | Rect + folded corner `<path>` |
+| `NodeShapeStackedRect` | `st-rect`, `procs`, `processes`, `stacked-rectangle` | Two offset `<rect>`s |
+| `NodeShapeStackedDocument` | `docs`, `documents`, `st-doc`, `stacked-document` | Two offset document shapes |
+| `NodeShapeBowTieRect` | `bow-rect`, `bow-tie-rectangle`, `stored-data` | Hourglass rectangle `<path>` |
+| `NodeShapeCrossCircle` | `cross-circ`, `crossed-circle`, `summary` | Circle + X `<line>`s |
+| `NodeShapeTaggedRect` | `tag-rect`, `tag-proc`, `tagged-process`, `tagged-rectangle` | Rect + folded corner `<path>` |
 | `NodeShapeTaggedDocument` | `tag-doc`, `tagged-document` | Document + folded corner |
 | `NodeShapeFlag` | `flag`, `paper-tape` | Pennant `<polygon>` |
-| `NodeShapeNotchedPentagon` | `notch-pent`, `loop-limit` | Pentagon with notch `<polygon>` |
-| `NodeShapeSlopedRect` | `sl-rect`, `manual-input` | Sloped rectangle `<polygon>` |
+| `NodeShapeNotchedPentagon` | `notch-pent`, `loop-limit`, `notched-pentagon` | Pentagon with notch `<polygon>` |
+| `NodeShapeSlopedRect` | `sl-rect`, `manual-input`, `sloped-rectangle` | Sloped rectangle `<polygon>` |
 | `NodeShapeOdd` | `odd` | Irregular polygon |
 | `NodeShapeTextBlock` | `text` | No border, just `<text>` |
 | `NodeShapeBang` | `bang` | Starburst `<path>` |
-| `NodeShapeBrace` | `brace`, `comment`, `brace-l` | Left curly brace `<path>` |
+| `NodeShapeBrace` | `brace`, `brace-l`, `comment` | Left curly brace `<path>` |
 | `NodeShapeBraceR` | `brace-r` | Right curly brace `<path>` |
 | `NodeShapeBraces` | `braces` | Both curly braces `<path>` |
 | `NodeShapeDataStore` | `datastore`, `data-store` | Parallel arcs `<path>` |
@@ -152,6 +170,8 @@ The renderer's edge rendering code checks the target/source node's shape and sel
 - Edge cases: empty `@{}`, unknown shape, missing closing `}`, whitespace variations
 - Combined syntax: `A["label"]@{ shape: diamond }` → diamond shape, label "label"
 - Combined with override: `A["old"]@{ shape: diamond, label: "new" }` → diamond shape, label "new"
+- `@{}` on nodes within edge statements: `A@{ shape: diamond }-->B@{ shape: rect }` (exercises the annotation parser through the edge-line code path)
+- `@{}` combined with `:::` class: `A:::cls@{ shape: diamond }` → correct shape + class
 
 ### Renderer Tests
 
