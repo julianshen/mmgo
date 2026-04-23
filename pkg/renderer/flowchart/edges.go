@@ -168,11 +168,17 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 		if e.ArrowHead != diagram.ArrowHeadNone && e.ArrowHead != diagram.ArrowHeadUnknown {
 			line.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
 		}
+		if e.ArrowTail != diagram.ArrowHeadNone && e.ArrowTail != diagram.ArrowHeadUnknown {
+			line.MarkerStart = fmt.Sprintf("url(#%s)", markerID(e.ArrowTail, e.LineStyle))
+		}
 		elems = append(elems, line)
 	} else if len(pts) >= 3 {
 		p := &Path{D: svgutil.CatmullRomPath(pts, svgutil.CatmullRomTension), Style: style}
 		if e.ArrowHead != diagram.ArrowHeadNone && e.ArrowHead != diagram.ArrowHeadUnknown {
 			p.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
+		}
+		if e.ArrowTail != diagram.ArrowHeadNone && e.ArrowTail != diagram.ArrowHeadUnknown {
+			p.MarkerStart = fmt.Sprintf("url(#%s)", markerID(e.ArrowTail, e.LineStyle))
 		}
 		elems = append(elems, p)
 	}
@@ -216,12 +222,16 @@ func measureLabel(ruler *textmeasure.Ruler, label string, fontSize float64) (w, 
 }
 
 func edgeStyle(th Theme, ls diagram.LineStyle) string {
-	extra := ""
+	if ls == diagram.LineStyleInvisible {
+		return "stroke:none;fill:none"
+	}
+	base := fmt.Sprintf("stroke:%s;stroke-width:%v;fill:none", th.EdgeStroke, defaultStrokeWidth)
 	switch ls {
 	case diagram.LineStyleDotted:
-		extra = "stroke-dasharray:2,2;"
+		return base + ";stroke-dasharray:2,2"
 	case diagram.LineStyleThick:
-		extra = "stroke-width:3;"
+		return fmt.Sprintf("stroke:%s;stroke-width:3;fill:none", th.EdgeStroke)
+	default:
+		return base
 	}
-	return fmt.Sprintf("stroke:%s;stroke-width:%.2f;fill:none;%s", th.EdgeStroke, defaultStrokeWidth, extra)
 }
