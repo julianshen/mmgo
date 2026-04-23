@@ -121,7 +121,7 @@ type Subgraph struct {
 	Direction Direction
 	Nodes     []Node
 	Edges     []Edge
-	Children  []Subgraph
+	Children  []*Subgraph
 }
 
 // StyleDef is an inline style directive applied to a node.
@@ -142,7 +142,7 @@ type StyleDef struct {
 type FlowchartDiagram struct {
 	Nodes      []Node
 	Edges      []Edge
-	Subgraphs  []Subgraph
+	Subgraphs  []*Subgraph
 	Styles     []StyleDef
 	Classes    map[string]string
 	LinkStyles map[int]string
@@ -161,8 +161,8 @@ var _ Diagram = (*FlowchartDiagram)(nil)
 // recursion.
 func (d *FlowchartDiagram) AllNodes() []Node {
 	nodes := append([]Node(nil), d.Nodes...)
-	for i := range d.Subgraphs {
-		nodes = append(nodes, d.Subgraphs[i].AllNodes()...)
+	for _, sg := range d.Subgraphs {
+		nodes = append(nodes, sg.AllNodes()...)
 	}
 	return nodes
 }
@@ -171,8 +171,8 @@ func (d *FlowchartDiagram) AllNodes() []Node {
 // `subgraph ... end` block.
 func (d *FlowchartDiagram) AllEdges() []Edge {
 	edges := append([]Edge(nil), d.Edges...)
-	for i := range d.Subgraphs {
-		edges = append(edges, d.Subgraphs[i].AllEdges()...)
+	for _, sg := range d.Subgraphs {
+		edges = append(edges, sg.AllEdges()...)
 	}
 	return edges
 }

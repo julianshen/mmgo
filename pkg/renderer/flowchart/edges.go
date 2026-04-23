@@ -11,6 +11,10 @@ import (
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
+func isVisibleArrow(ah diagram.ArrowHead) bool {
+	return ah != diagram.ArrowHeadNone && ah != diagram.ArrowHeadUnknown
+}
+
 func markerID(ah diagram.ArrowHead, ls diagram.LineStyle) string {
 	return fmt.Sprintf("arrow-%s-%s", ah, ls)
 }
@@ -22,7 +26,7 @@ func markerID(ah diagram.ArrowHead, ls diagram.LineStyle) string {
 func buildMarkers(d *diagram.FlowchartDiagram, th Theme) []Marker {
 	needed := map[string]diagram.ArrowHead{}
 	for _, e := range d.AllEdges() {
-		if e.ArrowHead == diagram.ArrowHeadNone || e.ArrowHead == diagram.ArrowHeadUnknown {
+		if !isVisibleArrow(e.ArrowHead) {
 			continue
 		}
 		needed[markerID(e.ArrowHead, e.LineStyle)] = e.ArrowHead
@@ -165,19 +169,19 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 			X2: svgFloat(pts[1].X), Y2: svgFloat(pts[1].Y),
 			Style: style,
 		}
-		if e.ArrowHead != diagram.ArrowHeadNone && e.ArrowHead != diagram.ArrowHeadUnknown {
+		if isVisibleArrow(e.ArrowHead) {
 			line.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
 		}
-		if e.ArrowTail != diagram.ArrowHeadNone && e.ArrowTail != diagram.ArrowHeadUnknown {
+		if isVisibleArrow(e.ArrowTail) {
 			line.MarkerStart = fmt.Sprintf("url(#%s)", markerID(e.ArrowTail, e.LineStyle))
 		}
 		elems = append(elems, line)
 	} else if len(pts) >= 3 {
 		p := &Path{D: svgutil.CatmullRomPath(pts, svgutil.CatmullRomTension), Style: style}
-		if e.ArrowHead != diagram.ArrowHeadNone && e.ArrowHead != diagram.ArrowHeadUnknown {
+		if isVisibleArrow(e.ArrowHead) {
 			p.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
 		}
-		if e.ArrowTail != diagram.ArrowHeadNone && e.ArrowTail != diagram.ArrowHeadUnknown {
+		if isVisibleArrow(e.ArrowTail) {
 			p.MarkerStart = fmt.Sprintf("url(#%s)", markerID(e.ArrowTail, e.LineStyle))
 		}
 		elems = append(elems, p)

@@ -1,6 +1,17 @@
 flowchart TB
-    UI[Web UI] --> API[REST API]
-    Mobile[Mobile App] --> API
-    API --> DB[(Database)]
-    API --> Cache[(Redis Cache)]
-    API --> Queue[[Message Queue]]
+    subgraph frontend [Frontend]
+        UI[Web UI] --> API[REST API]
+        Mobile[Mobile App] --> API
+    end
+    subgraph backend [Backend Services]
+        API --> Auth[Auth Service]
+        API --> Business[Business Logic]
+        Auth --> DB[(Database)]
+        Business --> DB
+        Business --> Cache[(Redis Cache)]
+        Business --> Queue[[Message Queue]]
+    end
+    subgraph infra [Infrastructure]
+        Queue --> Worker[Worker]
+        Worker --> DB
+    end

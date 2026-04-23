@@ -206,12 +206,12 @@ func TestRenderIgnoresCallerRankDir(t *testing.T) {
 func TestBuildFlowchartGraphIncludesNestedNodes(t *testing.T) {
 	d := &diagram.FlowchartDiagram{
 		Nodes: []diagram.Node{{ID: "Top", Label: "Top"}},
-		Subgraphs: []diagram.Subgraph{
+		Subgraphs: []*diagram.Subgraph{
 			{
 				ID:    "sg",
 				Nodes: []diagram.Node{{ID: "Nested", Label: "Nested"}},
 				Edges: []diagram.Edge{{From: "Nested", To: "Top"}},
-				Children: []diagram.Subgraph{
+				Children: []*diagram.Subgraph{
 					{ID: "inner", Nodes: []diagram.Node{{ID: "Deep", Label: "Deep"}}},
 				},
 			},

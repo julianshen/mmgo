@@ -62,31 +62,44 @@ func (p *parser) currentSubgraph() *diagram.Subgraph {
 	return p.subgraphStack[len(p.subgraphStack)-1]
 }
 
+func (p *parser) findNode(id string) *diagram.Node {
+	for si := len(p.subgraphStack) - 1; si >= 0; si-- {
+		for i := range p.subgraphStack[si].Nodes {
+			if p.subgraphStack[si].Nodes[i].ID == id {
+				return &p.subgraphStack[si].Nodes[i]
+			}
+		}
+	}
+	for si := range p.diagram.Subgraphs {
+		if n := findNodeInSubgraph(p.diagram.Subgraphs[si], id); n != nil {
+			return n
+		}
+	}
+	if idx, ok := p.nodeIndex[id]; ok {
+		return &p.diagram.Nodes[idx]
+	}
+	return nil
+}
+
+func findNodeInSubgraph(sg *diagram.Subgraph, id string) *diagram.Node {
+	for i := range sg.Nodes {
+		if sg.Nodes[i].ID == id {
+			return &sg.Nodes[i]
+		}
+	}
+	for _, child := range sg.Children {
+		if n := findNodeInSubgraph(child, id); n != nil {
+			return n
+		}
+	}
+	return nil
+}
+
 func (p *parser) addNode(id string, shape diagram.NodeShape, label string, classes []string) {
 	if id == "" {
 		return
 	}
-	sg := p.currentSubgraph()
-	if sg != nil {
-		for i := range sg.Nodes {
-			if sg.Nodes[i].ID == id {
-				if sg.Nodes[i].Shape == diagram.NodeShapeUnknown && shape != diagram.NodeShapeUnknown {
-					sg.Nodes[i].Shape = shape
-				}
-				if sg.Nodes[i].Label == "" && label != "" {
-					sg.Nodes[i].Label = label
-				}
-				if len(classes) > 0 {
-					sg.Nodes[i].Classes = append(sg.Nodes[i].Classes, classes...)
-				}
-				return
-			}
-		}
-		sg.Nodes = append(sg.Nodes, diagram.Node{ID: id, Label: label, Shape: shape, Classes: classes})
-		return
-	}
-	if idx, ok := p.nodeIndex[id]; ok {
-		existing := &p.diagram.Nodes[idx]
+	if existing := p.findNode(id); existing != nil {
 		if existing.Shape == diagram.NodeShapeUnknown && shape != diagram.NodeShapeUnknown {
 			existing.Shape = shape
 		}
@@ -96,6 +109,11 @@ func (p *parser) addNode(id string, shape diagram.NodeShape, label string, class
 		if len(classes) > 0 {
 			existing.Classes = append(existing.Classes, classes...)
 		}
+		return
+	}
+	sg := p.currentSubgraph()
+	if sg != nil {
+		sg.Nodes = append(sg.Nodes, diagram.Node{ID: id, Label: label, Shape: shape, Classes: classes})
 		return
 	}
 	p.nodeIndex[id] = len(p.diagram.Nodes)
@@ -115,17 +133,12 @@ func (p *parser) ensureNode(id string) {
 	if id == "" {
 		return
 	}
-	sg := p.currentSubgraph()
-	if sg != nil {
-		for _, n := range sg.Nodes {
-			if n.ID == id {
-				return
-			}
-		}
-		sg.Nodes = append(sg.Nodes, diagram.Node{ID: id})
+	if p.findNode(id) != nil {
 		return
 	}
-	if _, ok := p.nodeIndex[id]; ok {
+	sg := p.currentSubgraph()
+	if sg != nil {
+		sg.Nodes = append(sg.Nodes, diagram.Node{ID: id})
 		return
 	}
 	p.nodeIndex[id] = len(p.diagram.Nodes)
@@ -276,12 +289,11 @@ func (p *parser) parseSubgraph(line string) error {
 	}
 
 	if p.currentSubgraph() != nil {
-		p.currentSubgraph().Children = append(p.currentSubgraph().Children, *sg)
-		p.subgraphStack = append(p.subgraphStack, &p.currentSubgraph().Children[len(p.currentSubgraph().Children)-1])
+		p.currentSubgraph().Children = append(p.currentSubgraph().Children, sg)
 	} else {
-		p.diagram.Subgraphs = append(p.diagram.Subgraphs, *sg)
-		p.subgraphStack = append(p.subgraphStack, &p.diagram.Subgraphs[len(p.diagram.Subgraphs)-1])
+		p.diagram.Subgraphs = append(p.diagram.Subgraphs, sg)
 	}
+	p.subgraphStack = append(p.subgraphStack, sg)
 	p.ensureNode(id)
 	return nil
 }
@@ -336,17 +348,8 @@ func (p *parser) parseClass(line string) error {
 }
 
 func (p *parser) addNodeClass(nodeID, className string) {
-	sg := p.currentSubgraph()
-	if sg != nil {
-		for i := range sg.Nodes {
-			if sg.Nodes[i].ID == nodeID {
-				sg.Nodes[i].Classes = append(sg.Nodes[i].Classes, className)
-				return
-			}
-		}
-	}
-	if idx, ok := p.nodeIndex[nodeID]; ok {
-		p.diagram.Nodes[idx].Classes = append(p.diagram.Nodes[idx].Classes, className)
+	if n := p.findNode(nodeID); n != nil {
+		n.Classes = append(n.Classes, className)
 	}
 }
 
@@ -439,7 +442,6 @@ func (p *parser) parseEdgeLine(line string) error {
 		}
 		lastRight := rightNodes[len(rightNodes)-1]
 		line = lastRight.raw + " " + line[rightEnd:]
-		_ = leftID
 	}
 }
 
@@ -742,30 +744,27 @@ func matchTildeAt(line string, i int) (arrowMatch, bool) {
 	}, true
 }
 
+func circleOrCross(c byte) diagram.ArrowHead {
+	if c == 'o' {
+		return diagram.ArrowHeadCircle
+	}
+	return diagram.ArrowHeadCross
+}
+
 func matchBidirectionalAt(line string, i int) (arrowMatch, bool) {
 	if i+1 >= len(line) {
 		return arrowMatch{}, false
 	}
 	rest := line[i+1:]
 
-	if len(rest) >= 3 && rest[0] == 'o' && rest[1] == '-' {
+	if len(rest) >= 3 && (rest[0] == 'o' || rest[0] == 'x') && rest[1] == '-' {
+		tail := circleOrCross(rest[0])
 		m, ok := matchDashAt(line, i+2, '-', diagram.LineStyleSolid)
 		if ok {
-			m.arrowTail = diagram.ArrowHeadCircle
+			m.arrowTail = tail
 			m.start = i
 			if m.arrowHead == diagram.ArrowHeadNone {
-				m.arrowHead = diagram.ArrowHeadCircle
-			}
-			return m, true
-		}
-	}
-	if len(rest) >= 3 && rest[0] == 'x' && rest[1] == '-' {
-		m, ok := matchDashAt(line, i+2, '-', diagram.LineStyleSolid)
-		if ok {
-			m.arrowTail = diagram.ArrowHeadCross
-			m.start = i
-			if m.arrowHead == diagram.ArrowHeadNone {
-				m.arrowHead = diagram.ArrowHeadCross
+				m.arrowHead = tail
 			}
 			return m, true
 		}
@@ -820,11 +819,7 @@ func matchDashAt(line string, i int, dash byte, style diagram.LineStyle) (arrowM
 	if count >= 3 {
 		head := diagram.ArrowHeadNone
 		if j < len(line) && (line[j] == 'o' || line[j] == 'x') {
-			if line[j] == 'o' {
-				head = diagram.ArrowHeadCircle
-			} else {
-				head = diagram.ArrowHeadCross
-			}
+			head = circleOrCross(line[j])
 			j++
 		}
 		return arrowMatch{
@@ -835,10 +830,7 @@ func matchDashAt(line string, i int, dash byte, style diagram.LineStyle) (arrowM
 		}, true
 	}
 	if j < len(line) && (line[j] == 'o' || line[j] == 'x') {
-		head := diagram.ArrowHeadCross
-		if line[j] == 'o' {
-			head = diagram.ArrowHeadCircle
-		}
+		head := circleOrCross(line[j])
 		return arrowMatch{
 			start:     i,
 			end:       j + 1,
@@ -879,11 +871,7 @@ func matchDottedAfterDots(line string, i, j int) (arrowMatch, bool) {
 	head := diagram.ArrowHeadNone
 	end := j
 	if j < len(line) && (line[j] == 'o' || line[j] == 'x') {
-		if line[j] == 'o' {
-			head = diagram.ArrowHeadCircle
-		} else {
-			head = diagram.ArrowHeadCross
-		}
+		head = circleOrCross(line[j])
 		end = j + 1
 	}
 	if head == diagram.ArrowHeadNone {
@@ -943,11 +931,7 @@ func matchDottedInlineLabelOpen(line string, openerStart, afterDot int) (arrowMa
 		head := diagram.ArrowHeadNone
 		end := closeStart
 		if closeStart < len(line) && (line[closeStart] == 'o' || line[closeStart] == 'x') {
-			if line[closeStart] == 'o' {
-				head = diagram.ArrowHeadCircle
-			} else {
-				head = diagram.ArrowHeadCross
-			}
+			head = circleOrCross(line[closeStart])
 			end = closeStart + 1
 		}
 		return arrowMatch{
@@ -1002,11 +986,7 @@ func matchDottedInlineLabelAt(line string, openerStart, afterFirstDash int) (arr
 			}
 			head := diagram.ArrowHeadNone
 			if closeEnd < len(line) && (line[closeEnd] == 'o' || line[closeEnd] == 'x') {
-				if line[closeEnd] == 'o' {
-					head = diagram.ArrowHeadCircle
-				} else {
-					head = diagram.ArrowHeadCross
-				}
+				head = circleOrCross(line[closeEnd])
 				closeEnd++
 			}
 			return arrowMatch{

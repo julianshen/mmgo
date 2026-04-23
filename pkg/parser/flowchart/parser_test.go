@@ -1241,3 +1241,161 @@ func TestAllNodesAllEdges(t *testing.T) {
 		t.Errorf("AllEdges = %d, want 2", len(allEdges))
 	}
 }
+
+// --- Cross-scope node resolution ---
+
+func TestNodeDefinedOutsideUsedInsideSubgraph(t *testing.T) {
+	input := `graph LR
+    A[Start] --> B
+    subgraph sg1
+        B --> C[End]
+    end`
+	f := mustParse(t, input)
+	allNodes := f.AllNodes()
+	countB := 0
+	for _, n := range allNodes {
+		if n.ID == "B" {
+			countB++
+		}
+	}
+	if countB != 1 {
+		t.Errorf("node B appears %d times, want 1 (no duplicate)", countB)
+	}
+}
+
+func TestClassDirectiveCrossScope(t *testing.T) {
+	input := `graph LR
+    A[Start] --> B[End]
+    subgraph sg1
+        class A red
+    end`
+	f := mustParse(t, input)
+	a := mustNode(t, f, "A")
+	found := false
+	for _, c := range a.Classes {
+		if c == "red" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("A.Classes = %v, want 'red' applied from inside subgraph", a.Classes)
+	}
+}
+
+func TestClassDirectiveFromOutsideForSubgraphNode(t *testing.T) {
+	input := `graph LR
+    subgraph sg1
+        A[Start]
+    end
+    class A blue`
+	f := mustParse(t, input)
+	allNodes := f.AllNodes()
+	var a diagram.Node
+	for _, n := range allNodes {
+		if n.ID == "A" {
+			a = n
+			break
+		}
+	}
+	found := false
+	for _, c := range a.Classes {
+		if c == "blue" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("A.Classes = %v, want 'blue' applied from outside subgraph", a.Classes)
+	}
+}
+
+func TestNestedSubgraphClassOnOuterNode(t *testing.T) {
+	input := `graph LR
+    subgraph outer
+        A[Start]
+        subgraph inner
+            class A green
+        end
+    end`
+	f := mustParse(t, input)
+	outer := f.Subgraphs[0]
+	var a diagram.Node
+	for _, n := range outer.AllNodes() {
+		if n.ID == "A" {
+			a = n
+			break
+		}
+	}
+	found := false
+	for _, c := range a.Classes {
+		if c == "green" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("A.Classes = %v, want 'green' applied from nested subgraph", a.Classes)
+	}
+}
+
+// --- Dotted circle/cross no-tip arrows ---
+
+func TestDottedCircleNoTip(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A -.-o B")
+	if len(f.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+	}
+	e := f.Edges[0]
+	if e.LineStyle != diagram.LineStyleDotted {
+		t.Errorf("line style = %v, want dotted", e.LineStyle)
+	}
+	if e.ArrowHead != diagram.ArrowHeadCircle {
+		t.Errorf("arrow head = %v, want circle", e.ArrowHead)
+	}
+}
+
+func TestDottedCrossNoTip(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A -.-x B")
+	if len(f.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+	}
+	e := f.Edges[0]
+	if e.LineStyle != diagram.LineStyleDotted {
+		t.Errorf("line style = %v, want dotted", e.LineStyle)
+	}
+	if e.ArrowHead != diagram.ArrowHeadCross {
+		t.Errorf("arrow head = %v, want cross", e.ArrowHead)
+	}
+}
+
+func TestDottedInlineLabelCircleNoTip(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A -. text .-o B")
+	if len(f.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+	}
+	e := f.Edges[0]
+	if e.Label != "text" {
+		t.Errorf("label = %q, want %q", e.Label, "text")
+	}
+	if e.LineStyle != diagram.LineStyleDotted {
+		t.Errorf("line style = %v, want dotted", e.LineStyle)
+	}
+	if e.ArrowHead != diagram.ArrowHeadCircle {
+		t.Errorf("arrow head = %v, want circle", e.ArrowHead)
+	}
+}
+
+func TestDottedInlineLabelCrossNoTip(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A -. text .-x B")
+	if len(f.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+	}
+	e := f.Edges[0]
+	if e.Label != "text" {
+		t.Errorf("label = %q, want %q", e.Label, "text")
+	}
+	if e.LineStyle != diagram.LineStyleDotted {
+		t.Errorf("line style = %v, want dotted", e.LineStyle)
+	}
+	if e.ArrowHead != diagram.ArrowHeadCross {
+		t.Errorf("arrow head = %v, want cross", e.ArrowHead)
+	}
+}

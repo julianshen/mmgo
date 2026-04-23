@@ -48,7 +48,7 @@ func (b *bbox) expand(cx, cy, w, h float64) {
 	}
 }
 
-func renderSubgraphGroup(sg diagram.Subgraph, l *layout.Result, pad float64, th Theme, fontSize float64) *Group {
+func renderSubgraphGroup(sg *diagram.Subgraph, l *layout.Result, pad float64, th Theme, fontSize float64) *Group {
 	g := &Group{ID: sg.ID}
 
 	bb, ok := subgraphBBox(sg.AllNodes(), l.Nodes)
