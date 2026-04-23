@@ -54,6 +54,16 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 		buildDefs(d, th),
 	}
 
+	if d.Title != "" {
+		children = append(children, &Title{Content: d.Title})
+	}
+	if d.AccTitle != "" {
+		children = append(children, &Title{Content: d.AccTitle})
+	}
+	if d.AccDescr != "" {
+		children = append(children, &Desc{Content: d.AccDescr})
+	}
+
 	classCSS := buildClassCSS(d)
 	extraCSS := ""
 	if opts != nil {

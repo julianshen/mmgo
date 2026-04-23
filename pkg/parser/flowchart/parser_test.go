@@ -1399,3 +1399,223 @@ func TestDottedInlineLabelCrossNoTip(t *testing.T) {
 		t.Errorf("arrow head = %v, want cross", e.ArrowHead)
 	}
 }
+
+// --- Phase 2: Entity codes, <br>, subgraph brackets, directives ---
+
+func TestEntityCodeQuot(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A[\"hello #quot;world#quot;\"] --> B")
+	a := mustNode(t, f, "A")
+	if a.Label != `hello "world"` {
+		t.Errorf("label = %q, want %q", a.Label, `hello "world"`)
+	}
+}
+
+func TestEntityCodeAmp(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A[\"A #amp; B\"] --> C")
+	a := mustNode(t, f, "A")
+	if a.Label != "A & B" {
+		t.Errorf("label = %q, want %q", a.Label, "A & B")
+	}
+}
+
+func TestEntityCodeLtGt(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A[\"#lt;script#gt;\"] --> B")
+	a := mustNode(t, f, "A")
+	if a.Label != "<script>" {
+		t.Errorf("label = %q, want %q", a.Label, "<script>")
+	}
+}
+
+func TestEntityCodeNumeric(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A[\"#169;\"] --> B")
+	a := mustNode(t, f, "A")
+	want := "\u00a9"
+	if a.Label != want {
+		t.Errorf("label = %q, want %q", a.Label, want)
+	}
+}
+
+func TestBrLineBreakInLabel(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A[\"Line1<br>Line2\"] --> B")
+	a := mustNode(t, f, "A")
+	if a.Label != "Line1\nLine2" {
+		t.Errorf("label = %q, want %q", a.Label, "Line1\nLine2")
+	}
+}
+
+func TestBrSlashLineBreakInLabel(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A[\"Line1<br/>Line2\"] --> B")
+	a := mustNode(t, f, "A")
+	if a.Label != "Line1\nLine2" {
+		t.Errorf("label = %q, want %q", a.Label, "Line1\nLine2")
+	}
+}
+
+func TestSubgraphBracketTitle(t *testing.T) {
+	f := mustParse(t, "graph LR\n    subgraph sg1 [My Title]\n        A --> B\n    end")
+	if len(f.Subgraphs) != 1 {
+		t.Fatalf("expected 1 subgraph, got %d", len(f.Subgraphs))
+	}
+	sg := f.Subgraphs[0]
+	if sg.ID != "sg1" {
+		t.Errorf("ID = %q, want %q", sg.ID, "sg1")
+	}
+	if sg.Label != "My Title" {
+		t.Errorf("Label = %q, want %q", sg.Label, "My Title")
+	}
+}
+
+func TestTitleDirective(t *testing.T) {
+	f := mustParse(t, "graph LR\n    title My Diagram\n    A --> B")
+	if f.Title != "My Diagram" {
+		t.Errorf("Title = %q, want %q", f.Title, "My Diagram")
+	}
+}
+
+func TestAccTitleDirective(t *testing.T) {
+	f := mustParse(t, "graph LR\n    accTitle: Accessible Title\n    A --> B")
+	if f.AccTitle != "Accessible Title" {
+		t.Errorf("AccTitle = %q, want %q", f.AccTitle, "Accessible Title")
+	}
+}
+
+func TestAccDescrDirective(t *testing.T) {
+	f := mustParse(t, "graph LR\n    accDescr: A flowchart showing process\n    A --> B")
+	if f.AccDescr != "A flowchart showing process" {
+		t.Errorf("AccDescr = %q, want %q", f.AccDescr, "A flowchart showing process")
+	}
+}
+
+func TestClassDefApplyToAll(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A --> B\n    C --> D\n    classDef red fill:#f00 @@")
+	hasRed := func(n diagram.Node) bool {
+		for _, c := range n.Classes {
+			if c == "red" {
+				return true
+			}
+		}
+		return false
+	}
+	for _, n := range f.AllNodes() {
+		if !hasRed(n) {
+			t.Errorf("node %q should have class 'red', got %v", n.ID, n.Classes)
+		}
+	}
+}
+
+func TestClassDefApplyToAllWithSubgraphs(t *testing.T) {
+	input := `graph LR
+    subgraph sg1
+        A[Start] --> B[Mid]
+    end
+    C --> D
+    classDef blue fill:#00f @@`
+	f := mustParse(t, input)
+	hasBlue := func(n diagram.Node) bool {
+		for _, c := range n.Classes {
+			if c == "blue" {
+				return true
+			}
+		}
+		return false
+	}
+	for _, n := range f.AllNodes() {
+		if !hasBlue(n) {
+			t.Errorf("node %q should have class 'blue', got %v", n.ID, n.Classes)
+		}
+	}
+}
+
+func TestClassDefApplyToAllNodesAfterDirective(t *testing.T) {
+	input := `graph LR
+    classDef red fill:#f00 @@
+    A --> B
+    C --> D`
+	f := mustParse(t, input)
+	hasRed := func(n diagram.Node) bool {
+		for _, c := range n.Classes {
+			if c == "red" {
+				return true
+			}
+		}
+		return false
+	}
+	for _, n := range f.AllNodes() {
+		if !hasRed(n) {
+			t.Errorf("node %q should have class 'red' (deferred apply), got %v", n.ID, n.Classes)
+		}
+	}
+}
+
+func TestClickURL(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A --> B\n    click A \"https://example.com\" \"Go to example\"")
+	if len(f.Clicks) != 1 {
+		t.Fatalf("expected 1 click, got %d", len(f.Clicks))
+	}
+	cd := f.Clicks[0]
+	if cd.NodeID != "A" {
+		t.Errorf("NodeID = %q, want %q", cd.NodeID, "A")
+	}
+	if cd.URL != "https://example.com" {
+		t.Errorf("URL = %q, want %q", cd.URL, "https://example.com")
+	}
+	if cd.Tooltip != "Go to example" {
+		t.Errorf("Tooltip = %q, want %q", cd.Tooltip, "Go to example")
+	}
+}
+
+func TestClickHref(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A --> B\n    click A href \"https://example.com\"")
+	if len(f.Clicks) != 1 {
+		t.Fatalf("expected 1 click, got %d", len(f.Clicks))
+	}
+	cd := f.Clicks[0]
+	if cd.URL != "https://example.com" {
+		t.Errorf("URL = %q, want %q", cd.URL, "https://example.com")
+	}
+}
+
+func TestClickCallback(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A --> B\n    click A call myCallback()")
+	if len(f.Clicks) != 1 {
+		t.Fatalf("expected 1 click, got %d", len(f.Clicks))
+	}
+	cd := f.Clicks[0]
+	if cd.Callback != "myCallback()" {
+		t.Errorf("Callback = %q, want %q", cd.Callback, "myCallback()")
+	}
+}
+
+func TestClickHrefNoURLError(t *testing.T) {
+	_, err := Parse(strings.NewReader("graph LR\n    A --> B\n    click A href"))
+	if err == nil {
+		t.Fatal("expected error for click href with no URL")
+	}
+	if !strings.Contains(err.Error(), "click requires a URL") {
+		t.Errorf("error = %q, want substring 'click requires a URL'", err.Error())
+	}
+}
+
+func TestClickTabDelimitedArgs(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A --> B\n    click A \"https://example.com\"\t\"Tooltip\"")
+	if len(f.Clicks) != 1 {
+		t.Fatalf("expected 1 click, got %d", len(f.Clicks))
+	}
+	cd := f.Clicks[0]
+	if cd.URL != "https://example.com" {
+		t.Errorf("URL = %q, want %q", cd.URL, "https://example.com")
+	}
+	if cd.Tooltip != "Tooltip" {
+		t.Errorf("Tooltip = %q, want %q", cd.Tooltip, "Tooltip")
+	}
+}
+
+func TestEdgeLabelEntityCodes(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A -->|#quot;quoted#quot;| B")
+	if len(f.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+	}
+	if f.Edges[0].Label != `"quoted"` {
+		t.Errorf("label = %q, want %q", f.Edges[0].Label, `"quoted"`)
+	}
+}

@@ -132,3 +132,13 @@ type Marker struct {
 	Orient   string   `xml:"orient,attr"`
 	Children []any    `xml:",any"`
 }
+
+type Title struct {
+	XMLName xml.Name `xml:"title"`
+	Content string   `xml:",chardata"`
+}
+
+type Desc struct {
+	XMLName xml.Name `xml:"desc"`
+	Content string   `xml:",chardata"`
+}

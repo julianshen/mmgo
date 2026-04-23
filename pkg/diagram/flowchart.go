@@ -132,6 +132,15 @@ type StyleDef struct {
 	CSS string
 }
 
+// ClickDef binds a click action to a node.
+type ClickDef struct {
+	NodeID   string
+	URL      string
+	Tooltip  string
+	Callback string
+	Target   string
+}
+
 // FlowchartDiagram is the AST for a Mermaid flowchart/graph diagram.
 //
 // Node ownership: a node appearing inside a Subgraph is stored only in that
@@ -147,6 +156,10 @@ type FlowchartDiagram struct {
 	Classes    map[string]string
 	LinkStyles map[int]string
 	Direction  Direction
+	Title      string
+	AccTitle   string
+	AccDescr   string
+	Clicks     []ClickDef
 }
 
 // Type implements Diagram.
