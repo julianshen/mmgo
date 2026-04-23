@@ -6,10 +6,12 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	parserutil "github.com/julianshen/mmgo/pkg/parser"
 )
 
 func Parse(r io.Reader) (*diagram.FlowchartDiagram, error) {
@@ -46,13 +48,17 @@ func Parse(r io.Reader) (*diagram.FlowchartDiagram, error) {
 	if !headerSeen {
 		return nil, fmt.Errorf("missing graph/flowchart header")
 	}
+	for _, className := range p.pendingApplyAll {
+		p.applyClassToAll(className)
+	}
 	return p.diagram, nil
 }
 
 type parser struct {
-	diagram       *diagram.FlowchartDiagram
-	nodeIndex     map[string]int
-	subgraphStack []*diagram.Subgraph
+	diagram         *diagram.FlowchartDiagram
+	nodeIndex       map[string]int
+	subgraphStack   []*diagram.Subgraph
+	pendingApplyAll []string
 }
 
 func (p *parser) currentSubgraph() *diagram.Subgraph {
@@ -263,6 +269,27 @@ func (p *parser) parseLine(line string) error {
 	if strings.HasPrefix(trimmed, "direction ") {
 		return p.parseDirectionInSubgraph(trimmed)
 	}
+	if strings.HasPrefix(trimmed, "click ") {
+		return p.parseClick(trimmed)
+	}
+	if strings.HasPrefix(trimmed, "title ") || strings.HasPrefix(trimmed, "title:") {
+		p.diagram.Title = parserutil.TrimKeyword(trimmed, "title")
+		return nil
+	}
+	if strings.HasPrefix(trimmed, "accTitle") {
+		rest := trimmed[len("accTitle"):]
+		if rest == "" || rest[0] == ':' || rest[0] == ' ' {
+			p.diagram.AccTitle = parserutil.TrimKeyword(trimmed, "accTitle")
+			return nil
+		}
+	}
+	if strings.HasPrefix(trimmed, "accDescr") {
+		rest := trimmed[len("accDescr"):]
+		if rest == "" || rest[0] == ':' || rest[0] == ' ' {
+			p.diagram.AccDescr = parserutil.TrimKeyword(trimmed, "accDescr")
+			return nil
+		}
+	}
 
 	return p.parseEdgeLine(line)
 }
@@ -281,7 +308,10 @@ func (p *parser) parseSubgraph(line string) error {
 		label = strings.TrimSpace(label)
 	}
 
-	label = stripQuotes(label)
+	label = processLabel(label)
+	if len(label) >= 2 && label[0] == '[' && label[len(label)-1] == ']' {
+		label = label[1 : len(label)-1]
+	}
 
 	sg := &diagram.Subgraph{
 		ID:    id,
@@ -325,8 +355,32 @@ func (p *parser) parseClassDef(line string) error {
 	if len(parts) < 2 {
 		return fmt.Errorf("classDef requires name and CSS")
 	}
-	p.diagram.Classes[parts[0]] = parts[1]
+	name := parts[0]
+	css := parts[1]
+	p.diagram.Classes[name] = css
+	cssFields := strings.Fields(css)
+	if len(cssFields) >= 2 && cssFields[1] == "@@" {
+		p.pendingApplyAll = append(p.pendingApplyAll, name)
+	}
 	return nil
+}
+
+func (p *parser) applyClassToAll(className string) {
+	for i := range p.diagram.Nodes {
+		p.diagram.Nodes[i].Classes = append(p.diagram.Nodes[i].Classes, className)
+	}
+	for _, sg := range p.diagram.Subgraphs {
+		p.applyClassToAllInSubgraph(sg, className)
+	}
+}
+
+func (p *parser) applyClassToAllInSubgraph(sg *diagram.Subgraph, className string) {
+	for i := range sg.Nodes {
+		sg.Nodes[i].Classes = append(sg.Nodes[i].Classes, className)
+	}
+	for _, child := range sg.Children {
+		p.applyClassToAllInSubgraph(child, className)
+	}
 }
 
 func (p *parser) parseClass(line string) error {
@@ -351,6 +405,71 @@ func (p *parser) addNodeClass(nodeID, className string) {
 	if n := p.findNode(nodeID); n != nil {
 		n.Classes = append(n.Classes, className)
 	}
+}
+
+func (p *parser) parseClick(line string) error {
+	rest := line[len("click "):]
+	fields := strings.Fields(rest)
+	if len(fields) < 2 {
+		return fmt.Errorf("click requires node ID and URL or callback")
+	}
+	nodeID := fields[0]
+	cd := diagram.ClickDef{NodeID: nodeID}
+	afterNode := strings.TrimSpace(rest[len(nodeID):])
+	argSrc := afterNode
+	switch {
+	case strings.HasPrefix(afterNode, "call "):
+		cd.Callback = strings.TrimSpace(afterNode[5:])
+	case afterNode == "href" || strings.HasPrefix(afterNode, "href "):
+		argSrc = strings.TrimSpace(afterNode[len("href"):])
+		fallthrough
+	default:
+		parts := parseClickArgs(argSrc)
+		if len(parts) == 0 {
+			return fmt.Errorf("click requires a URL for node %q", nodeID)
+		}
+		cd.URL = parts[0]
+		if len(parts) >= 2 {
+			cd.Tooltip = parts[1]
+		}
+		if len(parts) >= 3 {
+			cd.Target = parts[2]
+		}
+	}
+	p.diagram.Clicks = append(p.diagram.Clicks, cd)
+	return nil
+}
+
+func parseClickArgs(s string) []string {
+	var parts []string
+	i := 0
+	for i < len(s) && len(parts) < 3 {
+		for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
+			i++
+		}
+		if i >= len(s) {
+			break
+		}
+		if s[i] == '"' {
+			i++
+			end := strings.IndexByte(s[i:], '"')
+			if end < 0 {
+				parts = append(parts, s[i:])
+				break
+			}
+			parts = append(parts, s[i:i+end])
+			i = i + end + 1
+		} else {
+			end := strings.IndexAny(s[i:], " \t")
+			if end < 0 {
+				parts = append(parts, s[i:])
+				break
+			}
+			parts = append(parts, s[i:i+end])
+			i = i + end
+		}
+	}
+	return parts
 }
 
 func (p *parser) parseLinkStyle(line string) error {
@@ -611,7 +730,7 @@ func parseNodeDef(s string) (id string, shape diagram.NodeShape, label string, c
 			continue
 		}
 		inner := rest[len(sp.open) : len(rest)-len(sp.close)]
-		label = stripQuotes(inner)
+		label = processLabel(inner)
 		return id, sp.shape, label, cls, nil
 	}
 
@@ -635,11 +754,42 @@ func stripInlineClass(s string) (rest string, classes []string) {
 	}
 }
 
-func stripQuotes(s string) string {
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		return s[1 : len(s)-1]
+var entityRe = regexp.MustCompile(`#([a-zA-Z]+|\d+);?`)
+
+func decodeEntities(s string) string {
+	if strings.IndexByte(s, '#') < 0 {
+		s = strings.ReplaceAll(s, "<br/>", "\n")
+		s = strings.ReplaceAll(s, "<br>", "\n")
+		return s
 	}
+	s = entityRe.ReplaceAllStringFunc(s, func(match string) string {
+		name := strings.TrimSuffix(strings.TrimPrefix(match, "#"), ";")
+		switch name {
+		case "quot":
+			return `"`
+		case "amp":
+			return "&"
+		case "lt":
+			return "<"
+		case "gt":
+			return ">"
+		case "apos":
+			return "'"
+		case "nbsp":
+			return "\u00a0"
+		}
+		if n, err := strconv.Atoi(name); err == nil {
+			return string(rune(n))
+		}
+		return match
+	})
+	s = strings.ReplaceAll(s, "<br/>", "\n")
+	s = strings.ReplaceAll(s, "<br>", "\n")
 	return s
+}
+
+func processLabel(s string) string {
+	return decodeEntities(parserutil.Unquote(s))
 }
 
 func isIDChar(c byte) bool {
@@ -925,7 +1075,7 @@ func matchDottedInlineLabelOpen(line string, openerStart, afterDot int) (arrowMa
 				end:       end,
 				lineStyle: diagram.LineStyleDotted,
 				arrowHead: head,
-				label:     stripQuotes(label),
+				label:     processLabel(label),
 			}, true
 		}
 		head := diagram.ArrowHeadNone
@@ -939,7 +1089,7 @@ func matchDottedInlineLabelOpen(line string, openerStart, afterDot int) (arrowMa
 			end:       end,
 			lineStyle: diagram.LineStyleDotted,
 			arrowHead: head,
-			label:     stripQuotes(label),
+			label:     processLabel(label),
 		}, true
 	}
 	return arrowMatch{}, false
@@ -971,7 +1121,7 @@ func matchDottedInlineLabelAt(line string, openerStart, afterFirstDash int) (arr
 				end:       end,
 				lineStyle: diagram.LineStyleDotted,
 				arrowHead: head,
-				label:     stripQuotes(label),
+				label:     processLabel(label),
 			}, true
 		}
 		dotCount := 0
@@ -994,7 +1144,7 @@ func matchDottedInlineLabelAt(line string, openerStart, afterFirstDash int) (arr
 				end:       closeEnd,
 				lineStyle: diagram.LineStyleDotted,
 				arrowHead: head,
-				label:     stripQuotes(label),
+				label:     processLabel(label),
 			}, true
 		}
 		j++
@@ -1032,7 +1182,7 @@ func matchInlineLabelAt(line string, openerStart, openerEnd int, dash byte, styl
 				end:       end,
 				lineStyle: style,
 				arrowHead: head,
-				label:     stripQuotes(label),
+				label:     processLabel(label),
 			}, true
 		}
 		if count >= 3 {
@@ -1041,7 +1191,7 @@ func matchInlineLabelAt(line string, openerStart, openerEnd int, dash byte, styl
 				end:       m,
 				lineStyle: style,
 				arrowHead: diagram.ArrowHeadNone,
-				label:     stripQuotes(label),
+				label:     processLabel(label),
 			}, true
 		}
 		k = m
@@ -1061,6 +1211,6 @@ func attachPipeLabel(m *arrowMatch, line string) {
 		m.labelUnclosed = true
 		return
 	}
-	m.label = stripQuotes(rest[:closeIdx])
+	m.label = processLabel(rest[:closeIdx])
 	m.end += consumed + 1 + closeIdx + 1
 }

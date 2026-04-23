@@ -273,6 +273,82 @@ func TestRenderEscapesXMLSpecialCharsInLabels(t *testing.T) {
 	}
 }
 
+func TestRenderTitleAndDesc(t *testing.T) {
+	d := &diagram.FlowchartDiagram{
+		Title:    "Diagram Title",
+		AccDescr: "A description of the diagram",
+	}
+	l := layout.Layout(graph.New(), layout.Options{})
+
+	out, err := Render(d, l, nil)
+	if err != nil {
+		t.Fatalf("Render err: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<title>Diagram Title</title>") {
+		t.Errorf("expected <title> element in output:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<desc>A description of the diagram</desc>") {
+		t.Errorf("expected <desc> element in output:\n%s", raw)
+	}
+}
+
+func TestRenderAccTitle(t *testing.T) {
+	d := &diagram.FlowchartDiagram{
+		AccTitle: "Accessible Title",
+	}
+	l := layout.Layout(graph.New(), layout.Options{})
+
+	out, err := Render(d, l, nil)
+	if err != nil {
+		t.Fatalf("Render err: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<title>Accessible Title</title>") {
+		t.Errorf("expected <title> with AccTitle in output:\n%s", raw)
+	}
+}
+
+func TestRenderTitleAndAccTitleBothSet(t *testing.T) {
+	d := &diagram.FlowchartDiagram{
+		Title:    "Main Title",
+		AccTitle: "Accessibility Title",
+	}
+	l := layout.Layout(graph.New(), layout.Options{})
+
+	out, err := Render(d, l, nil)
+	if err != nil {
+		t.Fatalf("Render err: %v", err)
+	}
+	raw := string(out)
+	if strings.Count(raw, "<title>") != 2 {
+		t.Errorf("expected 2 <title> elements when both Title and AccTitle set, got %d:\n%s", strings.Count(raw, "<title>"), raw)
+	}
+	if !strings.Contains(raw, "<title>Main Title</title>") {
+		t.Errorf("expected Title element:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<title>Accessibility Title</title>") {
+		t.Errorf("expected AccTitle element:\n%s", raw)
+	}
+}
+
+func TestRenderNoTitleOrDescWhenEmpty(t *testing.T) {
+	d := &diagram.FlowchartDiagram{}
+	l := layout.Layout(graph.New(), layout.Options{})
+
+	out, err := Render(d, l, nil)
+	if err != nil {
+		t.Fatalf("Render err: %v", err)
+	}
+	raw := string(out)
+	if strings.Contains(raw, "<title>") {
+		t.Errorf("unexpected <title> in output when no title set:\n%s", raw)
+	}
+	if strings.Contains(raw, "<desc>") {
+		t.Errorf("unexpected <desc> in output when no descr set:\n%s", raw)
+	}
+}
+
 var updateGolden = flag.Bool("update", false, "update golden files")
 
 func TestGoldenSimple(t *testing.T) {
