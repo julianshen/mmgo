@@ -359,7 +359,7 @@ func (p *parser) parseClassDef(line string) error {
 	css := parts[1]
 	p.diagram.Classes[name] = css
 	cssFields := strings.Fields(css)
-	if len(cssFields) >= 2 && cssFields[1] == "@@" {
+	if len(cssFields) >= 2 && cssFields[len(cssFields)-1] == "@@" {
 		p.pendingApplyAll = append(p.pendingApplyAll, name)
 	}
 	return nil
@@ -757,32 +757,29 @@ func stripInlineClass(s string) (rest string, classes []string) {
 var entityRe = regexp.MustCompile(`#([a-zA-Z]+|\d+);?`)
 
 func decodeEntities(s string) string {
-	if strings.IndexByte(s, '#') < 0 {
-		s = strings.ReplaceAll(s, "<br/>", "\n")
-		s = strings.ReplaceAll(s, "<br>", "\n")
-		return s
+	if strings.IndexByte(s, '#') >= 0 {
+		s = entityRe.ReplaceAllStringFunc(s, func(match string) string {
+			name := strings.TrimSuffix(strings.TrimPrefix(match, "#"), ";")
+			switch name {
+			case "quot":
+				return `"`
+			case "amp":
+				return "&"
+			case "lt":
+				return "<"
+			case "gt":
+				return ">"
+			case "apos":
+				return "'"
+			case "nbsp":
+				return "\u00a0"
+			}
+			if n, err := strconv.Atoi(name); err == nil {
+				return string(rune(n))
+			}
+			return match
+		})
 	}
-	s = entityRe.ReplaceAllStringFunc(s, func(match string) string {
-		name := strings.TrimSuffix(strings.TrimPrefix(match, "#"), ";")
-		switch name {
-		case "quot":
-			return `"`
-		case "amp":
-			return "&"
-		case "lt":
-			return "<"
-		case "gt":
-			return ">"
-		case "apos":
-			return "'"
-		case "nbsp":
-			return "\u00a0"
-		}
-		if n, err := strconv.Atoi(name); err == nil {
-			return string(rune(n))
-		}
-		return match
-	})
 	s = strings.ReplaceAll(s, "<br/>", "\n")
 	s = strings.ReplaceAll(s, "<br>", "\n")
 	return s
