@@ -1,0 +1,15 @@
+flowchart LR
+    subgraph build [Build]
+        direction TB
+        Checkout[Checkout Code] --> Install[Install Dependencies]
+        Install --> Compile[Compile]
+        Compile --> Test[Run Tests]
+    end
+    subgraph deploy [Deploy]
+        direction TB
+        Package[Package Artifact] --> Stage[Deploy to Staging]
+        Stage --> Verify[Run Smoke Tests]
+        Verify --> Prod[Deploy to Production]
+    end
+    Test -->|tests pass| Package
+    Test -->|tests fail| Notify[Send Alert]

@@ -69,9 +69,10 @@ const (
 	LineStyleSolid
 	LineStyleDotted
 	LineStyleThick
+	LineStyleInvisible
 )
 
-var lineStyleNames = []string{"unknown", "solid", "dotted", "thick"}
+var lineStyleNames = []string{"unknown", "solid", "dotted", "thick", "invisible"}
 
 func (ls LineStyle) String() string { return enumString(ls, lineStyleNames) }
 
@@ -107,17 +108,20 @@ type Edge struct {
 	From      string
 	To        string
 	Label     string
+	ID        string
 	LineStyle LineStyle
 	ArrowHead ArrowHead
+	ArrowTail ArrowHead
 }
 
 // Subgraph is a named grouping of nodes. Subgraphs may nest.
 type Subgraph struct {
-	ID       string
-	Label    string
-	Nodes    []Node
-	Edges    []Edge
-	Children []Subgraph
+	ID        string
+	Label     string
+	Direction Direction
+	Nodes     []Node
+	Edges     []Edge
+	Children  []*Subgraph
 }
 
 // StyleDef is an inline style directive applied to a node.
@@ -136,14 +140,13 @@ type StyleDef struct {
 // Edges may cross subgraph boundaries; an edge lives in the scope where it
 // is declared in the source.
 type FlowchartDiagram struct {
-	Nodes     []Node
-	Edges     []Edge
-	Subgraphs []Subgraph
-	Styles    []StyleDef
-	// Classes maps class name -> raw CSS declarations, referenced by
-	// Node.Classes. May be nil if no classDef directives were parsed.
-	Classes   map[string]string
-	Direction Direction
+	Nodes      []Node
+	Edges      []Edge
+	Subgraphs  []*Subgraph
+	Styles     []StyleDef
+	Classes    map[string]string
+	LinkStyles map[int]string
+	Direction  Direction
 }
 
 // Type implements Diagram.
@@ -158,8 +161,8 @@ var _ Diagram = (*FlowchartDiagram)(nil)
 // recursion.
 func (d *FlowchartDiagram) AllNodes() []Node {
 	nodes := append([]Node(nil), d.Nodes...)
-	for i := range d.Subgraphs {
-		nodes = append(nodes, d.Subgraphs[i].AllNodes()...)
+	for _, sg := range d.Subgraphs {
+		nodes = append(nodes, sg.AllNodes()...)
 	}
 	return nodes
 }
@@ -168,8 +171,8 @@ func (d *FlowchartDiagram) AllNodes() []Node {
 // `subgraph ... end` block.
 func (d *FlowchartDiagram) AllEdges() []Edge {
 	edges := append([]Edge(nil), d.Edges...)
-	for i := range d.Subgraphs {
-		edges = append(edges, d.Subgraphs[i].AllEdges()...)
+	for _, sg := range d.Subgraphs {
+		edges = append(edges, sg.AllEdges()...)
 	}
 	return edges
 }

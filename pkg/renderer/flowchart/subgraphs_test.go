@@ -11,7 +11,7 @@ import (
 
 func TestRenderSubgraph(t *testing.T) {
 	d := &diagram.FlowchartDiagram{
-		Subgraphs: []diagram.Subgraph{
+		Subgraphs: []*diagram.Subgraph{
 			{
 				ID:    "sg1",
 				Label: "My Group",
@@ -103,7 +103,7 @@ func TestRenderEmptySubgraphProducesNoNaN(t *testing.T) {
 	// contains no nodes at all) must NOT emit a `<rect>` with NaN/Inf
 	// coordinates. Regression for the ±Inf bbox bug.
 	d := &diagram.FlowchartDiagram{
-		Subgraphs: []diagram.Subgraph{
+		Subgraphs: []*diagram.Subgraph{
 			{ID: "empty", Label: "Empty", Nodes: []diagram.Node{{ID: "ghost"}}},
 		},
 	}
@@ -122,7 +122,7 @@ func TestRenderSubgraphContents(t *testing.T) {
 	// the AST contract, nodes inside a subgraph are stored only in
 	// Subgraph.Nodes — top-level renderNodes won't see them.
 	d := &diagram.FlowchartDiagram{
-		Subgraphs: []diagram.Subgraph{
+		Subgraphs: []*diagram.Subgraph{
 			{
 				ID: "sg1", Label: "Group",
 				Nodes: []diagram.Node{
@@ -161,11 +161,11 @@ func TestRenderSubgraphContents(t *testing.T) {
 
 func TestNestedSubgraph(t *testing.T) {
 	d := &diagram.FlowchartDiagram{
-		Subgraphs: []diagram.Subgraph{
+		Subgraphs: []*diagram.Subgraph{
 			{
 				ID: "outer", Label: "Outer",
 				Nodes: []diagram.Node{{ID: "A"}},
-				Children: []diagram.Subgraph{
+				Children: []*diagram.Subgraph{
 					{ID: "inner", Label: "Inner", Nodes: []diagram.Node{{ID: "B"}}},
 				},
 			},

@@ -1,59 +1,22 @@
 // Package flowchart parses Mermaid flowchart/graph syntax into a
 // FlowchartDiagram AST.
-//
-// Supported syntax (MVP scope):
-//
-//	graph LR            // or: flowchart TB, graph TD, etc.
-//	    A[Rectangle] --> B(Rounded)
-//	    B --> C{Diamond}
-//	    C -->|Yes| D((Circle))
-//	    %% comments are stripped to end of line
-//
-// Supported node shapes: rectangle [], rounded-rectangle (), stadium ([]),
-// subroutine [[]], cylinder [()], circle (()), asymmetric >], diamond {},
-// hexagon {{}}, parallelogram [//], parallelogram-alt [\\],
-// trapezoid [/\], trapezoid-alt [\/], double-circle ((())).
-//
-// Supported edges:
-//   - solid:  -->, ---, and long-dash variants (--->, ---->, ---- ...)
-//   - dotted: -.->, -.-, and extended-dot variants (-..->, -...-  ...)
-//   - thick:  ==>, ===, and long variants (===>, ====>, ==== ...)
-//
-// Edge labels:
-//   - pipe form:   A -->|label| B
-//   - inline form: A -- label --> B     (solid family)
-//                  A == label ==> B     (thick family)
-//
-// Chained edges (`A --> B --> C`) emit one edge per segment in order.
-// Arrow detection skips bracketed regions and double-quoted strings,
-// so labels like `A[--> not an arrow] --> B` parse correctly.
-//
-// TODO(features): subgraphs (nested `subgraph` ... `end` blocks),
-// style/classDef/class directives, init directives (%%{init: ...}%%),
-// additional arrow endpoints (-x, -o), dotted inline labels
-// (`-. label .->`), and Unicode node IDs. These are planned for a
-// follow-up PR once the renderer lands.
 package flowchart
 
 import (
 	"bufio"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 )
 
-// Parse reads a flowchart/graph definition from r and returns the
-// resulting FlowchartDiagram. Errors include a 1-based line number
-// pointing to the offending input.
 func Parse(r io.Reader) (*diagram.FlowchartDiagram, error) {
 	p := &parser{
 		nodeIndex: make(map[string]int),
 	}
 	scanner := bufio.NewScanner(r)
-	// Bump the line buffer past the 64 KB default so generated diagrams
-	// with long inline labels (HTML, rich text) don't hit ErrTooLong.
 	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	lineNum := 0
 	headerSeen := false
@@ -86,22 +49,102 @@ func Parse(r io.Reader) (*diagram.FlowchartDiagram, error) {
 	return p.diagram, nil
 }
 
-// parser holds mutable state during line-by-line parsing.
 type parser struct {
-	diagram *diagram.FlowchartDiagram
-	// nodeIndex maps node ID to its position in diagram.Nodes so we
-	// can merge shape/label info from multiple definitions of the
-	// same node without duplicating it.
-	nodeIndex map[string]int
+	diagram       *diagram.FlowchartDiagram
+	nodeIndex     map[string]int
+	subgraphStack []*diagram.Subgraph
 }
 
-// stripComment removes the "%%" to-end-of-line comment from a raw
-// line. Bracket-aware: `%%` is not treated as a comment when it
-// appears inside `[]`/`()`/`{}`, inside a `|...|` pipe label, or
-// inside a double-quoted string. Outside those regions, `%%` is only a
-// comment when it's at the start of the line or preceded by whitespace
-// (so `A[100%%]` — had it somehow escaped the bracket check — would
-// still be preserved).
+func (p *parser) currentSubgraph() *diagram.Subgraph {
+	if len(p.subgraphStack) == 0 {
+		return nil
+	}
+	return p.subgraphStack[len(p.subgraphStack)-1]
+}
+
+func (p *parser) findNode(id string) *diagram.Node {
+	for si := len(p.subgraphStack) - 1; si >= 0; si-- {
+		for i := range p.subgraphStack[si].Nodes {
+			if p.subgraphStack[si].Nodes[i].ID == id {
+				return &p.subgraphStack[si].Nodes[i]
+			}
+		}
+	}
+	for si := range p.diagram.Subgraphs {
+		if n := findNodeInSubgraph(p.diagram.Subgraphs[si], id); n != nil {
+			return n
+		}
+	}
+	if idx, ok := p.nodeIndex[id]; ok {
+		return &p.diagram.Nodes[idx]
+	}
+	return nil
+}
+
+func findNodeInSubgraph(sg *diagram.Subgraph, id string) *diagram.Node {
+	for i := range sg.Nodes {
+		if sg.Nodes[i].ID == id {
+			return &sg.Nodes[i]
+		}
+	}
+	for _, child := range sg.Children {
+		if n := findNodeInSubgraph(child, id); n != nil {
+			return n
+		}
+	}
+	return nil
+}
+
+func (p *parser) addNode(id string, shape diagram.NodeShape, label string, classes []string) {
+	if id == "" {
+		return
+	}
+	if existing := p.findNode(id); existing != nil {
+		if existing.Shape == diagram.NodeShapeUnknown && shape != diagram.NodeShapeUnknown {
+			existing.Shape = shape
+		}
+		if existing.Label == "" && label != "" {
+			existing.Label = label
+		}
+		if len(classes) > 0 {
+			existing.Classes = append(existing.Classes, classes...)
+		}
+		return
+	}
+	sg := p.currentSubgraph()
+	if sg != nil {
+		sg.Nodes = append(sg.Nodes, diagram.Node{ID: id, Label: label, Shape: shape, Classes: classes})
+		return
+	}
+	p.nodeIndex[id] = len(p.diagram.Nodes)
+	p.diagram.Nodes = append(p.diagram.Nodes, diagram.Node{ID: id, Label: label, Shape: shape, Classes: classes})
+}
+
+func (p *parser) addEdge(e diagram.Edge) {
+	sg := p.currentSubgraph()
+	if sg != nil {
+		sg.Edges = append(sg.Edges, e)
+	} else {
+		p.diagram.Edges = append(p.diagram.Edges, e)
+	}
+}
+
+func (p *parser) ensureNode(id string) {
+	if id == "" {
+		return
+	}
+	if p.findNode(id) != nil {
+		return
+	}
+	sg := p.currentSubgraph()
+	if sg != nil {
+		sg.Nodes = append(sg.Nodes, diagram.Node{ID: id})
+		return
+	}
+	p.nodeIndex[id] = len(p.diagram.Nodes)
+	p.diagram.Nodes = append(p.diagram.Nodes, diagram.Node{ID: id})
+}
+
 func stripComment(line string) string {
 	depth := 0
 	inQuote := false
@@ -143,9 +186,6 @@ func stripComment(line string) string {
 	return line
 }
 
-// parseHeader recognizes the "graph <DIR>" / "flowchart <DIR>" header
-// and initializes the diagram. DIR defaults to TB if omitted. The
-// keyword match requires a word boundary so `grapha LR` is rejected.
 func (p *parser) parseHeader(line string) error {
 	rest, ok := matchKeyword(line, "flowchart")
 	if !ok {
@@ -159,13 +199,14 @@ func (p *parser) parseHeader(line string) error {
 	if err != nil {
 		return err
 	}
-	p.diagram = &diagram.FlowchartDiagram{Direction: dir}
+	p.diagram = &diagram.FlowchartDiagram{
+		Direction:  dir,
+		Classes:    make(map[string]string),
+		LinkStyles: make(map[int]string),
+	}
 	return nil
 }
 
-// matchKeyword reports whether line starts with kw followed by either
-// end-of-string or whitespace, and returns the trimmed remainder. This
-// prevents matching `grapha` / `flowchartfoo` as the header keyword.
 func matchKeyword(line, kw string) (rest string, ok bool) {
 	if !strings.HasPrefix(line, kw) {
 		return "", false
@@ -180,10 +221,6 @@ func matchKeyword(line, kw string) (rest string, ok bool) {
 	return strings.TrimSpace(line[len(kw):]), true
 }
 
-// parseDirection converts a Mermaid direction keyword to a Direction.
-// An empty string defaults to TB, matching Mermaid's default. Extra
-// tokens after a valid direction (e.g. `LR foo`) are reported as a
-// separate error from "unknown direction".
 func parseDirection(s string) (diagram.Direction, error) {
 	if i := strings.IndexAny(s, " \t"); i >= 0 {
 		return diagram.DirectionUnknown, fmt.Errorf("extra tokens after direction %q", s)
@@ -202,75 +239,274 @@ func parseDirection(s string) (diagram.Direction, error) {
 	}
 }
 
-// parseLine dispatches a non-header, non-comment, non-empty line. It
-// walks through chained edges left-to-right: `A --> B --> C` produces
-// A→B and B→C edges in order.
 func (p *parser) parseLine(line string) error {
+	trimmed := strings.TrimSpace(line)
+
+	if strings.HasPrefix(trimmed, "subgraph") {
+		return p.parseSubgraph(trimmed)
+	}
+	if trimmed == "end" {
+		return p.parseEnd()
+	}
+	if strings.HasPrefix(trimmed, "style ") {
+		return p.parseStyle(trimmed)
+	}
+	if strings.HasPrefix(trimmed, "classDef ") {
+		return p.parseClassDef(trimmed)
+	}
+	if strings.HasPrefix(trimmed, "class ") {
+		return p.parseClass(trimmed)
+	}
+	if strings.HasPrefix(trimmed, "linkStyle ") {
+		return p.parseLinkStyle(trimmed)
+	}
+	if strings.HasPrefix(trimmed, "direction ") {
+		return p.parseDirectionInSubgraph(trimmed)
+	}
+
+	return p.parseEdgeLine(line)
+}
+
+func (p *parser) parseSubgraph(line string) error {
+	rest := strings.TrimSpace(line[len("subgraph"):])
+	if rest == "" {
+		return fmt.Errorf("subgraph requires an ID")
+	}
+
+	id, label := rest, rest
+	parts := strings.SplitN(rest, " ", 2)
+	if len(parts) == 2 {
+		id = parts[0]
+		label = parts[1]
+		label = strings.TrimSpace(label)
+	}
+
+	label = stripQuotes(label)
+
+	sg := &diagram.Subgraph{
+		ID:    id,
+		Label: label,
+	}
+
+	if p.currentSubgraph() != nil {
+		p.currentSubgraph().Children = append(p.currentSubgraph().Children, sg)
+	} else {
+		p.diagram.Subgraphs = append(p.diagram.Subgraphs, sg)
+	}
+	p.subgraphStack = append(p.subgraphStack, sg)
+	p.ensureNode(id)
+	return nil
+}
+
+func (p *parser) parseEnd() error {
+	if len(p.subgraphStack) == 0 {
+		return fmt.Errorf("unexpected 'end' without subgraph")
+	}
+	p.subgraphStack = p.subgraphStack[:len(p.subgraphStack)-1]
+	return nil
+}
+
+func (p *parser) parseStyle(line string) error {
+	rest := line[len("style "):]
+	parts := strings.SplitN(rest, " ", 2)
+	if len(parts) < 2 {
+		return fmt.Errorf("style requires node ID and CSS")
+	}
+	p.diagram.Styles = append(p.diagram.Styles, diagram.StyleDef{
+		NodeID: parts[0],
+		CSS:    parts[1],
+	})
+	return nil
+}
+
+func (p *parser) parseClassDef(line string) error {
+	rest := line[len("classDef "):]
+	parts := strings.SplitN(rest, " ", 2)
+	if len(parts) < 2 {
+		return fmt.Errorf("classDef requires name and CSS")
+	}
+	p.diagram.Classes[parts[0]] = parts[1]
+	return nil
+}
+
+func (p *parser) parseClass(line string) error {
+	rest := line[len("class "):]
+	parts := strings.SplitN(rest, " ", 2)
+	if len(parts) < 2 {
+		return fmt.Errorf("class requires node IDs and class name")
+	}
+	nodeIDs := strings.Split(parts[0], ",")
+	className := parts[1]
+	for _, nid := range nodeIDs {
+		nid = strings.TrimSpace(nid)
+		if nid == "" {
+			continue
+		}
+		p.addNodeClass(nid, className)
+	}
+	return nil
+}
+
+func (p *parser) addNodeClass(nodeID, className string) {
+	if n := p.findNode(nodeID); n != nil {
+		n.Classes = append(n.Classes, className)
+	}
+}
+
+func (p *parser) parseLinkStyle(line string) error {
+	rest := line[len("linkStyle "):]
+	parts := strings.SplitN(rest, " ", 2)
+	if len(parts) < 2 {
+		return fmt.Errorf("linkStyle requires index and CSS")
+	}
+	indices := strings.Split(parts[0], ",")
+	css := parts[1]
+	for _, idxStr := range indices {
+		idxStr = strings.TrimSpace(idxStr)
+		n, err := strconv.Atoi(idxStr)
+		if err != nil {
+			return fmt.Errorf("invalid linkStyle index %q", idxStr)
+		}
+		p.diagram.LinkStyles[n] = css
+	}
+	return nil
+}
+
+func (p *parser) parseDirectionInSubgraph(line string) error {
+	rest := strings.TrimSpace(line[len("direction "):])
+	dir, err := parseDirection(rest)
+	if err != nil {
+		return err
+	}
+	sg := p.currentSubgraph()
+	if sg != nil {
+		sg.Direction = dir
+	}
+	return nil
+}
+
+func (p *parser) parseEdgeLine(line string) error {
 	for {
 		arrow := findArrow(line)
 		if arrow == nil {
-			// No arrow: final segment is a standalone node (or nothing).
 			trimmed := strings.TrimSpace(line)
 			if trimmed == "" {
 				return nil
 			}
-			id, shape, label, err := parseNodeDef(trimmed)
+			id, shape, label, classes, err := parseNodeDef(trimmed)
 			if err != nil {
 				if detErr := diagnoseMalformedArrow(trimmed); detErr != nil {
 					return detErr
 				}
 				return err
 			}
-			p.upsertNode(id, shape, label)
+			p.addNode(id, shape, label, classes)
 			return nil
 		}
 		if arrow.labelUnclosed {
 			return fmt.Errorf("unclosed edge label: missing %q", "|")
 		}
 		leftText := strings.TrimSpace(line[:arrow.start])
+		leftText, arrow.edgeID = extractEdgeID(leftText)
 
-		// The right side extends to the next arrow (chained edges) or EOL.
 		rightStart := arrow.end
 		nextArrow := findArrow(line[rightStart:])
 		rightEnd := len(line)
 		if nextArrow != nil {
 			rightEnd = rightStart + nextArrow.start
 		}
-		rightText := strings.TrimSpace(line[rightStart:rightEnd])
+		rightSegment := strings.TrimSpace(line[rightStart:rightEnd])
 
-		leftID, leftShape, leftLabel, err := parseNodeDef(leftText)
+		leftID, leftShape, leftLabel, leftClasses, err := parseNodeDef(leftText)
 		if err != nil {
 			return fmt.Errorf("left side: %w", err)
 		}
-		rightID, rightShape, rightLabel, err := parseNodeDef(rightText)
-		if err != nil {
-			return fmt.Errorf("right side: %w", err)
-		}
+		p.addNode(leftID, leftShape, leftLabel, leftClasses)
 
-		p.upsertNode(leftID, leftShape, leftLabel)
-		p.upsertNode(rightID, rightShape, rightLabel)
-		p.diagram.Edges = append(p.diagram.Edges, diagram.Edge{
-			From:      leftID,
-			To:        rightID,
-			Label:     arrow.label,
-			LineStyle: arrow.lineStyle,
-			ArrowHead: arrow.arrowHead,
-		})
+		rightNodes := parseAmpersandNodes(rightSegment)
+		for _, rn := range rightNodes {
+			p.addNode(rn.id, rn.shape, rn.label, rn.classes)
+			p.addEdge(diagram.Edge{
+				From:      leftID,
+				To:        rn.id,
+				Label:     arrow.label,
+				ID:        arrow.edgeID,
+				LineStyle: arrow.lineStyle,
+				ArrowHead: arrow.arrowHead,
+				ArrowTail: arrow.arrowTail,
+			})
+		}
 
 		if nextArrow == nil {
 			return nil
 		}
-		// Advance: the right node becomes the next left. The remainder
-		// of the line starts at nextArrow, so rebuild with rightText as
-		// the new left-hand segment.
-		line = rightText + " " + line[rightEnd:]
+		lastRight := rightNodes[len(rightNodes)-1]
+		line = lastRight.raw + " " + line[rightEnd:]
 	}
 }
 
-// diagnoseMalformedArrow returns a helpful error for common malformed
-// arrow forms that parseNodeDef's "unrecognized shape" wouldn't
-// pinpoint. The main case is an inline edge label without a closing
-// terminator: `A -- text` (missing `-->` / `---`).
+type ampersandNode struct {
+	id      string
+	shape   diagram.NodeShape
+	label   string
+	classes []string
+	raw     string
+}
+
+func parseAmpersandNodes(segment string) []ampersandNode {
+	parts := splitOnAmpersand(segment)
+	var nodes []ampersandNode
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		id, shape, label, classes, err := parseNodeDef(part)
+		if err != nil {
+			id = part
+			shape = diagram.NodeShapeUnknown
+		}
+		nodes = append(nodes, ampersandNode{id: id, shape: shape, label: label, classes: classes, raw: part})
+	}
+	if len(nodes) == 0 {
+		nodes = append(nodes, ampersandNode{})
+	}
+	return nodes
+}
+
+func splitOnAmpersand(s string) []string {
+	depth := 0
+	inQuote := false
+	var parts []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if inQuote {
+			if c == '"' {
+				inQuote = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inQuote = true
+		case '[', '(', '{':
+			depth++
+		case ']', ')', '}':
+			if depth > 0 {
+				depth--
+			}
+		case '&':
+			if depth == 0 {
+				parts = append(parts, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, s[start:])
+	return parts
+}
+
 func diagnoseMalformedArrow(segment string) error {
 	if strings.Contains(segment, " -- ") || strings.Contains(segment, " == ") {
 		return fmt.Errorf("unterminated inline edge label: expected `-->` / `---` / `==>` / `===` terminator")
@@ -278,47 +514,13 @@ func diagnoseMalformedArrow(segment string) error {
 	return nil
 }
 
-// upsertNode adds a node or merges shape/label info into an existing
-// entry. A bare reference (shape=Unknown, label="") never overwrites a
-// previously defined shape/label.
-func (p *parser) upsertNode(id string, shape diagram.NodeShape, label string) {
-	if id == "" {
-		return
-	}
-	if idx, ok := p.nodeIndex[id]; ok {
-		// Merge: fill in any fields the existing entry is missing.
-		existing := &p.diagram.Nodes[idx]
-		if existing.Shape == diagram.NodeShapeUnknown && shape != diagram.NodeShapeUnknown {
-			existing.Shape = shape
-		}
-		if existing.Label == "" && label != "" {
-			existing.Label = label
-		}
-		return
-	}
-	p.nodeIndex[id] = len(p.diagram.Nodes)
-	p.diagram.Nodes = append(p.diagram.Nodes, diagram.Node{
-		ID:    id,
-		Label: label,
-		Shape: shape,
-	})
-}
-
-// shapePattern is a bracketed node-shape definition — an opening
-// delimiter, a closing delimiter, and the corresponding NodeShape.
 type shapePattern struct {
 	open, close string
 	shape       diagram.NodeShape
 }
 
-// shapePatterns lists all supported node shapes in length-descending
-// order so that more specific patterns (e.g., `[[`) are tried before
-// less specific ones (e.g., `[`). Order is load-bearing: rearranging
-// breaks disambiguation.
 var shapePatterns = []shapePattern{
-	// 3-char openings first.
 	{"(((", ")))", diagram.NodeShapeDoubleCircle},
-	// 2-char openings.
 	{"((", "))", diagram.NodeShapeCircle},
 	{"([", "])", diagram.NodeShapeStadium},
 	{"[[", "]]", diagram.NodeShapeSubroutine},
@@ -328,29 +530,40 @@ var shapePatterns = []shapePattern{
 	{`[\`, `\]`, diagram.NodeShapeParallelogramAlt},
 	{"[/", `\]`, diagram.NodeShapeTrapezoid},
 	{`[\`, "/]", diagram.NodeShapeTrapezoidAlt},
-	// 1-char openings last.
 	{">", "]", diagram.NodeShapeAsymmetric},
 	{"(", ")", diagram.NodeShapeRoundedRectangle},
 	{"[", "]", diagram.NodeShapeRectangle},
 	{"{", "}", diagram.NodeShapeDiamond},
 }
 
-// parseNodeDef reads a token like `A[Label]`, `B((Circle))`, or a bare
-// `C` and returns the node ID, shape, and label. A bare reference has
-// shape NodeShapeUnknown and empty label.
-//
-// Returns an error for malformed input (e.g., empty ID, unclosed
-// bracket).
-func parseNodeDef(s string) (id string, shape diagram.NodeShape, label string, err error) {
+func extractEdgeID(s string) (rest, edgeID string) {
+	atIdx := strings.LastIndex(s, "@")
+	if atIdx < 0 {
+		return s, ""
+	}
+	candidate := s[atIdx+1:]
+	if candidate != "" {
+		return s, ""
+	}
+	before := s[:atIdx]
+	start := len(before)
+	for start > 0 && isIDChar(before[start-1]) {
+		start--
+	}
+	if start == len(before) {
+		return s, ""
+	}
+	edgeID = before[start:]
+	rest = strings.TrimRight(before[:start], " \t")
+	return rest, edgeID
+}
+
+func parseNodeDef(s string) (id string, shape diagram.NodeShape, label string, classes []string, err error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return "", diagram.NodeShapeUnknown, "", fmt.Errorf("empty node definition")
+		return "", diagram.NodeShapeUnknown, "", nil, fmt.Errorf("empty node definition")
 	}
 
-	// Read the ID: a run of word characters (letters, digits, underscore)
-	// plus internal hyphens. A hyphen is consumed only when it's not the
-	// start of an arrow token (`--` or `->`), so `node-1 --> node-2` and
-	// `node-1-->node-2` both parse correctly.
 	i := 0
 	for i < len(s) {
 		c := s[i]
@@ -366,29 +579,26 @@ func parseNodeDef(s string) (id string, shape diagram.NodeShape, label string, e
 	}
 	if i == 0 {
 		if s[0] >= 0x80 {
-			return "", diagram.NodeShapeUnknown, "", fmt.Errorf("non-ASCII node IDs are not yet supported (got %q)", s)
+			return "", diagram.NodeShapeUnknown, "", nil, fmt.Errorf("non-ASCII node IDs are not yet supported (got %q)", s)
 		}
-		return "", diagram.NodeShapeUnknown, "", fmt.Errorf("invalid node ID in %q", s)
+		return "", diagram.NodeShapeUnknown, "", nil, fmt.Errorf("invalid node ID in %q", s)
 	}
 	id = s[:i]
-	// A trailing non-ASCII byte means the caller wrote something like
-	// `A日` — surface the deferred-feature error instead of falling
-	// through to "unrecognized shape".
 	if i < len(s) && s[i] >= 0x80 {
-		return "", diagram.NodeShapeUnknown, "", fmt.Errorf("non-ASCII node IDs are not yet supported (got %q)", s)
+		return "", diagram.NodeShapeUnknown, "", nil, fmt.Errorf("non-ASCII node IDs are not yet supported (got %q)", s)
 	}
-	// Optional whitespace between the ID and its shape: `A [Label]`.
 	rest := strings.TrimLeft(s[i:], " \t")
 
 	if rest == "" {
-		// Bare reference.
-		return id, diagram.NodeShapeUnknown, "", nil
+		return id, diagram.NodeShapeUnknown, "", nil, nil
 	}
 
-	// Try each shape pattern in order. Both the open and close tokens
-	// must match exactly. Track whether any pattern matched the opening
-	// delimiter so we can distinguish "unclosed bracket" from an
-	// entirely unrecognized shape.
+	rest, cls := stripInlineClass(rest)
+
+	if rest == "" {
+		return id, diagram.NodeShapeUnknown, "", cls, nil
+	}
+
 	openMatched := ""
 	for _, sp := range shapePatterns {
 		if !strings.HasPrefix(rest, sp.open) {
@@ -401,18 +611,37 @@ func parseNodeDef(s string) (id string, shape diagram.NodeShape, label string, e
 			continue
 		}
 		inner := rest[len(sp.open) : len(rest)-len(sp.close)]
-		return id, sp.shape, inner, nil
+		label = stripQuotes(inner)
+		return id, sp.shape, label, cls, nil
 	}
 
 	if openMatched != "" {
-		return "", diagram.NodeShapeUnknown, "", fmt.Errorf("unclosed %q in %q", openMatched, s)
+		return "", diagram.NodeShapeUnknown, "", nil, fmt.Errorf("unclosed %q in %q", openMatched, s)
 	}
-	return "", diagram.NodeShapeUnknown, "", fmt.Errorf("unrecognized shape in %q", s)
+	return "", diagram.NodeShapeUnknown, "", nil, fmt.Errorf("unrecognized shape in %q", s)
 }
 
-// isIDChar reports whether c is a valid character in a Mermaid node ID.
-// ASCII-only: node IDs are restricted to [A-Za-z0-9_]. Unicode IDs are
-// not yet supported.
+func stripInlineClass(s string) (rest string, classes []string) {
+	for {
+		idx := strings.LastIndex(s, ":::")
+		if idx < 0 {
+			return s, classes
+		}
+		cls := strings.TrimSpace(s[idx+3:])
+		if cls != "" {
+			classes = append([]string{cls}, classes...)
+		}
+		s = s[:idx]
+	}
+}
+
+func stripQuotes(s string) string {
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		return s[1 : len(s)-1]
+	}
+	return s
+}
+
 func isIDChar(c byte) bool {
 	return (c >= 'a' && c <= 'z') ||
 		(c >= 'A' && c <= 'Z') ||
@@ -420,25 +649,16 @@ func isIDChar(c byte) bool {
 		c == '_'
 }
 
-// arrowMatch describes one arrow operator found in a line. If the
-// arrow carries an inline label (`A -- text --> B`) the label is
-// captured during scanning and label/start/end span the whole
-// opener+text+terminator. Pipe-form labels (`A -->|text| B`) are
-// attached after scanning by attachPipeLabel.
 type arrowMatch struct {
-	start, end    int               // byte offsets of the arrow span within the line
-	lineStyle     diagram.LineStyle // solid/dotted/thick
-	arrowHead     diagram.ArrowHead // arrow/none
-	label         string            // inline or pipe-form label, or ""
-	labelUnclosed bool              // saw opening `|` with no closing `|`
+	start, end    int
+	lineStyle     diagram.LineStyle
+	arrowHead     diagram.ArrowHead
+	arrowTail     diagram.ArrowHead
+	label         string
+	labelUnclosed bool
+	edgeID        string
 }
 
-// findArrow returns the leftmost arrow in line, or nil. Arrow detection
-// skips content inside bracketed regions (`[...]`, `(...)`, `{...}`)
-// and double-quoted strings so labels like `A[--> not an arrow] --> B`
-// work correctly. On success, a pipe-form `|label|` immediately after
-// the arrow is attached to the match (unless an inline label was
-// already captured inside the arrow span).
 func findArrow(line string) *arrowMatch {
 	depth := 0
 	inQuote := false
@@ -476,33 +696,108 @@ func findArrow(line string) *arrowMatch {
 	return nil
 }
 
-// matchArrowAt tries to recognize an arrow token starting at line[i].
-// Dispatches on the first byte to the appropriate family.
 func matchArrowAt(line string, i int) (arrowMatch, bool) {
+	if i >= len(line) {
+		return arrowMatch{}, false
+	}
 	switch line[i] {
 	case '-':
 		if i+1 < len(line) && line[i+1] == '.' {
 			return matchDottedAt(line, i)
 		}
-		return matchDashAt(line, i, '-', diagram.LineStyleSolid)
+		m, ok := matchDashAt(line, i, '-', diagram.LineStyleSolid)
+		if ok {
+			if i >= 2 && (line[i-1] == 'o' || line[i-1] == 'x') && (line[i-2] == ' ' || line[i-2] == '\t') {
+				if line[i-1] == 'o' {
+					m.arrowTail = diagram.ArrowHeadCircle
+				} else {
+					m.arrowTail = diagram.ArrowHeadCross
+				}
+				m.start = i - 1
+			}
+			return m, true
+		}
+		return arrowMatch{}, false
 	case '=':
 		return matchDashAt(line, i, '=', diagram.LineStyleThick)
+	case '~':
+		return matchTildeAt(line, i)
+	case '<':
+		return matchBidirectionalAt(line, i)
 	}
 	return arrowMatch{}, false
 }
 
-// matchDashAt handles the solid (`-`) and thick (`=`) arrow families,
-// including long-dash variants (`--->`, `---->`, `====>`, `-----`, ...)
-// and the `--`/`==` inline-label opener. dash is the repeated char.
-//
-// Grammar:
-//
-//	arrow-with-head := dash{2,} ">"
-//	arrow-no-head   := dash{3,}
-//	inline-label    := dash dash whitespace text whitespace terminator
-//
-// Two dashes/equals with no `>` is reserved for the inline-label opener
-// (otherwise `A -- text --> B` would scan as an unterminated `--`).
+func matchTildeAt(line string, i int) (arrowMatch, bool) {
+	j := i
+	for j < len(line) && line[j] == '~' {
+		j++
+	}
+	if j-i < 3 {
+		return arrowMatch{}, false
+	}
+	return arrowMatch{
+		start:     i,
+		end:       j,
+		lineStyle: diagram.LineStyleInvisible,
+		arrowHead: diagram.ArrowHeadNone,
+	}, true
+}
+
+func circleOrCross(c byte) diagram.ArrowHead {
+	if c == 'o' {
+		return diagram.ArrowHeadCircle
+	}
+	return diagram.ArrowHeadCross
+}
+
+func matchBidirectionalAt(line string, i int) (arrowMatch, bool) {
+	if i+1 >= len(line) {
+		return arrowMatch{}, false
+	}
+	rest := line[i+1:]
+
+	if len(rest) >= 3 && (rest[0] == 'o' || rest[0] == 'x') && rest[1] == '-' {
+		tail := circleOrCross(rest[0])
+		m, ok := matchDashAt(line, i+2, '-', diagram.LineStyleSolid)
+		if ok {
+			m.arrowTail = tail
+			m.start = i
+			if m.arrowHead == diagram.ArrowHeadNone {
+				m.arrowHead = tail
+			}
+			return m, true
+		}
+	}
+
+	if len(rest) >= 1 && (rest[0] == '-' || rest[0] == '=') {
+		dash := rest[0]
+		style := diagram.LineStyleSolid
+		if dash == '=' {
+			style = diagram.LineStyleThick
+		}
+		m, ok := matchDashAt(line, i+1, dash, style)
+		if ok {
+			m.arrowTail = diagram.ArrowHeadArrow
+			m.start = i
+			return m, true
+		}
+	}
+	return arrowMatch{}, false
+}
+
+func resolveArrowHead(line string, j int, defaultHead diagram.ArrowHead) (diagram.ArrowHead, int) {
+	if j < len(line) {
+		switch line[j] {
+		case 'o':
+			return diagram.ArrowHeadCircle, j + 1
+		case 'x':
+			return diagram.ArrowHeadCross, j + 1
+		}
+	}
+	return defaultHead, j
+}
+
 func matchDashAt(line string, i int, dash byte, style diagram.LineStyle) (arrowMatch, bool) {
 	j := i + 1
 	for j < len(line) && line[j] == dash {
@@ -513,60 +808,200 @@ func matchDashAt(line string, i int, dash byte, style diagram.LineStyle) (arrowM
 		return arrowMatch{}, false
 	}
 	if j < len(line) && line[j] == '>' {
+		head, end := resolveArrowHead(line, j+1, diagram.ArrowHeadArrow)
 		return arrowMatch{
 			start:     i,
-			end:       j + 1,
+			end:       end,
 			lineStyle: style,
-			arrowHead: diagram.ArrowHeadArrow,
+			arrowHead: head,
 		}, true
 	}
 	if count >= 3 {
+		head := diagram.ArrowHeadNone
+		if j < len(line) && (line[j] == 'o' || line[j] == 'x') {
+			head = circleOrCross(line[j])
+			j++
+		}
 		return arrowMatch{
 			start:     i,
 			end:       j,
 			lineStyle: style,
-			arrowHead: diagram.ArrowHeadNone,
+			arrowHead: head,
+		}, true
+	}
+	if j < len(line) && (line[j] == 'o' || line[j] == 'x') {
+		head := circleOrCross(line[j])
+		return arrowMatch{
+			start:     i,
+			end:       j + 1,
+			lineStyle: style,
+			arrowHead: head,
 		}, true
 	}
 	return matchInlineLabelAt(line, i, j, dash, style)
 }
 
-// matchDottedAt handles `-.->` / `-..->` / ... (with-head) and
-// `-.-` / `-..-` / ... (no-head). Entry precondition: line[i]='-' and
-// line[i+1]='.'. Extra dots extend the arrow's visual length.
 func matchDottedAt(line string, i int) (arrowMatch, bool) {
-	j := i + 1 // pointing at the first '.'
+	j := i + 1
 	for j < len(line) && line[j] == '.' {
 		j++
 	}
-	if j >= len(line) || line[j] != '-' {
-		return arrowMatch{}, false
+	if j < len(line) && line[j] == '-' {
+		return matchDottedAfterDots(line, i, j)
 	}
+	if j < len(line) && (line[j] == ' ' || line[j] == '\t') {
+		if m, ok := matchDottedInlineLabelOpen(line, i, j); ok {
+			return m, true
+		}
+	}
+	return arrowMatch{}, false
+}
+
+func matchDottedAfterDots(line string, i, j int) (arrowMatch, bool) {
 	j++
 	if j < len(line) && line[j] == '>' {
+		head, end := resolveArrowHead(line, j+1, diagram.ArrowHeadArrow)
 		return arrowMatch{
 			start:     i,
-			end:       j + 1,
+			end:       end,
 			lineStyle: diagram.LineStyleDotted,
-			arrowHead: diagram.ArrowHeadArrow,
+			arrowHead: head,
 		}, true
+	}
+	head := diagram.ArrowHeadNone
+	end := j
+	if j < len(line) && (line[j] == 'o' || line[j] == 'x') {
+		head = circleOrCross(line[j])
+		end = j + 1
+	}
+	if head == diagram.ArrowHeadNone {
+		if m, ok := matchDottedInlineLabelAt(line, i, j); ok {
+			return m, true
+		}
 	}
 	return arrowMatch{
 		start:     i,
-		end:       j,
+		end:       end,
 		lineStyle: diagram.LineStyleDotted,
-		arrowHead: diagram.ArrowHeadNone,
+		arrowHead: head,
 	}, true
 }
 
-// matchInlineLabelAt handles `A -- text -->B` and the thick analog
-// `A == text ==>B`. openerEnd points at the byte after the opening
-// `--`/`==`. The terminator is the next run of the same dash char
-// followed by optional `>`; the label is the whitespace-trimmed text
-// between. Mermaid requires whitespace between the opener and label.
-//
-// Labels containing the dash char itself (e.g. `-- a--b --`) are not
-// supported — the first subsequent run wins.
+func matchDottedInlineLabelOpen(line string, openerStart, afterDot int) (arrowMatch, bool) {
+	if afterDot >= len(line) || (line[afterDot] != ' ' && line[afterDot] != '\t') {
+		return arrowMatch{}, false
+	}
+	labelStart := afterDot + 1
+	k := labelStart
+	for k < len(line) {
+		if line[k] != '.' {
+			k++
+			continue
+		}
+		if k == 0 || line[k-1] != ' ' && line[k-1] != '\t' && line[k-1] != '-' {
+			k++
+			continue
+		}
+		closeStart := k
+		dotCount := 0
+		for closeStart < len(line) && line[closeStart] == '.' {
+			dotCount++
+			closeStart++
+		}
+		if closeStart >= len(line) || line[closeStart] != '-' {
+			k = closeStart
+			continue
+		}
+		closeStart++
+		label := strings.TrimSpace(line[labelStart:k])
+		if label == "" {
+			k = closeStart
+			continue
+		}
+		if closeStart < len(line) && line[closeStart] == '>' {
+			head, end := resolveArrowHead(line, closeStart+1, diagram.ArrowHeadArrow)
+			return arrowMatch{
+				start:     openerStart,
+				end:       end,
+				lineStyle: diagram.LineStyleDotted,
+				arrowHead: head,
+				label:     stripQuotes(label),
+			}, true
+		}
+		head := diagram.ArrowHeadNone
+		end := closeStart
+		if closeStart < len(line) && (line[closeStart] == 'o' || line[closeStart] == 'x') {
+			head = circleOrCross(line[closeStart])
+			end = closeStart + 1
+		}
+		return arrowMatch{
+			start:     openerStart,
+			end:       end,
+			lineStyle: diagram.LineStyleDotted,
+			arrowHead: head,
+			label:     stripQuotes(label),
+		}, true
+	}
+	return arrowMatch{}, false
+}
+
+func matchDottedInlineLabelAt(line string, openerStart, afterFirstDash int) (arrowMatch, bool) {
+	j := afterFirstDash
+	if j >= len(line) || (line[j] != ' ' && line[j] != '\t') {
+		return arrowMatch{}, false
+	}
+	for j < len(line) {
+		if line[j] != '.' {
+			j++
+			continue
+		}
+		if j+1 >= len(line) || line[j-1] != '-' {
+			j++
+			continue
+		}
+		closeEnd := j + 1
+		if closeEnd < len(line) && line[closeEnd] == '>' {
+			head, end := resolveArrowHead(line, closeEnd+1, diagram.ArrowHeadArrow)
+			label := strings.TrimSpace(line[afterFirstDash : j-1])
+			if label == "" {
+				return arrowMatch{}, false
+			}
+			return arrowMatch{
+				start:     openerStart,
+				end:       end,
+				lineStyle: diagram.LineStyleDotted,
+				arrowHead: head,
+				label:     stripQuotes(label),
+			}, true
+		}
+		dotCount := 0
+		for closeEnd < len(line) && line[closeEnd] == '.' {
+			dotCount++
+			closeEnd++
+		}
+		if dotCount >= 2 {
+			label := strings.TrimSpace(line[afterFirstDash : j-1])
+			if label == "" {
+				return arrowMatch{}, false
+			}
+			head := diagram.ArrowHeadNone
+			if closeEnd < len(line) && (line[closeEnd] == 'o' || line[closeEnd] == 'x') {
+				head = circleOrCross(line[closeEnd])
+				closeEnd++
+			}
+			return arrowMatch{
+				start:     openerStart,
+				end:       closeEnd,
+				lineStyle: diagram.LineStyleDotted,
+				arrowHead: head,
+				label:     stripQuotes(label),
+			}, true
+		}
+		j++
+	}
+	return arrowMatch{}, false
+}
+
 func matchInlineLabelAt(line string, openerStart, openerEnd int, dash byte, style diagram.LineStyle) (arrowMatch, bool) {
 	if openerEnd >= len(line) || (line[openerEnd] != ' ' && line[openerEnd] != '\t') {
 		return arrowMatch{}, false
@@ -591,12 +1026,13 @@ func matchInlineLabelAt(line string, openerStart, openerEnd int, dash byte, styl
 			return arrowMatch{}, false
 		}
 		if m < len(line) && line[m] == '>' {
+			head, end := resolveArrowHead(line, m+1, diagram.ArrowHeadArrow)
 			return arrowMatch{
 				start:     openerStart,
-				end:       m + 1,
+				end:       end,
 				lineStyle: style,
-				arrowHead: diagram.ArrowHeadArrow,
-				label:     label,
+				arrowHead: head,
+				label:     stripQuotes(label),
 			}, true
 		}
 		if count >= 3 {
@@ -605,7 +1041,7 @@ func matchInlineLabelAt(line string, openerStart, openerEnd int, dash byte, styl
 				end:       m,
 				lineStyle: style,
 				arrowHead: diagram.ArrowHeadNone,
-				label:     label,
+				label:     stripQuotes(label),
 			}, true
 		}
 		k = m
@@ -613,11 +1049,6 @@ func matchInlineLabelAt(line string, openerStart, openerEnd int, dash byte, styl
 	return arrowMatch{}, false
 }
 
-// attachPipeLabel captures a pipe-form edge label `|text|` that
-// immediately follows the arrow (after optional whitespace), advancing
-// m.end past the closing pipe. If the opening pipe has no closing pipe
-// on the line, labelUnclosed is set so parseLine can raise a clear
-// error. No-op when m.label was already captured inline.
 func attachPipeLabel(m *arrowMatch, line string) {
 	trailing := strings.TrimLeft(line[m.end:], " \t")
 	if !strings.HasPrefix(trailing, "|") {
@@ -630,6 +1061,6 @@ func attachPipeLabel(m *arrowMatch, line string) {
 		m.labelUnclosed = true
 		return
 	}
-	m.label = rest[:closeIdx]
+	m.label = stripQuotes(rest[:closeIdx])
 	m.end += consumed + 1 + closeIdx + 1
 }

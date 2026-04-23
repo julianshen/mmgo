@@ -93,7 +93,7 @@ func TestSubgraphConstruction(t *testing.T) {
 		ID:    "sg1",
 		Label: "Group 1",
 		Nodes: []Node{{ID: "a"}, {ID: "b"}},
-		Children: []Subgraph{
+		Children: []*Subgraph{
 			{ID: "sg2", Label: "Nested"},
 		},
 	}
@@ -133,12 +133,12 @@ func TestFlowchartAllNodesAndAllEdges(t *testing.T) {
 	d := &FlowchartDiagram{
 		Nodes: []Node{{ID: "Top"}},
 		Edges: []Edge{{From: "Top", To: "A"}},
-		Subgraphs: []Subgraph{
+		Subgraphs: []*Subgraph{
 			{
 				ID:    "outer",
 				Nodes: []Node{{ID: "A"}},
 				Edges: []Edge{{From: "A", To: "B"}},
-				Children: []Subgraph{
+				Children: []*Subgraph{
 					{
 						ID:    "inner",
 						Nodes: []Node{{ID: "B"}, {ID: "C"}},

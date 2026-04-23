@@ -241,7 +241,7 @@ func TestRenderEscapesXMLSpecialCharsInLabels(t *testing.T) {
 		Edges: []diagram.Edge{
 			{From: "A", To: "B", Label: `if x < y && y > "z"`, ArrowHead: diagram.ArrowHeadArrow},
 		},
-		Subgraphs: []diagram.Subgraph{
+		Subgraphs: []*diagram.Subgraph{
 			{
 				ID:    "sg1",
 				Label: `Group "<one>"`,
