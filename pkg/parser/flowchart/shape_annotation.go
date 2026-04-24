@@ -87,6 +87,61 @@ var shapeAliases = map[string]diagram.NodeShape{
 	// Double circle
 	"dbl-circ":      diagram.NodeShapeDoubleCircle,
 	"double-circle": diagram.NodeShapeDoubleCircle,
+
+	// --- Stage 2 —-----------------------------------------------------
+	// Moved from pendingShapes now that renderer cases exist.
+
+	// Simple polygons
+	"tri":              diagram.NodeShapeTriangle,
+	"triangle":         diagram.NodeShapeTriangle,
+	"extract":          diagram.NodeShapeTriangle,
+	"flip-tri":         diagram.NodeShapeFlippedTriangle,
+	"flipped-triangle": diagram.NodeShapeFlippedTriangle,
+	"manual-file":      diagram.NodeShapeFlippedTriangle,
+	"hourglass":        diagram.NodeShapeHourglass,
+	"collate":          diagram.NodeShapeHourglass,
+	"notch-pent":       diagram.NodeShapeNotchedPentagon,
+	"loop-limit":       diagram.NodeShapeNotchedPentagon,
+	"notched-pentagon": diagram.NodeShapeNotchedPentagon,
+	"odd":              diagram.NodeShapeOdd,
+	"flag":             diagram.NodeShapeFlag,
+	"paper-tape":       diagram.NodeShapeFlag,
+	"sl-rect":          diagram.NodeShapeSlopedRect,
+	"sloped-rectangle": diagram.NodeShapeSlopedRect,
+	"manual-input":     diagram.NodeShapeSlopedRect,
+
+	// Circle variants
+	"sm-circ":        diagram.NodeShapeSmallCircle,
+	"small-circle":   diagram.NodeShapeSmallCircle,
+	"start":          diagram.NodeShapeSmallCircle,
+	"f-circ":         diagram.NodeShapeFilledCircle,
+	"filled-circle":  diagram.NodeShapeFilledCircle,
+	"junction":       diagram.NodeShapeFilledCircle,
+	"fr-circ":        diagram.NodeShapeFramedCircle,
+	"framed-circle":  diagram.NodeShapeFramedCircle,
+	"stop":           diagram.NodeShapeFramedCircle,
+	"cross-circ":     diagram.NodeShapeCrossCircle,
+	"crossed-circle": diagram.NodeShapeCrossCircle,
+	"summary":        diagram.NodeShapeCrossCircle,
+
+	// Modified rectangles
+	"div-rect":          diagram.NodeShapeDividedRect,
+	"div-proc":          diagram.NodeShapeDividedRect,
+	"divided-process":   diagram.NodeShapeDividedRect,
+	"divided-rectangle": diagram.NodeShapeDividedRect,
+	"win-pane":          diagram.NodeShapeWindowPane,
+	"internal-storage":  diagram.NodeShapeWindowPane,
+	"window-pane":       diagram.NodeShapeWindowPane,
+	"lin-rect":          diagram.NodeShapeLinedRect,
+	"lin-proc":          diagram.NodeShapeLinedRect,
+	"lined-process":     diagram.NodeShapeLinedRect,
+	"lined-rectangle":   diagram.NodeShapeLinedRect,
+	"shaded-process":    diagram.NodeShapeLinedRect,
+	"fork":              diagram.NodeShapeForkJoin,
+	"join":              diagram.NodeShapeForkJoin,
+	"notch-rect":        diagram.NodeShapeNotchedRect,
+	"card":              diagram.NodeShapeNotchedRect,
+	"notched-rectangle": diagram.NodeShapeNotchedRect,
 }
 
 // pendingShapes lists Mermaid extended-syntax names that are
@@ -98,24 +153,6 @@ var shapeAliases = map[string]diagram.NodeShape{
 // As Stage 2/3 land each new NodeShape constant + renderer case, the
 // corresponding entries move from this set into shapeAliases.
 var pendingShapes = map[string]struct{}{
-	// Polygon / circle / rect family (Stage 2)
-	"tri": {}, "extract": {}, "triangle": {},
-	"flip-tri": {}, "flipped-triangle": {}, "manual-file": {},
-	"hourglass": {}, "collate": {},
-	"notch-pent": {}, "loop-limit": {}, "notched-pentagon": {},
-	"odd": {},
-	"flag": {}, "paper-tape": {},
-	"sl-rect": {}, "manual-input": {}, "sloped-rectangle": {},
-	"sm-circ": {}, "small-circle": {}, "start": {},
-	"f-circ": {}, "filled-circle": {}, "junction": {},
-	"fr-circ": {}, "framed-circle": {}, "stop": {},
-	"cross-circ": {}, "crossed-circle": {}, "summary": {},
-	"div-rect": {}, "div-proc": {}, "divided-process": {}, "divided-rectangle": {},
-	"win-pane": {}, "internal-storage": {}, "window-pane": {},
-	"lin-rect": {}, "lin-proc": {}, "lined-process": {}, "lined-rectangle": {}, "shaded-process": {},
-	"fork": {}, "join": {},
-	"notch-rect": {}, "card": {}, "notched-rectangle": {},
-
 	// Path-based shapes (Stage 3)
 	"cloud":              {},
 	"bang":               {},

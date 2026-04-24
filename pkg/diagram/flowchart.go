@@ -35,6 +35,33 @@ const (
 	NodeShapeTrapezoid
 	NodeShapeTrapezoidAlt
 	NodeShapeDoubleCircle
+
+	// Stage 2 extended shapes — simple polygons, circle variants, and
+	// rect+adornment composites added alongside Mermaid's @{shape:...}
+	// extended syntax. Ordered to match pkg/renderer/flowchart/nodes.go
+	// switch cases.
+
+	// Polygons
+	NodeShapeTriangle        // `tri`, `triangle`, `extract`
+	NodeShapeFlippedTriangle // `flip-tri`, `flipped-triangle`, `manual-file`
+	NodeShapeHourglass       // `hourglass`, `collate`
+	NodeShapeNotchedPentagon // `notch-pent`, `loop-limit`, `notched-pentagon`
+	NodeShapeOdd             // `odd` — irregular polygon
+	NodeShapeFlag            // `flag`, `paper-tape`
+	NodeShapeSlopedRect      // `sl-rect`, `sloped-rectangle`, `manual-input`
+
+	// Circle variants
+	NodeShapeSmallCircle  // `sm-circ`, `small-circle`, `start`
+	NodeShapeFilledCircle // `f-circ`, `filled-circle`, `junction`
+	NodeShapeFramedCircle // `fr-circ`, `framed-circle`, `stop`
+	NodeShapeCrossCircle  // `cross-circ`, `crossed-circle`, `summary`
+
+	// Rectangles with extra adornment
+	NodeShapeDividedRect // `div-rect`, `divided-process`, `divided-rectangle`, `div-proc`
+	NodeShapeWindowPane  // `win-pane`, `internal-storage`, `window-pane`
+	NodeShapeLinedRect   // `lin-rect`, `lined-process`, `lined-rectangle`, `shaded-process`, `lin-proc`
+	NodeShapeForkJoin    // `fork`, `join`
+	NodeShapeNotchedRect // `notch-rect`, `card`, `notched-rectangle`
 )
 
 var nodeShapeNames = []string{
@@ -53,6 +80,25 @@ var nodeShapeNames = []string{
 	"trapezoid",
 	"trapezoid-alt",
 	"double-circle",
+
+	// Stage 2 — keep order aligned with the NodeShape constants above
+	// so enumString's index lookup stays valid.
+	"triangle",
+	"flipped-triangle",
+	"hourglass",
+	"notched-pentagon",
+	"odd",
+	"flag",
+	"sloped-rectangle",
+	"small-circle",
+	"filled-circle",
+	"framed-circle",
+	"crossed-circle",
+	"divided-rectangle",
+	"window-pane",
+	"lined-rectangle",
+	"fork-join",
+	"notched-rectangle",
 }
 
 // String returns a stable debug slug for the shape (e.g. "rounded-rectangle").

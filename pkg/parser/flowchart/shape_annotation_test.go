@@ -220,11 +220,12 @@ func TestShapeAnnotationIgnoresLiteralInsideRounded(t *testing.T) {
 	}
 }
 
-// Recognized-but-not-yet-implemented Stage 2/3 shapes should fall
-// back to Rectangle silently so a mid-migration diagram still
-// parses, instead of erroring out entirely.
+// Recognized-but-not-yet-implemented Stage 3 shapes fall back to
+// Rectangle silently so a mid-migration diagram still parses. The
+// alias list here is intentionally Stage-3-only: Stage 2 moved
+// `tri`, `fork`, etc. out of pendingShapes into real renderer cases.
 func TestShapeAnnotationPendingShapeFallsBack(t *testing.T) {
-	cases := []string{"cloud", "bolt", "bang", "doc", "tri", "fork"}
+	cases := []string{"cloud", "bolt", "bang", "doc", "brace", "datastore"}
 	for _, alias := range cases {
 		t.Run(alias, func(t *testing.T) {
 			n := nodeShapeFromMmd(t, "A@{shape:"+alias+"}")
