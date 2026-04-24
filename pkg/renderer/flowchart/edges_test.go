@@ -158,7 +158,7 @@ func TestRenderEdgeClipsEndpointsToNodeBounds(t *testing.T) {
 	}
 	eid := graph.EdgeID{From: "A", To: "B"}
 
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, l, eid)
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, l, eid, nil)
 	line, ok := elems[0].(*Line)
 	if !ok {
 		t.Fatalf("expected *Line, got %T", elems[0])
@@ -171,13 +171,82 @@ func TestRenderEdgeClipsEndpointsToNodeBounds(t *testing.T) {
 	}
 }
 
+// Shape-aware clipping: a diamond target clips to the rhombus edge,
+// not the bounding rect. The diamond has vertices at (±w/2, cy) and
+// (cx, cy±h/2); a horizontal edge from the source hits the west
+// vertex exactly.
+func TestRenderEdgeClipsToDiamond(t *testing.T) {
+	// A at (0,0) size 40x20; B (diamond) at (100,0) size 40x20.
+	// Rect clip would put the endpoint at x=80 (left edge); diamond
+	// clip should put it at x=80 too (the west vertex sits there on
+	// the horizontal midline). The behavioral difference shows up
+	// on the source side: a rect-to-diamond horizontal edge clips
+	// at the west vertex (80, 0) rather than the bounding box.
+	l := &layout.Result{
+		Nodes: map[string]layout.NodeLayout{
+			"A": {X: 0, Y: 0, Width: 40, Height: 20},
+			"B": {X: 100, Y: 0, Width: 40, Height: 20},
+		},
+	}
+	shapeByID := map[string]diagram.NodeShape{
+		"A": diagram.NodeShapeRectangle,
+		"B": diagram.NodeShapeDiamond,
+	}
+	e := diagram.Edge{From: "A", To: "B", ArrowHead: diagram.ArrowHeadArrow}
+	el := layout.EdgeLayout{
+		Points: []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
+	}
+	eid := graph.EdgeID{From: "A", To: "B"}
+
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, l, eid, shapeByID)
+	line, ok := elems[0].(*Line)
+	if !ok {
+		t.Fatalf("expected *Line, got %T", elems[0])
+	}
+	// West vertex of the B diamond.
+	if line.X2 != 80 || line.Y2 != 0 {
+		t.Errorf("diamond clip endpoint = (%.2f,%.2f), want (80,0)", line.X2, line.Y2)
+	}
+}
+
+// Circle-family target clips to the radial edge. The endpoint must
+// lie exactly `min(w,h)/2` from the target center along the edge.
+func TestRenderEdgeClipsToCircle(t *testing.T) {
+	l := &layout.Result{
+		Nodes: map[string]layout.NodeLayout{
+			"A": {X: 0, Y: 0, Width: 40, Height: 20},
+			"B": {X: 100, Y: 0, Width: 40, Height: 40},
+		},
+	}
+	shapeByID := map[string]diagram.NodeShape{
+		"A": diagram.NodeShapeRectangle,
+		"B": diagram.NodeShapeCircle,
+	}
+	e := diagram.Edge{From: "A", To: "B", ArrowHead: diagram.ArrowHeadArrow}
+	el := layout.EdgeLayout{
+		Points: []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
+	}
+	eid := graph.EdgeID{From: "A", To: "B"}
+
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, l, eid, shapeByID)
+	line, ok := elems[0].(*Line)
+	if !ok {
+		t.Fatalf("expected *Line, got %T", elems[0])
+	}
+	// Circle B has r = min(40,40)/2 = 20, center at (100,0). The
+	// edge from (0,0) along +x enters the circle at x=80.
+	if line.X2 != 80 {
+		t.Errorf("circle clip endpoint X = %.2f, want 80 (center - radius)", line.X2)
+	}
+}
+
 func TestRenderEdgeStraightLine(t *testing.T) {
 	e := diagram.Edge{From: "A", To: "B", ArrowHead: diagram.ArrowHeadArrow}
 	el := layout.EdgeLayout{
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
-	elems := renderEdge(e, el, 10, DefaultTheme(), 16, nil, nil, graph.EdgeID{})
+	elems := renderEdge(e, el, 10, DefaultTheme(), 16, nil, nil, graph.EdgeID{}, nil)
 	if len(elems) < 1 {
 		t.Fatal("expected at least 1 element")
 	}
@@ -207,7 +276,7 @@ func TestRenderEdgeWithLabel(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16, ruler, nil, graph.EdgeID{})
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, ruler, nil, graph.EdgeID{}, nil)
 	hasLabel := false
 	for _, elem := range elems {
 		if txt, ok := elem.(*Text); ok && txt.Content == "yes" {
@@ -231,7 +300,7 @@ func TestRenderEdgeLabelBackgroundRect(t *testing.T) {
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
 	th := DefaultTheme()
-	elems := renderEdge(e, el, 0, th, 16, ruler, nil, graph.EdgeID{})
+	elems := renderEdge(e, el, 0, th, 16, ruler, nil, graph.EdgeID{}, nil)
 	hasBgRect := false
 	wantFill := "fill:" + th.Background
 	for _, elem := range elems {
@@ -257,7 +326,7 @@ func TestRenderEdgeLabelBackgroundRectWithRuler(t *testing.T) {
 		LabelPos: layout.Point{X: 100, Y: 0},
 	}
 	th := DefaultTheme()
-	elems := renderEdge(e, el, 0, th, 16, ruler, nil, graph.EdgeID{})
+	elems := renderEdge(e, el, 0, th, 16, ruler, nil, graph.EdgeID{}, nil)
 	var bgRect *Rect
 	wantFill := "fill:" + th.Background
 	for _, elem := range elems {
@@ -287,7 +356,7 @@ func TestRenderEdgeNilRulerWithLabelDoesNotPanic(t *testing.T) {
 			t.Fatalf("renderEdge panicked with nil ruler: %v", r)
 		}
 	}()
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{})
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{}, nil)
 	if len(elems) == 0 {
 		t.Error("expected fallback elements")
 	}
@@ -299,7 +368,7 @@ func TestRenderEdgeDotted(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{})
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{}, nil)
 	line, ok := elems[0].(*Line)
 	if !ok {
 		t.Fatalf("expected *Line, got %T", elems[0])
@@ -315,7 +384,7 @@ func TestRenderEdgeNoMarker(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{})
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{}, nil)
 	line, ok := elems[0].(*Line)
 	if !ok {
 		t.Fatalf("expected *Line, got %T", elems[0])
@@ -331,7 +400,7 @@ func TestRenderEdgeCurve(t *testing.T) {
 		Points:   []layout.Point{{X: 0, Y: 0}, {X: 50, Y: 50}, {X: 100, Y: 0}},
 		LabelPos: layout.Point{X: 50, Y: 25},
 	}
-	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{})
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{}, nil)
 	path, ok := elems[0].(*Path)
 	if !ok {
 		t.Fatalf("expected *Path for 3-point edge, got %T", elems[0])

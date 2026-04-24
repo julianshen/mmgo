@@ -2,6 +2,7 @@ package flowchart
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
@@ -95,6 +96,14 @@ func renderEdges(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th 
 		key := e.From + "->" + e.To
 		fromTo[key] = append(fromTo[key], e)
 	}
+	// Shape lookup drives endpoint clipping: diamonds use rhombus
+	// clip, circle-family nodes use radial clip, everything else
+	// clips to the bounding rect. Built once so per-edge clipping
+	// stays O(1).
+	shapeByID := map[string]diagram.NodeShape{}
+	for _, n := range d.AllNodes() {
+		shapeByID[n.ID] = n.Shape
+	}
 
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
@@ -121,12 +130,12 @@ func renderEdges(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th 
 		ae := candidates[0]
 		fromTo[key] = candidates[1:]
 
-		elems = append(elems, renderEdge(ae, elayout, pad, th, fontSize, ruler, l, eid)...)
+		elems = append(elems, renderEdge(ae, elayout, pad, th, fontSize, ruler, l, eid, shapeByID)...)
 	}
 	return elems
 }
 
-func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fontSize float64, ruler *textmeasure.Ruler, l *layout.Result, eid graph.EdgeID) []any {
+func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fontSize float64, ruler *textmeasure.Ruler, l *layout.Result, eid graph.EdgeID, shapeByID map[string]diagram.NodeShape) []any {
 	pts := make([]layout.Point, len(el.Points))
 	copy(pts, el.Points)
 	if len(pts) == 0 {
@@ -150,12 +159,12 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 		srcDir := pts[1]
 		dstDir := pts[len(pts)-2]
 		if src, ok := l.Nodes[eid.From]; ok {
-			x, y := svgutil.ClipToRectEdge(src.X+pad, src.Y+pad, src.Width, src.Height, srcDir.X, srcDir.Y)
+			x, y := clipToShape(shapeByID[eid.From], src.X+pad, src.Y+pad, src.Width, src.Height, srcDir.X, srcDir.Y)
 			pts[0] = layout.Point{X: x, Y: y}
 		}
 		if dst, ok := l.Nodes[eid.To]; ok {
 			last := len(pts) - 1
-			x, y := svgutil.ClipToRectEdge(dst.X+pad, dst.Y+pad, dst.Width, dst.Height, dstDir.X, dstDir.Y)
+			x, y := clipToShape(shapeByID[eid.To], dst.X+pad, dst.Y+pad, dst.Width, dst.Height, dstDir.X, dstDir.Y)
 			pts[last] = layout.Point{X: x, Y: y}
 		}
 	}
@@ -237,5 +246,29 @@ func edgeStyle(th Theme, ls diagram.LineStyle) string {
 		return fmt.Sprintf("stroke:%s;stroke-width:3;fill:none", th.EdgeStroke)
 	default:
 		return base
+	}
+}
+
+// clipToShape picks the right endpoint-clip geometry for the given
+// node shape. Circle-family nodes (Circle, DoubleCircle, SmallCircle,
+// FilledCircle, FramedCircle, CrossCircle) use radial clipping;
+// Diamond uses rhombus-edge intersection; everything else falls back
+// to the axis-aligned bounding rect (which is correct for rect-based
+// shapes and "close enough" for the polygon family where exact edge
+// geometry would need per-shape intersection code).
+func clipToShape(shape diagram.NodeShape, cx, cy, w, h, ox, oy float64) (x, y float64) {
+	switch shape {
+	case diagram.NodeShapeCircle,
+		diagram.NodeShapeDoubleCircle,
+		diagram.NodeShapeSmallCircle,
+		diagram.NodeShapeFilledCircle,
+		diagram.NodeShapeFramedCircle,
+		diagram.NodeShapeCrossCircle:
+		r := math.Min(w, h) / 2
+		return svgutil.ClipToCircleEdge(cx, cy, r, ox, oy)
+	case diagram.NodeShapeDiamond:
+		return svgutil.ClipToDiamondEdge(cx, cy, w, h, ox, oy)
+	default:
+		return svgutil.ClipToRectEdge(cx, cy, w, h, ox, oy)
 	}
 }
