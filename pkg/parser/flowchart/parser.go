@@ -718,6 +718,30 @@ func parseNodeDef(s string) (id string, shape diagram.NodeShape, label string, c
 		return id, diagram.NodeShapeUnknown, "", cls, nil
 	}
 
+	// Extended `@{ shape: ..., label: "..." }` syntax may appear
+	// either standalone (`A@{shape:diamond}`) or after a traditional
+	// delimiter (`A["text"]@{shape:diamond}`). Detect a leading or
+	// trailing `@{...}` block and let it take precedence over the
+	// traditional shape; a label inside `@{}` overrides the
+	// delimiter-supplied one.
+	annoShape, annoLabel, annoHasLabel, annoRest, annoErr := stripShapeAnnotation(rest)
+	if annoErr != nil {
+		return "", diagram.NodeShapeUnknown, "", nil, annoErr
+	}
+	rest = annoRest
+
+	if rest == "" {
+		// `@{}` consumed the whole remainder — no traditional shape
+		// to merge with. Require a shape value (a bare `@{}` with
+		// neither `shape:` nor `label:` would yield NodeShapeUnknown,
+		// which we promote to Rectangle as the canonical default).
+		shape := annoShape
+		if shape == diagram.NodeShapeUnknown {
+			shape = diagram.NodeShapeRectangle
+		}
+		return id, shape, annoLabel, cls, nil
+	}
+
 	openMatched := ""
 	for _, sp := range shapePatterns {
 		if !strings.HasPrefix(rest, sp.open) {
@@ -731,7 +755,14 @@ func parseNodeDef(s string) (id string, shape diagram.NodeShape, label string, c
 		}
 		inner := rest[len(sp.open) : len(rest)-len(sp.close)]
 		label = processLabel(inner)
-		return id, sp.shape, label, cls, nil
+		shape := sp.shape
+		if annoShape != diagram.NodeShapeUnknown {
+			shape = annoShape
+		}
+		if annoHasLabel {
+			label = annoLabel
+		}
+		return id, shape, label, cls, nil
 	}
 
 	if openMatched != "" {
@@ -740,17 +771,48 @@ func parseNodeDef(s string) (id string, shape diagram.NodeShape, label string, c
 	return "", diagram.NodeShapeUnknown, "", nil, fmt.Errorf("unrecognized shape in %q", s)
 }
 
+// stripShapeAnnotation removes a single `@{...}` block from rest if
+// present (anywhere — leading, middle, or trailing) and returns the
+// resolved shape, the label override (if any), the rest with the block
+// removed, and an error for malformed annotations. Returns
+// NodeShapeUnknown / annoHasLabel=false when no `@{` is found.
+func stripShapeAnnotation(rest string) (shape diagram.NodeShape, label string, hasLabel bool, remaining string, err error) {
+	idx := strings.Index(rest, "@{")
+	if idx < 0 {
+		return diagram.NodeShapeUnknown, "", false, rest, nil
+	}
+	annoShape, annoLabel, labelSet, consumed, ok, err := parseShapeAnnotation(rest[idx:])
+	if err != nil {
+		return diagram.NodeShapeUnknown, "", false, rest, err
+	}
+	if !ok {
+		return diagram.NodeShapeUnknown, "", false, rest, nil
+	}
+	remaining = strings.TrimSpace(rest[:idx] + rest[idx+consumed:])
+	return annoShape, annoLabel, labelSet, remaining, nil
+}
+
 func stripInlineClass(s string) (rest string, classes []string) {
 	for {
 		idx := strings.LastIndex(s, ":::")
 		if idx < 0 {
 			return s, classes
 		}
-		cls := strings.TrimSpace(s[idx+3:])
+		// Class names extend from `:::` up to the next `@{` (extended-
+		// shape annotation) or end-of-string. Without the boundary,
+		// `A:::cls@{shape:diamond}` would parse the entire suffix
+		// `cls@{shape:diamond}` as a single class name.
+		clsRaw := s[idx+3:]
+		var trailing string
+		if at := strings.Index(clsRaw, "@{"); at >= 0 {
+			trailing = clsRaw[at:]
+			clsRaw = clsRaw[:at]
+		}
+		cls := strings.TrimSpace(clsRaw)
 		if cls != "" {
 			classes = append([]string{cls}, classes...)
 		}
-		s = s[:idx]
+		s = strings.TrimRight(s[:idx], " \t") + trailing
 	}
 }
 
