@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"reflect"
 	"math"
 	"testing"
 
@@ -446,7 +447,7 @@ func TestLayoutDeterministic(t *testing.T) {
 	r2 := Layout(build(), defaultOpts())
 
 	for n, nl := range r1.Nodes {
-		if nl != r2.Nodes[n] {
+		if !reflect.DeepEqual(nl, r2.Nodes[n]) {
 			t.Errorf("determinism broken for node %s: %+v vs %+v", n, nl, r2.Nodes[n])
 		}
 	}

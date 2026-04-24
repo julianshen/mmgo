@@ -94,13 +94,23 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 		Style:  fmt.Sprintf("fill:%s;stroke:none", bg),
 	})
 
+	// Branch regions render BEFORE subgraphs so subgraph fills paint
+	// over them (subgraphs provide their own visual grouping and
+	// should win visually when a branch sits entirely inside one).
+	// Regions render before edges/nodes regardless so foreground
+	// content stays readable.
+	branchGroups := DetectBranches(d, l)
+	regionElems := renderBranchRegions(branchGroups, l, pad)
+
 	if topInset > 0 {
 		content := &Group{Transform: fmt.Sprintf("translate(0,%.2f)", topInset)}
+		content.Children = append(content.Children, regionElems...)
 		content.Children = append(content.Children, renderSubgraphs(d, l, pad, th, fontSize)...)
 		content.Children = append(content.Children, renderEdges(d, l, pad, th, fontSize, ruler)...)
 		content.Children = append(content.Children, renderNodes(d, l, pad, th, fontSize)...)
 		children = append(children, content)
 	} else {
+		children = append(children, regionElems...)
 		children = append(children, renderSubgraphs(d, l, pad, th, fontSize)...)
 		children = append(children, renderEdges(d, l, pad, th, fontSize, ruler)...)
 		children = append(children, renderNodes(d, l, pad, th, fontSize)...)

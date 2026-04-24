@@ -1,0 +1,9 @@
+flowchart TB
+    Start[Incoming request] --> Route{Route type?}
+    Route -->|API| APIAuth[Auth check]
+    Route -->|Web| WebAuth[Session check]
+    Route -->|Static| CDN[Serve from CDN]
+    APIAuth --> Handler[Run handler]
+    WebAuth --> Handler
+    Handler --> Done[Response]
+    CDN --> Done

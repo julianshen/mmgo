@@ -936,7 +936,7 @@ func buildFlowchartGraph(d *diagram.FlowchartDiagram, ruler *textmeasure.Ruler, 
 		if gw, gh, ok := extendedShapeSize(n.Shape); ok {
 			w, h = gw, gh
 		}
-		g.SetNode(n.ID, graph.NodeAttrs{Label: n.Label, Width: w, Height: h})
+		g.SetNode(n.ID, graph.NodeAttrs{Label: n.Label, Width: w, Height: h, Shape: layoutShapeFor(n.Shape)})
 	}
 	for _, e := range d.AllEdges() {
 		g.SetEdge(e.From, e.To, graph.EdgeAttrs{Label: e.Label})
@@ -961,6 +961,22 @@ func nodeSize(label string, ruler *textmeasure.Ruler, fontSize float64) (w, h fl
 		h = minNodeHeight
 	}
 	return w, h
+}
+
+// layoutShapeFor maps a flowchart NodeShape to the layout engine's
+// shape enum so the layout can pick shape-aware exit ports for branch
+// nodes. Only diamond- and hexagon-like outlines get special handling;
+// every other shape falls through to ShapeDefault (rectangular port
+// distribution).
+func layoutShapeFor(s diagram.NodeShape) graph.NodeShape {
+	switch s {
+	case diagram.NodeShapeDiamond:
+		return graph.ShapeDiamond
+	case diagram.NodeShapeHexagon:
+		return graph.ShapeHexagon
+	default:
+		return graph.ShapeDefault
+	}
 }
 
 // extendedShapeSize overrides the text-derived node size for small-
