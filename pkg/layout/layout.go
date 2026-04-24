@@ -30,6 +30,7 @@ package layout
 
 import (
 	"math"
+	"sort"
 
 	"github.com/julianshen/mmgo/pkg/layout/graph"
 	"github.com/julianshen/mmgo/pkg/layout/internal/acyclic"
@@ -87,11 +88,18 @@ type Point = position.Point
 // NodeLayout holds the computed geometry of a single node. X,Y is the
 // node's center point; Width and Height are the dimensions the caller
 // supplied via graph.NodeAttrs.
+//
+// ExitPorts is populated for branch nodes (3+ outgoing edges) so each
+// outgoing edge exits from a distinct point on the boundary. Empty
+// when the node has ≤2 outgoing edges. The slice is ordered to match
+// buildEdges' SortEdges iteration, so the i-th entry pairs with the
+// i-th outgoing edge.
 type NodeLayout struct {
-	X      float64
-	Y      float64
-	Width  float64
-	Height float64
+	X         float64
+	Y         float64
+	Width     float64
+	Height    float64
+	ExitPorts []Point
 }
 
 // EdgeLayout holds the computed geometry of a single edge.
@@ -205,7 +213,8 @@ func Layout(g *graph.Graph, opts Options) *Result {
 	})
 
 	nodes, offsetX, offsetY, width, height := buildNodesAndBounds(g, coords, sizes, opts.RankDir)
-	edges := buildEdges(g, ranks, dRes.Chains, coords, opts.RankDir, nodes, offsetX, offsetY)
+	assignExitPorts(g, nodes, opts.RankDir)
+	edges := buildEdges(g, ranks, dRes.Chains, coords, opts.RankDir, nodes, offsetX, offsetY, opts.RankSep)
 
 	return &Result{
 		Nodes:  nodes,
@@ -344,7 +353,7 @@ func buildEdges(
 	coords position.Result,
 	dir RankDir,
 	nodes map[string]NodeLayout,
-	offsetX, offsetY float64,
+	offsetX, offsetY, rankSep float64,
 ) map[graph.EdgeID]EdgeLayout {
 	var flipAround float64
 	if dir == RankDirBT || dir == RankDirRL {
@@ -366,12 +375,34 @@ func buildEdges(
 	layoututil.SortEdges(origEdges)
 
 	consumed := make(map[dummy.Key]int)
+	// SortEdges groups all edges with the same From contiguously, so a
+	// prev-source counter is enough to pair the i-th outgoing edge
+	// with srcNL.ExitPorts[i] — no per-source map needed.
+	var prevFrom string
+	var portI int
 
 	edges := make(map[graph.EdgeID]EdgeLayout, len(origEdges))
 	for _, eid := range origEdges {
 		srcPt := pointOf(eid.From)
 		dstPt := pointOf(eid.To)
+
+		if eid.From != prevFrom {
+			prevFrom = eid.From
+			portI = 0
+		}
+		var stemPt *Point
+		if srcNL, ok := nodes[eid.From]; ok && portI < len(srcNL.ExitPorts) {
+			port := srcNL.ExitPorts[portI]
+			bend := bendPointFor(port, dir, rankSep/2)
+			srcPt = port
+			stemPt = &bend
+		}
+		portI++
+
 		pts := []Point{srcPt, dstPt}
+		if stemPt != nil {
+			pts = []Point{srcPt, *stemPt, dstPt}
+		}
 
 		switch {
 		case eid.From == eid.To:
@@ -383,6 +414,15 @@ func buildEdges(
 			pts = applyChain(pts, srcPt, dstPt, chains, consumed,
 				dummy.Key{From: eid.To, To: eid.From}, true, pointOf)
 		}
+		if stemPt != nil && len(pts) >= 2 {
+			// applyChain rebuilds pts from scratch from srcPt..dstPt;
+			// re-insert the stem after the port so the geometry is
+			// port → stem → (dummy chain) → dst.
+			withStem := make([]Point, 0, len(pts)+1)
+			withStem = append(withStem, pts[0], *stemPt)
+			withStem = append(withStem, pts[1:]...)
+			pts = withStem
+		}
 
 		edges[eid] = EdgeLayout{
 			Points:   pts,
@@ -390,6 +430,30 @@ func buildEdges(
 		}
 	}
 	return edges
+}
+
+// bendPointFor returns the stem bend point one rankStep along the
+// rank-progression direction from the port. Direction is independent
+// of which port the edge exits from, so all outgoing stems from a
+// branch node stay parallel.
+func bendPointFor(port Point, dir RankDir, rankStep float64) Point {
+	fx, fy := rankForward(dir)
+	return Point{X: port.X + fx*rankStep, Y: port.Y + fy*rankStep}
+}
+
+// rankForward returns the unit vector pointing along rank progression:
+// TB → down, BT → up, LR → right, RL → left.
+func rankForward(dir RankDir) (fx, fy float64) {
+	switch dir {
+	case RankDirBT:
+		return 0, -1
+	case RankDirLR:
+		return 1, 0
+	case RankDirRL:
+		return -1, 0
+	default:
+		return 0, 1
+	}
 }
 
 // applyChain returns the polyline for an edge, threading through the
@@ -437,4 +501,103 @@ func midpointOf(pts []Point) Point {
 	mid := len(pts) / 2
 	a, b := pts[mid-1], pts[mid]
 	return Point{X: (a.X + b.X) / 2, Y: (a.Y + b.Y) / 2}
+}
+
+// assignExitPorts populates ExitPorts on every node with 3+ outgoing
+// edges. Port positions are shape-aware: diamonds/hexagons use their
+// natural vertices; other shapes distribute evenly along the exit
+// side. Ports are ordered to match buildEdges' SortEdges iteration so
+// the i-th outgoing edge uses ExitPorts[i].
+func assignExitPorts(g *graph.Graph, nodes map[string]NodeLayout, dir RankDir) {
+	for id, nl := range nodes {
+		outs := g.OutEdges(id)
+		if len(outs) < 3 {
+			continue
+		}
+		attrs, _ := g.NodeAttrs(id)
+		// Sort edges in SortEdges order so the port array index
+		// matches buildEdges' iteration index.
+		sortedOuts := append([]graph.EdgeID(nil), outs...)
+		layoututil.SortEdges(sortedOuts)
+
+		// Spatially sort edges by their target position along the
+		// cross-rank axis so the ports are laid out left-to-right
+		// (for TB/BT) or top-to-bottom (for LR/RL) relative to where
+		// the edge is going. Then map back to SortEdges order.
+		type spatialEdge struct {
+			eid  graph.EdgeID
+			pos  float64
+			sidx int
+		}
+		se := make([]spatialEdge, len(sortedOuts))
+		for i, eid := range sortedOuts {
+			dst, ok := nodes[eid.To]
+			coord := 0.0
+			if ok {
+				switch dir {
+				case RankDirLR, RankDirRL:
+					coord = dst.Y
+				default:
+					coord = dst.X
+				}
+			}
+			se[i] = spatialEdge{eid: eid, pos: coord, sidx: i}
+		}
+		sort.SliceStable(se, func(i, j int) bool { return se[i].pos < se[j].pos })
+
+		// Compute port positions in spatial order, then stash by
+		// original SortEdges index.
+		positions := portPositions(nl, attrs.Shape, dir, len(sortedOuts))
+		ports := make([]Point, len(sortedOuts))
+		for spatial, e := range se {
+			ports[e.sidx] = positions[spatial]
+		}
+		nl.ExitPorts = ports
+		nodes[id] = nl
+	}
+}
+
+// portPositions returns n evenly-spaced exit ports on the forward side
+// of node nl, with shape-aware placement. The order of the returned
+// slice is spatial (left-to-right for TB/BT, top-to-bottom for LR/RL).
+func portPositions(nl NodeLayout, shape graph.NodeShape, dir RankDir, n int) []Point {
+	if n <= 0 {
+		return nil
+	}
+	cx, cy, w, h := nl.X, nl.Y, nl.Width, nl.Height
+	halfW, halfH := w/2, h/2
+
+	// For diamonds and hexagons on TB/BT, the three natural ports are
+	// the left, bottom/top, and right vertices; for n > 3 we fall
+	// back to linear interpolation along the exit side.
+	if n == 3 && (shape == graph.ShapeDiamond || shape == graph.ShapeHexagon) {
+		switch dir {
+		case RankDirTB:
+			return []Point{{X: cx - halfW, Y: cy}, {X: cx, Y: cy + halfH}, {X: cx + halfW, Y: cy}}
+		case RankDirBT:
+			return []Point{{X: cx - halfW, Y: cy}, {X: cx, Y: cy - halfH}, {X: cx + halfW, Y: cy}}
+		case RankDirLR:
+			return []Point{{X: cx, Y: cy - halfH}, {X: cx + halfW, Y: cy}, {X: cx, Y: cy + halfH}}
+		case RankDirRL:
+			return []Point{{X: cx, Y: cy - halfH}, {X: cx - halfW, Y: cy}, {X: cx, Y: cy + halfH}}
+		}
+	}
+
+	// Default: distribute linearly along the exit side of the bbox.
+	out := make([]Point, n)
+	for i := 0; i < n; i++ {
+		// t ∈ [inset, 1-inset] so ports don't land on the corners.
+		t := (float64(i) + 1) / (float64(n) + 1)
+		switch dir {
+		case RankDirTB:
+			out[i] = Point{X: cx - halfW + t*w, Y: cy + halfH}
+		case RankDirBT:
+			out[i] = Point{X: cx - halfW + t*w, Y: cy - halfH}
+		case RankDirLR:
+			out[i] = Point{X: cx + halfW, Y: cy - halfH + t*h}
+		case RankDirRL:
+			out[i] = Point{X: cx - halfW, Y: cy - halfH + t*h}
+		}
+	}
+	return out
 }

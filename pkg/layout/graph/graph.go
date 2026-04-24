@@ -13,11 +13,24 @@ type EdgeID struct {
 	ID   int // assigned by Graph.SetEdge; disambiguates multi-edges between the same pair
 }
 
+// NodeShape classifies a node's outline so the layout engine can pick
+// shape-aware exit-port positions for multi-outlet branch nodes. The
+// zero value (ShapeDefault) means "treat as rectangle" — backward
+// compatible with callers that never set the field.
+type NodeShape int8
+
+const (
+	ShapeDefault NodeShape = iota
+	ShapeDiamond
+	ShapeHexagon
+)
+
 // NodeAttrs holds attributes associated with a graph node.
 type NodeAttrs struct {
 	Label  string
 	Width  float64
 	Height float64
+	Shape  NodeShape
 }
 
 // EdgeAttrs holds attributes associated with a graph edge.

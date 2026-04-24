@@ -199,6 +199,17 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 	if e.Label != "" {
 		lx := el.LabelPos.X + pad
 		ly := el.LabelPos.Y + pad
+		// Branch edges (source is a multi-outlet node) get their label
+		// positioned 40% along the first segment from the exit port,
+		// offset perpendicular outward so readers can tell which
+		// branch each label belongs to.
+		if l != nil && len(pts) >= 2 {
+			if srcNL, ok := l.Nodes[eid.From]; ok && len(srcNL.ExitPorts) > 0 {
+				cx := srcNL.X + pad
+				cy := srcNL.Y + pad
+				lx, ly = branchLabelPos(pts[0], pts[1], cx, cy, fontSize)
+			}
+		}
 		textStyle := fmt.Sprintf("fill:%s;font-size:%.2fpx", th.EdgeText, fontSize)
 
 		labelW, labelH := measureLabel(ruler, e.Label, fontSize)
@@ -219,6 +230,37 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 	}
 
 	return elems
+}
+
+// branchLabelPos returns the label anchor for a branch edge: placed at
+// 40% along the first segment (port → stem) and offset perpendicular
+// to that segment, away from the source node's center. The offset uses
+// fontSize/2+4 as breathing room — enough that the label clears the
+// edge stroke but close enough that it reads as attached to the
+// branch it labels.
+func branchLabelPos(port, stem layout.Point, cx, cy, fontSize float64) (x, y float64) {
+	const t = 0.4
+	sx := port.X + t*(stem.X-port.X)
+	sy := port.Y + t*(stem.Y-port.Y)
+	// Perpendicular unit vector to the segment direction.
+	dx := stem.X - port.X
+	dy := stem.Y - port.Y
+	length := math.Hypot(dx, dy)
+	if length == 0 {
+		return sx, sy
+	}
+	// Two candidate normals; pick the one pointing AWAY from node center.
+	nxA, nyA := -dy/length, dx/length
+	nxB, nyB := dy/length, -dx/length
+	// Compare dot(candidate, sample - center) — larger means "away".
+	dA := nxA*(sx-cx) + nyA*(sy-cy)
+	dB := nxB*(sx-cx) + nyB*(sy-cy)
+	nx, ny := nxA, nyA
+	if dB > dA {
+		nx, ny = nxB, nyB
+	}
+	off := fontSize/2 + 4
+	return sx + nx*off, sy + ny*off
 }
 
 // measureLabel returns the rendered (width, height) of label at the
