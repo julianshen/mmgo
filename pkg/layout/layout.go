@@ -573,13 +573,13 @@ func portPositions(nl NodeLayout, shape graph.NodeShape, dir RankDir, n int) []P
 	if n == 3 && (shape == graph.ShapeDiamond || shape == graph.ShapeHexagon) {
 		switch dir {
 		case RankDirTB:
-			return []Point{{cx - halfW, cy}, {cx, cy + halfH}, {cx + halfW, cy}}
+			return []Point{{X: cx - halfW, Y: cy}, {X: cx, Y: cy + halfH}, {X: cx + halfW, Y: cy}}
 		case RankDirBT:
-			return []Point{{cx - halfW, cy}, {cx, cy - halfH}, {cx + halfW, cy}}
+			return []Point{{X: cx - halfW, Y: cy}, {X: cx, Y: cy - halfH}, {X: cx + halfW, Y: cy}}
 		case RankDirLR:
-			return []Point{{cx, cy - halfH}, {cx + halfW, cy}, {cx, cy + halfH}}
+			return []Point{{X: cx, Y: cy - halfH}, {X: cx + halfW, Y: cy}, {X: cx, Y: cy + halfH}}
 		case RankDirRL:
-			return []Point{{cx, cy - halfH}, {cx - halfW, cy}, {cx, cy + halfH}}
+			return []Point{{X: cx, Y: cy - halfH}, {X: cx - halfW, Y: cy}, {X: cx, Y: cy + halfH}}
 		}
 	}
 
