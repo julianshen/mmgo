@@ -89,13 +89,11 @@ type Point = position.Point
 // node's center point; Width and Height are the dimensions the caller
 // supplied via graph.NodeAttrs.
 //
-// ExitPorts is populated for branch nodes (3+ outgoing edges) so that
-// each outgoing edge exits from a distinct point on the boundary
-// instead of all exiting from the geometric center. Empty for nodes
-// with ≤2 outgoing edges — existing center-to-boundary clipping
-// applies unchanged, preserving backward compatibility. The slice is
-// ordered to match buildEdges' SortEdges iteration order, so the i-th
-// entry corresponds to the i-th outgoing edge after sorting.
+// ExitPorts is populated for branch nodes (3+ outgoing edges) so each
+// outgoing edge exits from a distinct point on the boundary. Empty
+// when the node has ≤2 outgoing edges. The slice is ordered to match
+// buildEdges' SortEdges iteration, so the i-th entry pairs with the
+// i-th outgoing edge.
 type NodeLayout struct {
 	X         float64
 	Y         float64
@@ -377,30 +375,29 @@ func buildEdges(
 	layoututil.SortEdges(origEdges)
 
 	consumed := make(map[dummy.Key]int)
-	// Parallel index into each source's ExitPorts list — incremented
-	// per outgoing edge in SortEdges order so the ports and edges pair
-	// up deterministically.
-	portIdx := make(map[string]int)
+	// SortEdges groups all edges with the same From contiguously, so a
+	// prev-source counter is enough to pair the i-th outgoing edge
+	// with srcNL.ExitPorts[i] — no per-source map needed.
+	var prevFrom string
+	var portI int
 
 	edges := make(map[graph.EdgeID]EdgeLayout, len(origEdges))
 	for _, eid := range origEdges {
 		srcPt := pointOf(eid.From)
 		dstPt := pointOf(eid.To)
 
-		// If the source has exit ports assigned, use the next one in
-		// SortEdges order and insert a short rank-progression stem
-		// from the port to a bend point so branches fan out cleanly.
-		var stemPt *Point
-		if srcNL, ok := nodes[eid.From]; ok && len(srcNL.ExitPorts) > 0 {
-			i := portIdx[eid.From]
-			if i < len(srcNL.ExitPorts) {
-				port := srcNL.ExitPorts[i]
-				bend := bendPointFor(port, Point{X: srcNL.X, Y: srcNL.Y}, dir, rankSep/2)
-				srcPt = port
-				stemPt = &bend
-			}
-			portIdx[eid.From] = i + 1
+		if eid.From != prevFrom {
+			prevFrom = eid.From
+			portI = 0
 		}
+		var stemPt *Point
+		if srcNL, ok := nodes[eid.From]; ok && portI < len(srcNL.ExitPorts) {
+			port := srcNL.ExitPorts[portI]
+			bend := bendPointFor(port, dir, rankSep/2)
+			srcPt = port
+			stemPt = &bend
+		}
+		portI++
 
 		pts := []Point{srcPt, dstPt}
 		if stemPt != nil {
@@ -436,19 +433,26 @@ func buildEdges(
 }
 
 // bendPointFor returns the stem bend point one rankStep along the
-// rank-progression direction from the port. Direction is TB=down,
-// BT=up, LR=right, RL=left — independent of which port the edge exits
-// from, so that all outgoing stems from a branch node stay parallel.
-func bendPointFor(port, center Point, dir RankDir, rankStep float64) Point {
+// rank-progression direction from the port. Direction is independent
+// of which port the edge exits from, so all outgoing stems from a
+// branch node stay parallel.
+func bendPointFor(port Point, dir RankDir, rankStep float64) Point {
+	fx, fy := rankForward(dir)
+	return Point{X: port.X + fx*rankStep, Y: port.Y + fy*rankStep}
+}
+
+// rankForward returns the unit vector pointing along rank progression:
+// TB → down, BT → up, LR → right, RL → left.
+func rankForward(dir RankDir) (fx, fy float64) {
 	switch dir {
 	case RankDirBT:
-		return Point{X: port.X, Y: port.Y - rankStep}
+		return 0, -1
 	case RankDirLR:
-		return Point{X: port.X + rankStep, Y: port.Y}
+		return 1, 0
 	case RankDirRL:
-		return Point{X: port.X - rankStep, Y: port.Y}
+		return -1, 0
 	default:
-		return Point{X: port.X, Y: port.Y + rankStep}
+		return 0, 1
 	}
 }
 
@@ -499,17 +503,11 @@ func midpointOf(pts []Point) Point {
 	return Point{X: (a.X + b.X) / 2, Y: (a.Y + b.Y) / 2}
 }
 
-// assignExitPorts walks every real node with 3+ outgoing edges and
-// stores an exit port per edge on that node's NodeLayout. Port
-// positions are shape-aware: diamonds use the bottom-left / bottom /
-// bottom-right vertices (rotated per rank direction); hexagons use the
-// three vertices on the exit side; all other shapes distribute evenly
-// along the exit side of the bounding box. Nodes with ≤2 outgoing
-// edges keep ExitPorts nil — existing center-to-boundary clipping
-// still applies and golden snapshots stay byte-identical.
-//
-// Ports are ordered to match buildEdges' SortEdges iteration so the
-// i-th outgoing edge (in From/To/ID order) uses ExitPorts[i].
+// assignExitPorts populates ExitPorts on every node with 3+ outgoing
+// edges. Port positions are shape-aware: diamonds/hexagons use their
+// natural vertices; other shapes distribute evenly along the exit
+// side. Ports are ordered to match buildEdges' SortEdges iteration so
+// the i-th outgoing edge uses ExitPorts[i].
 func assignExitPorts(g *graph.Graph, nodes map[string]NodeLayout, dir RankDir) {
 	for id, nl := range nodes {
 		outs := g.OutEdges(id)

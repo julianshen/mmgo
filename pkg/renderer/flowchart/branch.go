@@ -26,15 +26,13 @@ var branchColorPalette = []struct {
 
 // BranchGroup represents one branch of a multi-outlet node. Each
 // outgoing edge of a branch node (3+ outgoing) starts its own group;
-// the NodeIDs field collects every node transitively reachable from
-// that edge up to (but excluding) the next branch node or convergence
-// point. ColorIndex is assigned round-robin across the palette.
+// NodeIDs collects every node transitively reachable from that edge
+// up to (but excluding) the next branch node or convergence point.
 type BranchGroup struct {
 	SourceNodeID string
 	EdgeIndex    int
 	NodeIDs      []string
 	ColorIndex   int
-	EdgeFromTo   [][2]string
 }
 
 // DetectBranches walks the flowchart and returns one BranchGroup per
@@ -73,10 +71,9 @@ func DetectBranches(d *diagram.FlowchartDiagram, l *layout.Result) []BranchGroup
 	}
 	sort.Strings(sources)
 
-	// First pass: for every branch origin+edge, compute the initial
-	// reach (stopping at other branch nodes). Second pass: any node
-	// that appears in 2+ reaches is a convergence point and gets
-	// scrubbed from every set.
+	// A node reachable from 2+ branches is a convergence point and
+	// belongs to no single group — so walk per (src, firstHop) first,
+	// then subtract any node that appears in multiple reach sets.
 	type origin struct{ src, firstHop string }
 	reach := make(map[origin]map[string]bool)
 	for _, src := range sources {
@@ -180,25 +177,11 @@ func DetectBranches(d *diagram.FlowchartDiagram, l *layout.Result) []BranchGroup
 			}
 			sort.Strings(memberIDs)
 
-			// Collect edges fully inside this branch: both endpoints
-			// in {source, members}.
-			inGroup := map[string]bool{src: true}
-			for _, id := range memberIDs {
-				inGroup[id] = true
-			}
-			var fromTo [][2]string
-			for _, e := range d.AllEdges() {
-				if inGroup[e.From] && inGroup[e.To] {
-					fromTo = append(fromTo, [2]string{e.From, e.To})
-				}
-			}
-
 			groups = append(groups, BranchGroup{
 				SourceNodeID: src,
 				EdgeIndex:    i,
 				NodeIDs:      memberIDs,
 				ColorIndex:   colorIdx % len(branchColorPalette),
-				EdgeFromTo:   fromTo,
 			})
 			colorIdx++
 		}
@@ -207,51 +190,33 @@ func DetectBranches(d *diagram.FlowchartDiagram, l *layout.Result) []BranchGroup
 }
 
 // renderBranchRegions emits one shaded rounded-rect per BranchGroup,
-// sized to enclose the group's member node bounding boxes with a 20px
-// padding. Regions render before edges and nodes so they sit in the
-// back layer.
+// sized to enclose the group's member nodes with a regionInset margin.
+// Rendered before edges/nodes so regions sit in the back layer.
 func renderBranchRegions(groups []BranchGroup, l *layout.Result, pad float64) []any {
 	if len(groups) == 0 || l == nil {
 		return nil
 	}
-	const regionPad = 20.0
+	const regionInset = 20.0
+	const regionCornerR = 6.0
+	const regionStyle = "fill:%s;fill-opacity:0.35;stroke:%s;stroke-dasharray:4,3;stroke-width:1"
 	out := make([]any, 0, len(groups))
 	for _, g := range groups {
-		var minX, minY, maxX, maxY float64
-		minX, minY = 1e18, 1e18
-		maxX, maxY = -1e18, -1e18
-		any := false
-		for _, id := range g.NodeIDs {
-			nl, ok := l.Nodes[id]
-			if !ok {
-				continue
-			}
-			any = true
-			if nl.X-nl.Width/2 < minX {
-				minX = nl.X - nl.Width/2
-			}
-			if nl.Y-nl.Height/2 < minY {
-				minY = nl.Y - nl.Height/2
-			}
-			if nl.X+nl.Width/2 > maxX {
-				maxX = nl.X + nl.Width/2
-			}
-			if nl.Y+nl.Height/2 > maxY {
-				maxY = nl.Y + nl.Height/2
-			}
+		nodes := make([]diagram.Node, len(g.NodeIDs))
+		for i, id := range g.NodeIDs {
+			nodes[i] = diagram.Node{ID: id}
 		}
-		if !any {
+		bb, ok := subgraphBBox(nodes, l.Nodes)
+		if !ok {
 			continue
 		}
 		palette := branchColorPalette[g.ColorIndex%len(branchColorPalette)]
 		out = append(out, &Rect{
-			X:      svgFloat(minX - regionPad + pad),
-			Y:      svgFloat(minY - regionPad + pad),
-			Width:  svgFloat(maxX - minX + 2*regionPad),
-			Height: svgFloat(maxY - minY + 2*regionPad),
-			RX:     6, RY: 6,
-			Style: fmt.Sprintf("fill:%s;fill-opacity:0.35;stroke:%s;stroke-dasharray:4,3;stroke-width:1",
-				palette.Fill, palette.Stroke),
+			X:      svgFloat(bb.MinX - regionInset + pad),
+			Y:      svgFloat(bb.MinY - regionInset + pad),
+			Width:  svgFloat(bb.MaxX - bb.MinX + 2*regionInset),
+			Height: svgFloat(bb.MaxY - bb.MinY + 2*regionInset),
+			RX:     regionCornerR, RY: regionCornerR,
+			Style: fmt.Sprintf(regionStyle, palette.Fill, palette.Stroke),
 		})
 	}
 	return out
