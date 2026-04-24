@@ -1,0 +1,18 @@
+flowchart TD
+    Start@{ shape: start }
+    Input@{ shape: manual-input, label: "Read order" }
+    Check@{ shape: decision, label: "Valid?" }
+    Log@{ shape: doc, label: "Log failure" }
+    Loop@{ shape: loop-limit, label: "For each item" }
+    Save@{ shape: cyl, label: "Save to DB" }
+    Summary@{ shape: summary, label: "Receipt" }
+    Stop@{ shape: stop }
+
+    Start --> Input
+    Input --> Check
+    Check -->|no| Log
+    Log --> Stop
+    Check -->|yes| Loop
+    Loop --> Save
+    Save --> Summary
+    Summary --> Stop
