@@ -135,22 +135,6 @@ func (p *parser) addEdge(e diagram.Edge) {
 	}
 }
 
-func (p *parser) ensureNode(id string) {
-	if id == "" {
-		return
-	}
-	if p.findNode(id) != nil {
-		return
-	}
-	sg := p.currentSubgraph()
-	if sg != nil {
-		sg.Nodes = append(sg.Nodes, diagram.Node{ID: id})
-		return
-	}
-	p.nodeIndex[id] = len(p.diagram.Nodes)
-	p.diagram.Nodes = append(p.diagram.Nodes, diagram.Node{ID: id})
-}
-
 func stripComment(line string) string {
 	depth := 0
 	inQuote := false
@@ -324,7 +308,6 @@ func (p *parser) parseSubgraph(line string) error {
 		p.diagram.Subgraphs = append(p.diagram.Subgraphs, sg)
 	}
 	p.subgraphStack = append(p.subgraphStack, sg)
-	p.ensureNode(id)
 	return nil
 }
 

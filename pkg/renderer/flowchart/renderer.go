@@ -34,6 +34,13 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 	fontSize := resolveFontSize(opts)
 	bg := resolveBackground(opts, th)
 
+	// Title bands sit above the layout's top-most node rect, so reserve
+	// depth × bandHeight of extra top pad to keep outer subgraph rects
+	// inside the viewBox.
+	if depth := maxSubgraphDepth(d.Subgraphs); depth > 0 {
+		pad += float64(depth) * subgraphTitleBand(fontSize)
+	}
+
 	ruler := rulerFromOpts(opts)
 	if ruler == nil {
 		r, err := textmeasure.NewDefaultRuler()

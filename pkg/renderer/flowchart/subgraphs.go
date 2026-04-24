@@ -12,6 +12,11 @@ type bbox struct {
 	MinX, MinY, MaxX, MaxY float64
 }
 
+// subgraphTitleBand is the height reserved above a subgraph's contents
+// for its centered title label. Used both by renderSubgraphGroup and
+// by the top-level Render to inflate pad for outer subgraphs.
+func subgraphTitleBand(fontSize float64) float64 { return fontSize + 14 }
+
 // subgraphBBox returns the bounding box of the given nodes' layout
 // rects. Returns ok=false when no nodes contributed (empty subgraph or
 // every node missing from the layout) so callers can skip the box
@@ -53,11 +58,12 @@ func renderSubgraphGroup(sg *diagram.Subgraph, l *layout.Result, pad float64, th
 
 	bb, ok := subgraphBBox(sg.AllNodes(), l.Nodes)
 	if ok {
-		const sgPad = 15.0
-		rx := bb.MinX - sgPad + pad
-		ry := bb.MinY - sgPad + pad
-		rw := bb.MaxX - bb.MinX + 2*sgPad
-		rh := bb.MaxY - bb.MinY + 2*sgPad
+		const sidePad = 8.0
+		titleBand := subgraphTitleBand(fontSize)
+		rx := bb.MinX - sidePad + pad
+		ry := bb.MinY - titleBand + pad
+		rw := bb.MaxX - bb.MinX + 2*sidePad
+		rh := bb.MaxY - bb.MinY + sidePad + titleBand
 		g.Children = append(g.Children,
 			&Rect{
 				X: svgFloat(rx), Y: svgFloat(ry), Width: svgFloat(rw), Height: svgFloat(rh),
@@ -65,7 +71,8 @@ func renderSubgraphGroup(sg *diagram.Subgraph, l *layout.Result, pad float64, th
 				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.2f", th.SubgraphFill, th.SubgraphStroke, defaultStrokeWidth),
 			},
 			&Text{
-				X: svgFloat(rx + 10), Y: svgFloat(ry + 18),
+				X: svgFloat(rx + rw/2), Y: svgFloat(ry + titleBand/2),
+				Anchor: "middle", Dominant: "central",
 				FontSize: svgFloat(fontSize),
 				Style:    fmt.Sprintf("fill:%s;font-size:%.2fpx", th.SubgraphText, fontSize),
 				Content:  sg.Label,
@@ -77,6 +84,20 @@ func renderSubgraphGroup(sg *diagram.Subgraph, l *layout.Result, pad float64, th
 		g.Children = append(g.Children, renderSubgraphGroup(sg.Children[i], l, pad, th, fontSize))
 	}
 	return g
+}
+
+// maxSubgraphDepth returns the deepest nesting level across the given
+// top-level subgraphs. A flat list of subgraphs has depth 1; a subgraph
+// containing one nested subgraph has depth 2, and so on. Returns 0 when
+// there are no subgraphs.
+func maxSubgraphDepth(sgs []*diagram.Subgraph) int {
+	best := 0
+	for _, sg := range sgs {
+		if d := 1 + maxSubgraphDepth(sg.Children); d > best {
+			best = d
+		}
+	}
+	return best
 }
 
 func renderSubgraphs(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th Theme, fontSize float64) []any {

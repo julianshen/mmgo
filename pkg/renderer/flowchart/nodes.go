@@ -252,7 +252,11 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 		})
 	}
 
-	lines := strings.Split(n.Label, "\n")
+	label := n.Label
+	if label == "" {
+		label = n.ID
+	}
+	lines := strings.Split(label, "\n")
 	lineHeight := fontSize * 1.2
 	startY := cy - float64(len(lines)-1)*lineHeight/2
 	for i, line := range lines {
