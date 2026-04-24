@@ -159,12 +159,12 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 		srcDir := pts[1]
 		dstDir := pts[len(pts)-2]
 		if src, ok := l.Nodes[eid.From]; ok {
-			x, y := clipToShape(shapeByID[eid.From], src.X+pad, src.Y+pad, src.Width, src.Height, srcDir.X, srcDir.Y)
+			x, y := clipToShape(shapeByID[eid.From], src, pad, srcDir.X, srcDir.Y)
 			pts[0] = layout.Point{X: x, Y: y}
 		}
 		if dst, ok := l.Nodes[eid.To]; ok {
 			last := len(pts) - 1
-			x, y := clipToShape(shapeByID[eid.To], dst.X+pad, dst.Y+pad, dst.Width, dst.Height, dstDir.X, dstDir.Y)
+			x, y := clipToShape(shapeByID[eid.To], dst, pad, dstDir.X, dstDir.Y)
 			pts[last] = layout.Point{X: x, Y: y}
 		}
 	}
@@ -256,7 +256,8 @@ func edgeStyle(th Theme, ls diagram.LineStyle) string {
 // to the axis-aligned bounding rect (which is correct for rect-based
 // shapes and "close enough" for the polygon family where exact edge
 // geometry would need per-shape intersection code).
-func clipToShape(shape diagram.NodeShape, cx, cy, w, h, ox, oy float64) (x, y float64) {
+func clipToShape(shape diagram.NodeShape, n layout.NodeLayout, pad, ox, oy float64) (x, y float64) {
+	cx, cy := n.X+pad, n.Y+pad
 	switch shape {
 	case diagram.NodeShapeCircle,
 		diagram.NodeShapeDoubleCircle,
@@ -264,11 +265,11 @@ func clipToShape(shape diagram.NodeShape, cx, cy, w, h, ox, oy float64) (x, y fl
 		diagram.NodeShapeFilledCircle,
 		diagram.NodeShapeFramedCircle,
 		diagram.NodeShapeCrossCircle:
-		r := math.Min(w, h) / 2
+		r := math.Min(n.Width, n.Height) / 2
 		return svgutil.ClipToCircleEdge(cx, cy, r, ox, oy)
 	case diagram.NodeShapeDiamond:
-		return svgutil.ClipToDiamondEdge(cx, cy, w, h, ox, oy)
+		return svgutil.ClipToDiamondEdge(cx, cy, n.Width, n.Height, ox, oy)
 	default:
-		return svgutil.ClipToRectEdge(cx, cy, w, h, ox, oy)
+		return svgutil.ClipToRectEdge(cx, cy, n.Width, n.Height, ox, oy)
 	}
 }
