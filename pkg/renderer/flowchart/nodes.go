@@ -97,20 +97,21 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 
 	// --- Stage 2: circle variants -------------------------------------
 	case diagram.NodeShapeSmallCircle:
-		// Small fixed-ratio dot — used as the `start` glyph.
-		r := math.Min(w, h) / 4
+		// `start` glyph. Fills the (small) layout box so edges
+		// terminate at the visible circle edge.
+		r := math.Min(w, h) / 2
 		elems = append(elems, &Circle{CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(r), Style: shapeStyle})
 	case diagram.NodeShapeFilledCircle:
-		// Junction dot: filled with the stroke color so it reads as a
-		// solid bullet rather than a typical node fill.
-		r := math.Min(w, h) / 4
+		// Junction dot: filled with the stroke color so it reads as
+		// a solid bullet.
+		r := math.Min(w, h) / 2
 		filled := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.2f", th.NodeStroke, th.NodeStroke, defaultStrokeWidth)
 		elems = append(elems, &Circle{CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(r), Style: filled})
 	case diagram.NodeShapeFramedCircle:
-		// Stop glyph: outer ring with a smaller filled inner dot —
+		// `stop` glyph: outer ring with a smaller filled inner dot —
 		// same layering as the state renderer's end marker.
-		outerR := math.Min(w, h) / 4
-		innerR := outerR * 0.5
+		outerR := math.Min(w, h) / 2
+		innerR := outerR * 0.4
 		ring := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.2f", th.NodeFill, th.NodeStroke, defaultStrokeWidth)
 		dot := fmt.Sprintf("fill:%s;stroke:none", th.NodeStroke)
 		elems = append(elems, &Circle{CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(outerR), Style: ring})
@@ -152,13 +153,13 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 			Style: fmt.Sprintf("stroke:%s;stroke-width:%.2f", th.NodeStroke, defaultStrokeWidth),
 		})
 	case diagram.NodeShapeForkJoin:
-		// Activity-diagram fork/join bar: thin filled horizontal slab
-		// centered in the layout box. Width uses the full allocated
-		// width; height is fixed so the bar reads as a "sync" glyph.
-		const barH = 6.0
+		// Activity-diagram fork/join bar: thin filled slab that
+		// fills the layout box (extendedShapeSize allocates a
+		// narrow-height box so the bar matches its bounding rect,
+		// and edges terminate flush with the bar top/bottom).
 		elems = append(elems, &Rect{
-			X: svgFloat(cx - w/2), Y: svgFloat(cy - barH/2),
-			Width: svgFloat(w), Height: svgFloat(barH),
+			X: svgFloat(cx - w/2), Y: svgFloat(cy - h/2),
+			Width: svgFloat(w), Height: svgFloat(h),
 			Style: fmt.Sprintf("fill:%s;stroke:none", th.NodeStroke),
 		})
 	case diagram.NodeShapeNotchedRect:

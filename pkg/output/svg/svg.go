@@ -929,6 +929,13 @@ func buildFlowchartGraph(d *diagram.FlowchartDiagram, ruler *textmeasure.Ruler, 
 	g := graph.New()
 	for _, n := range d.AllNodes() {
 		w, h := nodeSize(n.Label, ruler, fontSize)
+		// Small-glyph extended shapes (start / junction / stop /
+		// fork / join) render as fixed-size glyphs that must match
+		// their layout box so edges terminate cleanly at the visible
+		// edge. Override the text-derived size for these.
+		if gw, gh, ok := extendedShapeSize(n.Shape); ok {
+			w, h = gw, gh
+		}
 		g.SetNode(n.ID, graph.NodeAttrs{Label: n.Label, Width: w, Height: h})
 	}
 	for _, e := range d.AllEdges() {
@@ -954,6 +961,26 @@ func nodeSize(label string, ruler *textmeasure.Ruler, fontSize float64) (w, h fl
 		h = minNodeHeight
 	}
 	return w, h
+}
+
+// extendedShapeSize overrides the text-derived node size for small-
+// glyph Mermaid extended shapes (`start`, `junction`, `stop`, `fork`,
+// `join`). Returning (w, h, true) signals "use this fixed size" so
+// the layout box matches the visible glyph. Returns (0, 0, false)
+// for shapes whose box should continue to size from their label.
+func extendedShapeSize(shape diagram.NodeShape) (w, h float64, ok bool) {
+	const terminatorR = 14.0 // circle-glyph radius; box is 2r each side
+	const forkBarH = 8.0
+	const forkBarW = 60.0
+	switch shape {
+	case diagram.NodeShapeSmallCircle,
+		diagram.NodeShapeFilledCircle,
+		diagram.NodeShapeFramedCircle:
+		return 2 * terminatorR, 2 * terminatorR, true
+	case diagram.NodeShapeForkJoin:
+		return forkBarW, forkBarH, true
+	}
+	return 0, 0, false
 }
 
 // directionToRankDir maps the parsed Direction enum to the layout
