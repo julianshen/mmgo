@@ -1,6 +1,6 @@
 # mmgo vs mmdc Output Comparison
 
-Same 34 `.mmd` sources rendered by both `mmgo` (this project) and `mmdc`
+Same 45 `.mmd` sources rendered by both `mmgo` (this project) and `mmdc`
 (the official Node.js Mermaid CLI, v11.12.0). Raw `mmdc` outputs live in
 [`examples-mmdc/`](../examples-mmdc/) alongside this repo's `examples/`
 for side-by-side inspection.
@@ -9,7 +9,7 @@ for side-by-side inspection.
 
 | Diagram type | Source count | mmgo OK | mmdc OK | Notes |
 |---|---:|---:|---:|---|
-| flowchart    | 3 | 3 | 3 | |
+| flowchart    | 14 | 14 | 14 | |
 | sequence     | 3 | 3 | 3 | |
 | pie          | 2 | 2 | 2 | |
 | class        | 2 | 2 | 2 | |
@@ -19,13 +19,13 @@ for side-by-side inspection.
 | mindmap      | 2 | 2 | 2 | |
 | timeline     | 2 | 2 | 2 | |
 | c4           | 2 | 2 | 2 | |
-| block        | 2 | 2 | **0** | mmdc errors: `<path> attribute d: Expected number, "M10,NaNC300,NaN..."` |
+| block        | 2 | 2 | **0** | mmdc rejects `block-beta` inline-edge syntax that mmgo accepts |
 | gitgraph     | 2 | 2 | 2 | |
 | sankey       | 2 | 2 | 2 | |
 | xychart      | 2 | 2 | 2 | |
 | quadrant     | 2 | 2 | 2 | |
 | kanban       | 2 | 2 | 2 | |
-| **Total**    | **34** | **34** | **32** | |
+| **Total**    | **45** | **45** | **43** | |
 
 ## Speed (3 renders of `flowchart/simple.mmd`, wall clock)
 

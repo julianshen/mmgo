@@ -24,21 +24,21 @@ refreshed as part of the same commit.
 
 ## Coverage
 
-| Diagram type   | Examples                                  |
-|----------------|-------------------------------------------|
-| flowchart      | simple, shapes, subgraphs                 |
-| sequence       | simple, auth_flow, notes                  |
-| pie            | simple, browsers                          |
-| class          | simple, mvc                               |
-| state          | simple, traffic_light                     |
-| er             | simple, blog                              |
-| gantt          | simple, release                           |
-| mindmap        | simple, project                           |
-| timeline       | simple, career                            |
-| c4             | context, container                        |
-| block          | simple, pipeline                          |
-| gitgraph       | simple, feature_branch                    |
-| sankey         | simple, budget                            |
-| xychart        | sales, compare                            |
-| quadrant       | campaigns, priority                       |
-| kanban         | simple, team_board                        |
+| Diagram type | Examples                                                                                                                             |
+|--------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| flowchart    | arrows, chaining, ci_cd, directions, edge_types, flowchart_practical, labels, nested_subgraphs, shapes, shapes_extended, shapes_mixed, simple, styling, subgraphs |
+| sequence     | auth_flow, notes, simple                                                                                                             |
+| pie          | browsers, simple                                                                                                                     |
+| class        | mvc, simple                                                                                                                          |
+| state        | simple, traffic_light                                                                                                                |
+| er           | blog, simple                                                                                                                         |
+| gantt        | release, simple                                                                                                                      |
+| mindmap      | project, simple                                                                                                                      |
+| timeline     | career, simple                                                                                                                       |
+| c4           | container, context                                                                                                                   |
+| block        | pipeline, simple                                                                                                                     |
+| gitgraph     | feature_branch, simple                                                                                                               |
+| sankey       | budget, simple                                                                                                                       |
+| xychart      | compare, sales                                                                                                                       |
+| quadrant     | campaigns, priority                                                                                                                  |
+| kanban       | simple, team_board                                                                                                                   |
