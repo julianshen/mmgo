@@ -324,7 +324,6 @@ func (p *parser) parseSubgraph(line string) error {
 		p.diagram.Subgraphs = append(p.diagram.Subgraphs, sg)
 	}
 	p.subgraphStack = append(p.subgraphStack, sg)
-	p.ensureNode(id)
 	return nil
 }
 
