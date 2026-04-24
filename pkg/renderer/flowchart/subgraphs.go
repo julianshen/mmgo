@@ -60,10 +60,31 @@ func renderSubgraphGroup(sg *diagram.Subgraph, l *layout.Result, pad float64, th
 	if ok {
 		const sidePad = 8.0
 		titleBand := subgraphTitleBand(fontSize)
+		// A nested subgraph sharing the parent's topmost node would
+		// otherwise produce identical `ry` values (same bb.MinY), so
+		// stack title bands by child-tree depth — the outer rect sits
+		// titleBand higher than its deepest descendant.
+		childDepth := float64(maxSubgraphDepth(sg.Children))
+		topOffset := (1 + childDepth) * titleBand
+
+		// Ensure the rect is wide enough to fit the title label; a
+		// long label above narrow contents would otherwise overflow.
+		// Use a rough avgCharW × fontSize estimate to avoid a ruler
+		// allocation per subgraph.
+		const avgCharW = 0.6
+		labelBoxW := float64(len(sg.Label))*fontSize*avgCharW + 2*sidePad + 8
+		contentW := bb.MaxX - bb.MinX + 2*sidePad
+		rw := contentW
+		if labelBoxW > rw {
+			rw = labelBoxW
+		}
+
 		rx := bb.MinX - sidePad + pad
-		ry := bb.MinY - titleBand + pad
-		rw := bb.MaxX - bb.MinX + 2*sidePad
-		rh := bb.MaxY - bb.MinY + sidePad + titleBand
+		if rw > contentW {
+			rx -= (rw - contentW) / 2
+		}
+		ry := bb.MinY - topOffset + pad
+		rh := bb.MaxY - bb.MinY + sidePad + topOffset
 		g.Children = append(g.Children,
 			&Rect{
 				X: svgFloat(rx), Y: svgFloat(ry), Width: svgFloat(rw), Height: svgFloat(rh),

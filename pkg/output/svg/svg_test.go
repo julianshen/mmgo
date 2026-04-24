@@ -507,7 +507,7 @@ Power,Homes,40`
 		t.Error("viewBox missing")
 	}
 	for _, n := range []string{"Coal", "Gas", "Power", "Industry", "Homes"} {
-		if !strings.Contains(raw, ">"+n+"<") {
+		if !strings.Contains(raw, ">"+n+" ") {
 			t.Errorf("label %q missing", n)
 		}
 	}

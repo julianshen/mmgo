@@ -34,12 +34,12 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 	fontSize := resolveFontSize(opts)
 	bg := resolveBackground(opts, th)
 
-	// Title bands sit above the layout's top-most node rect, so reserve
-	// depth × bandHeight of extra top pad to keep outer subgraph rects
-	// inside the viewBox.
-	if depth := maxSubgraphDepth(d.Subgraphs); depth > 0 {
-		pad += float64(depth) * subgraphTitleBand(fontSize)
-	}
+	// Subgraph title bands extend above the layout's top-most node
+	// rect by depth × titleBand. Instead of inflating `pad` on all
+	// four sides, only grow the viewBox downward by topInset and shift
+	// all rendered content by the same amount through a transform
+	// group — keeps the left/right/bottom margins lean.
+	topInset := float64(maxSubgraphDepth(d.Subgraphs)) * subgraphTitleBand(fontSize)
 
 	ruler := rulerFromOpts(opts)
 	if ruler == nil {
@@ -55,7 +55,7 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 	// to a non-negative minimum so a NaN/Inf layout (degenerate input)
 	// never reaches the formatter.
 	viewBoxW := sanitizeDimension(l.Width) + 2*pad
-	viewBoxH := sanitizeDimension(l.Height) + 2*pad
+	viewBoxH := sanitizeDimension(l.Height) + 2*pad + topInset
 
 	children := []any{
 		buildDefs(d, th),
@@ -94,9 +94,17 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 		Style:  fmt.Sprintf("fill:%s;stroke:none", bg),
 	})
 
-	children = append(children, renderSubgraphs(d, l, pad, th, fontSize)...)
-	children = append(children, renderEdges(d, l, pad, th, fontSize, ruler)...)
-	children = append(children, renderNodes(d, l, pad, th, fontSize)...)
+	if topInset > 0 {
+		content := &Group{Transform: fmt.Sprintf("translate(0,%.2f)", topInset)}
+		content.Children = append(content.Children, renderSubgraphs(d, l, pad, th, fontSize)...)
+		content.Children = append(content.Children, renderEdges(d, l, pad, th, fontSize, ruler)...)
+		content.Children = append(content.Children, renderNodes(d, l, pad, th, fontSize)...)
+		children = append(children, content)
+	} else {
+		children = append(children, renderSubgraphs(d, l, pad, th, fontSize)...)
+		children = append(children, renderEdges(d, l, pad, th, fontSize, ruler)...)
+		children = append(children, renderNodes(d, l, pad, th, fontSize)...)
+	}
 
 	svg := SVG{
 		XMLNS:    "http://www.w3.org/2000/svg",

@@ -40,14 +40,24 @@ func Parse(r io.Reader) (*diagram.TimelineDiagram, error) {
 			curSection = &d.Sections[len(d.Sections)-1]
 			continue
 		}
-		// Event line: "Time : Event1 : Event2" — split on colons
-		if event, ok := parseEvent(line); ok {
-			if curSection != nil {
-				curSection.Events = append(curSection.Events, event)
-			} else {
-				d.Events = append(d.Events, event)
-			}
+		// Event line: "Time : Event1 : Event2" — split on colons.
+		// A line starting with `:` (empty Time) is a continuation that
+		// appends events to the most recent period in the same scope.
+		event, ok := parseEvent(line)
+		if !ok {
+			continue
 		}
+		target := &d.Events
+		if curSection != nil {
+			target = &curSection.Events
+		}
+		if event.Time == "" {
+			if n := len(*target); n > 0 {
+				(*target)[n-1].Events = append((*target)[n-1].Events, event.Events...)
+			}
+			continue
+		}
+		*target = append(*target, event)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("reading input: %w", err)
@@ -71,7 +81,7 @@ func parseEvent(line string) (diagram.TimelineEvent, bool) {
 			event.Events = append(event.Events, t)
 		}
 	}
-	if event.Time == "" || len(event.Events) == 0 {
+	if len(event.Events) == 0 {
 		return diagram.TimelineEvent{}, false
 	}
 	return event, true

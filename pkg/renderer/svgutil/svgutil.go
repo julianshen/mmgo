@@ -6,10 +6,29 @@ import (
 	"encoding/xml"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/layout"
 )
+
+// FormatNumber renders v as the shortest readable numeric string:
+// integer form when v rounds to an integer within maxDecimals tolerance,
+// otherwise the shortest fixed-point form up to maxDecimals digits with
+// trailing zeros stripped. NaN/Inf collapse to "0".
+func FormatNumber(v float64, maxDecimals int) string {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return "0"
+	}
+	scale := math.Pow(10, float64(maxDecimals))
+	rounded := math.Round(v*scale) / scale
+	if rounded == math.Trunc(rounded) {
+		return strconv.FormatFloat(rounded, 'f', 0, 64)
+	}
+	s := strconv.FormatFloat(rounded, 'f', maxDecimals, 64)
+	s = strings.TrimRight(s, "0")
+	return strings.TrimRight(s, ".")
+}
 
 // CatmullRomTension is the default tension used when smoothing dagre's
 // polyline waypoints into cubic splines. 0.5 produced noticeably

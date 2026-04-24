@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -84,13 +85,23 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 		}
 	}
 
+	// Compose "Name Value" labels so the total flow through each node
+	// is visible next to the name (matches Mermaid's default rendering).
+	labelOf := func(n string) string {
+		m := magnitude[n]
+		if m <= 0 {
+			return n
+		}
+		return fmt.Sprintf("%s %s", n, svgutil.FormatNumber(m, 2))
+	}
+
 	// Labels anchor leftward (text-anchor=end) for every column except
 	// the rightmost when maxCol > 0; the rightmost column anchors them
 	// rightward (text-anchor=start). Reserve pad on both sides so long
 	// labels don't clip outside the viewBox.
 	var leftPad, rightPad float64
 	for _, n := range nodes {
-		w := textmeasure.EstimateWidth(n, fontSize)
+		w := textmeasure.EstimateWidth(labelOf(n), fontSize)
 		if col[n] == maxCol && maxCol > 0 {
 			if w > rightPad {
 				rightPad = w
@@ -174,7 +185,7 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 			Anchor:   anchor,
 			Dominant: "central",
 			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.LabelText, fontSize),
-			Content:  n,
+			Content:  labelOf(n),
 		})
 	}
 

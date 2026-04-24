@@ -37,7 +37,7 @@ func TestRenderSingleFlow(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	if !strings.Contains(raw, ">A<") || !strings.Contains(raw, ">B<") {
+	if !strings.Contains(raw, ">A ") || !strings.Contains(raw, ">B ") {
 		t.Error("node labels missing")
 	}
 	if !strings.Contains(raw, "<path") {
@@ -63,7 +63,7 @@ func TestRenderMultiColumnChain(t *testing.T) {
 	}
 	raw := string(out)
 	for _, n := range []string{"A", "B", "C", "D"} {
-		if !strings.Contains(raw, ">"+n+"<") {
+		if !strings.Contains(raw, ">"+n+" ") {
 			t.Errorf("label %q missing", n)
 		}
 	}
@@ -216,7 +216,7 @@ func TestRenderCycleBoundedIterations(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	if !strings.Contains(raw, ">A<") || !strings.Contains(raw, ">B<") {
+	if !strings.Contains(raw, ">A ") || !strings.Contains(raw, ">B ") {
 		t.Error("cycle labels missing")
 	}
 	if n := strings.Count(raw, "<path"); n != 2 {
