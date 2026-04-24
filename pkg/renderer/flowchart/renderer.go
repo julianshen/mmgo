@@ -34,13 +34,11 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 	fontSize := resolveFontSize(opts)
 	bg := resolveBackground(opts, th)
 
-	// Reserve vertical headroom for subgraph title bands. Each nesting
-	// level adds one band above its contents, and the outermost band
-	// extends above the layout's top-most node rect, so the effective
-	// top inset is depth × bandHeight. Without this, outer subgraph
-	// rects clip above the viewBox.
+	// Title bands sit above the layout's top-most node rect, so reserve
+	// depth × bandHeight of extra top pad to keep outer subgraph rects
+	// inside the viewBox.
 	if depth := maxSubgraphDepth(d.Subgraphs); depth > 0 {
-		pad += float64(depth) * (fontSize + 14)
+		pad += float64(depth) * subgraphTitleBand(fontSize)
 	}
 
 	ruler := rulerFromOpts(opts)

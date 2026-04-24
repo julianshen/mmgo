@@ -12,6 +12,11 @@ type bbox struct {
 	MinX, MinY, MaxX, MaxY float64
 }
 
+// subgraphTitleBand is the height reserved above a subgraph's contents
+// for its centered title label. Used both by renderSubgraphGroup and
+// by the top-level Render to inflate pad for outer subgraphs.
+func subgraphTitleBand(fontSize float64) float64 { return fontSize + 14 }
+
 // subgraphBBox returns the bounding box of the given nodes' layout
 // rects. Returns ok=false when no nodes contributed (empty subgraph or
 // every node missing from the layout) so callers can skip the box
@@ -53,12 +58,8 @@ func renderSubgraphGroup(sg *diagram.Subgraph, l *layout.Result, pad float64, th
 
 	bb, ok := subgraphBBox(sg.AllNodes(), l.Nodes)
 	if ok {
-		// Title sits in its own band at the top of the rect. The side
-		// and bottom paddings stay thin; the top padding grows to
-		// fontSize + breathing room so the label never collides with
-		// either the border or the first row of nodes.
 		const sidePad = 8.0
-		titleBand := fontSize + 14
+		titleBand := subgraphTitleBand(fontSize)
 		rx := bb.MinX - sidePad + pad
 		ry := bb.MinY - titleBand + pad
 		rw := bb.MaxX - bb.MinX + 2*sidePad
