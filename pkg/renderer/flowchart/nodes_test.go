@@ -43,14 +43,41 @@ func TestRenderAllShapes(t *testing.T) {
 		diagram.NodeShapeLinedRect,
 		diagram.NodeShapeForkJoin,
 		diagram.NodeShapeNotchedRect,
+
+		// Stage 3 path-based shapes
+		diagram.NodeShapeCloud,
+		diagram.NodeShapeBang,
+		diagram.NodeShapeBolt,
+		diagram.NodeShapeDocument,
+		diagram.NodeShapeLinedDocument,
+		diagram.NodeShapeDelay,
+		diagram.NodeShapeHorizontalCylinder,
+		diagram.NodeShapeLinedCylinder,
+		diagram.NodeShapeCurvedTrapezoid,
+		diagram.NodeShapeBowTieRect,
+		diagram.NodeShapeTaggedRect,
+		diagram.NodeShapeTaggedDocument,
+		diagram.NodeShapeStackedRect,
+		diagram.NodeShapeStackedDocument,
+		diagram.NodeShapeBrace,
+		diagram.NodeShapeBraceR,
+		diagram.NodeShapeBraces,
+		diagram.NodeShapeDataStore,
+		diagram.NodeShapeTextBlock,
 	}
 	for _, shape := range shapes {
 		t.Run(shape.String(), func(t *testing.T) {
 			n := diagram.Node{ID: "A", Label: "Test", Shape: shape}
 			nl := layout.NodeLayout{X: 100, Y: 50, Width: 80, Height: 40}
 			elems := renderNode(n, nl, 10, DefaultTheme(), 16)
-			if len(elems) < 2 {
-				t.Fatalf("shape %s: expected at least 2 elements, got %d", shape, len(elems))
+			// TextBlock renders as text only — no shape element.
+			// Every other shape emits at least one shape plus text.
+			minElems := 2
+			if shape == diagram.NodeShapeTextBlock {
+				minElems = 1
+			}
+			if len(elems) < minElems {
+				t.Fatalf("shape %s: expected at least %d elements, got %d", shape, minElems, len(elems))
 			}
 			txt, ok := elems[len(elems)-1].(*Text)
 			if !ok {

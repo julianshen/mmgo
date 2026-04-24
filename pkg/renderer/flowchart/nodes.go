@@ -165,6 +165,92 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 	case diagram.NodeShapeNotchedRect:
 		elems = append(elems, &Polygon{Points: notchedRectPoints(cx, cy, w, h), Style: shapeStyle})
 
+	// --- Stage 3: path-based shapes -----------------------------------
+	case diagram.NodeShapeCloud:
+		elems = append(elems, &Path{D: cloudPath(cx, cy, w, h), Style: shapeStyle})
+	case diagram.NodeShapeBang:
+		elems = append(elems, &Path{D: bangPath(cx, cy, w, h), Style: shapeStyle})
+	case diagram.NodeShapeBolt:
+		elems = append(elems, &Path{D: boltPath(cx, cy, w, h), Style: shapeStyle})
+	case diagram.NodeShapeDocument:
+		elems = append(elems, &Path{D: documentPath(cx, cy, w, h), Style: shapeStyle})
+	case diagram.NodeShapeLinedDocument:
+		// Document + a horizontal rule across the upper third.
+		elems = append(elems, &Path{D: documentPath(cx, cy, w, h), Style: shapeStyle})
+		ruleY := cy - h/6
+		elems = append(elems, &Line{
+			X1: svgFloat(cx - w/2), Y1: svgFloat(ruleY),
+			X2: svgFloat(cx + w/2), Y2: svgFloat(ruleY),
+			Style: fmt.Sprintf("stroke:%s;stroke-width:%.2f", th.NodeStroke, defaultStrokeWidth),
+		})
+	case diagram.NodeShapeDelay:
+		elems = append(elems, &Path{D: delayPath(cx, cy, w, h), Style: shapeStyle})
+	case diagram.NodeShapeHorizontalCylinder:
+		elems = append(elems, &Path{D: horizontalCylinderPath(cx, cy, w, h), Style: shapeStyle})
+	case diagram.NodeShapeLinedCylinder:
+		// Vertical cylinder + a horizontal stripe halfway down — the
+		// `disk` / `lined-cylinder` glyph.
+		elems = append(elems, &Path{D: svgutil.CylinderPath(cx, cy, w, h), Style: shapeStyle})
+		elems = append(elems, &Line{
+			X1: svgFloat(cx - w/2), Y1: svgFloat(cy),
+			X2: svgFloat(cx + w/2), Y2: svgFloat(cy),
+			Style: fmt.Sprintf("stroke:%s;stroke-width:%.2f", th.NodeStroke, defaultStrokeWidth),
+		})
+	case diagram.NodeShapeCurvedTrapezoid:
+		elems = append(elems, &Path{D: curvedTrapezoidPath(cx, cy, w, h), Style: shapeStyle})
+	case diagram.NodeShapeBowTieRect:
+		elems = append(elems, &Path{D: bowTieRectPath(cx, cy, w, h), Style: shapeStyle})
+	case diagram.NodeShapeTaggedRect:
+		elems = append(elems, &Path{D: taggedRectPath(cx, cy, w, h), Style: shapeStyle})
+	case diagram.NodeShapeTaggedDocument:
+		// Document with a pennant tag overlay in the bottom-right.
+		elems = append(elems, &Path{D: documentPath(cx, cy, w, h), Style: shapeStyle})
+		tag := math.Min(w, h) * 0.2
+		tagPath := fmt.Sprintf(
+			"M%.2f,%.2f L%.2f,%.2f L%.2f,%.2f Z",
+			cx+w/2, cy+h/2-tag,
+			cx+w/2, cy+h/2+tag,
+			cx+w/2-tag, cy+h/2,
+		)
+		elems = append(elems, &Path{D: tagPath, Style: shapeStyle})
+	case diagram.NodeShapeStackedRect:
+		// Two offset rects so the back one peeks out top-right.
+		const offset = 4.0
+		elems = append(elems, &Rect{
+			X: svgFloat(cx - w/2 + offset), Y: svgFloat(cy - h/2 - offset),
+			Width: svgFloat(w), Height: svgFloat(h), Style: shapeStyle,
+		})
+		elems = append(elems, &Rect{
+			X: svgFloat(cx - w/2), Y: svgFloat(cy - h/2),
+			Width: svgFloat(w), Height: svgFloat(h), Style: shapeStyle,
+		})
+	case diagram.NodeShapeStackedDocument:
+		const offset = 4.0
+		elems = append(elems, &Path{
+			D: documentPath(cx+offset, cy-offset, w, h), Style: shapeStyle,
+		})
+		elems = append(elems, &Path{D: documentPath(cx, cy, w, h), Style: shapeStyle})
+	case diagram.NodeShapeBrace:
+		elems = append(elems, &Path{
+			D:     bracePath(cx, cy, w, h, false),
+			Style: fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.2f", th.NodeStroke, defaultStrokeWidth),
+		})
+	case diagram.NodeShapeBraceR:
+		elems = append(elems, &Path{
+			D:     bracePath(cx, cy, w, h, true),
+			Style: fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.2f", th.NodeStroke, defaultStrokeWidth),
+		})
+	case diagram.NodeShapeBraces:
+		elems = append(elems, &Path{
+			D:     bracesPath(cx, cy, w, h),
+			Style: fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.2f", th.NodeStroke, defaultStrokeWidth),
+		})
+	case diagram.NodeShapeDataStore:
+		elems = append(elems, &Path{D: datastorePath(cx, cy, w, h), Style: shapeStyle})
+	case diagram.NodeShapeTextBlock:
+		// Text-only: no border, no fill. The label <Text> emitted
+		// after the switch is all that renders.
+
 	default:
 		elems = append(elems, &Rect{
 			X: svgFloat(cx - w/2), Y: svgFloat(cy - h/2), Width: svgFloat(w), Height: svgFloat(h), Style: shapeStyle,
