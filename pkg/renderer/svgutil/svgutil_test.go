@@ -121,6 +121,52 @@ func TestClipToHexagonEdge(t *testing.T) {
 	}
 }
 
+func TestClipToPolygonEdge(t *testing.T) {
+	// Square (convex) centered at origin, side 10. Easy ground-truth
+	// case: rays should land on the rect boundary.
+	square := []layout.Point{{X: -5, Y: -5}, {X: 5, Y: -5}, {X: 5, Y: 5}, {X: -5, Y: 5}}
+	// Right-pointing triangle (apex right) centered at origin.
+	// vertices: (-5,-5), (-5,5), (5,0). Center is inside.
+	tri := []layout.Point{{X: -5, Y: -5}, {X: -5, Y: 5}, {X: 5, Y: 0}}
+
+	cases := []struct {
+		name         string
+		poly         []layout.Point
+		ox, oy       float64
+		wantX, wantY float64
+	}{
+		{"square-east", square, 100, 0, 5, 0},
+		{"square-south", square, 0, 100, 0, 5},
+		{"square-NE-diagonal", square, 100, 100, 5, 5},
+		{"square-inside-clamps", square, 2, 0, 2, 0},
+		{"square-coincident", square, 0, 0, 0, 0},
+		// Triangle eastward ray hits the apex.
+		{"tri-east-apex", tri, 100, 0, 5, 0},
+		// Triangle westward ray hits the back edge x=-5.
+		{"tri-west", tri, -100, 0, -5, 0},
+		// Triangle north hits one of the slanted edges. NE edge
+		// from (-5,-5) to (5,0): slope (1, 0.5) per x-unit.
+		// Ray (0, -t): set y = -5 + 0.5*(x+5) = -5 → x = -5; ray
+		// at x=0, y=-t crosses NE edge where -5+0.5*(0+5)=-2.5
+		// → t = 2.5.
+		{"tri-north-hits-NE-edge", tri, 0, -100, 0, -2.5},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			x, y := ClipToPolygonEdge(0, 0, tc.poly, tc.ox, tc.oy)
+			if math.Abs(x-tc.wantX) > 1e-6 || math.Abs(y-tc.wantY) > 1e-6 {
+				t.Errorf("ClipToPolygonEdge=(%v,%v) want=(%v,%v)", x, y, tc.wantX, tc.wantY)
+			}
+		})
+	}
+
+	// Degenerate input: <3 vertices returns center unchanged.
+	x, y := ClipToPolygonEdge(7, 7, []layout.Point{{X: 0, Y: 0}, {X: 1, Y: 0}}, 100, 100)
+	if x != 7 || y != 7 {
+		t.Errorf("degenerate poly: got (%v,%v), want (7,7)", x, y)
+	}
+}
+
 func TestNegCoord(t *testing.T) {
 	cases := map[float64]string{0: "0.00", 9: "-9.00", -4: "4.00", 1.234: "-1.23"}
 	for in, want := range cases {

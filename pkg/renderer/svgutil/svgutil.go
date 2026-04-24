@@ -192,6 +192,56 @@ func ClipToHexagonEdge(cx, cy, w, h, skew, ox, oy float64) (x, y float64) {
 	return cx + dx*t, cy + dy*t
 }
 
+// ClipToPolygonEdge returns the point on the polygon boundary along
+// the ray from (cx, cy) toward (ox, oy). The polygon is given as
+// absolute-coordinate vertices in winding order; the closing edge
+// from poly[n-1] back to poly[0] is implicit. Works for any planar
+// polygon — the algorithm intersects the ray with each edge segment
+// and returns the smallest positive parameter t.
+//
+// For convex polygons with the center inside, exactly one edge gives
+// a valid hit. For non-convex shapes whose center sits outside the
+// interior or on a self-intersection (e.g. an hourglass bowtie), the
+// result can be degenerate; callers should keep such shapes on the
+// rect fallback.
+//
+// If no edge is crossed (ray parallel to all of them — impossible for
+// closed polygons in general but defensible against degenerate input),
+// the center is returned. Inside-clamp safety mirrors ClipToRectEdge:
+// a reference already inside the polygon doesn't pull the endpoint
+// past it.
+func ClipToPolygonEdge(cx, cy float64, poly []layout.Point, ox, oy float64) (x, y float64) {
+	dx, dy := ox-cx, oy-cy
+	if dx == 0 && dy == 0 || len(poly) < 3 {
+		return cx, cy
+	}
+	bestT := math.Inf(1)
+	n := len(poly)
+	for i := 0; i < n; i++ {
+		p1 := poly[i]
+		p2 := poly[(i+1)%n]
+		ex, ey := p2.X-p1.X, p2.Y-p1.Y
+		fx, fy := p1.X-cx, p1.Y-cy
+		det := dy*ex - dx*ey
+		if math.Abs(det) < 1e-12 {
+			continue
+		}
+		t := (ex*fy - ey*fx) / det
+		u := (dx*fy - dy*fx) / det
+		const eps = 1e-9
+		if t > eps && u >= -eps && u <= 1+eps && t < bestT {
+			bestT = t
+		}
+	}
+	if math.IsInf(bestT, 1) {
+		return cx, cy
+	}
+	if bestT > 1 {
+		bestT = 1
+	}
+	return cx + dx*bestT, cy + dy*bestT
+}
+
 // NegCoord formats -v for an SVG transform attribute, avoiding the
 // "-0.00" output that a plain %.2f of -0 produces (ugly in
 // golden-file diffs).

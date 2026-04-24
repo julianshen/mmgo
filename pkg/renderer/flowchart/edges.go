@@ -250,13 +250,18 @@ func edgeStyle(th Theme, ls diagram.LineStyle) string {
 }
 
 // clipToShape picks the right endpoint-clip geometry for the given
-// node shape. Circle-family nodes (Circle, DoubleCircle, SmallCircle,
-// FilledCircle, FramedCircle, CrossCircle) use radial clipping;
-// Diamond uses rhombus-edge intersection; Hexagon uses its own
-// stretched-hex clipper; everything else falls back to the
-// axis-aligned bounding rect (which is correct for rect-based shapes
-// and "close enough" for the remaining polygon family where exact
-// edge geometry would need per-shape intersection code).
+// node shape. Circle-family nodes use radial clipping; Diamond and
+// Hexagon use their O(1) specialised clippers; the rest of the
+// polygon family (triangles, trapezoids, parallelograms, notched
+// rects, etc.) goes through the generic ClipToPolygonEdge using
+// vertices from polygonVerts. Everything else (rect-based glyphs,
+// path-based shapes like cylinder/cloud where the bounding rect is
+// a reasonable approximation) falls back to ClipToRectEdge.
+//
+// Hourglass is a self-intersecting bowtie whose self-cross sits at
+// the layout center, making ray-from-center clipping degenerate, so
+// it stays on the rect fallback by design (polygonVerts returns nil
+// for it).
 func clipToShape(shape diagram.NodeShape, n layout.NodeLayout, pad, ox, oy float64) (x, y float64) {
 	cx, cy := n.X+pad, n.Y+pad
 	switch shape {
@@ -272,7 +277,9 @@ func clipToShape(shape diagram.NodeShape, n layout.NodeLayout, pad, ox, oy float
 		return svgutil.ClipToDiamondEdge(cx, cy, n.Width, n.Height, ox, oy)
 	case diagram.NodeShapeHexagon:
 		return svgutil.ClipToHexagonEdge(cx, cy, n.Width, n.Height, polygonSkew, ox, oy)
-	default:
-		return svgutil.ClipToRectEdge(cx, cy, n.Width, n.Height, ox, oy)
 	}
+	if verts := polygonVerts(shape, cx, cy, n.Width, n.Height); verts != nil {
+		return svgutil.ClipToPolygonEdge(cx, cy, verts, ox, oy)
+	}
+	return svgutil.ClipToRectEdge(cx, cy, n.Width, n.Height, ox, oy)
 }

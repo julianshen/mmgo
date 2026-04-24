@@ -267,45 +267,22 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 }
 
 func diamondPoints(cx, cy, w, h float64) string {
-	return fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
-		cx, cy-h/2, cx+w/2, cy, cx, cy+h/2, cx-w/2, cy)
+	return polygonPointsAttr(diamondVerts(cx, cy, w, h))
 }
 
 func hexagonPoints(cx, cy, w, h float64) string {
-	d := w * polygonSkew
-	return fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
-		cx-w/2+d, cy-h/2, cx+w/2-d, cy-h/2, cx+w/2, cy,
-		cx+w/2-d, cy+h/2, cx-w/2+d, cy+h/2, cx-w/2, cy)
+	return polygonPointsAttr(hexagonVerts(cx, cy, w, h))
 }
 
-func parallelogramPoints(cx, cy, w, h float64, skew float64, reverse bool) string {
-	s := w * skew
-	if reverse {
-		return fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
-			cx-w/2+s, cy-h/2, cx+w/2+s, cy-h/2,
-			cx+w/2-s, cy+h/2, cx-w/2-s, cy+h/2)
-	}
-	return fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
-		cx-w/2+s, cy-h/2, cx+w/2-s, cy-h/2,
-		cx+w/2+s, cy+h/2, cx-w/2-s, cy+h/2)
+func parallelogramPoints(cx, cy, w, h, skew float64, reverse bool) string {
+	return polygonPointsAttr(parallelogramVerts(cx, cy, w, h, skew, reverse))
 }
 
-func trapezoidPoints(cx, cy, w, h float64, indent float64, alt bool) string {
-	d := w * indent
-	if alt {
-		return fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
-			cx-w/2+d, cy-h/2, cx+w/2-d, cy-h/2,
-			cx+w/2, cy+h/2, cx-w/2, cy+h/2)
-	}
-	return fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
-		cx-w/2, cy-h/2, cx+w/2, cy-h/2,
-		cx+w/2-d, cy+h/2, cx-w/2+d, cy+h/2)
+func trapezoidPoints(cx, cy, w, h, indent float64, alt bool) string {
+	return polygonPointsAttr(trapezoidVerts(cx, cy, w, h, indent, alt))
 }
 
 func asymmetricPoints(cx, cy, w, h float64) string {
-	s := w * polygonSkew
-	return fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
-		cx-w/2, cy-h/2, cx+w/2-s, cy-h/2,
-		cx+w/2, cy+h/2, cx-w/2, cy+h/2)
+	return polygonPointsAttr(asymmetricVerts(cx, cy, w, h))
 }
 
