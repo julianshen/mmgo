@@ -74,7 +74,9 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 	cx := pad + outsideGutter + defaultRadius
 	cy := pad + defaultRadius
 	if d.Title != "" {
-		cy += fontSize + 10
+		// Title band + breathing room for outside-slice leader labels
+		// that can overshoot the pie's top edge.
+		cy += fontSize + 30
 	}
 
 	legendX := cx + defaultRadius + outsideGutter + pad

@@ -170,11 +170,9 @@ func maxSeriesLen(series []diagram.XYSeries) int {
 // them.
 func renderAxes(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, y0, x1, y1, fontSize float64, th Theme) []any {
 	var elems []any
-	const nYTicks = 5
-	for i := 0; i <= nYTicks; i++ {
-		t := float64(i) / float64(nYTicks)
+	for _, val := range niceYTicks(yMin, yMax, 6) {
+		t := (val - yMin) / (yMax - yMin)
 		yPix := y1 - t*(y1-y0)
-		val := yMin + t*(yMax-yMin)
 		elems = append(elems, &line{
 			X1: svgFloat(x0), Y1: svgFloat(yPix),
 			X2: svgFloat(x1), Y2: svgFloat(yPix),
@@ -341,6 +339,37 @@ func yPix(v, yMin, yMax, y0, y1 float64) float64 {
 	}
 	t := (v - yMin) / (yMax - yMin)
 	return y1 - t*(y1-y0)
+}
+
+// niceYTicks returns axis tick values at round intervals covering
+// [yMin, yMax]. Aims for roughly `target` ticks using a 1/2/5 × 10^k
+// step selector — the conventional "nice ticks" heuristic. For e.g.
+// [0, 12] and target=6 it returns {0,2,4,6,8,10,12}, not {0, 2.4, 4.8,
+// 7.2, 9.6, 12} which is what naive uniform spacing produces.
+func niceYTicks(yMin, yMax float64, target int) []float64 {
+	if yMax <= yMin || target < 2 {
+		return []float64{yMin, yMax}
+	}
+	rawStep := (yMax - yMin) / float64(target-1)
+	mag := math.Pow(10, math.Floor(math.Log10(rawStep)))
+	norm := rawStep / mag
+	var step float64
+	switch {
+	case norm < 1.5:
+		step = 1 * mag
+	case norm < 3:
+		step = 2 * mag
+	case norm < 7:
+		step = 5 * mag
+	default:
+		step = 10 * mag
+	}
+	start := math.Ceil(yMin/step) * step
+	ticks := []float64{}
+	for v := start; v <= yMax+step*1e-9; v += step {
+		ticks = append(ticks, v)
+	}
+	return ticks
 }
 
 // formatTick returns a compact numeric string: integer form for
