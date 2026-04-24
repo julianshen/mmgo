@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
-	parserutil "github.com/julianshen/mmgo/pkg/parser"
 )
 
 // shapeAliases maps every Mermaid extended-syntax short name to its
@@ -192,8 +191,3 @@ func parseKV(raw string) (map[string]string, error) {
 	}
 	return out, nil
 }
-
-// processLabel is shared with the traditional-delimiter parser in
-// parser.go; re-declared here only as a reminder — Go resolves it to
-// the single definition at compile time.
-var _ = parserutil.Unquote
