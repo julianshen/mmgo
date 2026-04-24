@@ -23,37 +23,39 @@ func cloudPath(cx, cy, w, h float64) string {
 	bot := cy + h/2
 	// Lobe counts chosen so the arcs meet the corners evenly;
 	// each arc sweeps outward (fills upward/rightward/etc.).
-	topLobes := 5.0
-	botLobes := 3.0
-	sideLobes := 2.0
+	const (
+		topLobes  = 5.0
+		botLobes  = 3.0
+		sideLobes = 2.0
+	)
 	var b strings.Builder
 	fmt.Fprintf(&b, "M%.2f,%.2f", left, top)
-	// Top edge — bumps going right.
-	step := w / topLobes
-	for i := 0.0; i < topLobes; i++ {
-		x := left + (i+1)*step
-		fmt.Fprintf(&b, " A%.2f,%.2f 0 0,1 %.2f,%.2f", step/2, step/2, x, top)
-	}
-	// Right edge — bumps going down.
-	step = h / sideLobes
-	for i := 0.0; i < sideLobes; i++ {
-		y := top + (i+1)*step
-		fmt.Fprintf(&b, " A%.2f,%.2f 0 0,1 %.2f,%.2f", step/2, step/2, right, y)
-	}
-	// Bottom edge — bumps going left (sweep=1 still curves outward).
-	step = w / botLobes
-	for i := 0.0; i < botLobes; i++ {
-		x := right - (i+1)*step
-		fmt.Fprintf(&b, " A%.2f,%.2f 0 0,1 %.2f,%.2f", step/2, step/2, x, bot)
-	}
-	// Left edge — bumps going up.
-	step = h / sideLobes
-	for i := 0.0; i < sideLobes; i++ {
-		y := bot - (i+1)*step
-		fmt.Fprintf(&b, " A%.2f,%.2f 0 0,1 %.2f,%.2f", step/2, step/2, left, y)
-	}
+	// Top edge — bumps going right across a fixed y=top.
+	appendCloudArcs(&b, w/topLobes, topLobes, true, left, top, +1)
+	// Right edge — bumps going down along x=right.
+	appendCloudArcs(&b, h/sideLobes, sideLobes, false, top, right, +1)
+	// Bottom edge — bumps going left across y=bot (sweep=1 still curves outward).
+	appendCloudArcs(&b, w/botLobes, botLobes, true, right, bot, -1)
+	// Left edge — bumps going up along x=left.
+	appendCloudArcs(&b, h/sideLobes, sideLobes, false, bot, left, -1)
 	b.WriteString(" Z")
 	return b.String()
+}
+
+// appendCloudArcs emits `count` consecutive SVG arc segments of equal
+// radius=step/2 along one edge. When horizontal is true the arcs step
+// in x along a fixed y (`fixed`); when false they step in y along a
+// fixed x. `dir` is +1 or -1 for forward/backward traversal.
+func appendCloudArcs(b *strings.Builder, step, count float64, horizontal bool, startAlong, fixed, dir float64) {
+	r := step / 2
+	for i := 0.0; i < count; i++ {
+		v := startAlong + dir*(i+1)*step
+		x, y := v, fixed
+		if !horizontal {
+			x, y = fixed, v
+		}
+		fmt.Fprintf(b, " A%.2f,%.2f 0 0,1 %.2f,%.2f", r, r, x, y)
+	}
 }
 
 // bangPath draws a starburst outline — alternating peak/valley points
@@ -285,4 +287,18 @@ func bracesPath(cx, cy, w, h float64) string {
 	left := bracePath(cx-w/2, cy, w/4, h, false)
 	right := bracePath(cx+w/2, cy, w/4, h, true)
 	return left + " " + right
+}
+
+// cornerTagPath draws the small triangular pennant overlay used by
+// `TaggedDocument`. The pennant hangs off the bottom-right corner of
+// the bounding box with leg length = tag.
+func cornerTagPath(cx, cy, w, h, tag float64) string {
+	right := cx + w/2
+	bot := cy + h/2
+	return fmt.Sprintf(
+		"M%.2f,%.2f L%.2f,%.2f L%.2f,%.2f Z",
+		right, bot-tag,
+		right, bot+tag,
+		right-tag, bot,
+	)
 }

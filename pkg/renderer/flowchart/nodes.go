@@ -15,6 +15,9 @@ const (
 	defaultStrokeWidth = 1.5
 	doubleCircleGap    = 3.0
 	subroutineBand     = 0.1
+	// stackOffset is the x/y displacement between the front and back
+	// copies of stacked-rect / stacked-document shapes.
+	stackOffset = 4.0
 )
 
 func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fontSize float64) []any {
@@ -206,18 +209,11 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 		// Document with a pennant tag overlay in the bottom-right.
 		elems = append(elems, &Path{D: documentPath(cx, cy, w, h), Style: shapeStyle})
 		tag := math.Min(w, h) * 0.2
-		tagPath := fmt.Sprintf(
-			"M%.2f,%.2f L%.2f,%.2f L%.2f,%.2f Z",
-			cx+w/2, cy+h/2-tag,
-			cx+w/2, cy+h/2+tag,
-			cx+w/2-tag, cy+h/2,
-		)
-		elems = append(elems, &Path{D: tagPath, Style: shapeStyle})
+		elems = append(elems, &Path{D: cornerTagPath(cx, cy, w, h, tag), Style: shapeStyle})
 	case diagram.NodeShapeStackedRect:
 		// Two offset rects so the back one peeks out top-right.
-		const offset = 4.0
 		elems = append(elems, &Rect{
-			X: svgFloat(cx - w/2 + offset), Y: svgFloat(cy - h/2 - offset),
+			X: svgFloat(cx - w/2 + stackOffset), Y: svgFloat(cy - h/2 - stackOffset),
 			Width: svgFloat(w), Height: svgFloat(h), Style: shapeStyle,
 		})
 		elems = append(elems, &Rect{
@@ -225,9 +221,8 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 			Width: svgFloat(w), Height: svgFloat(h), Style: shapeStyle,
 		})
 	case diagram.NodeShapeStackedDocument:
-		const offset = 4.0
 		elems = append(elems, &Path{
-			D: documentPath(cx+offset, cy-offset, w, h), Style: shapeStyle,
+			D: documentPath(cx+stackOffset, cy-stackOffset, w, h), Style: shapeStyle,
 		})
 		elems = append(elems, &Path{D: documentPath(cx, cy, w, h), Style: shapeStyle})
 	case diagram.NodeShapeBrace:
