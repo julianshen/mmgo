@@ -252,10 +252,11 @@ func edgeStyle(th Theme, ls diagram.LineStyle) string {
 // clipToShape picks the right endpoint-clip geometry for the given
 // node shape. Circle-family nodes (Circle, DoubleCircle, SmallCircle,
 // FilledCircle, FramedCircle, CrossCircle) use radial clipping;
-// Diamond uses rhombus-edge intersection; everything else falls back
-// to the axis-aligned bounding rect (which is correct for rect-based
-// shapes and "close enough" for the polygon family where exact edge
-// geometry would need per-shape intersection code).
+// Diamond uses rhombus-edge intersection; Hexagon uses its own
+// stretched-hex clipper; everything else falls back to the
+// axis-aligned bounding rect (which is correct for rect-based shapes
+// and "close enough" for the remaining polygon family where exact
+// edge geometry would need per-shape intersection code).
 func clipToShape(shape diagram.NodeShape, n layout.NodeLayout, pad, ox, oy float64) (x, y float64) {
 	cx, cy := n.X+pad, n.Y+pad
 	switch shape {
@@ -269,6 +270,8 @@ func clipToShape(shape diagram.NodeShape, n layout.NodeLayout, pad, ox, oy float
 		return svgutil.ClipToCircleEdge(cx, cy, r, ox, oy)
 	case diagram.NodeShapeDiamond:
 		return svgutil.ClipToDiamondEdge(cx, cy, n.Width, n.Height, ox, oy)
+	case diagram.NodeShapeHexagon:
+		return svgutil.ClipToHexagonEdge(cx, cy, n.Width, n.Height, polygonSkew, ox, oy)
 	default:
 		return svgutil.ClipToRectEdge(cx, cy, n.Width, n.Height, ox, oy)
 	}

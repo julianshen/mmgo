@@ -86,6 +86,41 @@ func TestClipToDiamondEdge(t *testing.T) {
 	}
 }
 
+func TestClipToHexagonEdge(t *testing.T) {
+	// Hexagon w=20, h=10, skew=0.15 → d=3.
+	// Vertices: (±10, 0), (±7, ±5). Cap span x ∈ [-7, 7] at y=±5.
+	const skew = 0.15
+	cases := []struct {
+		name                 string
+		cx, cy, w, h, ox, oy float64
+		wantX, wantY         float64
+	}{
+		{"east-vertex", 0, 0, 20, 10, 100, 0, 10, 0},
+		{"west-vertex", 0, 0, 20, 10, -100, 0, -10, 0},
+		{"straight-up-hits-cap", 0, 0, 20, 10, 0, -100, 0, -5},
+		{"straight-down-hits-cap", 0, 0, 20, 10, 0, 100, 0, 5},
+		// Ray along the NE diagonal toward corner vertex (7,5):
+		// halfH*ax + d*ay = 5*7 + 3*5 = 50; t = 50/50 = 1.
+		{"corner-vertex-NE", 0, 0, 20, 10, 7, 5, 7, 5},
+		// Ray steeper than the corner angle: small x, big y → hits cap.
+		{"cap-shallow-x", 0, 0, 20, 10, 2, 10, 1, 5},
+		// Ray flatter than the corner: large x, small y → hits diagonal.
+		// Reference (90,10) is outside; halfH*ax+d*ay = 450+30 = 480;
+		// t = 50/480, so (x,y) = (90*t, 10*t) = (9.375, 1.0417).
+		{"diagonal-flat", 0, 0, 20, 10, 90, 10, 90 * 50.0 / 480.0, 10 * 50.0 / 480.0},
+		{"inside-clamps", 0, 0, 20, 10, 1, 0, 1, 0},
+		{"at-center", 0, 0, 20, 10, 0, 0, 0, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			x, y := ClipToHexagonEdge(tc.cx, tc.cy, tc.w, tc.h, skew, tc.ox, tc.oy)
+			if math.Abs(x-tc.wantX) > 1e-9 || math.Abs(y-tc.wantY) > 1e-9 {
+				t.Errorf("ClipToHexagonEdge=(%v,%v) want=(%v,%v)", x, y, tc.wantX, tc.wantY)
+			}
+		})
+	}
+}
+
 func TestNegCoord(t *testing.T) {
 	cases := map[float64]string{0: "0.00", 9: "-9.00", -4: "4.00", 1.234: "-1.23"}
 	for in, want := range cases {

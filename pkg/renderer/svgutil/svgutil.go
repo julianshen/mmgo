@@ -153,6 +153,45 @@ func ClipToDiamondEdge(cx, cy, w, h, ox, oy float64) (x, y float64) {
 	return cx + dx*t, cy + dy*t
 }
 
+// ClipToHexagonEdge returns the point on the stretched hexagon
+// boundary (center (cx, cy), bounding size (w, h), diagonal inset
+// d = w*skew) along the ray toward (ox, oy). The hexagon has flat
+// top/bottom caps spanning x ∈ [cx-w/2+d, cx+w/2-d] and single
+// vertices at the left/right midpoints (cx±w/2, cy), matching the
+// flowchart hexagonPoints geometry.
+//
+// By full symmetry we work in a single quadrant with |dx|, |dy|:
+// rays that exit through a cap hit y = h/2 with x ≤ w/2-d; rays
+// steeper-in-x than that hit the adjacent diagonal, whose line is
+// (h/2)|x| + d·|y| = h·w/4.
+func ClipToHexagonEdge(cx, cy, w, h, skew, ox, oy float64) (x, y float64) {
+	dx, dy := ox-cx, oy-cy
+	if dx == 0 && dy == 0 {
+		return cx, cy
+	}
+	halfW, halfH := w/2, h/2
+	d := w * skew
+	ax, ay := math.Abs(dx), math.Abs(dy)
+
+	var t float64
+	if ay > 0 {
+		tCap := halfH / ay
+		if tCap*ax <= halfW-d {
+			t = tCap
+		} else {
+			t = halfH * halfW / (halfH*ax + d*ay)
+		}
+	} else {
+		t = halfW / ax
+	}
+	// Clamp so a reference already inside the hex doesn't pull the
+	// endpoint past it (same safety as ClipToRectEdge).
+	if t > 1 {
+		t = 1
+	}
+	return cx + dx*t, cy + dy*t
+}
+
 // NegCoord formats -v for an SVG transform attribute, avoiding the
 // "-0.00" output that a plain %.2f of -0 produces (ugly in
 // golden-file diffs).
