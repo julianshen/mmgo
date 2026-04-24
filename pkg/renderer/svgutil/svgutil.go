@@ -128,6 +128,31 @@ func ClipToCircleEdge(cx, cy, r, ox, oy float64) (x, y float64) {
 	return cx + dx/d*r, cy + dy/d*r
 }
 
+// ClipToDiamondEdge returns the point on the axis-aligned rhombus
+// with vertices at (cx±w/2, cy) and (cx, cy±h/2) along the ray from
+// the center toward (ox, oy). The rhombus is |dx|/(w/2) + |dy|/(h/2)
+// = 1 on its boundary; we scale the direction vector by the inverse
+// sum so the endpoint sits exactly on the nearest diamond edge. If
+// (ox, oy) coincides with the center the center is returned.
+func ClipToDiamondEdge(cx, cy, w, h, ox, oy float64) (x, y float64) {
+	dx, dy := ox-cx, oy-cy
+	if dx == 0 && dy == 0 {
+		return cx, cy
+	}
+	halfW, halfH := w/2, h/2
+	denom := math.Abs(dx)/halfW + math.Abs(dy)/halfH
+	if denom == 0 {
+		return cx, cy
+	}
+	t := 1 / denom
+	// Clamp so a reference already inside the rhombus doesn't pull
+	// the endpoint past it (same safety as ClipToRectEdge).
+	if t > 1 {
+		t = 1
+	}
+	return cx + dx*t, cy + dy*t
+}
+
 // NegCoord formats -v for an SVG transform attribute, avoiding the
 // "-0.00" output that a plain %.2f of -0 produces (ugly in
 // golden-file diffs).

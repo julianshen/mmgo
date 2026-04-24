@@ -56,6 +56,36 @@ func TestClipToCircleEdge(t *testing.T) {
 	}
 }
 
+func TestClipToDiamondEdge(t *testing.T) {
+	cases := []struct {
+		name                 string
+		cx, cy, w, h, ox, oy float64
+		wantX, wantY         float64
+	}{
+		// Diamond of w=20, h=10 has vertices at (±10, 0) and (0, ±5).
+		{"east-vertex", 0, 0, 20, 10, 100, 0, 10, 0},
+		{"west-vertex", 0, 0, 20, 10, -100, 0, -10, 0},
+		{"north-vertex", 0, 0, 20, 10, 0, -100, 0, -5},
+		{"south-vertex", 0, 0, 20, 10, 0, 100, 0, 5},
+		// Off-axis: with w=h=10 (square diamond), a reference at
+		// (10,10) hits the NE edge at (2.5, 2.5) — 1/(2+2) = 0.25,
+		// 10 * 0.25 = 2.5.
+		{"diagonal-NE", 0, 0, 10, 10, 10, 10, 2.5, 2.5},
+		// Reference already inside: result clamps to the reference
+		// (parallel to ClipToRectEdge's inside-clamp safety).
+		{"inside-clamps", 0, 0, 20, 10, 1, 0, 1, 0},
+		{"at-center", 0, 0, 20, 10, 0, 0, 0, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			x, y := ClipToDiamondEdge(tc.cx, tc.cy, tc.w, tc.h, tc.ox, tc.oy)
+			if math.Abs(x-tc.wantX) > 1e-9 || math.Abs(y-tc.wantY) > 1e-9 {
+				t.Errorf("ClipToDiamondEdge=(%v,%v) want=(%v,%v)", x, y, tc.wantX, tc.wantY)
+			}
+		})
+	}
+}
+
 func TestNegCoord(t *testing.T) {
 	cases := map[float64]string{0: "0.00", 9: "-9.00", -4: "4.00", 1.234: "-1.23"}
 	for in, want := range cases {
