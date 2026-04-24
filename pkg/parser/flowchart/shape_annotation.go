@@ -78,15 +78,64 @@ var shapeAliases = map[string]diagram.NodeShape{
 	"inv-trapezoid": diagram.NodeShapeTrapezoidAlt,
 	"manual":        diagram.NodeShapeTrapezoidAlt,
 
-	// Asymmetric (flag) — kept under its legacy name here; extended
-	// short names for an asymmetric glyph also exist in Mermaid but
-	// Stage 2 gets them since they map to new enum values.
-	"asym":       diagram.NodeShapeAsymmetric,
-	"asymmetric": diagram.NodeShapeAsymmetric,
+	// Asymmetric: extended short names for an asymmetric glyph exist
+	// in Mermaid but the spec routes them to new enum values in
+	// Stage 2 alongside their renderer cases. Stage 1 deliberately
+	// has no `asym` / `asymmetric` alias here — users still get the
+	// existing `>...]` traditional-delimiter syntax.
 
 	// Double circle
 	"dbl-circ":      diagram.NodeShapeDoubleCircle,
 	"double-circle": diagram.NodeShapeDoubleCircle,
+}
+
+// pendingShapes lists Mermaid extended-syntax names that are
+// recognized but not yet implemented. Encountering one falls back to
+// Rectangle silently so a mid-migration diagram (which may mix
+// Stage-1 shapes with not-yet-supported ones) still parses; users
+// see a plain rectangle in place of the not-yet-implemented glyph.
+//
+// As Stage 2/3 land each new NodeShape constant + renderer case, the
+// corresponding entries move from this set into shapeAliases.
+var pendingShapes = map[string]struct{}{
+	// Polygon / circle / rect family (Stage 2)
+	"tri": {}, "extract": {}, "triangle": {},
+	"flip-tri": {}, "flipped-triangle": {}, "manual-file": {},
+	"hourglass": {}, "collate": {},
+	"notch-pent": {}, "loop-limit": {}, "notched-pentagon": {},
+	"odd": {},
+	"flag": {}, "paper-tape": {},
+	"sl-rect": {}, "manual-input": {}, "sloped-rectangle": {},
+	"sm-circ": {}, "small-circle": {}, "start": {},
+	"f-circ": {}, "filled-circle": {}, "junction": {},
+	"fr-circ": {}, "framed-circle": {}, "stop": {},
+	"cross-circ": {}, "crossed-circle": {}, "summary": {},
+	"div-rect": {}, "div-proc": {}, "divided-process": {}, "divided-rectangle": {},
+	"win-pane": {}, "internal-storage": {}, "window-pane": {},
+	"lin-rect": {}, "lin-proc": {}, "lined-process": {}, "lined-rectangle": {}, "shaded-process": {},
+	"fork": {}, "join": {},
+	"notch-rect": {}, "card": {}, "notched-rectangle": {},
+
+	// Path-based shapes (Stage 3)
+	"cloud":              {},
+	"bang":               {},
+	"bolt": {}, "com-link": {}, "lightning-bolt": {},
+	"doc": {}, "document": {},
+	"lin-doc": {}, "lined-document": {},
+	"delay": {}, "half-rounded-rectangle": {},
+	"h-cyl": {}, "das": {}, "horizontal-cylinder": {},
+	"lin-cyl": {}, "disk": {}, "lined-cylinder": {},
+	"curv-trap": {}, "curved-trapezoid": {}, "display": {},
+	"bow-rect": {}, "bow-tie-rectangle": {}, "stored-data": {},
+	"tag-rect": {}, "tag-proc": {}, "tagged-process": {}, "tagged-rectangle": {},
+	"tag-doc": {}, "tagged-document": {},
+	"st-rect": {}, "procs": {}, "processes": {}, "stacked-rectangle": {},
+	"docs": {}, "documents": {}, "st-doc": {}, "stacked-document": {},
+	"brace": {}, "brace-l": {}, "comment": {},
+	"brace-r": {},
+	"braces": {},
+	"datastore": {}, "data-store": {},
+	"text": {},
 }
 
 // parseShapeAnnotation looks for an `@{ ... }` extended-syntax
@@ -121,11 +170,17 @@ func parseShapeAnnotation(s string) (shape diagram.NodeShape, label string, labe
 		if key == "" {
 			return diagram.NodeShapeUnknown, "", false, 0, false, fmt.Errorf("empty shape value in @{%s}", inner)
 		}
-		resolved, known := shapeAliases[key]
-		if !known {
+		if resolved, known := shapeAliases[key]; known {
+			shape = resolved
+		} else if _, pending := pendingShapes[key]; pending {
+			// Recognized name whose renderer hasn't shipped yet.
+			// Fall back to Rectangle so the rest of the diagram
+			// still parses; users see a plain box where the
+			// extended shape would eventually render.
+			shape = diagram.NodeShapeRectangle
+		} else {
 			return diagram.NodeShapeUnknown, "", false, 0, false, fmt.Errorf("unknown shape %q in @{%s}", key, inner)
 		}
-		shape = resolved
 	}
 	if raw, has := kv["label"]; has {
 		label = processLabel(raw)

@@ -776,8 +776,14 @@ func parseNodeDef(s string) (id string, shape diagram.NodeShape, label string, c
 // resolved shape, the label override (if any), the rest with the block
 // removed, and an error for malformed annotations. Returns
 // NodeShapeUnknown / annoHasLabel=false when no `@{` is found.
+//
+// The search must skip `@{` occurrences inside quoted labels and
+// inside traditional bracket pairs — `A["text @{ literal }"]` is
+// valid Mermaid where the `@{` is literal label content, not an
+// annotation. findShapeAnnotation walks the string tracking quote
+// and bracket state and returns the first `@{` at depth 0 only.
 func stripShapeAnnotation(rest string) (shape diagram.NodeShape, label string, hasLabel bool, remaining string, err error) {
-	idx := strings.Index(rest, "@{")
+	idx := findShapeAnnotation(rest)
 	if idx < 0 {
 		return diagram.NodeShapeUnknown, "", false, rest, nil
 	}
@@ -792,6 +798,47 @@ func stripShapeAnnotation(rest string) (shape diagram.NodeShape, label string, h
 	return annoShape, annoLabel, labelSet, remaining, nil
 }
 
+// findShapeAnnotation returns the index of the first `@{` that sits
+// outside any quoted span or traditional bracket pair, or -1 if no
+// such position exists. The opening delimiters tracked are `"`, `'`,
+// `[`, `(` (matching shapePatterns); `{` itself is *not* tracked
+// because inside a single-character `{...}` shape the `@{` would
+// also be literal — but the design says `@{}` is always at the node
+// suffix, never inside a `{...}` shape.
+func findShapeAnnotation(s string) int {
+	depth := 0
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '"', '\'':
+			quote = c
+		case '[', '(':
+			depth++
+		case ']', ')':
+			if depth > 0 {
+				depth--
+			}
+		case '@':
+			if depth == 0 && i+1 < len(s) && s[i+1] == '{' {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// TODO(extended-shapes): this scan also doesn't respect quoted-label
+// boundaries — `A["a:::b"]` mistakenly splits "b]" off as a class.
+// Fixing it requires the same depth-aware walk that
+// findShapeAnnotation does. Pre-existing hazard, not introduced by
+// the @{} work; tracked separately.
 func stripInlineClass(s string) (rest string, classes []string) {
 	for {
 		idx := strings.LastIndex(s, ":::")

@@ -67,8 +67,6 @@ func TestShapeAnnotationAliases(t *testing.T) {
 		{"trapezoid-top", diagram.NodeShapeTrapezoidAlt},
 		{"inv-trapezoid", diagram.NodeShapeTrapezoidAlt},
 		{"manual", diagram.NodeShapeTrapezoidAlt},
-		{"asym", diagram.NodeShapeAsymmetric},
-		{"asymmetric", diagram.NodeShapeAsymmetric},
 		{"dbl-circ", diagram.NodeShapeDoubleCircle},
 		{"double-circle", diagram.NodeShapeDoubleCircle},
 	}
@@ -196,6 +194,56 @@ func TestShapeAnnotationUnclosedErrors(t *testing.T) {
 	_, err := Parse(strings.NewReader("flowchart TD\n    A@{shape: rect"))
 	if err == nil {
 		t.Fatal("expected parse error for unclosed @{")
+	}
+}
+
+// `@{` literally inside a quoted/bracketed label must NOT be treated
+// as an extended-syntax annotation — the bracketed label is a
+// traditional rectangle whose text just happens to contain `@{`.
+// Reviewer flagged this as a regression-class bug.
+func TestShapeAnnotationIgnoresLiteralInsideLabel(t *testing.T) {
+	n := nodeShapeFromMmd(t, `A["see @{me}"]`)
+	if n.Shape != diagram.NodeShapeRectangle {
+		t.Errorf("shape = %v, want Rectangle", n.Shape)
+	}
+	if n.Label != "see @{me}" {
+		t.Errorf("label = %q, want %q", n.Label, "see @{me}")
+	}
+}
+
+// findShapeAnnotation must also skip `@{` inside `(...)` label
+// delimiters (rounded rectangle), not only `[...]`.
+func TestShapeAnnotationIgnoresLiteralInsideRounded(t *testing.T) {
+	n := nodeShapeFromMmd(t, `A("hold @{key}")`)
+	if n.Shape != diagram.NodeShapeRoundedRectangle {
+		t.Errorf("shape = %v, want RoundedRectangle", n.Shape)
+	}
+}
+
+// Recognized-but-not-yet-implemented Stage 2/3 shapes should fall
+// back to Rectangle silently so a mid-migration diagram still
+// parses, instead of erroring out entirely.
+func TestShapeAnnotationPendingShapeFallsBack(t *testing.T) {
+	cases := []string{"cloud", "bolt", "bang", "doc", "tri", "fork"}
+	for _, alias := range cases {
+		t.Run(alias, func(t *testing.T) {
+			n := nodeShapeFromMmd(t, "A@{shape:"+alias+"}")
+			if n.Shape != diagram.NodeShapeRectangle {
+				t.Errorf("pending shape %q ⇒ %v, want Rectangle fallback", alias, n.Shape)
+			}
+		})
+	}
+}
+
+// Genuine typos still error out — fallback only applies to
+// recognized names whose renderer hasn't shipped.
+func TestShapeAnnotationTypoStillErrors(t *testing.T) {
+	_, err := Parse(strings.NewReader("flowchart TD\n    A@{shape:diamon}"))
+	if err == nil {
+		t.Fatal("expected parse error for typo")
+	}
+	if !strings.Contains(err.Error(), "unknown shape") {
+		t.Errorf("error %q should mention 'unknown shape'", err.Error())
 	}
 }
 
