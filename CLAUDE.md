@@ -131,6 +131,12 @@ go test ./... -coverprofile=coverage.out
 go tool cover -func=coverage.out | grep total
 ```
 
+### Working Principles
+
+- **No shortcuts.** Do the work the task actually requires. Don't hardcode values to dodge a failing test, comment out assertions, add broad `try/except` to swallow errors, or introduce special-case branches just to make a specific input pass. If the right fix is hard, do the hard fix.
+- **Test enforcement — don't skip failed tests.** When a test fails, the default action is to investigate and fix the root cause. Never delete, rename, or `t.Skip()` a failing test to make CI green. Never mark a task or PR as done while tests are failing. If a test is genuinely wrong, explain why and get explicit approval before modifying it.
+- **Complete implementation — don't cut scope silently.** Finish what the task specifies. Don't skip debugging because the bug is hard to reproduce. Don't drop edge cases, remove a sub-feature, stub a function as "TODO later", or narrow the stated scope without asking first. If the scope needs to change (too large, blocked, ambiguous), stop and ask before shipping a reduced version.
+
 ## Go Conventions for This Project
 
 - **Error handling:** Return errors early; let the happy path flow down. Use `fmt.Errorf("context: %w", err)` to wrap errors with context.
