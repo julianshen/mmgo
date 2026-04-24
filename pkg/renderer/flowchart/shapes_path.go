@@ -59,8 +59,9 @@ func appendCloudArcs(b *strings.Builder, step, count float64, horizontal bool, s
 }
 
 // bangPath draws a starburst outline — alternating peak/valley points
-// radiating from (cx, cy). 10 points (5 peaks, 5 valleys) gives a
-// classic explosion look.
+// radiating from (cx, cy). 8 peaks (16 vertices) balances "readable
+// as an explosion" against keeping enough space inside the inner
+// ellipse for the label to center legibly.
 func bangPath(cx, cy, w, h float64) string {
 	const spikes = 8
 	outerRx := w / 2
@@ -109,8 +110,11 @@ func boltPath(cx, cy, w, h float64) string {
 
 // ---------- Document family ------------------------------------------
 
-// documentPath: rectangle whose bottom edge is a wave (two curves
-// meeting at the midpoint). Classic "document" glyph.
+// documentPath: rectangle whose bottom edge is an S-wave (two curves
+// meeting at the midpoint). Classic "document" glyph. The `T`
+// continuation reflects the first Q's control through (mid, bot),
+// which naturally produces a symmetric second lobe dipping below
+// the baseline without needing a second explicit control point.
 func documentPath(cx, cy, w, h float64) string {
 	left := cx - w/2
 	right := cx + w/2
@@ -123,10 +127,9 @@ func documentPath(cx, cy, w, h float64) string {
 		left, top,
 		right, top,
 		right, bot,
-		// First Q: control just below mid dips wave up, ends at mid.
 		(right+mid)/2, bot-2*waveAmp,
 		mid, bot,
-		left, bot+waveAmp*0,
+		left, bot,
 	)
 }
 
@@ -151,7 +154,9 @@ func delayPath(cx, cy, w, h float64) string {
 
 // horizontalCylinderPath: cylinder lying on its side. Left cap is a
 // backward-facing ellipse; body is the middle; right cap is a
-// forward-facing ellipse overdrawn so the rim reads.
+// forward-facing ellipse overdrawn so the rim reads. Emits two
+// subpaths in a single `d`; see svgutil.CylinderPath for why relying
+// on SVG's default nonzero fill rule produces the rim overlay.
 func horizontalCylinderPath(cx, cy, w, h float64) string {
 	left := cx - w/2
 	right := cx + w/2
@@ -236,7 +241,9 @@ func taggedRectPath(cx, cy, w, h float64) string {
 
 // datastorePath: Mermaid `data-store` — two parallel curved arcs on
 // the left side of a rectangle, making the shape look like a pipe or
-// lying cylinder with a gap.
+// lying cylinder with a gap. Like horizontalCylinderPath, this emits
+// two subpaths in one `d` and relies on the default nonzero fill
+// rule to produce the interior arc overlay.
 func datastorePath(cx, cy, w, h float64) string {
 	left := cx - w/2
 	right := cx + w/2

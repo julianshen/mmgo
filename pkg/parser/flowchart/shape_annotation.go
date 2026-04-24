@@ -32,9 +32,9 @@ var shapeAliases = map[string]diagram.NodeShape{
 	"pill":     diagram.NodeShapeStadium,
 
 	// Subroutine / framed rectangle
-	"fr-rect":     diagram.NodeShapeSubroutine,
-	"subprocess":  diagram.NodeShapeSubroutine,
-	"subroutine":  diagram.NodeShapeSubroutine,
+	"fr-rect":    diagram.NodeShapeSubroutine,
+	"subprocess": diagram.NodeShapeSubroutine,
+	"subroutine": diagram.NodeShapeSubroutine,
 
 	// Cylinder / database
 	"cyl":      diagram.NodeShapeCylinder,
@@ -161,9 +161,9 @@ var shapeAliases = map[string]diagram.NodeShape{
 	"das":                 diagram.NodeShapeHorizontalCylinder,
 	"horizontal-cylinder": diagram.NodeShapeHorizontalCylinder,
 
-	"lin-cyl":         diagram.NodeShapeLinedCylinder,
-	"disk":            diagram.NodeShapeLinedCylinder,
-	"lined-cylinder":  diagram.NodeShapeLinedCylinder,
+	"lin-cyl":        diagram.NodeShapeLinedCylinder,
+	"disk":           diagram.NodeShapeLinedCylinder,
+	"lined-cylinder": diagram.NodeShapeLinedCylinder,
 
 	"curv-trap":        diagram.NodeShapeCurvedTrapezoid,
 	"curved-trapezoid": diagram.NodeShapeCurvedTrapezoid,
@@ -173,23 +173,23 @@ var shapeAliases = map[string]diagram.NodeShape{
 	"bow-tie-rectangle": diagram.NodeShapeBowTieRect,
 	"stored-data":       diagram.NodeShapeBowTieRect,
 
-	"tag-rect":          diagram.NodeShapeTaggedRect,
-	"tag-proc":          diagram.NodeShapeTaggedRect,
-	"tagged-process":    diagram.NodeShapeTaggedRect,
-	"tagged-rectangle":  diagram.NodeShapeTaggedRect,
+	"tag-rect":         diagram.NodeShapeTaggedRect,
+	"tag-proc":         diagram.NodeShapeTaggedRect,
+	"tagged-process":   diagram.NodeShapeTaggedRect,
+	"tagged-rectangle": diagram.NodeShapeTaggedRect,
 
-	"tag-doc":          diagram.NodeShapeTaggedDocument,
-	"tagged-document":  diagram.NodeShapeTaggedDocument,
+	"tag-doc":         diagram.NodeShapeTaggedDocument,
+	"tagged-document": diagram.NodeShapeTaggedDocument,
 
-	"st-rect":            diagram.NodeShapeStackedRect,
-	"procs":              diagram.NodeShapeStackedRect,
-	"processes":          diagram.NodeShapeStackedRect,
-	"stacked-rectangle":  diagram.NodeShapeStackedRect,
+	"st-rect":           diagram.NodeShapeStackedRect,
+	"procs":             diagram.NodeShapeStackedRect,
+	"processes":         diagram.NodeShapeStackedRect,
+	"stacked-rectangle": diagram.NodeShapeStackedRect,
 
-	"docs":               diagram.NodeShapeStackedDocument,
-	"documents":          diagram.NodeShapeStackedDocument,
-	"st-doc":             diagram.NodeShapeStackedDocument,
-	"stacked-document":   diagram.NodeShapeStackedDocument,
+	"docs":             diagram.NodeShapeStackedDocument,
+	"documents":        diagram.NodeShapeStackedDocument,
+	"st-doc":           diagram.NodeShapeStackedDocument,
+	"stacked-document": diagram.NodeShapeStackedDocument,
 
 	"brace":   diagram.NodeShapeBrace,
 	"brace-l": diagram.NodeShapeBrace,
