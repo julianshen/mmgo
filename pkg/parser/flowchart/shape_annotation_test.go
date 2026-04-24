@@ -69,6 +69,47 @@ func TestShapeAnnotationAliases(t *testing.T) {
 		{"manual", diagram.NodeShapeTrapezoidAlt},
 		{"dbl-circ", diagram.NodeShapeDoubleCircle},
 		{"double-circle", diagram.NodeShapeDoubleCircle},
+
+		// Stage 3 — path-based shapes
+		{"cloud", diagram.NodeShapeCloud},
+		{"bang", diagram.NodeShapeBang},
+		{"bolt", diagram.NodeShapeBolt},
+		{"com-link", diagram.NodeShapeBolt},
+		{"lightning-bolt", diagram.NodeShapeBolt},
+		{"doc", diagram.NodeShapeDocument},
+		{"document", diagram.NodeShapeDocument},
+		{"lin-doc", diagram.NodeShapeLinedDocument},
+		{"lined-document", diagram.NodeShapeLinedDocument},
+		{"delay", diagram.NodeShapeDelay},
+		{"half-rounded-rectangle", diagram.NodeShapeDelay},
+		{"h-cyl", diagram.NodeShapeHorizontalCylinder},
+		{"das", diagram.NodeShapeHorizontalCylinder},
+		{"horizontal-cylinder", diagram.NodeShapeHorizontalCylinder},
+		{"lin-cyl", diagram.NodeShapeLinedCylinder},
+		{"disk", diagram.NodeShapeLinedCylinder},
+		{"lined-cylinder", diagram.NodeShapeLinedCylinder},
+		{"curv-trap", diagram.NodeShapeCurvedTrapezoid},
+		{"curved-trapezoid", diagram.NodeShapeCurvedTrapezoid},
+		{"display", diagram.NodeShapeCurvedTrapezoid},
+		{"bow-rect", diagram.NodeShapeBowTieRect},
+		{"bow-tie-rectangle", diagram.NodeShapeBowTieRect},
+		{"stored-data", diagram.NodeShapeBowTieRect},
+		{"tag-rect", diagram.NodeShapeTaggedRect},
+		{"tagged-rectangle", diagram.NodeShapeTaggedRect},
+		{"tag-doc", diagram.NodeShapeTaggedDocument},
+		{"tagged-document", diagram.NodeShapeTaggedDocument},
+		{"st-rect", diagram.NodeShapeStackedRect},
+		{"processes", diagram.NodeShapeStackedRect},
+		{"stacked-rectangle", diagram.NodeShapeStackedRect},
+		{"docs", diagram.NodeShapeStackedDocument},
+		{"stacked-document", diagram.NodeShapeStackedDocument},
+		{"brace", diagram.NodeShapeBrace},
+		{"comment", diagram.NodeShapeBrace},
+		{"brace-r", diagram.NodeShapeBraceR},
+		{"braces", diagram.NodeShapeBraces},
+		{"datastore", diagram.NodeShapeDataStore},
+		{"data-store", diagram.NodeShapeDataStore},
+		{"text", diagram.NodeShapeTextBlock},
 	}
 	for _, tc := range cases {
 		t.Run(tc.alias, func(t *testing.T) {
@@ -220,19 +261,20 @@ func TestShapeAnnotationIgnoresLiteralInsideRounded(t *testing.T) {
 	}
 }
 
-// Recognized-but-not-yet-implemented Stage 3 shapes fall back to
-// Rectangle silently so a mid-migration diagram still parses. The
-// alias list here is intentionally Stage-3-only: Stage 2 moved
-// `tri`, `fork`, etc. out of pendingShapes into real renderer cases.
+// Recognized-but-not-yet-implemented shapes fall back to Rectangle
+// silently so a mid-migration diagram still parses. Stage 3 emptied
+// pendingShapes (every known Mermaid alias now has a renderer case),
+// so we inject a synthetic entry to keep the fallback path covered —
+// the behavior will matter again the next time Mermaid introduces a
+// brand-new short name ahead of our renderer support.
 func TestShapeAnnotationPendingShapeFallsBack(t *testing.T) {
-	cases := []string{"cloud", "bolt", "bang", "doc", "brace", "datastore"}
-	for _, alias := range cases {
-		t.Run(alias, func(t *testing.T) {
-			n := nodeShapeFromMmd(t, "A@{shape:"+alias+"}")
-			if n.Shape != diagram.NodeShapeRectangle {
-				t.Errorf("pending shape %q ⇒ %v, want Rectangle fallback", alias, n.Shape)
-			}
-		})
+	const sentinel = "__test_pending__"
+	pendingShapes[sentinel] = struct{}{}
+	t.Cleanup(func() { delete(pendingShapes, sentinel) })
+
+	n := nodeShapeFromMmd(t, "A@{shape:"+sentinel+"}")
+	if n.Shape != diagram.NodeShapeRectangle {
+		t.Errorf("pending shape %q ⇒ %v, want Rectangle fallback", sentinel, n.Shape)
 	}
 }
 

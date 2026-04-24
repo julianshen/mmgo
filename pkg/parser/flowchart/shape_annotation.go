@@ -32,9 +32,9 @@ var shapeAliases = map[string]diagram.NodeShape{
 	"pill":     diagram.NodeShapeStadium,
 
 	// Subroutine / framed rectangle
-	"fr-rect":     diagram.NodeShapeSubroutine,
-	"subprocess":  diagram.NodeShapeSubroutine,
-	"subroutine":  diagram.NodeShapeSubroutine,
+	"fr-rect":    diagram.NodeShapeSubroutine,
+	"subprocess": diagram.NodeShapeSubroutine,
+	"subroutine": diagram.NodeShapeSubroutine,
 
 	// Cylinder / database
 	"cyl":      diagram.NodeShapeCylinder,
@@ -142,38 +142,74 @@ var shapeAliases = map[string]diagram.NodeShape{
 	"notch-rect":        diagram.NodeShapeNotchedRect,
 	"card":              diagram.NodeShapeNotchedRect,
 	"notched-rectangle": diagram.NodeShapeNotchedRect,
+
+	// --- Stage 3 — path-based shapes ----------------------------------
+	"cloud":          diagram.NodeShapeCloud,
+	"bang":           diagram.NodeShapeBang,
+	"bolt":           diagram.NodeShapeBolt,
+	"com-link":       diagram.NodeShapeBolt,
+	"lightning-bolt": diagram.NodeShapeBolt,
+	"doc":            diagram.NodeShapeDocument,
+	"document":       diagram.NodeShapeDocument,
+	"lin-doc":        diagram.NodeShapeLinedDocument,
+	"lined-document": diagram.NodeShapeLinedDocument,
+
+	"delay":                  diagram.NodeShapeDelay,
+	"half-rounded-rectangle": diagram.NodeShapeDelay,
+
+	"h-cyl":               diagram.NodeShapeHorizontalCylinder,
+	"das":                 diagram.NodeShapeHorizontalCylinder,
+	"horizontal-cylinder": diagram.NodeShapeHorizontalCylinder,
+
+	"lin-cyl":        diagram.NodeShapeLinedCylinder,
+	"disk":           diagram.NodeShapeLinedCylinder,
+	"lined-cylinder": diagram.NodeShapeLinedCylinder,
+
+	"curv-trap":        diagram.NodeShapeCurvedTrapezoid,
+	"curved-trapezoid": diagram.NodeShapeCurvedTrapezoid,
+	"display":          diagram.NodeShapeCurvedTrapezoid,
+
+	"bow-rect":          diagram.NodeShapeBowTieRect,
+	"bow-tie-rectangle": diagram.NodeShapeBowTieRect,
+	"stored-data":       diagram.NodeShapeBowTieRect,
+
+	"tag-rect":         diagram.NodeShapeTaggedRect,
+	"tag-proc":         diagram.NodeShapeTaggedRect,
+	"tagged-process":   diagram.NodeShapeTaggedRect,
+	"tagged-rectangle": diagram.NodeShapeTaggedRect,
+
+	"tag-doc":         diagram.NodeShapeTaggedDocument,
+	"tagged-document": diagram.NodeShapeTaggedDocument,
+
+	"st-rect":           diagram.NodeShapeStackedRect,
+	"procs":             diagram.NodeShapeStackedRect,
+	"processes":         diagram.NodeShapeStackedRect,
+	"stacked-rectangle": diagram.NodeShapeStackedRect,
+
+	"docs":             diagram.NodeShapeStackedDocument,
+	"documents":        diagram.NodeShapeStackedDocument,
+	"st-doc":           diagram.NodeShapeStackedDocument,
+	"stacked-document": diagram.NodeShapeStackedDocument,
+
+	"brace":   diagram.NodeShapeBrace,
+	"brace-l": diagram.NodeShapeBrace,
+	"comment": diagram.NodeShapeBrace,
+	"brace-r": diagram.NodeShapeBraceR,
+	"braces":  diagram.NodeShapeBraces,
+
+	"datastore":  diagram.NodeShapeDataStore,
+	"data-store": diagram.NodeShapeDataStore,
+
+	"text": diagram.NodeShapeTextBlock,
 }
 
 // pendingShapes lists Mermaid extended-syntax names that are
-// recognized but not yet implemented. Encountering one falls back to
-// Rectangle silently so a mid-migration diagram (which may mix
-// Stage-1 shapes with not-yet-supported ones) still parses; users
-// see a plain rectangle in place of the not-yet-implemented glyph.
-//
-// As Stage 2/3 land each new NodeShape constant + renderer case, the
-// corresponding entries move from this set into shapeAliases.
-var pendingShapes = map[string]struct{}{
-	// Path-based shapes (Stage 3)
-	"cloud":              {},
-	"bang":               {},
-	"bolt": {}, "com-link": {}, "lightning-bolt": {},
-	"doc": {}, "document": {},
-	"lin-doc": {}, "lined-document": {},
-	"delay": {}, "half-rounded-rectangle": {},
-	"h-cyl": {}, "das": {}, "horizontal-cylinder": {},
-	"lin-cyl": {}, "disk": {}, "lined-cylinder": {},
-	"curv-trap": {}, "curved-trapezoid": {}, "display": {},
-	"bow-rect": {}, "bow-tie-rectangle": {}, "stored-data": {},
-	"tag-rect": {}, "tag-proc": {}, "tagged-process": {}, "tagged-rectangle": {},
-	"tag-doc": {}, "tagged-document": {},
-	"st-rect": {}, "procs": {}, "processes": {}, "stacked-rectangle": {},
-	"docs": {}, "documents": {}, "st-doc": {}, "stacked-document": {},
-	"brace": {}, "brace-l": {}, "comment": {},
-	"brace-r": {},
-	"braces": {},
-	"datastore": {}, "data-store": {},
-	"text": {},
-}
+// recognized but not yet implemented. An empty set means the catalog
+// is fully covered; Stage 3 cleared the last entries. The mechanism
+// (and this map) stays in place so a future Mermaid release adding a
+// new short name can re-populate it without reintroducing the silent-
+// vs-error logic.
+var pendingShapes = map[string]struct{}{}
 
 // parseShapeAnnotation looks for an `@{ ... }` extended-syntax
 // annotation at the start of s and, if present, returns the resolved

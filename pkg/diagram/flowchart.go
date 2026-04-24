@@ -62,6 +62,30 @@ const (
 	NodeShapeLinedRect   // `lin-rect`, `lined-process`, `lined-rectangle`, `shaded-process`, `lin-proc`
 	NodeShapeForkJoin    // `fork`, `join`
 	NodeShapeNotchedRect // `notch-rect`, `card`, `notched-rectangle`
+
+	// Stage 3 extended shapes — path-based glyphs from Mermaid's
+	// expanded shape catalog. Each draws with an SVG <path> rather
+	// than a polygon/rect+decoration composite.
+
+	NodeShapeCloud              // `cloud`
+	NodeShapeBang               // `bang`
+	NodeShapeBolt               // `bolt`, `com-link`, `lightning-bolt`
+	NodeShapeDocument           // `doc`, `document`
+	NodeShapeLinedDocument      // `lin-doc`, `lined-document`
+	NodeShapeStackedDocument    // `docs`, `documents`, `st-doc`, `stacked-document`
+	NodeShapeTaggedDocument     // `tag-doc`, `tagged-document`
+	NodeShapeDelay              // `delay`, `half-rounded-rectangle`
+	NodeShapeHorizontalCylinder // `h-cyl`, `das`, `horizontal-cylinder`
+	NodeShapeLinedCylinder      // `lin-cyl`, `disk`, `lined-cylinder`
+	NodeShapeCurvedTrapezoid    // `curv-trap`, `curved-trapezoid`, `display`
+	NodeShapeBowTieRect         // `bow-rect`, `bow-tie-rectangle`, `stored-data`
+	NodeShapeTaggedRect         // `tag-rect`, `tag-proc`, `tagged-process`, `tagged-rectangle`
+	NodeShapeStackedRect        // `st-rect`, `procs`, `processes`, `stacked-rectangle`
+	NodeShapeBrace              // `brace`, `brace-l`, `comment`
+	NodeShapeBraceR             // `brace-r`
+	NodeShapeBraces             // `braces`
+	NodeShapeDataStore          // `datastore`, `data-store`
+	NodeShapeTextBlock          // `text`
 )
 
 var nodeShapeNames = []string{
@@ -99,6 +123,27 @@ var nodeShapeNames = []string{
 	"lined-rectangle",
 	"fork-join",
 	"notched-rectangle",
+
+	// Stage 3 — keep aligned with the NodeShape constant order above.
+	"cloud",
+	"bang",
+	"bolt",
+	"document",
+	"lined-document",
+	"stacked-document",
+	"tagged-document",
+	"delay",
+	"horizontal-cylinder",
+	"lined-cylinder",
+	"curved-trapezoid",
+	"bow-tie-rectangle",
+	"tagged-rectangle",
+	"stacked-rectangle",
+	"brace",
+	"brace-r",
+	"braces",
+	"data-store",
+	"text-block",
 }
 
 // String returns a stable debug slug for the shape (e.g. "rounded-rectangle").
