@@ -79,6 +79,13 @@ func DetectBranches(d *diagram.FlowchartDiagram, l *layout.Result) []BranchGroup
 	for _, src := range sources {
 		for _, target := range branchNodes[src] {
 			visited := map[string]bool{src: true}
+			// Downstream branch nodes start their own groups and are
+			// excluded from this upstream group — that includes the
+			// target itself if it's a branch node.
+			if _, isBranch := branchNodes[target]; isBranch {
+				reach[origin{src, target}] = map[string]bool{}
+				continue
+			}
 			stack := []string{target}
 			for len(stack) > 0 {
 				cur := stack[len(stack)-1]
@@ -87,10 +94,7 @@ func DetectBranches(d *diagram.FlowchartDiagram, l *layout.Result) []BranchGroup
 					continue
 				}
 				visited[cur] = true
-				if _, isBranch := branchNodes[cur]; isBranch && cur != target {
-					// Stop at downstream branch nodes so they can
-					// start their own groups; exclude them from this
-					// group's membership.
+				if _, isBranch := branchNodes[cur]; isBranch {
 					delete(visited, cur)
 					continue
 				}
