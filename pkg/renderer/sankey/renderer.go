@@ -7,22 +7,11 @@ package sankey
 import (
 	"encoding/xml"
 	"fmt"
-	"math"
-	"strconv"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
-
-// formatSankeyValue renders a flow value for node labels: integers
-// drop the trailing ".0", non-integers keep up to two decimals without
-// trailing zeros.
-func formatSankeyValue(v float64) string {
-	if math.Trunc(v) == v {
-		return strconv.FormatFloat(v, 'f', 0, 64)
-	}
-	return strconv.FormatFloat(v, 'f', -1, 64)
-}
 
 type Options struct {
 	FontSize float64
@@ -103,7 +92,7 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 		if m <= 0 {
 			return n
 		}
-		return fmt.Sprintf("%s %s", n, formatSankeyValue(m))
+		return fmt.Sprintf("%s %s", n, svgutil.FormatNumber(m, 2))
 	}
 
 	// Labels anchor leftward (text-anchor=end) for every column except

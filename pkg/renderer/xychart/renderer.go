@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 )
 
 type Options struct {
@@ -351,6 +352,9 @@ func niceYTicks(yMin, yMax float64, target int) []float64 {
 		return []float64{yMin, yMax}
 	}
 	rawStep := (yMax - yMin) / float64(target-1)
+	if rawStep <= 0 || math.IsInf(rawStep, 0) || math.IsNaN(rawStep) {
+		return []float64{yMin, yMax}
+	}
 	mag := math.Pow(10, math.Floor(math.Log10(rawStep)))
 	norm := rawStep / mag
 	var step float64
@@ -376,15 +380,5 @@ func niceYTicks(yMin, yMax float64, target int) []float64 {
 // whole-number ticks, otherwise up to 2 decimals with trailing zeros
 // trimmed.
 func formatTick(v float64) string {
-	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return "0"
-	}
-	if math.Abs(v-math.Round(v)) < 1e-9 {
-		return strconv.FormatFloat(math.Round(v), 'f', 0, 64)
-	}
-	s := strconv.FormatFloat(v, 'f', 2, 64)
-	// Trim trailing zeros then a trailing dot.
-	s = strings.TrimRight(s, "0")
-	s = strings.TrimRight(s, ".")
-	return s
+	return svgutil.FormatNumber(v, 2)
 }

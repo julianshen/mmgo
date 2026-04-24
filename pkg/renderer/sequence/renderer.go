@@ -127,10 +127,10 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 	if extra := rightBleed - pad; extra > 0 {
 		totalW += extra
 	}
-	// Duplicate the participant header row at the bottom of the
-	// diagram (Mermaid's spec: actor/participant boxes appear at both
-	// ends of each lifeline).
-	bottomY := bodyEnd + 10
+	// Mermaid renders participant/actor boxes at both ends of every
+	// lifeline. bottomGap separates the lifelines from the bottom row.
+	const bottomGap = 10.0
+	bottomY := bodyEnd + bottomGap
 	totalH := bottomY + maxHeaderH + pad
 
 	return seqLayout{
@@ -233,13 +233,12 @@ func renderParticipants(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fon
 			label = p.ID
 		}
 
+		draw := renderParticipantBox
 		if p.Kind == diagram.ParticipantKindActor {
-			elems = append(elems, renderActor(x, lay.topY, label, th, fontSize)...)
-			elems = append(elems, renderActor(x, lay.bottomY, label, th, fontSize)...)
-		} else {
-			elems = append(elems, renderParticipantBox(x, lay.topY, label, th, fontSize)...)
-			elems = append(elems, renderParticipantBox(x, lay.bottomY, label, th, fontSize)...)
+			draw = renderActor
 		}
+		elems = append(elems, draw(x, lay.topY, label, th, fontSize)...)
+		elems = append(elems, draw(x, lay.bottomY, label, th, fontSize)...)
 	}
 	return elems
 }
