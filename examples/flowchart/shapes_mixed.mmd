@@ -1,0 +1,8 @@
+flowchart TD
+    A[Rectangle] --> B{Diamond}
+    B -->|yes| C@{ shape: card, label: "Card" }
+    B -->|no| D@{ shape: cloud, label: "Cloud" }
+    C --> E((Circle))
+    D --> F@{ shape: hourglass, label: "Hourglass" }
+    E --> G[(Traditional cylinder)]
+    F --> G
