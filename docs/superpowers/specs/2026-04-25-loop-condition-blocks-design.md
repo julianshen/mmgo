@@ -21,7 +21,9 @@ Layout-level back-edge annotation. The acyclic phase already identifies back-edg
 
 ## Phase B Gap: Edge Tinting
 
-Add `EdgeFromTo [][2]string` to `BranchGroup`. In `renderEdges()`, when an edge's `(From, To)` pair matches a branch group's `EdgeFromTo` entry, blend the branch color into the edge's stroke style at 30% opacity. The base theme stroke color remains dominant but takes on the branch tint.
+Add `EdgeFromTo [][2]string` to `BranchGroup`. `DetectBranches()` populates this during the reachability walk by collecting `(From, To)` of each edge traversed for that branch.
+
+In `renderEdges()`, when an edge's `(From, To)` pair matches a branch group's `EdgeFromTo` entry, the branch color is applied as a **stroke overlay** using `fill-opacity:0.3` on a separate color attribute, rather than color blending. This composites correctly against any background (light or dark themes) — the base `EdgeStroke` shows through at 70% while the branch tint is visible at 30%.
 
 ## Back-Edge Annotation
 
@@ -37,24 +39,31 @@ type EdgeLayout struct {
 
 ### Propagation
 
-The acyclic phase already identifies and reverses back-edges. Currently `Layout()` runs `acyclic.Run(work)` on a copy and discards the reversal info. We change this:
+The acyclic phase (`acyclic.Run()`) currently returns `[]graph.EdgeID` of post-reversal edge IDs. We change this:
 
-1. `acyclic.Run()` returns a `map[graph.EdgeID]bool` of original edges that were reversed (back-edges)
-2. `buildEdges()` receives this map and sets `EdgeLayout.BackEdge = true` for matching edges
-3. Self-loops (`From == To`) are also flagged — they're never reversed but need special rendering
+1. `acyclic.Run()` captures the **pre-reversal** `EdgeID` (before calling `g.ReverseEdge()`) for each back-edge and returns a `map[graph.EdgeID]bool` using original IDs as keys
+2. The existing `Undo()` function continues to accept `[]graph.EdgeID` — it receives the same data internally. `Run()` returns both the map and the slice for undo, or the caller extracts the slice from the map keys
+3. `buildEdges()` receives the back-edge map (keyed by original EdgeIDs) and sets `EdgeLayout.BackEdge = true` for matching edges
+4. Self-loops (`From == To`) are flagged in `buildEdges()` directly — they're never reversed by acyclic but need special rendering
+
+### Self-Loop Flag
+
+Self-loops are detected in `buildEdges()` by `eid.From == eid.To`. They get `BackEdge = false` but `SelfLoop = true` on a new field, or alternatively the renderer checks `From == To` directly. The self-loop geometry is generated inline (see Self-Loop Geometry section) and the standard polyline is not used.
 
 ## Self-Loop Geometry
 
-Self-loops currently get `[center, center]` (zero-length). Instead, `buildEdges()` detects `From == To` and generates arc geometry:
+Self-loops currently get `[center, center]` (zero-length). Instead, `buildEdges()` detects `From == To` and generates rank-direction-aware arc geometry:
 
-1. **Exit point:** `(cx + w*0.2, cy - h/2)` — slightly right of top center
-2. **Entry point:** `(cx - w*0.2, cy - h/2)` — slightly left of top center
-3. **Control points:** `(cx + w*0.6, cy - h)` and `(cx - w*0.6, cy - h)` — bow upward
-4. Rendered as a cubic bezier `<path>`: `M exit C cp1 cp2 entry`
-5. Arrowhead at the entry point, oriented along the final tangent
-6. Label (if present) positioned at `(cx, cy - h*0.8)` — top of the arc
+| Direction | Exit Point | Entry Point | Control Points | Bow Direction |
+|---|---|---|---|---|
+| TB | `(cx + w*0.2, cy - h/2)` | `(cx - w*0.2, cy - h/2)` | `(cx + w*0.6, cy - h)` and `(cx - w*0.6, cy - h)` | Upward |
+| BT | `(cx + w*0.2, cy + h/2)` | `(cx - w*0.2, cy + h/2)` | `(cx + w*0.6, cy + h)` and `(cx - w*0.6, cy + h)` | Downward |
+| LR | `(cx + w/2, cy - h*0.2)` | `(cx + w/2, cy + h*0.2)` | `(cx + w, cy - h*0.6)` and `(cx + w, cy + h*0.6)` | Rightward |
+| RL | `(cx - w/2, cy - h*0.2)` | `(cx - w/2, cy + h*0.2)` | `(cx - w, cy - h*0.6)` and `(cx - w, cy + h*0.6)` | Leftward |
 
-The arc sits above the node, producing a visible loop that doesn't overlap node content.
+Rendered as a cubic bezier `<path>`: `M exit C cp1 cp2 entry`. Arrowhead at the entry point, oriented along the final tangent. Label (if present) positioned at the apex of the arc.
+
+The arc sits outside the node in the rank-progression-opposite direction, producing a visible loop that doesn't overlap node content.
 
 ## Back-Edge Rendering
 
@@ -69,12 +78,16 @@ When `EdgeLayout.BackEdge == true`, the renderer applies:
 Instead of a straight `<line>` or Catmull-Rom spline, back-edges use a **quadratic bezier curve** that bows outward from the main flow direction:
 
 - TB layout: bow to the **right** of the straight-line path
+- BT layout: bow to the **left**
 - LR layout: bow **downward** (below the straight-line path)
+- RL layout: bow **upward**
 - Bow magnitude: `max(30px, min(layoutWidth, layoutHeight) * 0.15)`
 
 Rendered as SVG `<path>`: `M x1,y1 Q cx,cy x2,y2` where `(cx, cy)` is the control point offset perpendicular to the midpoint.
 
-For multi-segment back-edges (3+ dummy waypoints spanning multiple ranks), each segment gets its own quadratic bow. Bow direction alternates (right then left) to avoid all back-edges piling up on one side.
+### Multi-Segment Back-Edges
+
+For back-edges with 3+ dummy waypoints (spanning multiple ranks), each segment between waypoints gets its own quadratic bow. Bow direction **alternates per source node**: all back-edges originating from the same source node alternate right/left (or up/down for LR/RL) in render order. This is tracked by a counter keyed on source node ID during edge rendering.
 
 ### Arrowhead
 
@@ -92,18 +105,22 @@ Back-edges and self-loops bypass port assignment — they don't use `ExitPorts`.
 
 **Condition pattern:** A diamond node with 2+ outgoing forward branches that all converge at a single merge node, with no back-edges. The branches form a "condition group."
 
+**Mixed pattern:** A branch node where some branches loop back and others converge. Each branch is classified independently — looping branches form loop groups, converging branches form condition groups. A single branch node can produce both loop and condition `BranchGroup` entries.
+
 ### Detection Algorithm
 
 Extends `DetectBranches()` in `branch.go`. After computing forward reachability (Phase B logic), a second pass identifies structural patterns:
 
 1. Build a back-edge set from `layout.Result.Edges` — any edge where `BackEdge == true`
-2. For each branch node (3+ outgoing edges):
-   - Walk each branch forward. If any branch reaches a node that has a back-edge to the branch node or one of its ancestors → **loop pattern detected**
-   - If all branches reach a common convergence node with no back-edges involved → **condition pattern detected**
-   - If neither pattern matches → **generic branch** (Phase B behavior)
+2. For each branch node (3+ outgoing edges), evaluate **each branch independently**:
+   - If the branch reaches a node that has a back-edge to the branch node or one of its ancestors → **loop branch** (emits a `BranchGroup` with `Pattern = PatternLoop`)
+   - If the branch converges with other branches at a common merge node with no back-edges involved → **condition branch** (emits a `BranchGroup` with `Pattern = PatternCondition`)
+   - If neither → **generic branch** (Phase B behavior)
 3. For non-branch diamonds (2 outgoing edges):
-   - If either outgoing edge is a back-edge or leads to a back-edge within 1-2 hops → **simple loop** (while/do-while)
-   - If both branches converge → **simple condition** (if/else)
+   - If either outgoing edge is a back-edge or leads to a back-edge within 1-2 hops → **simple loop**
+   - If both branches converge → **simple condition**
+
+A single branch node can produce multiple `BranchGroup` entries of different pattern types (mixed pattern support).
 
 ### BranchGroup Extension
 
@@ -121,7 +138,7 @@ type BranchGroup struct {
     EdgeIndex    int
     NodeIDs      []string
     ColorIndex   int
-    EdgeFromTo   [][2]string
+    EdgeFromTo   [][2]string   // populated during reachability walk
     Pattern      PatternType
     BackEdgeTo   string   // for loops: ID of node the back-edge targets
     MergeNodeID  string   // for conditions: ID of convergence node
@@ -148,30 +165,30 @@ type BranchGroup struct {
 
 | File | Change |
 |---|---|
-| `pkg/layout/layout.go` | Add `BackEdge` to `EdgeLayout`; propagate back-edge set from acyclic through `buildEdges`; self-loop arc geometry |
-| `pkg/layout/internal/acyclic/acyclic.go` | Return `map[EdgeID]bool` of reversed edges from `Run()` |
-| `pkg/renderer/flowchart/branch.go` | Add `PatternType`; extend `BranchGroup` with `Pattern`/`BackEdgeTo`/`MergeNodeID`/`EdgeFromTo`; extend `DetectBranches()` with loop/condition detection |
-| `pkg/renderer/flowchart/edges.go` | Back-edge dashed+curved rendering; self-loop arc rendering; edge tinting from `EdgeFromTo` |
+| `pkg/layout/layout.go` | Add `BackEdge` to `EdgeLayout`; propagate back-edge map from acyclic through `buildEdges`; self-loop arc geometry parameterized by `RankDir` |
+| `pkg/layout/internal/acyclic/acyclic.go` | Return `map[EdgeID]bool` of pre-reversal edges from `Run()`; maintain backward compatibility with `Undo()` |
+| `pkg/renderer/flowchart/branch.go` | Add `PatternType`; extend `BranchGroup` with `Pattern`/`BackEdgeTo`/`MergeNodeID`/`EdgeFromTo`; extend `DetectBranches()` with loop/condition detection and mixed-pattern support |
+| `pkg/renderer/flowchart/edges.go` | Back-edge dashed+curved rendering; self-loop arc rendering; edge tinting from `EdgeFromTo` via opacity overlay; per-source-node bow alternation |
 | `pkg/renderer/flowchart/renderer.go` | Loop/condition region rendering with warm/cool palettes; loop label annotation |
 | `pkg/renderer/flowchart/theme.go` | Add loop warm palette (3 colors) and condition cool palette (3 colors) |
-| `pkg/renderer/flowchart/edges_test.go` | Tests for back-edge styling, self-loop arcs, curved bezier paths |
-| `pkg/renderer/flowchart/branch_test.go` | Tests for loop/condition pattern detection, cycle handling, label derivation |
-| `pkg/layout/layout_test.go` | Tests for `BackEdge` flag, self-loop geometry |
+| `pkg/renderer/flowchart/edges_test.go` | Tests for back-edge styling, self-loop arcs, curved bezier paths, edge tinting |
+| `pkg/renderer/flowchart/branch_test.go` | Tests for loop/condition pattern detection, mixed patterns, cycle handling, label derivation |
+| `pkg/layout/layout_test.go` | Tests for `BackEdge` flag, self-loop geometry for all rank directions |
 | `examples/flowchart/*.mmd` | New examples: while-loop, for-loop, nested-conditions, loop-with-condition |
 
 ## Testing Strategy
 
-- **Layout tests:** `BackEdge` flag correctness — edges reversed by acyclic are flagged, forward edges are not. Self-loop arc geometry produces a visible non-degenerate path.
-- **Branch detection tests:** Unit tests for `DetectBranches()` with loop patterns, condition patterns, nested patterns, 2-node simple loops, cycles with no branch node. Verify `Pattern`, `BackEdgeTo`, `MergeNodeID` correctness.
-- **Edge rendering tests:** Back-edges produce `<path>` with `stroke-dasharray`. Self-loops produce `<path>` with cubic bezier. Control point position correctness. Edge tinting: branch-group edges get blended color.
+- **Layout tests:** `BackEdge` flag correctness — edges reversed by acyclic are flagged (using pre-reversal IDs), forward edges are not. Self-loop arc geometry produces visible non-degenerate paths for all four rank directions.
+- **Branch detection tests:** Unit tests for `DetectBranches()` with loop patterns, condition patterns, mixed patterns (some branches loop, some converge), nested patterns, 2-node simple loops, cycles with no branch node. Verify `Pattern`, `BackEdgeTo`, `MergeNodeID`, `EdgeFromTo` correctness.
+- **Edge rendering tests:** Back-edges produce `<path>` with `stroke-dasharray`. Self-loops produce `<path>` with cubic bezier. Bow alternation is per-source-node. Edge tinting via opacity overlay works on both light and dark backgrounds.
 - **Integration:** Full `.mmd` files through parse→layout→render. Golden-file tests for while-loop, if/else, nested loop+condition. Backward compatibility — existing diagrams produce identical output.
 - **Label derivation tests:** "while x > 0" → loop label "while x > 0". "valid?" → loop label "loop". Empty label → no annotation.
 
 ## Implementation Stages
 
-1. **Stage 1 — Phase B gap + back-edge annotation.** Add `EdgeFromTo` to `BranchGroup`, implement edge tinting. Add `BackEdge` to `EdgeLayout`, propagate from acyclic phase.
-2. **Stage 2 — Self-loop geometry.** Layout generates arc paths for self-loops. Renderer draws cubic bezier with arrowhead.
-3. **Stage 3 — Back-edge rendering.** Dashed+curved SVG paths for back-edges. Quadratic bezier control point computation.
-4. **Stage 4 — Pattern detection.** Extend `DetectBranches` with loop/condition patterns. Add `PatternType`, `BackEdgeTo`, `MergeNodeID`.
+1. **Stage 1 — Phase B gap + back-edge annotation.** Add `EdgeFromTo` to `BranchGroup`, populate in `DetectBranches()`, implement edge tinting via opacity overlay. Add `BackEdge` to `EdgeLayout`, propagate pre-reversal IDs from acyclic phase.
+2. **Stage 2 — Self-loop geometry.** Layout generates rank-direction-aware arc paths for self-loops. Renderer draws cubic bezier with arrowhead.
+3. **Stage 3 — Back-edge rendering.** Dashed+curved SVG paths for back-edges. Quadratic bezier control point computation. Per-source-node bow alternation.
+4. **Stage 4 — Pattern detection.** Extend `DetectBranches` with loop/condition/mixed patterns. Add `PatternType`, `BackEdgeTo`, `MergeNodeID`.
 5. **Stage 5 — Visual rendering.** Warm/cool palettes, loop labels, merge-node cues, region rendering per pattern.
 6. **Stage 6 — Examples + integration tests.** New `.mmd` files, golden-file tests, backward-compatibility verification.
