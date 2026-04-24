@@ -25,6 +25,24 @@ func TestRenderAllShapes(t *testing.T) {
 		diagram.NodeShapeSubroutine,
 		diagram.NodeShapeAsymmetric,
 		diagram.NodeShapeUnknown,
+
+		// Stage 2 extended shapes
+		diagram.NodeShapeTriangle,
+		diagram.NodeShapeFlippedTriangle,
+		diagram.NodeShapeHourglass,
+		diagram.NodeShapeNotchedPentagon,
+		diagram.NodeShapeOdd,
+		diagram.NodeShapeFlag,
+		diagram.NodeShapeSlopedRect,
+		diagram.NodeShapeSmallCircle,
+		diagram.NodeShapeFilledCircle,
+		diagram.NodeShapeFramedCircle,
+		diagram.NodeShapeCrossCircle,
+		diagram.NodeShapeDividedRect,
+		diagram.NodeShapeWindowPane,
+		diagram.NodeShapeLinedRect,
+		diagram.NodeShapeForkJoin,
+		diagram.NodeShapeNotchedRect,
 	}
 	for _, shape := range shapes {
 		t.Run(shape.String(), func(t *testing.T) {
