@@ -162,16 +162,7 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 			Style: fmt.Sprintf("fill:%s;stroke:none", th.NodeStroke),
 		})
 	case diagram.NodeShapeNotchedRect:
-		// Rect with the top-right corner cut off at 45° — the classic
-		// index-card / `card` glyph.
-		notch := math.Min(w, h) * 0.25
-		pts := fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
-			cx-w/2, cy-h/2,
-			cx+w/2-notch, cy-h/2,
-			cx+w/2, cy-h/2+notch,
-			cx+w/2, cy+h/2,
-			cx-w/2, cy+h/2)
-		elems = append(elems, &Polygon{Points: pts, Style: shapeStyle})
+		elems = append(elems, &Polygon{Points: notchedRectPoints(cx, cy, w, h), Style: shapeStyle})
 
 	default:
 		elems = append(elems, &Rect{

@@ -43,13 +43,25 @@ func hourglassPoints(cx, cy, w, h float64) string {
 // 45° into the body. The notch size is a fraction of the shorter
 // dimension so the shape still reads as a pentagon at all sizes.
 func notchedPentagonPoints(cx, cy, w, h float64) string {
-	notch := minF(w, h) * 0.25
+	notch := min(w, h) * 0.25
 	return fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
 		cx-w/2+notch, cy-h/2,
 		cx+w/2, cy-h/2,
 		cx+w/2, cy+h/2,
 		cx-w/2, cy+h/2,
 		cx-w/2, cy-h/2+notch)
+}
+
+// notchedRectPoints: rectangle with the top-right corner cut off at
+// 45° — the classic index-card / `card` glyph.
+func notchedRectPoints(cx, cy, w, h float64) string {
+	notch := min(w, h) * 0.25
+	return fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
+		cx-w/2, cy-h/2,
+		cx+w/2-notch, cy-h/2,
+		cx+w/2, cy-h/2+notch,
+		cx+w/2, cy+h/2,
+		cx-w/2, cy+h/2)
 }
 
 // oddPoints: rectangle with a right-side notch that makes the shape
@@ -88,9 +100,3 @@ func slopedRectPoints(cx, cy, w, h float64) string {
 		cx-w/2, cy+h/2)
 }
 
-func minF(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
-}
