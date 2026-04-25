@@ -1,8 +1,8 @@
 package layout
 
 import (
-	"reflect"
 	"math"
+	"reflect"
 	"testing"
 
 	"github.com/julianshen/mmgo/pkg/layout/graph"
@@ -493,12 +493,11 @@ func TestLayoutNilGraph(t *testing.T) {
 
 // --- Self-loops ---
 
-// TestLayoutSelfLoop documents the current straight-line routing
-// behavior for self-loops: the edge collapses to two identical points
-// (the node's center). This is a known limitation tracked in the
-// buildEdges TODO(features) comment. When orthogonal/spline routing
-// is added, self-loops should become proper loop-back arcs; this test
-// will then need to be updated.
+// TestLayoutSelfLoop verifies that self-loops are routed as a 4-point
+// cubic-bezier arc (exit, cp1, cp2, entry) via selfLoopPoints rather
+// than the legacy 2-point degenerate collapse. The exit and entry sit
+// on opposite sides of the node's upstream face; control points bow
+// against rank progression.
 func TestLayoutSelfLoop(t *testing.T) {
 	g := graph.New()
 	g.SetEdge("a", "a", graph.EdgeAttrs{})
@@ -524,6 +523,31 @@ func TestLayoutSelfLoop(t *testing.T) {
 			t.Errorf("exit and entry must differ, got %+v", el.Points)
 		}
 	}
+}
+
+// TestLayoutSelfLoopOnBranchNode verifies that a self-loop on a node
+// that also has 3+ outgoing edges (making it a branch node with
+// ExitPorts) still produces exactly 4 bezier points — the stem
+// splice must not corrupt the self-loop arc.
+func TestLayoutSelfLoopOnBranchNode(t *testing.T) {
+	g := graph.New()
+	g.SetEdge("root", "a", graph.EdgeAttrs{})
+	g.SetEdge("root", "b", graph.EdgeAttrs{})
+	g.SetEdge("root", "c", graph.EdgeAttrs{})
+	g.SetEdge("root", "root", graph.EdgeAttrs{})
+	setWidths(g, 100, 50)
+
+	result := Layout(g, defaultOpts())
+
+	for eid, el := range result.Edges {
+		if eid.From == "root" && eid.To == "root" {
+			if len(el.Points) != 4 {
+				t.Fatalf("self-loop on branch node should have 4 bezier points, got %d", len(el.Points))
+			}
+			return
+		}
+	}
+	t.Fatal("self-loop edge not found")
 }
 
 // --- LR/RL dimension packing ---

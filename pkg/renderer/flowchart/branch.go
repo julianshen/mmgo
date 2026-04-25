@@ -6,6 +6,7 @@ import (
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
+	"github.com/julianshen/mmgo/pkg/layout/graph"
 )
 
 // branchColorPalette is a 6-entry cycle of (fill, stroke) pastel pairs
@@ -163,10 +164,27 @@ func DetectBranches(d *diagram.FlowchartDiagram, l *layout.Result) []BranchGroup
 	// classifyBranch call is O(branch-size) instead of O(layout-edges).
 	backBySource := map[string]string{}
 	if l != nil {
+		type eidTo struct {
+			id graph.EdgeID
+			to string
+		}
+		perSource := map[string][]eidTo{}
 		for eid, el := range l.Edges {
 			if el.BackEdge {
-				backBySource[eid.From] = eid.To
+				perSource[eid.From] = append(perSource[eid.From], eidTo{id: eid, to: eid.To})
 			}
+		}
+		for from, candidates := range perSource {
+			sort.Slice(candidates, func(i, j int) bool {
+				if candidates[i].id.From != candidates[j].id.From {
+					return candidates[i].id.From < candidates[j].id.From
+				}
+				if candidates[i].id.To != candidates[j].id.To {
+					return candidates[i].id.To < candidates[j].id.To
+				}
+				return candidates[i].id.ID < candidates[j].id.ID
+			})
+			backBySource[from] = candidates[0].to
 		}
 	}
 
@@ -270,10 +288,15 @@ func DetectBranches(d *diagram.FlowchartDiagram, l *layout.Result) []BranchGroup
 // edges is the flattened AST edge list (consulted only when target is
 // not itself a convergence node).
 func classifyBranch(target string, inGroup, convergence map[string]bool, backBySource map[string]string, edges []diagram.Edge) (PatternType, string, string) {
-	for from, to := range backBySource {
+	var candidates []string
+	for from := range backBySource {
 		if inGroup[from] {
-			return PatternLoop, to, ""
+			candidates = append(candidates, from)
 		}
+	}
+	sort.Strings(candidates)
+	if len(candidates) > 0 {
+		return PatternLoop, backBySource[candidates[0]], ""
 	}
 	if convergence[target] {
 		return PatternCondition, "", target

@@ -425,7 +425,8 @@ func buildEdges(
 			pts = applyChain(pts, srcPt, dstPt, chains, consumed,
 				dummy.Key{From: eid.To, To: eid.From}, true, pointOf)
 		}
-		if stemPt != nil && len(pts) >= 2 {
+		isSelfLoop := eid.From == eid.To
+		if stemPt != nil && len(pts) >= 2 && !isSelfLoop {
 			// applyChain rebuilds pts from scratch from srcPt..dstPt;
 			// re-insert the stem after the port so the geometry is
 			// port → stem → (dummy chain) → dst.

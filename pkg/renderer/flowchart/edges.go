@@ -158,7 +158,7 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 	// Self-loop and back-edge geometry is fully synthesized by
 	// buildEdges and renders as bezier paths; the standard center-to-
 	// boundary clip would mangle them.
-	isSelfLoop := eid.From == eid.To
+	isSelfLoop := e.From == e.To && e.From != ""
 	if l != nil && len(pts) >= 2 && !isSelfLoop && !el.BackEdge {
 		srcDir := pts[1]
 		dstDir := pts[len(pts)-2]
@@ -177,26 +177,35 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 	var elems []any
 
 	switch {
-	case isSelfLoop && len(pts) == 4:
-		// Cubic bezier arc from layout.selfLoopPoints: (exit, cp1, cp2, entry).
-		d := fmt.Sprintf("M%.2f,%.2f C%.2f,%.2f %.2f,%.2f %.2f,%.2f",
-			pts[0].X, pts[0].Y, pts[1].X, pts[1].Y,
-			pts[2].X, pts[2].Y, pts[3].X, pts[3].Y)
-		p := &Path{D: d, Style: style}
-		if isVisibleArrow(e.ArrowHead) {
-			p.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
+	case isSelfLoop:
+		if len(pts) == 4 {
+			d := fmt.Sprintf("M%.2f,%.2f C%.2f,%.2f %.2f,%.2f %.2f,%.2f",
+				pts[0].X, pts[0].Y, pts[1].X, pts[1].Y,
+				pts[2].X, pts[2].Y, pts[3].X, pts[3].Y)
+			p := &Path{D: d, Style: style}
+			if isVisibleArrow(e.ArrowHead) {
+				p.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
+			}
+			if isVisibleArrow(e.ArrowTail) {
+				p.MarkerStart = fmt.Sprintf("url(#%s)", markerID(e.ArrowTail, e.LineStyle))
+			}
+			elems = append(elems, p)
 		}
-		elems = append(elems, p)
 	case el.BackEdge && len(pts) >= 2:
-		// Quadratic bezier bowing perpendicular to the straight-line
-		// path; dashed to distinguish from forward flow.
 		bow := backEdgeBow(pts[0], pts[len(pts)-1])
 		d := fmt.Sprintf("M%.2f,%.2f Q%.2f,%.2f %.2f,%.2f",
 			pts[0].X, pts[0].Y, bow.X, bow.Y,
 			pts[len(pts)-1].X, pts[len(pts)-1].Y)
-		p := &Path{D: d, Style: style + backEdgeDash}
+		beStyle := style
+		if e.LineStyle != diagram.LineStyleDotted {
+			beStyle += backEdgeDash
+		}
+		p := &Path{D: d, Style: beStyle}
 		if isVisibleArrow(e.ArrowHead) {
 			p.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
+		}
+		if isVisibleArrow(e.ArrowTail) {
+			p.MarkerStart = fmt.Sprintf("url(#%s)", markerID(e.ArrowTail, e.LineStyle))
 		}
 		elems = append(elems, p)
 	case len(pts) == 2:
