@@ -293,3 +293,38 @@ func TestMarshalSVG(t *testing.T) {
 		t.Error("output should not be empty")
 	}
 }
+
+func TestPerpendicular(t *testing.T) {
+	nx, ny, length := Perpendicular(layout.Point{X: 0, Y: 0}, layout.Point{X: 100, Y: 0})
+	if length != 100 {
+		t.Errorf("length = %v, want 100", length)
+	}
+	if nx != 0 {
+		t.Errorf("nx = %v, want 0 (horizontal segment normal is vertical)", nx)
+	}
+	if ny != 1 {
+		t.Errorf("ny = %v, want 1 (right-hand rule: clockwise rotation)", ny)
+	}
+}
+
+func TestPerpendicularZeroLength(t *testing.T) {
+	nx, ny, length := Perpendicular(layout.Point{X: 5, Y: 5}, layout.Point{X: 5, Y: 5})
+	if length != 0 {
+		t.Errorf("expected zero length, got %v", length)
+	}
+	if nx != 0 || ny != 0 {
+		t.Errorf("expected zero normal for coincident points, got (%v, %v)", nx, ny)
+	}
+}
+
+func TestFormatNumber(t *testing.T) {
+	if s := FormatNumber(3.0, 2); s != "3" {
+		t.Errorf("FormatNumber(3.0, 2) = %q, want %q", s, "3")
+	}
+	if s := FormatNumber(3.14, 2); s != "3.14" {
+		t.Errorf("FormatNumber(3.14, 2) = %q, want %q", s, "3.14")
+	}
+	if s := FormatNumber(math.NaN(), 2); s != "0" {
+		t.Errorf("FormatNumber(NaN, 2) = %q, want %q", s, "0")
+	}
+}

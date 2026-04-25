@@ -1,0 +1,7 @@
+flowchart TB
+    Start[Start] --> Init[Initialize counter]
+    Init --> Check{i < N?}
+    Check -->|yes| Body[Process item]
+    Check -->|no| Done[Finished]
+    Body --> Step[i = i + 1]
+    Step --> Check

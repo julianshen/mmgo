@@ -104,12 +104,18 @@ type NodeLayout struct {
 
 // EdgeLayout holds the computed geometry of a single edge.
 type EdgeLayout struct {
-	// Points is a polyline of control points from source center to
-	// target center. For straight-line routing, this has exactly 2
-	// points; future orthogonal routing may emit more.
+	// Points carries the edge geometry. The shape varies by edge type:
+	// 2 points for a straight-line forward edge, 3+ for an edge routed
+	// through dummy waypoints (renderable as a Catmull-Rom spline), and
+	// 4 for self-loops (cubic-bezier control points: exit, cp1, cp2,
+	// entry — produced by selfLoopPoints).
 	Points []Point
 	// LabelPos is the suggested position for the edge's label.
 	LabelPos Point
+	// BackEdge is true when this edge was identified as a feedback edge
+	// (cycle-breaking) by the acyclic phase. Renderers may style backward
+	// flow distinctly without re-deriving cycle membership themselves.
+	BackEdge bool
 }
 
 // Result is the output of the layout engine.
@@ -197,7 +203,7 @@ func Layout(g *graph.Graph, opts Options) *Result {
 		return sz.height
 	}
 
-	acyclic.Run(work)
+	acycRes := acyclic.Run(work)
 	ranks := rank.Run(work)
 	// Dummies route long-span edges through intermediate-rank
 	// waypoints; bounds + the public Nodes map filter them out.
@@ -214,7 +220,7 @@ func Layout(g *graph.Graph, opts Options) *Result {
 
 	nodes, offsetX, offsetY, width, height := buildNodesAndBounds(g, coords, sizes, opts.RankDir)
 	assignExitPorts(g, nodes, opts.RankDir)
-	edges := buildEdges(g, ranks, dRes.Chains, coords, opts.RankDir, nodes, offsetX, offsetY, opts.RankSep)
+	edges := buildEdges(g, ranks, dRes.Chains, coords, opts.RankDir, nodes, offsetX, offsetY, opts.RankSep, acycRes.BackEdges)
 
 	return &Result{
 		Nodes:  nodes,
@@ -354,6 +360,7 @@ func buildEdges(
 	dir RankDir,
 	nodes map[string]NodeLayout,
 	offsetX, offsetY, rankSep float64,
+	backEdges map[graph.EdgeID]bool,
 ) map[graph.EdgeID]EdgeLayout {
 	var flipAround float64
 	if dir == RankDirBT || dir == RankDirRL {
@@ -406,7 +413,12 @@ func buildEdges(
 
 		switch {
 		case eid.From == eid.To:
-			// Self-loop: no chain.
+			// Self-loop: synthesize a 4-point cubic-bezier arc bowing
+			// against the rank-progression direction so the loop sits
+			// upstream of the node and never overlaps downstream rows.
+			if srcNL, ok := nodes[eid.From]; ok {
+				pts = selfLoopPoints(srcNL, dir)
+			}
 		case ranks[eid.From] <= ranks[eid.To]:
 			pts = applyChain(pts, srcPt, dstPt, chains, consumed,
 				dummy.Key{From: eid.From, To: eid.To}, false, pointOf)
@@ -414,7 +426,8 @@ func buildEdges(
 			pts = applyChain(pts, srcPt, dstPt, chains, consumed,
 				dummy.Key{From: eid.To, To: eid.From}, true, pointOf)
 		}
-		if stemPt != nil && len(pts) >= 2 {
+		isSelfLoop := eid.From == eid.To
+		if stemPt != nil && len(pts) >= 2 && !isSelfLoop {
 			// applyChain rebuilds pts from scratch from srcPt..dstPt;
 			// re-insert the stem after the port so the geometry is
 			// port → stem → (dummy chain) → dst.
@@ -427,6 +440,7 @@ func buildEdges(
 		edges[eid] = EdgeLayout{
 			Points:   pts,
 			LabelPos: midpointOf(pts),
+			BackEdge: backEdges[eid],
 		}
 	}
 	return edges
@@ -439,6 +453,44 @@ func buildEdges(
 func bendPointFor(port Point, dir RankDir, rankStep float64) Point {
 	fx, fy := rankForward(dir)
 	return Point{X: port.X + fx*rankStep, Y: port.Y + fy*rankStep}
+}
+
+// Self-loop control-point ratios. The arc exits/enters the node at
+// ±exitRatio of the cross-axis half-extent; control points push
+// ±cpRatio along the cross-axis at one full extent against the
+// rank-progression axis. The endpoints sit on the node boundary; the
+// control points bow upstream so the loop sits clear of downstream rows.
+const (
+	selfLoopExitRatio = 0.2
+	selfLoopCPRatio   = 0.6
+)
+
+// selfLoopPoints returns four control points (exit, cp1, cp2, entry)
+// describing a cubic bezier arc that starts and ends on the boundary
+// of the given node and bows against the rank-progression direction.
+// Renderers can emit this directly as `M exit C cp1 cp2 entry` so the
+// arrowhead orients along the entry tangent.
+func selfLoopPoints(nl NodeLayout, dir RankDir) []Point {
+	cx, cy, w, h := nl.X, nl.Y, nl.Width, nl.Height
+	// Forward axis (rank progression) and its right-hand perpendicular
+	// = cross axis. The arc lives on the upstream face: -fx, -fy.
+	fx, fy := rankForward(dir)
+	// Cross-axis half-extent in pixels along the perpendicular dir.
+	// For TB/BT (vertical forward) the cross is horizontal → halfW.
+	// For LR/RL (horizontal forward) the cross is vertical → halfH.
+	halfCross := w / 2
+	halfForward := h / 2
+	if fx != 0 {
+		halfCross, halfForward = h/2, w/2
+	}
+	// Perpendicular (right of forward).
+	px, py := -fy, fx
+
+	exit := Point{X: cx - fx*halfForward + px*halfCross*selfLoopExitRatio, Y: cy - fy*halfForward + py*halfCross*selfLoopExitRatio}
+	entry := Point{X: cx - fx*halfForward - px*halfCross*selfLoopExitRatio, Y: cy - fy*halfForward - py*halfCross*selfLoopExitRatio}
+	cp1 := Point{X: cx - fx*2*halfForward + px*halfCross*2*selfLoopCPRatio, Y: cy - fy*2*halfForward + py*halfCross*2*selfLoopCPRatio}
+	cp2 := Point{X: cx - fx*2*halfForward - px*halfCross*2*selfLoopCPRatio, Y: cy - fy*2*halfForward - py*halfCross*2*selfLoopCPRatio}
+	return []Point{exit, cp1, cp2, entry}
 }
 
 // rankForward returns the unit vector pointing along rank progression:

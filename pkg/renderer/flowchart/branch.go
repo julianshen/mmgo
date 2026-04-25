@@ -6,6 +6,7 @@ import (
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
+	"github.com/julianshen/mmgo/pkg/layout/graph"
 )
 
 // branchColorPalette is a 6-entry cycle of (fill, stroke) pastel pairs
@@ -24,15 +25,52 @@ var branchColorPalette = []struct {
 	{"#FFF3E0", "#FFB74D"}, // light orange
 }
 
+// loopPalette is used for branch groups classified as PatternLoop —
+// warm tints to signal "this comes back."
+var loopPalette = []struct{ Fill, Stroke string }{
+	{"#FFF3E0", "#FFB74D"}, // light orange
+	{"#FFF9C4", "#FBC02D"}, // light yellow
+	{"#FFEBEE", "#EF9A9A"}, // light coral
+}
+
+// conditionPalette is used for branch groups classified as
+// PatternCondition — cool tints to signal "this converges."
+var conditionPalette = []struct{ Fill, Stroke string }{
+	{"#E3F2FD", "#64B5F6"}, // light blue
+	{"#E0F2F1", "#4DB6AC"}, // light teal
+	{"#E8F5E9", "#81C784"}, // light green
+}
+
+// PatternType classifies how a branch participates in the surrounding
+// graph: a Loop branch leads back to the source (or one of its
+// predecessors) via a back-edge; a Condition branch reaches a merge
+// node where sibling branches converge; PatternNone falls back to
+// Phase B's generic branch coloring.
+type PatternType int8
+
+const (
+	PatternNone PatternType = iota
+	PatternLoop
+	PatternCondition
+)
+
 // BranchGroup represents one branch of a multi-outlet node. Each
 // outgoing edge of a branch node (3+ outgoing) starts its own group;
 // NodeIDs collects every node transitively reachable from that edge
 // up to (but excluding) the next branch node or convergence point.
+//
+// EdgeFromTo lists every edge fully contained inside the branch (both
+// endpoints in {source} ∪ NodeIDs); the renderer uses these to apply
+// a per-branch tint behind each edge stroke.
 type BranchGroup struct {
 	SourceNodeID string
 	EdgeIndex    int
 	NodeIDs      []string
 	ColorIndex   int
+	EdgeFromTo   [][2]string
+	Pattern      PatternType
+	BackEdgeTo   string
+	MergeNodeID  string
 }
 
 // DetectBranches walks the flowchart and returns one BranchGroup per
@@ -122,9 +160,37 @@ func DetectBranches(d *diagram.FlowchartDiagram, l *layout.Result) []BranchGroup
 		}
 	}
 
-	// Subgraph membership lookup: per-node, the set of subgraphs it
-	// directly belongs to. Used to suppress a branch group when all
-	// its members share the same subgraph.
+	// Precompute the source→target map of back-edges once so each
+	// classifyBranch call is O(branch-size) instead of O(layout-edges).
+	backBySource := map[string]string{}
+	if l != nil {
+		type eidTo struct {
+			id graph.EdgeID
+			to string
+		}
+		perSource := map[string][]eidTo{}
+		for eid, el := range l.Edges {
+			if el.BackEdge {
+				perSource[eid.From] = append(perSource[eid.From], eidTo{id: eid, to: eid.To})
+			}
+		}
+		for from, candidates := range perSource {
+			sort.Slice(candidates, func(i, j int) bool {
+				if candidates[i].id.From != candidates[j].id.From {
+					return candidates[i].id.From < candidates[j].id.From
+				}
+				if candidates[i].id.To != candidates[j].id.To {
+					return candidates[i].id.To < candidates[j].id.To
+				}
+				return candidates[i].id.ID < candidates[j].id.ID
+			})
+			backBySource[from] = candidates[0].to
+		}
+	}
+
+	// Subgraph membership lookup: per-node, the subgraph it directly
+	// belongs to. Used to suppress a branch group when all its members
+	// share the same subgraph.
 	sgOf := map[string]string{}
 	var walkSG func(sg *diagram.Subgraph)
 	walkSG = func(sg *diagram.Subgraph) {
@@ -181,16 +247,83 @@ func DetectBranches(d *diagram.FlowchartDiagram, l *layout.Result) []BranchGroup
 			}
 			sort.Strings(memberIDs)
 
+			inGroup := map[string]bool{src: true}
+			for _, id := range memberIDs {
+				inGroup[id] = true
+			}
+			var fromTo [][2]string
+			for _, e := range d.AllEdges() {
+				if inGroup[e.From] && inGroup[e.To] {
+					fromTo = append(fromTo, [2]string{e.From, e.To})
+				}
+			}
+
+			// Pattern classification:
+			//   - PatternLoop: any back-edge originates inside this
+			//     branch (member or source) and points back upstream.
+			//   - PatternCondition: at least one of this branch's
+			//     members has a forward edge to a convergence node
+			//     shared with sibling branches.
+			pattern, backTo, mergeID := classifyBranch(src, target, inGroup, convergence, backBySource, d.AllEdges())
+
 			groups = append(groups, BranchGroup{
 				SourceNodeID: src,
 				EdgeIndex:    i,
 				NodeIDs:      memberIDs,
 				ColorIndex:   colorIdx % len(branchColorPalette),
+				EdgeFromTo:   fromTo,
+				Pattern:      pattern,
+				BackEdgeTo:   backTo,
+				MergeNodeID:  mergeID,
 			})
 			colorIdx++
 		}
 	}
 	return groups
+}
+
+// classifyBranch decides whether a branch is a loop, a condition, or
+// neither. A loop is recognised only when the back-edge points back to
+// the branch's source — a back-edge that starts inside the branch but
+// targets some unrelated upstream node is *not* this branch's loop and
+// stays generic. edges is the flattened AST edge list, consulted only
+// after the loop and direct-convergence checks both fall through.
+func classifyBranch(src, target string, inGroup, convergence map[string]bool, backBySource map[string]string, edges []diagram.Edge) (PatternType, string, string) {
+	var candidates []string
+	for from, to := range backBySource {
+		if inGroup[from] && to == src {
+			candidates = append(candidates, from)
+		}
+	}
+	sort.Strings(candidates)
+	if len(candidates) > 0 {
+		return PatternLoop, src, ""
+	}
+	if convergence[target] {
+		return PatternCondition, "", target
+	}
+	for _, e := range edges {
+		if inGroup[e.From] && convergence[e.To] {
+			return PatternCondition, "", e.To
+		}
+	}
+	return PatternNone, "", ""
+}
+
+// paletteFor picks the (fill, stroke) colour pair for a branch group:
+// warm tones for loops, cool tones for conditions, default palette for
+// generic branches. Unknown Pattern values fall through to the generic
+// palette; ColorIndex is taken modulo the chosen palette's length so it
+// can never index out of range.
+func paletteFor(g BranchGroup) struct{ Fill, Stroke string } {
+	switch g.Pattern {
+	case PatternLoop:
+		return loopPalette[g.ColorIndex%len(loopPalette)]
+	case PatternCondition:
+		return conditionPalette[g.ColorIndex%len(conditionPalette)]
+	default:
+		return branchColorPalette[g.ColorIndex%len(branchColorPalette)]
+	}
 }
 
 // renderBranchRegions emits one shaded rounded-rect per BranchGroup,
@@ -213,7 +346,7 @@ func renderBranchRegions(groups []BranchGroup, l *layout.Result, pad float64) []
 		if !ok {
 			continue
 		}
-		palette := branchColorPalette[g.ColorIndex%len(branchColorPalette)]
+		palette := paletteFor(g)
 		out = append(out, &Rect{
 			X:      svgFloat(bb.MinX - regionInset + pad),
 			Y:      svgFloat(bb.MinY - regionInset + pad),

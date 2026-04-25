@@ -12,6 +12,21 @@ import (
 	"github.com/julianshen/mmgo/pkg/layout"
 )
 
+// Perpendicular returns the right-hand unit normal to the segment
+// from src to dst (i.e. the segment direction rotated 90° clockwise),
+// along with the segment length. When the two points coincide it
+// returns (0, 0, 0) — callers must treat that as the degenerate case
+// instead of dividing by it.
+func Perpendicular(src, dst layout.Point) (nx, ny, length float64) {
+	dx := dst.X - src.X
+	dy := dst.Y - src.Y
+	length = math.Hypot(dx, dy)
+	if length == 0 {
+		return 0, 0, 0
+	}
+	return -dy / length, dx / length, length
+}
+
 // FormatNumber renders v as the shortest readable numeric string:
 // integer form when v rounds to an integer within maxDecimals tolerance,
 // otherwise the shortest fixed-point form up to maxDecimals digits with

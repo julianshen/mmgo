@@ -414,3 +414,102 @@ func newTestRuler(t *testing.T) (*textmeasure.Ruler, error) {
 	t.Helper()
 	return textmeasure.NewDefaultRuler()
 }
+
+func TestRenderBackEdge(t *testing.T) {
+	e := diagram.Edge{From: "A", To: "B", ArrowHead: diagram.ArrowHeadArrow}
+	el := layout.EdgeLayout{
+		Points:   []layout.Point{{X: 0, Y: 100}, {X: 100, Y: 0}},
+		LabelPos: layout.Point{X: 50, Y: 50},
+		BackEdge: true,
+	}
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{}, nil)
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+	path, ok := elems[0].(*Path)
+	if !ok {
+		t.Fatalf("expected *Path for back-edge, got %T", elems[0])
+	}
+	if !strings.Contains(path.Style, "stroke-dasharray:6,3") {
+		t.Errorf("back-edge should have dashed style, got: %s", path.Style)
+	}
+	if !strings.Contains(path.D, "Q") {
+		t.Errorf("back-edge should use quadratic bezier, got: %s", path.D)
+	}
+	if !strings.Contains(path.MarkerEnd, "arrow-arrow") {
+		t.Errorf("back-edge should have arrow marker, got %s", path.MarkerEnd)
+	}
+}
+
+func TestRenderBackEdgeDotted(t *testing.T) {
+	e := diagram.Edge{From: "A", To: "B", LineStyle: diagram.LineStyleDotted, ArrowHead: diagram.ArrowHeadArrow}
+	el := layout.EdgeLayout{
+		Points:   []layout.Point{{X: 0, Y: 100}, {X: 100, Y: 0}},
+		LabelPos: layout.Point{X: 50, Y: 50},
+		BackEdge: true,
+	}
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{}, nil)
+	path, ok := elems[0].(*Path)
+	if !ok {
+		t.Fatalf("expected *Path, got %T", elems[0])
+	}
+	if !strings.Contains(path.Style, "stroke-dasharray:2,2") {
+		t.Errorf("dotted back-edge should keep dotted dasharray, got: %s", path.Style)
+	}
+	if strings.Contains(path.Style, "stroke-dasharray:6,3") {
+		t.Errorf("dotted back-edge should NOT have back-edge dash overriding, got: %s", path.Style)
+	}
+}
+
+func TestRenderSelfLoop(t *testing.T) {
+	e := diagram.Edge{From: "A", To: "A", ArrowHead: diagram.ArrowHeadArrow}
+	el := layout.EdgeLayout{
+		Points: []layout.Point{
+			{X: 20, Y: 0}, {X: 30, Y: -40}, {X: -30, Y: -40}, {X: -20, Y: 0},
+		},
+		LabelPos: layout.Point{X: 0, Y: -40},
+	}
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{From: "A", To: "A"}, nil)
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+	path, ok := elems[0].(*Path)
+	if !ok {
+		t.Fatalf("expected *Path for self-loop, got %T", elems[0])
+	}
+	if !strings.Contains(path.D, "C") {
+		t.Errorf("self-loop should use cubic bezier, got: %s", path.D)
+	}
+	if !strings.Contains(path.MarkerEnd, "arrow-arrow") {
+		t.Errorf("self-loop should have arrow marker, got %s", path.MarkerEnd)
+	}
+}
+
+func TestRenderSelfLoopFallbackNonFourPoints(t *testing.T) {
+	e := diagram.Edge{From: "A", To: "A", ArrowHead: diagram.ArrowHeadArrow}
+	el := layout.EdgeLayout{
+		Points:   []layout.Point{{X: 0, Y: 0}, {X: 0, Y: 0}},
+		LabelPos: layout.Point{X: 0, Y: 0},
+	}
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{From: "A", To: "A"}, nil)
+	if len(elems) != 0 {
+		t.Errorf("self-loop with !=4 points should produce no elements, got %d", len(elems))
+	}
+}
+
+func TestBackEdgeBowNonZero(t *testing.T) {
+	pt := backEdgeBow(layout.Point{X: 0, Y: 0}, layout.Point{X: 100, Y: 0})
+	if pt.X != 50 {
+		t.Errorf("bow midpoint X = %v, want 50", pt.X)
+	}
+	if pt.Y == 0 {
+		t.Errorf("bow should be offset perpendicular, got Y = 0")
+	}
+}
+
+func TestBackEdgeBowZeroLength(t *testing.T) {
+	pt := backEdgeBow(layout.Point{X: 50, Y: 50}, layout.Point{X: 50, Y: 50})
+	if pt.X != 50 || pt.Y != 50 {
+		t.Errorf("zero-length bow should return midpoint, got (%v, %v)", pt.X, pt.Y)
+	}
+}

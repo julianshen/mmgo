@@ -15,31 +15,35 @@ import (
 	"github.com/julianshen/mmgo/pkg/layout/internal/layoututil"
 )
 
+// Result captures both views of the reversal pass. Reversed holds the
+// post-reversal EdgeIDs (consumed by Undo); BackEdges is the set of
+// pre-reversal EdgeIDs (consumed by the renderer to flag back-edges in
+// the original-direction edge map).
+type Result struct {
+	Reversed  []graph.EdgeID
+	BackEdges map[graph.EdgeID]bool
+}
+
 // Run reverses a set of feedback edges in g so that the non-self-loop
 // portion of the graph becomes acyclic. Self-loops are preserved.
 //
-// The returned slice contains the current EdgeIDs of the reversed edges
-// (i.e., their direction after reversal). Pass this slice to Undo to
-// restore the original edge directions. The order of the returned slice
-// is deterministic for identical inputs.
+// Result.Reversed contains the post-reversal EdgeIDs (pass to Undo to
+// restore directions). Result.BackEdges contains the pre-reversal IDs
+// — useful for callers that want to render back-edges differently
+// without having to reverse-engineer the mapping.
 //
 // Panics if an edge returned by g.Edges() cannot be reversed. This
 // indicates concurrent mutation of the graph or a bug in the graph
 // package.
-func Run(g *graph.Graph) []graph.EdgeID {
+func Run(g *graph.Graph) *Result {
 	order := greedyOrdering(g)
 	orderIdx := make(map[string]int, len(order))
 	for i, n := range order {
 		orderIdx[n] = i
 	}
 
-	// Edges whose source comes after their target in the ordering are
-	// "back edges" — reverse them to break cycles. Self-loops are skipped
-	// because reversing them has no effect.
-	//
-	// Sort back edges for deterministic reversal order. g.Edges() iterates
-	// a map and would otherwise return them in Go-runtime-randomized order,
-	// making the returned EdgeIDs non-reproducible across runs.
+	// Sort back-edges deterministically: g.Edges() iterates a map and
+	// would otherwise yield runtime-randomized order.
 	var backEdges []graph.EdgeID
 	for _, eid := range g.Edges() {
 		if eid.From == eid.To {
@@ -51,15 +55,19 @@ func Run(g *graph.Graph) []graph.EdgeID {
 	}
 	slices.SortFunc(backEdges, layoututil.CompareEdgeIDs)
 
-	reversed := make([]graph.EdgeID, 0, len(backEdges))
+	res := &Result{
+		Reversed:  make([]graph.EdgeID, 0, len(backEdges)),
+		BackEdges: make(map[graph.EdgeID]bool, len(backEdges)),
+	}
 	for _, eid := range backEdges {
+		res.BackEdges[eid] = true
 		newID, ok := g.ReverseEdge(eid)
 		if !ok {
 			panic(fmt.Sprintf("acyclic.Run: ReverseEdge failed for %v; graph invariant violated", eid))
 		}
-		reversed = append(reversed, newID)
+		res.Reversed = append(res.Reversed, newID)
 	}
-	return reversed
+	return res
 }
 
 // Undo reverses the edges listed in reversed, restoring their original
