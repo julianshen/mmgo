@@ -194,7 +194,7 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 		d := fmt.Sprintf("M%.2f,%.2f Q%.2f,%.2f %.2f,%.2f",
 			pts[0].X, pts[0].Y, bow.X, bow.Y,
 			pts[len(pts)-1].X, pts[len(pts)-1].Y)
-		p := &Path{D: d, Style: style + ";stroke-dasharray:6,3"}
+		p := &Path{D: d, Style: style + backEdgeDash}
 		if isVisibleArrow(e.ArrowHead) {
 			p.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
 		}
@@ -259,26 +259,28 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 	return elems
 }
 
+// Back-edge bow magnitude: scales linearly with segment length but
+// never falls below backEdgeBowMin so even short back-edges read as
+// curves rather than near-straight dashes that overlap forward edges.
+const (
+	backEdgeBowRatio = 0.2
+	backEdgeBowMin   = 30.0
+	backEdgeDash     = ";stroke-dasharray:6,3"
+)
+
 // backEdgeBow returns the quadratic-bezier control point for a back-
-// edge: the midpoint of src→dst pushed perpendicular to that segment
-// by max(30, dist*0.2). The resulting curve bows outward visibly even
-// for short back-edges and grows proportionally for long ones.
+// edge: the midpoint of src→dst pushed perpendicular to that segment.
 func backEdgeBow(src, dst layout.Point) layout.Point {
 	mx := (src.X + dst.X) / 2
 	my := (src.Y + dst.Y) / 2
-	dx := dst.X - src.X
-	dy := dst.Y - src.Y
-	length := math.Hypot(dx, dy)
+	nx, ny, length := svgutil.Perpendicular(src, dst)
 	if length == 0 {
 		return layout.Point{X: mx, Y: my}
 	}
-	mag := length * 0.2
-	if mag < 30 {
-		mag = 30
+	mag := length * backEdgeBowRatio
+	if mag < backEdgeBowMin {
+		mag = backEdgeBowMin
 	}
-	// Perpendicular (right-hand) rotation of the unit src→dst vector.
-	nx := -dy / length
-	ny := dx / length
 	return layout.Point{X: mx + nx*mag, Y: my + ny*mag}
 }
 
@@ -292,22 +294,13 @@ func branchLabelPos(port, stem layout.Point, cx, cy, fontSize float64) (x, y flo
 	const t = 0.4
 	sx := port.X + t*(stem.X-port.X)
 	sy := port.Y + t*(stem.Y-port.Y)
-	// Perpendicular unit vector to the segment direction.
-	dx := stem.X - port.X
-	dy := stem.Y - port.Y
-	length := math.Hypot(dx, dy)
+	nx, ny, length := svgutil.Perpendicular(port, stem)
 	if length == 0 {
 		return sx, sy
 	}
-	// Two candidate normals; pick the one pointing AWAY from node center.
-	nxA, nyA := -dy/length, dx/length
-	nxB, nyB := dy/length, -dx/length
-	// Compare dot(candidate, sample - center) — larger means "away".
-	dA := nxA*(sx-cx) + nyA*(sy-cy)
-	dB := nxB*(sx-cx) + nyB*(sy-cy)
-	nx, ny := nxA, nyA
-	if dB > dA {
-		nx, ny = nxB, nyB
+	// Flip the normal if it points toward the node center.
+	if nx*(sx-cx)+ny*(sy-cy) < 0 {
+		nx, ny = -nx, -ny
 	}
 	off := fontSize/2 + 4
 	return sx + nx*off, sy + ny*off

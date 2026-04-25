@@ -159,9 +159,20 @@ func DetectBranches(d *diagram.FlowchartDiagram, l *layout.Result) []BranchGroup
 		}
 	}
 
-	// Subgraph membership lookup: per-node, the set of subgraphs it
-	// directly belongs to. Used to suppress a branch group when all
-	// its members share the same subgraph.
+	// Precompute the source→target map of back-edges once so each
+	// classifyBranch call is O(branch-size) instead of O(layout-edges).
+	backBySource := map[string]string{}
+	if l != nil {
+		for eid, el := range l.Edges {
+			if el.BackEdge {
+				backBySource[eid.From] = eid.To
+			}
+		}
+	}
+
+	// Subgraph membership lookup: per-node, the subgraph it directly
+	// belongs to. Used to suppress a branch group when all its members
+	// share the same subgraph.
 	sgOf := map[string]string{}
 	var walkSG func(sg *diagram.Subgraph)
 	walkSG = func(sg *diagram.Subgraph) {
@@ -235,7 +246,7 @@ func DetectBranches(d *diagram.FlowchartDiagram, l *layout.Result) []BranchGroup
 			//   - PatternCondition: at least one of this branch's
 			//     members has a forward edge to a convergence node
 			//     shared with sibling branches.
-			pattern, backTo, mergeID := classifyBranch(src, target, inGroup, convergence, l, d.AllEdges())
+			pattern, backTo, mergeID := classifyBranch(target, inGroup, convergence, backBySource, d.AllEdges())
 
 			groups = append(groups, BranchGroup{
 				SourceNodeID: src,
@@ -254,24 +265,16 @@ func DetectBranches(d *diagram.FlowchartDiagram, l *layout.Result) []BranchGroup
 }
 
 // classifyBranch decides whether a branch is a loop, a condition, or
-// neither. inGroup is the set {source} ∪ NodeIDs; convergence is the
-// global set of convergence nodes; l carries BackEdge flags from the
-// layout; edges is the flattened AST edge list. Returned strings give
-// the loop's back-edge target / the condition's merge node ID for use
-// as visual cues; empty when not applicable.
-func classifyBranch(src, target string, inGroup, convergence map[string]bool, l *layout.Result, edges []diagram.Edge) (PatternType, string, string) {
-	if l != nil {
-		for eid, el := range l.Edges {
-			if !el.BackEdge {
-				continue
-			}
-			if inGroup[eid.From] {
-				return PatternLoop, eid.To, ""
-			}
+// neither. backBySource maps source-node-ID → back-edge target so the
+// loop check is O(branch-size) instead of O(layout-edges) per group;
+// edges is the flattened AST edge list (consulted only when target is
+// not itself a convergence node).
+func classifyBranch(target string, inGroup, convergence map[string]bool, backBySource map[string]string, edges []diagram.Edge) (PatternType, string, string) {
+	for from, to := range backBySource {
+		if inGroup[from] {
+			return PatternLoop, to, ""
 		}
 	}
-	// Condition: this branch's first hop reaches a convergence node
-	// directly, OR a member of this branch leads into one.
 	if convergence[target] {
 		return PatternCondition, "", target
 	}

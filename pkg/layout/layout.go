@@ -453,6 +453,16 @@ func bendPointFor(port Point, dir RankDir, rankStep float64) Point {
 	return Point{X: port.X + fx*rankStep, Y: port.Y + fy*rankStep}
 }
 
+// Self-loop control-point ratios. The arc exits/enters the node at
+// ±exitRatio of the cross-axis half-extent; control points push
+// ±cpRatio along the cross-axis at one full extent against the
+// rank-progression axis. The endpoints sit on the node boundary; the
+// control points bow upstream so the loop sits clear of downstream rows.
+const (
+	selfLoopExitRatio = 0.2
+	selfLoopCPRatio   = 0.6
+)
+
 // selfLoopPoints returns four control points (exit, cp1, cp2, entry)
 // describing a cubic bezier arc that starts and ends on the boundary
 // of the given node and bows against the rank-progression direction.
@@ -460,36 +470,25 @@ func bendPointFor(port Point, dir RankDir, rankStep float64) Point {
 // arrowhead orients along the entry tangent.
 func selfLoopPoints(nl NodeLayout, dir RankDir) []Point {
 	cx, cy, w, h := nl.X, nl.Y, nl.Width, nl.Height
-	switch dir {
-	case RankDirBT:
-		return []Point{
-			{X: cx - w*0.2, Y: cy + h/2},
-			{X: cx - w*0.6, Y: cy + h},
-			{X: cx + w*0.6, Y: cy + h},
-			{X: cx + w*0.2, Y: cy + h/2},
-		}
-	case RankDirLR:
-		return []Point{
-			{X: cx - w/2, Y: cy - h*0.2},
-			{X: cx - w, Y: cy - h*0.6},
-			{X: cx - w, Y: cy + h*0.6},
-			{X: cx - w/2, Y: cy + h*0.2},
-		}
-	case RankDirRL:
-		return []Point{
-			{X: cx + w/2, Y: cy - h*0.2},
-			{X: cx + w, Y: cy - h*0.6},
-			{X: cx + w, Y: cy + h*0.6},
-			{X: cx + w/2, Y: cy + h*0.2},
-		}
-	default: // TB
-		return []Point{
-			{X: cx + w*0.2, Y: cy - h/2},
-			{X: cx + w*0.6, Y: cy - h},
-			{X: cx - w*0.6, Y: cy - h},
-			{X: cx - w*0.2, Y: cy - h/2},
-		}
+	// Forward axis (rank progression) and its right-hand perpendicular
+	// = cross axis. The arc lives on the upstream face: -fx, -fy.
+	fx, fy := rankForward(dir)
+	// Cross-axis half-extent in pixels along the perpendicular dir.
+	// For TB/BT (vertical forward) the cross is horizontal → halfW.
+	// For LR/RL (horizontal forward) the cross is vertical → halfH.
+	halfCross := w / 2
+	halfForward := h / 2
+	if fx != 0 {
+		halfCross, halfForward = h/2, w/2
 	}
+	// Perpendicular (right of forward).
+	px, py := -fy, fx
+
+	exit := Point{X: cx - fx*halfForward + px*halfCross*selfLoopExitRatio, Y: cy - fy*halfForward + py*halfCross*selfLoopExitRatio}
+	entry := Point{X: cx - fx*halfForward - px*halfCross*selfLoopExitRatio, Y: cy - fy*halfForward - py*halfCross*selfLoopExitRatio}
+	cp1 := Point{X: cx - fx*2*halfForward + px*halfCross*2*selfLoopCPRatio, Y: cy - fy*2*halfForward + py*halfCross*2*selfLoopCPRatio}
+	cp2 := Point{X: cx - fx*2*halfForward - px*halfCross*2*selfLoopCPRatio, Y: cy - fy*2*halfForward - py*halfCross*2*selfLoopCPRatio}
+	return []Point{exit, cp1, cp2, entry}
 }
 
 // rankForward returns the unit vector pointing along rank progression:

@@ -5,20 +5,16 @@ import (
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
-	"github.com/julianshen/mmgo/pkg/layout/graph"
 )
 
 // classifyBranch identifies a loop when any back-edge originates
 // inside the branch group (member-or-source).
 func TestClassifyBranch_Loop(t *testing.T) {
-	src := "S"
 	target := "A"
 	inGroup := map[string]bool{"S": true, "A": true, "B": true, "C": true}
 	convergence := map[string]bool{}
-	l := &layout.Result{Edges: map[graph.EdgeID]layout.EdgeLayout{
-		{From: "C", To: "S", ID: 1}: {BackEdge: true},
-	}}
-	pattern, backTo, _ := classifyBranch(src, target, inGroup, convergence, l, nil)
+	backBySource := map[string]string{"C": "S"}
+	pattern, backTo, _ := classifyBranch(target, inGroup, convergence, backBySource, nil)
 	if pattern != PatternLoop {
 		t.Errorf("Pattern = %v, want PatternLoop", pattern)
 	}
@@ -30,12 +26,10 @@ func TestClassifyBranch_Loop(t *testing.T) {
 // classifyBranch identifies a condition when the branch's first hop
 // IS the convergence node — i.e. multiple sibling branches merge here.
 func TestClassifyBranch_Condition(t *testing.T) {
-	src := "S"
 	target := "M"
 	inGroup := map[string]bool{"S": true}
 	convergence := map[string]bool{"M": true}
-	l := &layout.Result{}
-	pattern, _, mergeID := classifyBranch(src, target, inGroup, convergence, l, nil)
+	pattern, _, mergeID := classifyBranch(target, inGroup, convergence, nil, nil)
 	if pattern != PatternCondition {
 		t.Errorf("Pattern = %v, want PatternCondition", pattern)
 	}
@@ -46,11 +40,10 @@ func TestClassifyBranch_Condition(t *testing.T) {
 
 // Generic branch (no back-edges, no convergence) gets PatternNone.
 func TestClassifyBranch_Generic(t *testing.T) {
-	src := "S"
 	target := "A"
 	inGroup := map[string]bool{"S": true, "A": true}
 	convergence := map[string]bool{}
-	pattern, _, _ := classifyBranch(src, target, inGroup, convergence, &layout.Result{}, nil)
+	pattern, _, _ := classifyBranch(target, inGroup, convergence, nil, nil)
 	if pattern != PatternNone {
 		t.Errorf("Pattern = %v, want PatternNone", pattern)
 	}
