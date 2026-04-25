@@ -165,13 +165,14 @@ func (p *parser) detachNode(id string) {
 		}
 	}
 	if idx, ok := p.nodeIndex[id]; ok {
-		p.diagram.Nodes = append(p.diagram.Nodes[:idx], p.diagram.Nodes[idx+1:]...)
-		delete(p.nodeIndex, id)
-		for k, v := range p.nodeIndex {
-			if v > idx {
-				p.nodeIndex[k] = v - 1
-			}
+		last := len(p.diagram.Nodes) - 1
+		if idx != last {
+			moved := p.diagram.Nodes[last]
+			p.diagram.Nodes[idx] = moved
+			p.nodeIndex[moved.ID] = idx
 		}
+		p.diagram.Nodes = p.diagram.Nodes[:last]
+		delete(p.nodeIndex, id)
 	}
 }
 
@@ -403,22 +404,26 @@ func (p *parser) parseStyle(line string) error {
 // default fill (typically black), producing the "all nodes black"
 // regression on `style` and `classDef` rules.
 func normalizeCSS(css string) string {
-	// Only top-level commas (between declarations) are converted.
-	// Commas inside parens — `rgb(255, 0, 0)`, `var(--x, fallback)` —
-	// must be preserved.
+	if strings.IndexByte(css, ',') < 0 {
+		return css
+	}
 	var sb strings.Builder
+	sb.Grow(len(css))
 	depth := 0
+	inQuote := false
 	for i := 0; i < len(css); i++ {
 		c := css[i]
-		switch c {
-		case '(':
+		switch {
+		case c == '"' || c == '\'':
+			inQuote = !inQuote
+		case c == '(' && !inQuote:
 			depth++
-		case ')':
+		case c == ')' && !inQuote:
 			if depth > 0 {
 				depth--
 			}
 		}
-		if c == ',' && depth == 0 {
+		if c == ',' && depth == 0 && !inQuote {
 			sb.WriteByte(';')
 			continue
 		}
