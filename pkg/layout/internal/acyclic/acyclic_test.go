@@ -56,7 +56,7 @@ func nonSelfLoopTopoSort(g *graph.Graph) ([]string, error) {
 
 func TestRunEmptyGraph(t *testing.T) {
 	g := graph.New()
-	if reversed := Run(g); len(reversed) != 0 {
+	if reversed := Run(g).Reversed; len(reversed) != 0 {
 		t.Errorf("expected no reversals, got %d", len(reversed))
 	}
 }
@@ -64,7 +64,7 @@ func TestRunEmptyGraph(t *testing.T) {
 func TestRunSingleNode(t *testing.T) {
 	g := graph.New()
 	g.SetNode("a", graph.NodeAttrs{})
-	if reversed := Run(g); len(reversed) != 0 {
+	if reversed := Run(g).Reversed; len(reversed) != 0 {
 		t.Errorf("expected no reversals, got %d", len(reversed))
 	}
 }
@@ -123,7 +123,7 @@ func TestRunCases(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			g := buildGraph(tc.edges...)
-			reversed := Run(g)
+			reversed := Run(g).Reversed
 			if tc.wantReversed >= 0 && len(reversed) != tc.wantReversed {
 				t.Errorf("reversals: got %d, want %d", len(reversed), tc.wantReversed)
 			}
@@ -137,7 +137,7 @@ func TestRunCases(t *testing.T) {
 func TestRunSelfLoopPreservedAlone(t *testing.T) {
 	g := graph.New()
 	g.SetEdge("a", "a", graph.EdgeAttrs{})
-	reversed := Run(g)
+	reversed := Run(g).Reversed
 	if len(reversed) != 0 {
 		t.Errorf("self-loop should not be reversed, got %d reversals", len(reversed))
 	}
@@ -152,7 +152,7 @@ func TestRunSelfLoopWithOtherEdges(t *testing.T) {
 	g.SetEdge("a", "b", graph.EdgeAttrs{})
 	g.SetEdge("b", "c", graph.EdgeAttrs{})
 
-	reversed := Run(g)
+	reversed := Run(g).Reversed
 	if len(reversed) != 0 {
 		t.Errorf("no real cycles, expected 0 reversals, got %d", len(reversed))
 	}
@@ -217,8 +217,8 @@ func TestRunReversedSliceIsDeterministic(t *testing.T) {
 	}
 	g1 := build()
 	g2 := build()
-	r1 := Run(g1)
-	r2 := Run(g2)
+	r1 := Run(g1).Reversed
+	r2 := Run(g2).Reversed
 
 	if len(r1) != len(r2) {
 		t.Fatalf("reversed slice length mismatch: %d vs %d", len(r1), len(r2))
@@ -271,7 +271,7 @@ func TestUndoRestoresDirections(t *testing.T) {
 
 	orig := collectEdges(g)
 
-	reversed := Run(g)
+	reversed := Run(g).Reversed
 	if len(reversed) == 0 {
 		t.Fatal("expected at least one reversal on a cycle")
 	}
@@ -295,7 +295,7 @@ func TestRunThenUndoLinearChainIsIdentity(t *testing.T) {
 	g := buildGraph([2]string{"a", "b"}, [2]string{"b", "c"})
 	orig := collectEdges(g)
 
-	reversed := Run(g)
+	reversed := Run(g).Reversed
 	Undo(g, reversed)
 
 	after := collectEdges(g)

@@ -155,7 +155,11 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 	// an EdgeLayout directly and pass nil (they don't exercise the
 	// clip path); production paths always go through renderEdges
 	// which has a non-nil *layout.Result.
-	if l != nil && len(pts) >= 2 {
+	// Self-loop and back-edge geometry is fully synthesized by
+	// buildEdges and renders as bezier paths; the standard center-to-
+	// boundary clip would mangle them.
+	isSelfLoop := eid.From == eid.To
+	if l != nil && len(pts) >= 2 && !isSelfLoop && !el.BackEdge {
 		srcDir := pts[1]
 		dstDir := pts[len(pts)-2]
 		if src, ok := l.Nodes[eid.From]; ok {
@@ -172,7 +176,30 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 	style := edgeStyle(th, e.LineStyle)
 	var elems []any
 
-	if len(pts) == 2 {
+	switch {
+	case isSelfLoop && len(pts) == 4:
+		// Cubic bezier arc from layout.selfLoopPoints: (exit, cp1, cp2, entry).
+		d := fmt.Sprintf("M%.2f,%.2f C%.2f,%.2f %.2f,%.2f %.2f,%.2f",
+			pts[0].X, pts[0].Y, pts[1].X, pts[1].Y,
+			pts[2].X, pts[2].Y, pts[3].X, pts[3].Y)
+		p := &Path{D: d, Style: style}
+		if isVisibleArrow(e.ArrowHead) {
+			p.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
+		}
+		elems = append(elems, p)
+	case el.BackEdge && len(pts) >= 2:
+		// Quadratic bezier bowing perpendicular to the straight-line
+		// path; dashed to distinguish from forward flow.
+		bow := backEdgeBow(pts[0], pts[len(pts)-1])
+		d := fmt.Sprintf("M%.2f,%.2f Q%.2f,%.2f %.2f,%.2f",
+			pts[0].X, pts[0].Y, bow.X, bow.Y,
+			pts[len(pts)-1].X, pts[len(pts)-1].Y)
+		p := &Path{D: d, Style: style + ";stroke-dasharray:6,3"}
+		if isVisibleArrow(e.ArrowHead) {
+			p.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
+		}
+		elems = append(elems, p)
+	case len(pts) == 2:
 		line := &Line{
 			X1: svgFloat(pts[0].X), Y1: svgFloat(pts[0].Y),
 			X2: svgFloat(pts[1].X), Y2: svgFloat(pts[1].Y),
@@ -185,7 +212,7 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 			line.MarkerStart = fmt.Sprintf("url(#%s)", markerID(e.ArrowTail, e.LineStyle))
 		}
 		elems = append(elems, line)
-	} else if len(pts) >= 3 {
+	case len(pts) >= 3:
 		p := &Path{D: svgutil.CatmullRomPath(pts, svgutil.CatmullRomTension), Style: style}
 		if isVisibleArrow(e.ArrowHead) {
 			p.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
@@ -230,6 +257,29 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 	}
 
 	return elems
+}
+
+// backEdgeBow returns the quadratic-bezier control point for a back-
+// edge: the midpoint of src→dst pushed perpendicular to that segment
+// by max(30, dist*0.2). The resulting curve bows outward visibly even
+// for short back-edges and grows proportionally for long ones.
+func backEdgeBow(src, dst layout.Point) layout.Point {
+	mx := (src.X + dst.X) / 2
+	my := (src.Y + dst.Y) / 2
+	dx := dst.X - src.X
+	dy := dst.Y - src.Y
+	length := math.Hypot(dx, dy)
+	if length == 0 {
+		return layout.Point{X: mx, Y: my}
+	}
+	mag := length * 0.2
+	if mag < 30 {
+		mag = 30
+	}
+	// Perpendicular (right-hand) rotation of the unit src→dst vector.
+	nx := -dy / length
+	ny := dx / length
+	return layout.Point{X: mx + nx*mag, Y: my + ny*mag}
 }
 
 // branchLabelPos returns the label anchor for a branch edge: placed at
