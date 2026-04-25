@@ -1,6 +1,41 @@
 package layout
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/julianshen/mmgo/pkg/layout/graph"
+)
+
+// End-to-end propagation: a cyclic graph through Layout() flags
+// at least one EdgeLayout with BackEdge=true, with the original
+// (From, To) preserved (no leaked reversed direction).
+func TestLayoutBackEdgeFlagPropagates(t *testing.T) {
+	g := buildGraph(
+		[2]string{"a", "b"},
+		[2]string{"b", "c"},
+		[2]string{"c", "a"}, // closes the cycle
+	)
+	setWidths(g, 100, 50)
+
+	r := Layout(g, defaultOpts())
+	var backCount int
+	seen := map[[2]string]bool{}
+	for eid, el := range r.Edges {
+		seen[[2]string{eid.From, eid.To}] = true
+		if el.BackEdge {
+			backCount++
+		}
+	}
+	if backCount == 0 {
+		t.Error("a 3-node cycle must produce at least one EdgeLayout with BackEdge=true")
+	}
+	for _, want := range [][2]string{{"a", "b"}, {"b", "c"}, {"c", "a"}} {
+		if !seen[want] {
+			t.Errorf("original edge %v missing — reversed direction leaked into output", want)
+		}
+	}
+	_ = graph.EdgeID{} // import sentinel
+}
 
 func TestSelfLoopPoints_TBBowsUpward(t *testing.T) {
 	nl := NodeLayout{X: 100, Y: 50, Width: 60, Height: 40}

@@ -155,9 +155,10 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 	// an EdgeLayout directly and pass nil (they don't exercise the
 	// clip path); production paths always go through renderEdges
 	// which has a non-nil *layout.Result.
-	// Self-loop and back-edge geometry is fully synthesized by
-	// buildEdges and renders as bezier paths; the standard center-to-
-	// boundary clip would mangle them.
+	// Self-loops carry pre-synthesised bezier control points (from
+	// layout.selfLoopPoints); back-edges get a renderer-synthesised
+	// quadratic bow via backEdgeBow. Either way the standard center-
+	// to-boundary clip would mangle the curve, so skip it.
 	isSelfLoop := e.From == e.To && e.From != ""
 	if l != nil && len(pts) >= 2 && !isSelfLoop && !el.BackEdge {
 		srcDir := pts[1]

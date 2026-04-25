@@ -7,14 +7,14 @@ import (
 	"github.com/julianshen/mmgo/pkg/layout"
 )
 
-// classifyBranch identifies a loop when any back-edge originates
-// inside the branch group (member-or-source).
+// classifyBranch tags a Loop only when a back-edge inside the branch
+// targets the branch's source (not just any node).
 func TestClassifyBranch_Loop(t *testing.T) {
-	target := "A"
+	src, target := "S", "A"
 	inGroup := map[string]bool{"S": true, "A": true, "B": true, "C": true}
 	convergence := map[string]bool{}
 	backBySource := map[string]string{"C": "S"}
-	pattern, backTo, _ := classifyBranch(target, inGroup, convergence, backBySource, nil)
+	pattern, backTo, _ := classifyBranch(src, target, inGroup, convergence, backBySource, nil)
 	if pattern != PatternLoop {
 		t.Errorf("Pattern = %v, want PatternLoop", pattern)
 	}
@@ -23,13 +23,28 @@ func TestClassifyBranch_Loop(t *testing.T) {
 	}
 }
 
+// A back-edge inside the branch that points to an unrelated upstream
+// node (not the source) must NOT be classified as a Loop — that's
+// some other graph's loop, not ours.
+func TestClassifyBranch_LoopRequiresBackToSource(t *testing.T) {
+	src, target := "S", "A"
+	inGroup := map[string]bool{"S": true, "A": true, "B": true}
+	convergence := map[string]bool{}
+	// B has a back-edge to "Other" — outside this branch entirely.
+	backBySource := map[string]string{"B": "Other"}
+	pattern, _, _ := classifyBranch(src, target, inGroup, convergence, backBySource, nil)
+	if pattern == PatternLoop {
+		t.Errorf("back-edge to unrelated node should NOT be PatternLoop")
+	}
+}
+
 // classifyBranch identifies a condition when the branch's first hop
 // IS the convergence node — i.e. multiple sibling branches merge here.
 func TestClassifyBranch_Condition(t *testing.T) {
-	target := "M"
+	src, target := "S", "M"
 	inGroup := map[string]bool{"S": true}
 	convergence := map[string]bool{"M": true}
-	pattern, _, mergeID := classifyBranch(target, inGroup, convergence, nil, nil)
+	pattern, _, mergeID := classifyBranch(src, target, inGroup, convergence, nil, nil)
 	if pattern != PatternCondition {
 		t.Errorf("Pattern = %v, want PatternCondition", pattern)
 	}
@@ -40,10 +55,10 @@ func TestClassifyBranch_Condition(t *testing.T) {
 
 // Generic branch (no back-edges, no convergence) gets PatternNone.
 func TestClassifyBranch_Generic(t *testing.T) {
-	target := "A"
+	src, target := "S", "A"
 	inGroup := map[string]bool{"S": true, "A": true}
 	convergence := map[string]bool{}
-	pattern, _, _ := classifyBranch(target, inGroup, convergence, nil, nil)
+	pattern, _, _ := classifyBranch(src, target, inGroup, convergence, nil, nil)
 	if pattern != PatternNone {
 		t.Errorf("Pattern = %v, want PatternNone", pattern)
 	}

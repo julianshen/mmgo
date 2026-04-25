@@ -264,7 +264,7 @@ func DetectBranches(d *diagram.FlowchartDiagram, l *layout.Result) []BranchGroup
 			//   - PatternCondition: at least one of this branch's
 			//     members has a forward edge to a convergence node
 			//     shared with sibling branches.
-			pattern, backTo, mergeID := classifyBranch(target, inGroup, convergence, backBySource, d.AllEdges())
+			pattern, backTo, mergeID := classifyBranch(src, target, inGroup, convergence, backBySource, d.AllEdges())
 
 			groups = append(groups, BranchGroup{
 				SourceNodeID: src,
@@ -283,20 +283,21 @@ func DetectBranches(d *diagram.FlowchartDiagram, l *layout.Result) []BranchGroup
 }
 
 // classifyBranch decides whether a branch is a loop, a condition, or
-// neither. backBySource maps source-node-ID → back-edge target so the
-// loop check is O(branch-size) instead of O(layout-edges) per group;
-// edges is the flattened AST edge list (consulted only when target is
-// not itself a convergence node).
-func classifyBranch(target string, inGroup, convergence map[string]bool, backBySource map[string]string, edges []diagram.Edge) (PatternType, string, string) {
+// neither. A loop is recognised only when the back-edge points back to
+// the branch's source — a back-edge that starts inside the branch but
+// targets some unrelated upstream node is *not* this branch's loop and
+// stays generic. edges is the flattened AST edge list, consulted only
+// after the loop and direct-convergence checks both fall through.
+func classifyBranch(src, target string, inGroup, convergence map[string]bool, backBySource map[string]string, edges []diagram.Edge) (PatternType, string, string) {
 	var candidates []string
-	for from := range backBySource {
-		if inGroup[from] {
+	for from, to := range backBySource {
+		if inGroup[from] && to == src {
 			candidates = append(candidates, from)
 		}
 	}
 	sort.Strings(candidates)
 	if len(candidates) > 0 {
-		return PatternLoop, backBySource[candidates[0]], ""
+		return PatternLoop, src, ""
 	}
 	if convergence[target] {
 		return PatternCondition, "", target
@@ -311,8 +312,9 @@ func classifyBranch(target string, inGroup, convergence map[string]bool, backByS
 
 // paletteFor picks the (fill, stroke) colour pair for a branch group:
 // warm tones for loops, cool tones for conditions, default palette for
-// generic branches. Falls through to the generic palette if a pattern
-// classifier somehow returned an out-of-range ColorIndex.
+// generic branches. Unknown Pattern values fall through to the generic
+// palette; ColorIndex is taken modulo the chosen palette's length so it
+// can never index out of range.
 func paletteFor(g BranchGroup) struct{ Fill, Stroke string } {
 	switch g.Pattern {
 	case PatternLoop:

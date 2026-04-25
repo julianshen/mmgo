@@ -104,16 +104,17 @@ type NodeLayout struct {
 
 // EdgeLayout holds the computed geometry of a single edge.
 type EdgeLayout struct {
-	// Points is a polyline of control points from source center to
-	// target center. For straight-line routing, this has exactly 2
-	// points; future orthogonal routing may emit more.
+	// Points carries the edge geometry. The shape varies by edge type:
+	// 2 points for a straight-line forward edge, 3+ for an edge routed
+	// through dummy waypoints (renderable as a Catmull-Rom spline), and
+	// 4 for self-loops (cubic-bezier control points: exit, cp1, cp2,
+	// entry — produced by selfLoopPoints).
 	Points []Point
 	// LabelPos is the suggested position for the edge's label.
 	LabelPos Point
 	// BackEdge is true when this edge was identified as a feedback edge
-	// (cycle-breaking) by the acyclic phase. Renderers can use this to
-	// distinguish backward flow visually (dashed/curved rendering)
-	// without having to re-derive cycle membership themselves.
+	// (cycle-breaking) by the acyclic phase. Renderers may style backward
+	// flow distinctly without re-deriving cycle membership themselves.
 	BackEdge bool
 }
 

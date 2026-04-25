@@ -317,6 +317,43 @@ func TestUndoPanicsOnMissingEdge(t *testing.T) {
 
 // --- Multi-edges ---
 
+// Result.BackEdges must hold the PRE-reversal EdgeIDs so renderers
+// can map them back onto the original-direction edge map. Result.Reversed
+// must hold the POST-reversal IDs (consumed by Undo). The two sets must
+// be disjoint when at least one edge is reversed.
+func TestRunBackEdgesArePreReversalIDs(t *testing.T) {
+	g := graph.New()
+	g.SetEdge("a", "b", graph.EdgeAttrs{})
+	g.SetEdge("b", "c", graph.EdgeAttrs{})
+	cycleEdge := graph.EdgeID{}
+	for _, eid := range g.Edges() {
+		if eid.From == "b" && eid.To == "c" {
+			cycleEdge.ID = eid.ID + 1
+		}
+	}
+	g.SetEdge("c", "a", graph.EdgeAttrs{}) // closes the cycle
+	preIDs := map[graph.EdgeID]bool{}
+	for _, eid := range g.Edges() {
+		preIDs[eid] = true
+	}
+
+	res := Run(g)
+	if len(res.BackEdges) == 0 {
+		t.Fatal("cycle should have produced at least one back-edge")
+	}
+	for back := range res.BackEdges {
+		if !preIDs[back] {
+			t.Errorf("BackEdges entry %v is not a pre-reversal EdgeID", back)
+		}
+	}
+	// Reversed entries must NOT appear in BackEdges (different IDs after reversal).
+	for _, rev := range res.Reversed {
+		if res.BackEdges[rev] {
+			t.Errorf("Reversed ID %v leaked into BackEdges (should be pre-reversal only)", rev)
+		}
+	}
+}
+
 func TestRunPreservesMultiEdges(t *testing.T) {
 	g := graph.New()
 	g.SetEdge("a", "b", graph.EdgeAttrs{Label: "1"})
