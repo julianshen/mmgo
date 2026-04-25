@@ -65,18 +65,22 @@ func buildMarker(id string, ah diagram.ArrowHead, th Theme) Marker {
 			},
 		}
 	case diagram.ArrowHeadCross:
+		// Two crossing strokes form a real "X". A single polyline
+		// can't lift the pen, so use a Path with two M…L segments.
 		m.Children = []any{
-			&Polyline{
-				Points: "0,0 10,5 0,10 10,5",
-				Style:  fmt.Sprintf("stroke:%s;stroke-width:%.2f;fill:none", th.EdgeStroke, defaultStrokeWidth),
+			&Path{
+				D:     "M0,0 L10,10 M0,10 L10,0",
+				Style: fmt.Sprintf("stroke:%s;stroke-width:%.2f;fill:none", th.EdgeStroke, defaultStrokeWidth),
 			},
 		}
 	case diagram.ArrowHeadCircle:
 		m.RefX = 5
+		// mmdc renders the `o` terminator as a small filled disc, not
+		// a hollow ring — fill with the edge stroke colour for parity.
 		m.Children = []any{
 			&Circle{
 				CX: 5, CY: 5, R: 4,
-				Style: fmt.Sprintf("stroke:%s;stroke-width:%.2f;fill:none", th.EdgeStroke, defaultStrokeWidth),
+				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.2f", th.EdgeStroke, th.EdgeStroke, defaultStrokeWidth),
 			},
 		}
 	}
@@ -172,6 +176,13 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 			x, y := clipToShape(shapeByID[eid.To], dst, pad, dstDir.X, dstDir.Y)
 			pts[last] = layout.Point{X: x, Y: y}
 		}
+		// SVG marker-start renders the marker centred on the line's
+		// first vertex, so half of it falls behind the source node and
+		// gets covered. Shift pts[0] inward (away from source) by the
+		// marker length so the start marker has a visible gap to live in.
+		if isVisibleArrow(e.ArrowTail) {
+			pts[0] = shiftInward(pts[0], pts[1], markerVisibleLen)
+		}
 	}
 
 	style := edgeStyle(th, e.LineStyle)
@@ -218,19 +229,15 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 		if isVisibleArrow(e.ArrowHead) {
 			line.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
 		}
-		if isVisibleArrow(e.ArrowTail) {
-			line.MarkerStart = fmt.Sprintf("url(#%s)", markerID(e.ArrowTail, e.LineStyle))
-		}
 		elems = append(elems, line)
+		elems = append(elems, startMarkerElems(e.ArrowTail, pts[0], pts[1], th)...)
 	case len(pts) >= 3:
 		p := &Path{D: svgutil.CatmullRomPath(pts, svgutil.CatmullRomTension), Style: style}
 		if isVisibleArrow(e.ArrowHead) {
 			p.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
 		}
-		if isVisibleArrow(e.ArrowTail) {
-			p.MarkerStart = fmt.Sprintf("url(#%s)", markerID(e.ArrowTail, e.LineStyle))
-		}
 		elems = append(elems, p)
+		elems = append(elems, startMarkerElems(e.ArrowTail, pts[0], pts[1], th)...)
 	}
 
 	if e.Label != "" {
@@ -267,6 +274,84 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 	}
 
 	return elems
+}
+
+// startMarkerElems renders the tail-side arrowhead inline rather than
+// via SVG `marker-start`, because tdewolff/canvas's SVG-to-PNG parser
+// drops `marker-start` references silently — bidirectional edges
+// (`<-->`, `o--o`, `x--x`) otherwise show only one terminator in the
+// rasterised output. The inline shape is positioned at the line start
+// and oriented to face outward (back toward the source node).
+//
+// `head` is the marker shape; `start` is the line's first vertex
+// (already shifted inward by markerVisibleLen so the symbol sits in
+// the visible gap); `next` is the next polyline vertex used to compute
+// the line direction.
+func startMarkerElems(head diagram.ArrowHead, start, next layout.Point, th Theme) []any {
+	if !isVisibleArrow(head) {
+		return nil
+	}
+	dx := next.X - start.X
+	dy := next.Y - start.Y
+	length := math.Hypot(dx, dy)
+	if length == 0 {
+		return nil
+	}
+	ux, uy := dx/length, dy/length
+	const m = markerVisibleLen
+	switch head {
+	case diagram.ArrowHeadArrow:
+		// Triangle pointing OUTWARD (back along -u): tip at the start,
+		// base m units forward, half-base offset perpendicular by m/2.
+		tipX, tipY := start.X-ux*m, start.Y-uy*m
+		bx, by := start.X, start.Y
+		// Perpendicular unit vector.
+		px, py := -uy, ux
+		half := m / 2
+		points := fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f",
+			tipX, tipY,
+			bx+px*half, by+py*half,
+			bx-px*half, by-py*half,
+		)
+		return []any{&Polygon{Points: points, Style: fmt.Sprintf("fill:%s", th.EdgeStroke)}}
+	case diagram.ArrowHeadCircle:
+		return []any{&Circle{
+			CX: svgFloat(start.X), CY: svgFloat(start.Y),
+			R:     svgFloat(m * 0.4),
+			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.2f", th.EdgeStroke, th.EdgeStroke, defaultStrokeWidth),
+		}}
+	case diagram.ArrowHeadCross:
+		// Two crossing strokes in a square of side m centred on start.
+		half := m / 2
+		px, py := -uy, ux
+		// Corners of the square: ±u, ±perp from centre.
+		ax, ay := start.X+ux*half, start.Y+uy*half
+		bx2, by2 := start.X-ux*half, start.Y-uy*half
+		cx2, cy2 := start.X+px*half, start.Y+py*half
+		dx2, dy2 := start.X-px*half, start.Y-py*half
+		d := fmt.Sprintf("M%.2f,%.2f L%.2f,%.2f M%.2f,%.2f L%.2f,%.2f", ax, ay, bx2, by2, cx2, cy2, dx2, dy2)
+		return []any{&Path{D: d, Style: fmt.Sprintf("stroke:%s;stroke-width:%.2f;fill:none", th.EdgeStroke, defaultStrokeWidth)}}
+	}
+	return nil
+}
+
+// markerVisibleLen is how far inside the line the start-marker symbol
+// needs to sit so it isn't covered by the source node's fill. Matches
+// the marker viewBox width (10) minus one stroke width to keep a small
+// kiss between the symbol and the node boundary.
+const markerVisibleLen = 9.0
+
+// shiftInward returns p moved toward q along the p→q vector by `dist`
+// pixels. When p == q it returns p unchanged so callers don't have to
+// special-case zero-length segments.
+func shiftInward(p, q layout.Point, dist float64) layout.Point {
+	dx := q.X - p.X
+	dy := q.Y - p.Y
+	length := math.Hypot(dx, dy)
+	if length == 0 {
+		return p
+	}
+	return layout.Point{X: p.X + dx/length*dist, Y: p.Y + dy/length*dist}
 }
 
 // Back-edge bow magnitude: scales linearly with segment length but

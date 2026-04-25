@@ -115,6 +115,18 @@ func (p *parser) addNode(id string, shape diagram.NodeShape, label string, class
 		if len(classes) > 0 {
 			existing.Classes = append(existing.Classes, classes...)
 		}
+		// Mermaid reassigns a node's subgraph membership to the
+		// innermost subgraph that references it: when `B --> C`
+		// appears inside `subgraph two` and B was previously
+		// declared in `subgraph one`, B moves into `two`. Without
+		// this, nested-subgraph diagrams render the parent's title
+		// over the misplaced child node.
+		cur := p.currentSubgraph()
+		if cur != nil && !subgraphDirectlyOwns(cur, id) {
+			node := *existing
+			p.detachNode(id)
+			cur.Nodes = append(cur.Nodes, node)
+		}
 		return
 	}
 	sg := p.currentSubgraph()
@@ -124,6 +136,58 @@ func (p *parser) addNode(id string, shape diagram.NodeShape, label string, class
 	}
 	p.nodeIndex[id] = len(p.diagram.Nodes)
 	p.diagram.Nodes = append(p.diagram.Nodes, diagram.Node{ID: id, Label: label, Shape: shape, Classes: classes})
+}
+
+// subgraphDirectlyOwns reports whether sg has node id in its own Nodes
+// slice (not including descendants).
+func subgraphDirectlyOwns(sg *diagram.Subgraph, id string) bool {
+	for _, n := range sg.Nodes {
+		if n.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// detachNode removes node id from wherever it currently lives —
+// the root nodes slice, the parser's open subgraph stack, or any
+// subgraph already attached to the diagram. nodeIndex is rebuilt so
+// indices remain valid after removal from the root slice.
+func (p *parser) detachNode(id string) {
+	for si := range p.subgraphStack {
+		if removeNodeFromSubgraph(p.subgraphStack[si], id) {
+			return
+		}
+	}
+	for si := range p.diagram.Subgraphs {
+		if removeNodeFromSubgraph(p.diagram.Subgraphs[si], id) {
+			return
+		}
+	}
+	if idx, ok := p.nodeIndex[id]; ok {
+		p.diagram.Nodes = append(p.diagram.Nodes[:idx], p.diagram.Nodes[idx+1:]...)
+		delete(p.nodeIndex, id)
+		for k, v := range p.nodeIndex {
+			if v > idx {
+				p.nodeIndex[k] = v - 1
+			}
+		}
+	}
+}
+
+func removeNodeFromSubgraph(sg *diagram.Subgraph, id string) bool {
+	for i, n := range sg.Nodes {
+		if n.ID == id {
+			sg.Nodes = append(sg.Nodes[:i], sg.Nodes[i+1:]...)
+			return true
+		}
+	}
+	for _, child := range sg.Children {
+		if removeNodeFromSubgraph(child, id) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *parser) addEdge(e diagram.Edge) {
@@ -327,9 +391,40 @@ func (p *parser) parseStyle(line string) error {
 	}
 	p.diagram.Styles = append(p.diagram.Styles, diagram.StyleDef{
 		NodeID: parts[0],
-		CSS:    parts[1],
+		CSS:    normalizeCSS(parts[1]),
 	})
 	return nil
+}
+
+// normalizeCSS converts Mermaid's comma-separated declaration syntax
+// (`fill:#fff,stroke:#000`) into the semicolon-separated form CSS
+// actually accepts. Without this, browsers/canvas parsers see a
+// malformed value at the first comma and silently fall back to the
+// default fill (typically black), producing the "all nodes black"
+// regression on `style` and `classDef` rules.
+func normalizeCSS(css string) string {
+	// Only top-level commas (between declarations) are converted.
+	// Commas inside parens — `rgb(255, 0, 0)`, `var(--x, fallback)` —
+	// must be preserved.
+	var sb strings.Builder
+	depth := 0
+	for i := 0; i < len(css); i++ {
+		c := css[i]
+		switch c {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		}
+		if c == ',' && depth == 0 {
+			sb.WriteByte(';')
+			continue
+		}
+		sb.WriteByte(c)
+	}
+	return sb.String()
 }
 
 func (p *parser) parseClassDef(line string) error {
@@ -340,7 +435,7 @@ func (p *parser) parseClassDef(line string) error {
 	}
 	name := parts[0]
 	css := parts[1]
-	p.diagram.Classes[name] = css
+	p.diagram.Classes[name] = normalizeCSS(css)
 	cssFields := strings.Fields(css)
 	if len(cssFields) >= 2 && cssFields[len(cssFields)-1] == "@@" {
 		p.pendingApplyAll = append(p.pendingApplyAll, name)
@@ -469,7 +564,7 @@ func (p *parser) parseLinkStyle(line string) error {
 		if err != nil {
 			return fmt.Errorf("invalid linkStyle index %q", idxStr)
 		}
-		p.diagram.LinkStyles[n] = css
+		p.diagram.LinkStyles[n] = normalizeCSS(css)
 	}
 	return nil
 }

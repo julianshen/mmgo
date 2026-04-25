@@ -930,7 +930,9 @@ func TestParseStyleDirective(t *testing.T) {
 	if s.NodeID != "A" {
 		t.Errorf("style node ID = %q, want %q", s.NodeID, "A")
 	}
-	if s.CSS != "fill:#f9f,stroke:#333" {
+	// The parser normalises Mermaid's comma-separated declaration
+	// syntax into the semicolon-separated form CSS actually accepts.
+	if s.CSS != "fill:#f9f;stroke:#333" {
 		t.Errorf("style CSS = %q", s.CSS)
 	}
 }
@@ -949,7 +951,7 @@ func TestParseClassDefDirective(t *testing.T) {
 	if !ok {
 		t.Fatal("class 'red' not found")
 	}
-	if css != "fill:#f00,stroke:#333" {
+	if css != "fill:#f00;stroke:#333" {
 		t.Errorf("class CSS = %q", css)
 	}
 }
