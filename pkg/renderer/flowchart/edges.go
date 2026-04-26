@@ -142,7 +142,10 @@ func renderEdges(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th 
 func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fontSize float64, ruler *textmeasure.Ruler, l *layout.Result, eid graph.EdgeID, shapeByID map[string]diagram.NodeShape) []any {
 	pts := make([]layout.Point, len(el.Points))
 	copy(pts, el.Points)
-	if len(pts) == 0 {
+	// A single-point edge has no direction or extent; nothing useful
+	// can be rendered. Bail out early so it doesn't silently fall
+	// through the switch below (which only matches len>=2 cases).
+	if len(pts) < 2 {
 		return nil
 	}
 
@@ -225,15 +228,12 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 		}
 		elems = append(elems, p)
 	case len(pts) == 2:
-		line := &Line{
-			X1: svgFloat(pts[0].X), Y1: svgFloat(pts[0].Y),
-			X2: svgFloat(pts[1].X), Y2: svgFloat(pts[1].Y),
-			Style: style,
-		}
+		d := paddedEdgePath(pts[0], pts[1])
+		p := &Path{D: d, Style: style}
 		if isVisibleArrow(e.ArrowHead) {
-			line.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
+			p.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
 		}
-		elems = append(elems, line)
+		elems = append(elems, p)
 		elems = append(elems, startMarkerElems(e.ArrowTail, pts[0], pts[1], th)...)
 	case len(pts) >= 3:
 		p := &Path{D: svgutil.CatmullRomPath(pts, svgutil.CatmullRomTension), Style: style}
@@ -405,6 +405,10 @@ func edgeStyle(th Theme, ls diagram.LineStyle) string {
 	default:
 		return base
 	}
+}
+
+func paddedEdgePath(src, dst layout.Point) string {
+	return fmt.Sprintf("M%.2f,%.2f L%.2f,%.2f", src.X, src.Y, dst.X, dst.Y)
 }
 
 // clipToShape picks the right endpoint-clip geometry for the given

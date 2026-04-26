@@ -1,0 +1,15 @@
+flowchart LR
+    S@{ shape: start, label: "start" }
+    A@{ shape: process, label: "Process" }
+    D@{ shape: decision, label: "Decision?" }
+    DB@{ shape: cyl, label: "Database" }
+    DOC@{ shape: doc, label: "Document" }
+    CLOUD@{ shape: cloud, label: "Cloud" }
+    STOP@{ shape: stop, label: "stop" }
+    S --> A
+    A --> D
+    D -->|yes| DB
+    D -->|no| DOC
+    DOC --> CLOUD
+    CLOUD --> STOP
+    DB --> STOP

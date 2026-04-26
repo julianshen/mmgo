@@ -16,6 +16,14 @@ jobs:
         with:
           go-version: "1.25"
 
+      - name: Regenerate example snapshots
+        run: |
+          go build -o /tmp/mmgo ./cmd/mmgo
+          for f in examples/*/*.mmd; do
+            base="${f%.mmd}"
+            /tmp/mmgo -i "$f" -o "${base}.svg" -q
+          done
+
       - name: Run tests
         run: go test ./... -race -cover -coverprofile=coverage.out
 

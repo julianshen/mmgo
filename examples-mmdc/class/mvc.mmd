@@ -1,0 +1,18 @@
+classDiagram
+    class Model {
+        -data: Map
+        +get(key) Value
+        +set(key, value) void
+    }
+    class View {
+        -template: String
+        +render(data) String
+    }
+    class Controller {
+        -model: Model
+        -view: View
+        +handleRequest() void
+    }
+    Controller --> Model : uses
+    Controller --> View : uses
+    View ..> Model : reads

@@ -734,7 +734,10 @@ func TestExtractInitDirective(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			src, cfg := extractInitDirective([]byte(tc.input))
+			src, cfg, err := extractInitDirective([]byte(tc.input))
+			if err != nil {
+				t.Fatal(err)
+			}
 			if string(src) != tc.wantSrc {
 				t.Errorf("src = %q, want %q", src, tc.wantSrc)
 			}

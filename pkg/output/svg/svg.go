@@ -84,11 +84,11 @@ type Options struct {
 // label; minimums chosen so empty/short labels still render at a
 // readable size.
 const (
-	nodePaddingX     = 30.0
-	nodePaddingY     = 20.0
+	nodePaddingX     = 60.0
+	nodePaddingY     = 30.0
 	minNodeWidth     = 60.0
 	minNodeHeight    = 40.0
-	lineHeightFactor = 1.2
+	lineHeightFactor = 1.3
 )
 
 // Render reads a Mermaid diagram from r, runs the full
@@ -104,8 +104,14 @@ func Render(r io.Reader, opts *Options) ([]byte, error) {
 		return nil, fmt.Errorf("svg render: read input: %w", err)
 	}
 
-	src, initCfg := extractInitDirective(raw)
-	opts = mergeInitTheme(opts, initCfg)
+	src, initCfg, err := extractInitDirective(raw)
+	if err != nil {
+		return nil, fmt.Errorf("svg render: init directive: %w", err)
+	}
+	opts, err = mergeInitTheme(opts, initCfg)
+	if err != nil {
+		return nil, fmt.Errorf("svg render: %w", err)
+	}
 
 	kind, err := detectDiagramKind(src)
 	if err != nil {
@@ -286,7 +292,7 @@ func detectDiagramKind(src []byte) (diagramKind, error) {
 // agree, even when the caller customizes it.
 // extractInitDirective strips `%%{init: {...}}%%` lines from src and
 // returns the cleaned source plus the parsed JSON config (nil if none).
-func extractInitDirective(src []byte) ([]byte, *config.Config) {
+func extractInitDirective(src []byte) ([]byte, *config.Config, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(src))
 	var cleaned []byte
 	var cfg *config.Config
@@ -298,12 +304,13 @@ func extractInitDirective(src []byte) ([]byte, *config.Config) {
 			inner = strings.TrimSuffix(inner, "}%%")
 			inner = strings.TrimSpace(inner)
 			var c config.Config
-			if json.Unmarshal([]byte(inner), &c) == nil {
-				if c.Theme == "" {
-					c.Theme = config.ThemeDefault
-				}
-				cfg = &c
+			if err := json.Unmarshal([]byte(inner), &c); err != nil {
+				return nil, nil, fmt.Errorf("parse %%{init:...}%%: %w", err)
 			}
+			if c.Theme == "" {
+				c.Theme = config.ThemeDefault
+			}
+			cfg = &c
 			continue
 		}
 		if len(cleaned) > 0 {
@@ -312,14 +319,14 @@ func extractInitDirective(src []byte) ([]byte, *config.Config) {
 		cleaned = append(cleaned, []byte(line)...)
 	}
 	if err := scanner.Err(); err != nil {
-		return src, nil
+		return src, nil, err
 	}
-	return cleaned, cfg
+	return cleaned, cfg, nil
 }
 
-func mergeInitTheme(opts *Options, initCfg *config.Config) *Options {
+func mergeInitTheme(opts *Options, initCfg *config.Config) (*Options, error) {
 	if initCfg == nil && (opts == nil || opts.Theme == "") {
-		return opts
+		return opts, nil
 	}
 	theme := config.ThemeDefault
 	if opts != nil && opts.Theme != "" {
@@ -330,7 +337,7 @@ func mergeInitTheme(opts *Options, initCfg *config.Config) *Options {
 	}
 	tc, err := config.BuiltInTheme(theme)
 	if err != nil {
-		return opts
+		return nil, fmt.Errorf("unknown theme %q: %w", theme, err)
 	}
 	merged := &Options{}
 	if opts != nil {
@@ -457,7 +464,7 @@ func mergeInitTheme(opts *Options, initCfg *config.Config) *Options {
 	}
 	merged.Kanban.Theme = toKanbanTheme(tc)
 
-	return merged
+	return merged, nil
 }
 
 // toGanttTheme preserves the semantic status colors (Done/Active/Crit
@@ -673,10 +680,6 @@ func renderFlowchart(src []byte, opts *Options) ([]byte, error) {
 	return out, nil
 }
 
-// flowchartFontSize returns the font size used for both node sizing
-// and the renderer. Reads from opts.Flowchart.FontSize so a single
-// caller setting flows end-to-end; falls back to defaultFontSize when
-// the caller hasn't specified one.
 func renderSequence(src []byte, opts *Options) ([]byte, error) {
 	d, err := sequenceparser.Parse(bytes.NewReader(src))
 	if err != nil {
@@ -915,6 +918,10 @@ func renderPie(src []byte, opts *Options) ([]byte, error) {
 	return out, nil
 }
 
+// flowchartFontSize returns the font size used for both node sizing
+// and the renderer. Reads from opts.Flowchart.FontSize so a single
+// caller setting flows end-to-end; falls back to defaultFontSize when
+// the caller hasn't specified one.
 func flowchartFontSize(opts *Options) float64 {
 	if opts != nil && opts.Flowchart != nil && opts.Flowchart.FontSize > 0 {
 		return opts.Flowchart.FontSize

@@ -1,0 +1,15 @@
+flowchart LR
+    subgraph top_to_bottom
+        direction TB
+        A --> B --> C
+    end
+    subgraph bottom_to_top
+        direction BT
+        D --> E --> F
+    end
+    subgraph left_to_right
+        direction LR
+        G --> H --> I
+    end
+    top_to_bottom --> left_to_right
+    bottom_to_top --> left_to_right

@@ -1,0 +1,9 @@
+C4Container
+    title Container diagram
+    Person(user, "User", "Application user")
+    Container(web, "Web App", "React", "SPA frontend")
+    Container(api, "API", "Go", "Business logic")
+    ContainerDb(db, "Database", "PostgreSQL", "Stores user data")
+    Rel(user, web, "Uses", "HTTPS")
+    Rel(web, api, "Calls", "JSON/HTTPS")
+    Rel(api, db, "Reads/writes", "SQL")

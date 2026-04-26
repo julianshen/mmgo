@@ -159,15 +159,15 @@ func TestRenderEdgeClipsEndpointsToNodeBounds(t *testing.T) {
 	eid := graph.EdgeID{From: "A", To: "B"}
 
 	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, l, eid, nil)
-	line, ok := elems[0].(*Line)
+	path, ok := elems[0].(*Path)
 	if !ok {
-		t.Fatalf("expected *Line, got %T", elems[0])
+		t.Fatalf("expected *Path, got %T", elems[0])
 	}
-	if line.X1 != 20 {
-		t.Errorf("source X clipped to %.2f, want 20 (right edge of A)", line.X1)
+	if !strings.HasPrefix(path.D, "M20.00,0.00") {
+		t.Errorf("source should be clipped to (20,0), path: %s", path.D)
 	}
-	if line.X2 != 80 {
-		t.Errorf("target X clipped to %.2f, want 80 (left edge of B)", line.X2)
+	if !strings.HasSuffix(path.D, "80.00,0.00") {
+		t.Errorf("target should be clipped to (80,0), path: %s", path.D)
 	}
 }
 
@@ -199,13 +199,12 @@ func TestRenderEdgeClipsToDiamond(t *testing.T) {
 	eid := graph.EdgeID{From: "A", To: "B"}
 
 	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, l, eid, shapeByID)
-	line, ok := elems[0].(*Line)
+	path, ok := elems[0].(*Path)
 	if !ok {
-		t.Fatalf("expected *Line, got %T", elems[0])
+		t.Fatalf("expected *Path, got %T", elems[0])
 	}
-	// West vertex of the B diamond.
-	if line.X2 != 80 || line.Y2 != 0 {
-		t.Errorf("diamond clip endpoint = (%.2f,%.2f), want (80,0)", line.X2, line.Y2)
+	if !strings.HasSuffix(path.D, "80.00,0.00") {
+		t.Errorf("diamond clip endpoint should end at (80,0), path: %s", path.D)
 	}
 }
 
@@ -229,14 +228,14 @@ func TestRenderEdgeClipsToCircle(t *testing.T) {
 	eid := graph.EdgeID{From: "A", To: "B"}
 
 	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, l, eid, shapeByID)
-	line, ok := elems[0].(*Line)
+	path, ok := elems[0].(*Path)
 	if !ok {
-		t.Fatalf("expected *Line, got %T", elems[0])
+		t.Fatalf("expected *Path, got %T", elems[0])
 	}
 	// Circle B has r = min(40,40)/2 = 20, center at (100,0). The
 	// edge from (0,0) along +x enters the circle at x=80.
-	if line.X2 != 80 {
-		t.Errorf("circle clip endpoint X = %.2f, want 80 (center - radius)", line.X2)
+	if !strings.HasSuffix(path.D, "80.00,0.00") {
+		t.Errorf("circle clip endpoint should end near (80,0), path: %s", path.D)
 	}
 }
 
@@ -250,18 +249,18 @@ func TestRenderEdgeStraightLine(t *testing.T) {
 	if len(elems) < 1 {
 		t.Fatal("expected at least 1 element")
 	}
-	line, ok := elems[0].(*Line)
+	path, ok := elems[0].(*Path)
 	if !ok {
-		t.Fatalf("expected *Line, got %T", elems[0])
+		t.Fatalf("expected *Path, got %T", elems[0])
 	}
-	if line.X1 != 10 || line.Y1 != 10 {
-		t.Errorf("start = (%.2f,%.2f), want (10,10)", line.X1, line.Y1)
+	if !strings.HasPrefix(path.D, "M10.00,10.00") {
+		t.Errorf("start should be (10,10), path: %s", path.D)
 	}
-	if line.X2 != 110 || line.Y2 != 10 {
-		t.Errorf("end = (%.2f,%.2f), want (110,10)", line.X2, line.Y2)
+	if !strings.HasSuffix(path.D, "110.00,10.00") {
+		t.Errorf("end should be (110,10), path: %s", path.D)
 	}
-	if !strings.Contains(line.MarkerEnd, "arrow-arrow") {
-		t.Errorf("expected arrow marker, got %s", line.MarkerEnd)
+	if !strings.Contains(path.MarkerEnd, "arrow-arrow") {
+		t.Errorf("expected arrow marker, got %s", path.MarkerEnd)
 	}
 }
 
@@ -369,12 +368,12 @@ func TestRenderEdgeDotted(t *testing.T) {
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
 	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{}, nil)
-	line, ok := elems[0].(*Line)
+	path, ok := elems[0].(*Path)
 	if !ok {
-		t.Fatalf("expected *Line, got %T", elems[0])
+		t.Fatalf("expected *Path, got %T", elems[0])
 	}
-	if !strings.Contains(line.Style, "stroke-dasharray:2,2") {
-		t.Errorf("dotted edge should have dasharray, got: %s", line.Style)
+	if !strings.Contains(path.Style, "stroke-dasharray:2,2") {
+		t.Errorf("dotted edge should have dasharray, got: %s", path.Style)
 	}
 }
 
@@ -385,12 +384,12 @@ func TestRenderEdgeNoMarker(t *testing.T) {
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
 	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{}, nil)
-	line, ok := elems[0].(*Line)
+	path, ok := elems[0].(*Path)
 	if !ok {
-		t.Fatalf("expected *Line, got %T", elems[0])
+		t.Fatalf("expected *Path, got %T", elems[0])
 	}
-	if line.MarkerEnd != "" {
-		t.Errorf("no-arrow edge should have empty marker-end, got %s", line.MarkerEnd)
+	if path.MarkerEnd != "" {
+		t.Errorf("no-arrow edge should have empty marker-end, got %s", path.MarkerEnd)
 	}
 }
 
@@ -494,6 +493,66 @@ func TestRenderSelfLoopFallbackNonFourPoints(t *testing.T) {
 	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{From: "A", To: "A"}, nil)
 	if len(elems) != 0 {
 		t.Errorf("self-loop with !=4 points should produce no elements, got %d", len(elems))
+	}
+}
+
+func TestStraightEdgeRendersAsPath(t *testing.T) {
+	d := &diagram.FlowchartDiagram{
+		Nodes: []diagram.Node{
+			{ID: "A", Label: "From", Shape: diagram.NodeShapeRectangle},
+			{ID: "B", Label: "To", Shape: diagram.NodeShapeRectangle},
+		},
+		Edges: []diagram.Edge{
+			{From: "A", To: "B", ArrowHead: diagram.ArrowHeadArrow},
+		},
+	}
+	g := graph.New()
+	g.SetNode("A", graph.NodeAttrs{Width: 80, Height: 40})
+	g.SetNode("B", graph.NodeAttrs{Width: 80, Height: 40})
+	g.SetEdge("A", "B", graph.EdgeAttrs{})
+	l := layout.Layout(g, layout.Options{})
+	out, err := Render(d, l, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := string(out)
+	if strings.Contains(raw, "<line ") {
+		t.Error("2-point edge should render as <path>, not <line>")
+	}
+	if !strings.Contains(raw, "<path ") {
+		t.Error("expected <path> element in output")
+	}
+}
+
+func TestRenderEdgeEmptyPointsReturnsNil(t *testing.T) {
+	e := diagram.Edge{From: "A", To: "B", ArrowHead: diagram.ArrowHeadArrow}
+	el := layout.EdgeLayout{Points: nil}
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{}, nil)
+	if len(elems) != 0 {
+		t.Errorf("nil points should return nil, got %d elements", len(elems))
+	}
+}
+
+func TestRenderEdgeSinglePointReturnsNil(t *testing.T) {
+	e := diagram.Edge{From: "A", To: "B", ArrowHead: diagram.ArrowHeadArrow}
+	el := layout.EdgeLayout{Points: []layout.Point{{X: 50, Y: 50}}}
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{}, nil)
+	if len(elems) != 0 {
+		t.Errorf("single-point edge should return nil, got %d elements", len(elems))
+	}
+}
+
+func TestPaddedEdgePathShortSegmentFallback(t *testing.T) {
+	p := paddedEdgePath(layout.Point{X: 0, Y: 0}, layout.Point{X: 5, Y: 0})
+	if !strings.HasPrefix(p, "M0.00,0.00 L5.00,0.00") {
+		t.Errorf("short segment should use simple M…L, got: %s", p)
+	}
+}
+
+func TestPaddedEdgePathLongSegment(t *testing.T) {
+	p := paddedEdgePath(layout.Point{X: 0, Y: 0}, layout.Point{X: 100, Y: 0})
+	if !strings.HasPrefix(p, "M0.00,0.00 L100.00,0.00") {
+		t.Errorf("long segment path: %s", p)
 	}
 }
 
