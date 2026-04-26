@@ -59,10 +59,10 @@ func TestParseParticipants(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	want := []diagram.Participant{
-		{ID: "Alice", Kind: diagram.ParticipantKindParticipant},
-		{ID: "B", Alias: "Bob", Kind: diagram.ParticipantKindParticipant},
-		{ID: "C", Alias: "Carol", Kind: diagram.ParticipantKindActor},
-		{ID: "D", Kind: diagram.ParticipantKindActor},
+		{ID: "Alice", Kind: diagram.ParticipantKindParticipant, BoxIndex: -1, CreatedAtItem: -1, DestroyedAtItem: -1},
+		{ID: "B", Alias: "Bob", Kind: diagram.ParticipantKindParticipant, BoxIndex: -1, CreatedAtItem: -1, DestroyedAtItem: -1},
+		{ID: "C", Alias: "Carol", Kind: diagram.ParticipantKindActor, BoxIndex: -1, CreatedAtItem: -1, DestroyedAtItem: -1},
+		{ID: "D", Kind: diagram.ParticipantKindActor, BoxIndex: -1, CreatedAtItem: -1, DestroyedAtItem: -1},
 	}
 	if len(d.Participants) != len(want) {
 		t.Fatalf("got %d participants, want %d: %+v", len(d.Participants), len(want), d.Participants)
@@ -134,6 +134,8 @@ func TestParseAllArrowTypes(t *testing.T) {
 		{"A--xB: x", diagram.ArrowTypeDashedCross},
 		{"A-)B: x", diagram.ArrowTypeSolidOpen},
 		{"A--)B: x", diagram.ArrowTypeDashedOpen},
+		{"A<<->>B: x", diagram.ArrowTypeSolidBi},
+		{"A<<-->>B: x", diagram.ArrowTypeDashedBi},
 	}
 	for _, tc := range cases {
 		t.Run(tc.want.String(), func(t *testing.T) {
@@ -211,8 +213,69 @@ func TestParseAutonumber(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if !d.AutoNumber {
-		t.Error("AutoNumber should be true")
+	if !d.AutoNumber.Enabled {
+		t.Error("AutoNumber.Enabled should be true")
+	}
+	if d.AutoNumber.Start != 1 {
+		t.Errorf("AutoNumber.Start = %d, want 1", d.AutoNumber.Start)
+	}
+	if d.AutoNumber.Step != 1 {
+		t.Errorf("AutoNumber.Step = %d, want 1", d.AutoNumber.Step)
+	}
+}
+
+func TestParseAutonumberStartOnly(t *testing.T) {
+	input := "sequenceDiagram\n    autonumber 10\n    A->>B: hi"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !d.AutoNumber.Enabled {
+		t.Error("AutoNumber.Enabled should be true")
+	}
+	if d.AutoNumber.Start != 10 {
+		t.Errorf("AutoNumber.Start = %d, want 10", d.AutoNumber.Start)
+	}
+	if d.AutoNumber.Step != 1 {
+		t.Errorf("AutoNumber.Step = %d, want 1", d.AutoNumber.Step)
+	}
+}
+
+func TestParseAutonumberStartAndStep(t *testing.T) {
+	input := "sequenceDiagram\n    autonumber 10 5\n    A->>B: hi"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !d.AutoNumber.Enabled {
+		t.Error("AutoNumber.Enabled should be true")
+	}
+	if d.AutoNumber.Start != 10 {
+		t.Errorf("AutoNumber.Start = %d, want 10", d.AutoNumber.Start)
+	}
+	if d.AutoNumber.Step != 5 {
+		t.Errorf("AutoNumber.Step = %d, want 5", d.AutoNumber.Step)
+	}
+}
+
+func TestParseAutonumberInvalidNegative(t *testing.T) {
+	_, err := Parse(strings.NewReader("sequenceDiagram\n    autonumber -1"))
+	if err == nil {
+		t.Fatal("expected error for negative start")
+	}
+}
+
+func TestParseAutonumberInvalidZero(t *testing.T) {
+	_, err := Parse(strings.NewReader("sequenceDiagram\n    autonumber 0"))
+	if err == nil {
+		t.Fatal("expected error for zero start")
+	}
+}
+
+func TestParseAutonumberInvalidZeroStep(t *testing.T) {
+	_, err := Parse(strings.NewReader("sequenceDiagram\n    autonumber 5 0"))
+	if err == nil {
+		t.Fatal("expected error for zero step")
 	}
 }
 
@@ -689,12 +752,430 @@ func TestParseImmediateBranch(t *testing.T) {
 }
 
 func TestParseBlockNoLabel(t *testing.T) {
-	// Mermaid allows blocks without labels.
 	d, err := Parse(strings.NewReader("sequenceDiagram\n    opt\n        A->>B: x\n    end"))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	if d.Items[0].Block.Label != "" {
 		t.Errorf("expected empty label, got %q", d.Items[0].Block.Label)
+	}
+}
+
+func TestParseBidirectionalSolid(t *testing.T) {
+	d, err := Parse(strings.NewReader("sequenceDiagram\n    A<<->>B: hi"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Items) != 1 || d.Items[0].Message == nil {
+		t.Fatalf("expected one message item, got %+v", d.Items)
+	}
+	m := d.Items[0].Message
+	if m.ArrowType != diagram.ArrowTypeSolidBi {
+		t.Errorf("ArrowType = %v, want %v", m.ArrowType, diagram.ArrowTypeSolidBi)
+	}
+	if m.From != "A" || m.To != "B" {
+		t.Errorf("From/To = %q/%q, want A/B", m.From, m.To)
+	}
+	if m.Label != "hi" {
+		t.Errorf("Label = %q, want hi", m.Label)
+	}
+}
+
+func TestParseBidirectionalDashed(t *testing.T) {
+	d, err := Parse(strings.NewReader("sequenceDiagram\n    A<<-->>B: hi"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Items) != 1 || d.Items[0].Message == nil {
+		t.Fatalf("expected one message item, got %+v", d.Items)
+	}
+	m := d.Items[0].Message
+	if m.ArrowType != diagram.ArrowTypeDashedBi {
+		t.Errorf("ArrowType = %v, want %v", m.ArrowType, diagram.ArrowTypeDashedBi)
+	}
+	if m.From != "A" || m.To != "B" {
+		t.Errorf("From/To = %q/%q, want A/B", m.From, m.To)
+	}
+	if m.Label != "hi" {
+		t.Errorf("Label = %q, want hi", m.Label)
+	}
+}
+
+func TestParseRectWithRgb(t *testing.T) {
+	input := "sequenceDiagram\n    rect rgb(220, 240, 255)\n        A->>B: hi\n    end"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := d.Items[0].Block
+	if b.Fill != "rgb(220, 240, 255)" {
+		t.Errorf("Fill = %q, want %q", b.Fill, "rgb(220, 240, 255)")
+	}
+	if b.Label != "" {
+		t.Errorf("Label = %q, want empty", b.Label)
+	}
+}
+
+func TestParseRectWithRgba(t *testing.T) {
+	input := "sequenceDiagram\n    rect rgba(255, 220, 220, 0.6)\n        A->>B: hi\n    end"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := d.Items[0].Block
+	if b.Fill != "rgba(255, 220, 220, 0.6)" {
+		t.Errorf("Fill = %q, want %q", b.Fill, "rgba(255, 220, 220, 0.6)")
+	}
+}
+
+func TestParseRectWithHex(t *testing.T) {
+	input := "sequenceDiagram\n    rect #ff0000\n        A->>B: hi\n    end"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := d.Items[0].Block
+	if b.Fill != "#ff0000" {
+		t.Errorf("Fill = %q, want %q", b.Fill, "#ff0000")
+	}
+}
+
+func TestParseRectWithoutColorKeepsFillEmpty(t *testing.T) {
+	input := "sequenceDiagram\n    rect\n        A->>B: hi\n    end"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := d.Items[0].Block
+	if b.Fill != "" {
+		t.Errorf("Fill = %q, want empty", b.Fill)
+	}
+}
+
+func TestParseRectWithColorAndLabel(t *testing.T) {
+	input := "sequenceDiagram\n    rect rgb(220,240,255) my label\n        A->>B: hi\n    end"
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := d.Items[0].Block
+	if b.Fill != "rgb(220,240,255)" {
+		t.Errorf("Fill = %q, want %q", b.Fill, "rgb(220,240,255)")
+	}
+	if b.Label != "my label" {
+		t.Errorf("Label = %q, want %q", b.Label, "my label")
+	}
+}
+
+func TestParseBidirectionalSolidBeatsOneSided(t *testing.T) {
+	d, err := Parse(strings.NewReader("sequenceDiagram\n    A<<->>B: sync"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	m := d.Items[0].Message
+	if m.ArrowType != diagram.ArrowTypeSolidBi {
+		t.Errorf("<<->> should match before ->>, got %v", m.ArrowType)
+	}
+}
+
+func TestParseBoxBasic(t *testing.T) {
+	input := `sequenceDiagram
+    box Frontend
+        participant A
+    end`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Boxes) != 1 {
+		t.Fatalf("want 1 box, got %d", len(d.Boxes))
+	}
+	bx := d.Boxes[0]
+	if bx.Label != "Frontend" {
+		t.Errorf("Label = %q, want %q", bx.Label, "Frontend")
+	}
+	if bx.Fill != "" {
+		t.Errorf("Fill = %q, want empty", bx.Fill)
+	}
+	if len(bx.Members) != 1 || bx.Members[0] != "A" {
+		t.Errorf("Members = %v, want [A]", bx.Members)
+	}
+}
+
+func TestParseBoxWithColor(t *testing.T) {
+	input := `sequenceDiagram
+    box rgb(220,240,255) Backend
+        participant A
+    end`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Boxes) != 1 {
+		t.Fatalf("want 1 box, got %d", len(d.Boxes))
+	}
+	bx := d.Boxes[0]
+	if bx.Fill != "rgb(220,240,255)" {
+		t.Errorf("Fill = %q, want %q", bx.Fill, "rgb(220,240,255)")
+	}
+	if bx.Label != "Backend" {
+		t.Errorf("Label = %q, want %q", bx.Label, "Backend")
+	}
+}
+
+func TestParseBoxNestedRejected(t *testing.T) {
+	input := `sequenceDiagram
+    box Outer
+        box Inner
+        end
+    end`
+	_, err := Parse(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("expected error for nested boxes")
+	}
+	if !strings.Contains(err.Error(), "nested") {
+		t.Errorf("error should mention nested: %v", err)
+	}
+}
+
+func TestParseBoxParticipantsTagged(t *testing.T) {
+	input := `sequenceDiagram
+    box Frontend
+        participant A
+        participant B as Bob
+    end
+    participant C`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Boxes) != 1 {
+		t.Fatalf("want 1 box, got %d", len(d.Boxes))
+	}
+	boxIdx := 0
+	for _, p := range d.Participants {
+		if p.ID == "A" || p.ID == "B" {
+			if p.BoxIndex != boxIdx {
+				t.Errorf("%s BoxIndex = %d, want %d", p.ID, p.BoxIndex, boxIdx)
+			}
+		}
+	}
+	foundC := false
+	for _, p := range d.Participants {
+		if p.ID == "C" {
+			foundC = true
+			if p.BoxIndex != -1 {
+				t.Errorf("C BoxIndex = %d, want -1 (outside box)", p.BoxIndex)
+			}
+		}
+	}
+	if !foundC {
+		t.Error("participant C not found")
+	}
+}
+
+func TestParseBoxParticipantsInMessages(t *testing.T) {
+	input := `sequenceDiagram
+    box Frontend
+        A->>B: hi
+    end`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Boxes) != 1 {
+		t.Fatalf("want 1 box, got %d", len(d.Boxes))
+	}
+	bx := d.Boxes[0]
+	if len(bx.Members) != 2 {
+		t.Fatalf("want 2 members, got %d: %v", len(bx.Members), bx.Members)
+	}
+	if bx.Members[0] != "A" || bx.Members[1] != "B" {
+		t.Errorf("Members = %v, want [A B]", bx.Members)
+	}
+	for _, p := range d.Participants {
+		if p.BoxIndex != 0 {
+			t.Errorf("%s BoxIndex = %d, want 0", p.ID, p.BoxIndex)
+		}
+	}
+}
+
+func TestParseBoxNoColorNoLabel(t *testing.T) {
+	input := `sequenceDiagram
+    box
+        participant A
+    end`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Boxes) != 1 {
+		t.Fatalf("want 1 box, got %d", len(d.Boxes))
+	}
+	bx := d.Boxes[0]
+	if bx.Label != "" {
+		t.Errorf("Label = %q, want empty", bx.Label)
+	}
+	if bx.Fill != "" {
+		t.Errorf("Fill = %q, want empty", bx.Fill)
+	}
+}
+
+func TestParseBoxWithHexColor(t *testing.T) {
+	input := `sequenceDiagram
+    box #ff0000 Red
+        participant A
+    end`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	bx := d.Boxes[0]
+	if bx.Fill != "#ff0000" {
+		t.Errorf("Fill = %q, want %q", bx.Fill, "#ff0000")
+	}
+	if bx.Label != "Red" {
+		t.Errorf("Label = %q, want %q", bx.Label, "Red")
+	}
+}
+
+func TestParseCreateParticipant(t *testing.T) {
+	input := `sequenceDiagram
+    participant Manager
+    create participant Worker
+    Manager->>Worker: spawn`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var worker *diagram.Participant
+	for i := range d.Participants {
+		if d.Participants[i].ID == "Worker" {
+			worker = &d.Participants[i]
+			break
+		}
+	}
+	if worker == nil {
+		t.Fatal("Worker participant not found")
+	}
+	if worker.CreatedAtItem != 0 {
+		t.Errorf("CreatedAtItem = %d, want 0", worker.CreatedAtItem)
+	}
+	if len(d.Items) != 1 || d.Items[0].Message == nil {
+		t.Fatalf("expected 1 message item, got %+v", d.Items)
+	}
+	if d.Items[0].Message.To != "Worker" {
+		t.Errorf("message To = %q, want Worker", d.Items[0].Message.To)
+	}
+}
+
+func TestParseCreateActor(t *testing.T) {
+	input := `sequenceDiagram
+    participant System
+    create actor User
+    System->>User: welcome`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var user *diagram.Participant
+	for i := range d.Participants {
+		if d.Participants[i].ID == "User" {
+			user = &d.Participants[i]
+			break
+		}
+	}
+	if user == nil {
+		t.Fatal("User participant not found")
+	}
+	if user.Kind != diagram.ParticipantKindActor {
+		t.Errorf("Kind = %v, want actor", user.Kind)
+	}
+	if user.CreatedAtItem != 0 {
+		t.Errorf("CreatedAtItem = %d, want 0", user.CreatedAtItem)
+	}
+}
+
+func TestParseCreateWithAlias(t *testing.T) {
+	input := `sequenceDiagram
+    participant Manager
+    create participant W as Worker
+    Manager->>W: spawn`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var w *diagram.Participant
+	for i := range d.Participants {
+		if d.Participants[i].ID == "W" {
+			w = &d.Participants[i]
+			break
+		}
+	}
+	if w == nil {
+		t.Fatal("W participant not found")
+	}
+	if w.Alias != "Worker" {
+		t.Errorf("Alias = %q, want Worker", w.Alias)
+	}
+	if w.CreatedAtItem != 0 {
+		t.Errorf("CreatedAtItem = %d, want 0", w.CreatedAtItem)
+	}
+}
+
+func TestParseDestroySetsItem(t *testing.T) {
+	input := `sequenceDiagram
+    participant A
+    participant B
+    A->>B: work
+    destroy B`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var b *diagram.Participant
+	for i := range d.Participants {
+		if d.Participants[i].ID == "B" {
+			b = &d.Participants[i]
+			break
+		}
+	}
+	if b == nil {
+		t.Fatal("B participant not found")
+	}
+	if b.DestroyedAtItem != 1 {
+		t.Errorf("DestroyedAtItem = %d, want 1", b.DestroyedAtItem)
+	}
+	if len(d.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(d.Items))
+	}
+	if d.Items[1].Destroy == nil || *d.Items[1].Destroy != "B" {
+		t.Errorf("second item should be destroy B, got %+v", d.Items[1])
+	}
+}
+
+func TestParseDestroyTwiceErrors(t *testing.T) {
+	input := `sequenceDiagram
+    participant A
+    destroy A
+    destroy A`
+	_, err := Parse(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("expected error for double destroy")
+	}
+	if !strings.Contains(err.Error(), "already destroyed") {
+		t.Errorf("error should mention already destroyed: %v", err)
+	}
+}
+
+func TestParseDestroyUnknownErrors(t *testing.T) {
+	input := `sequenceDiagram
+    destroy X`
+	_, err := Parse(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("expected error for destroying unknown participant")
+	}
+	if !strings.Contains(err.Error(), "unknown participant") {
+		t.Errorf("error should mention unknown participant: %v", err)
 	}
 }

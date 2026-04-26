@@ -17,12 +17,12 @@ func TestSequenceConstruction(t *testing.T) {
 		Items: []SequenceItem{
 			NewMessageItem(Message{From: "A", To: "B", Label: "Hello", ArrowType: ArrowTypeSolid, Lifeline: LifelineEffectActivate}),
 		},
-		AutoNumber: true,
+		AutoNumber: AutoNumber{Enabled: true},
 	}
 	if len(s.Participants) != 2 {
 		t.Errorf("expected 2 participants, got %d", len(s.Participants))
 	}
-	if !s.AutoNumber {
+	if !s.AutoNumber.Enabled {
 		t.Error("AutoNumber should be true")
 	}
 	if s.Items[0].Message == nil {
