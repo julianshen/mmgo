@@ -84,11 +84,11 @@ type Options struct {
 // label; minimums chosen so empty/short labels still render at a
 // readable size.
 const (
-	nodePaddingX     = 30.0
-	nodePaddingY     = 20.0
+	nodePaddingX     = 60.0
+	nodePaddingY     = 30.0
 	minNodeWidth     = 60.0
 	minNodeHeight    = 40.0
-	lineHeightFactor = 1.2
+	lineHeightFactor = 1.3
 )
 
 // Render reads a Mermaid diagram from r, runs the full

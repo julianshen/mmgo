@@ -497,6 +497,34 @@ func TestRenderSelfLoopFallbackNonFourPoints(t *testing.T) {
 	}
 }
 
+func TestStraightEdgeRendersAsPath(t *testing.T) {
+	d := &diagram.FlowchartDiagram{
+		Nodes: []diagram.Node{
+			{ID: "A", Label: "From", Shape: diagram.NodeShapeRectangle},
+			{ID: "B", Label: "To", Shape: diagram.NodeShapeRectangle},
+		},
+		Edges: []diagram.Edge{
+			{From: "A", To: "B", ArrowHead: diagram.ArrowHeadArrow},
+		},
+	}
+	g := graph.New()
+	g.SetNode("A", graph.NodeAttrs{Width: 80, Height: 40})
+	g.SetNode("B", graph.NodeAttrs{Width: 80, Height: 40})
+	g.SetEdge("A", "B", graph.EdgeAttrs{})
+	l := layout.Layout(g, layout.Options{})
+	out, err := Render(d, l, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := string(out)
+	if strings.Contains(raw, "<line ") {
+		t.Error("2-point edge should render as <path>, not <line>")
+	}
+	if !strings.Contains(raw, "<path ") {
+		t.Error("expected <path> element in output")
+	}
+}
+
 func TestBackEdgeBowNonZero(t *testing.T) {
 	pt := backEdgeBow(layout.Point{X: 0, Y: 0}, layout.Point{X: 100, Y: 0})
 	if pt.X != 50 {
