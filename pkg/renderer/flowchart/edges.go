@@ -404,21 +404,17 @@ func edgeStyle(th Theme, ls diagram.LineStyle) string {
 	}
 }
 
+const edgePad = 5.0
+
 func paddedEdgePath(src, dst layout.Point) string {
-	const pad = 5.0
-	dx := dst.X - src.X
-	dy := dst.Y - src.Y
-	length := math.Hypot(dx, dy)
-	if length <= 2*pad {
+	if math.Hypot(dst.X-src.X, dst.Y-src.Y) <= 2*edgePad {
 		return fmt.Sprintf("M%.2f,%.2f L%.2f,%.2f", src.X, src.Y, dst.X, dst.Y)
 	}
-	ux, uy := dx/length, dy/length
-	ps := layout.Point{X: src.X + ux*pad, Y: src.Y + uy*pad}
-	pe := layout.Point{X: dst.X - ux*pad, Y: dst.Y - uy*pad}
-	return fmt.Sprintf("M%.2f,%.2f L%.2f,%.2f C%.2f,%.2f %.2f,%.2f %.2f,%.2f L%.2f,%.2f",
-		src.X, src.Y, ps.X, ps.Y,
-		ps.X, ps.Y, pe.X, pe.Y, pe.X, pe.Y,
-		dst.X, dst.Y)
+	padStart := shiftInward(src, dst, edgePad)
+	padEnd := shiftInward(dst, src, edgePad)
+	return fmt.Sprintf("M%.2f,%.2f L%.2f,%.2f L%.2f,%.2f L%.2f,%.2f",
+		src.X, src.Y, padStart.X, padStart.Y,
+		padEnd.X, padEnd.Y, dst.X, dst.Y)
 }
 
 // clipToShape picks the right endpoint-clip geometry for the given
