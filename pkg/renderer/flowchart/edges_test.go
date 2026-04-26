@@ -159,15 +159,15 @@ func TestRenderEdgeClipsEndpointsToNodeBounds(t *testing.T) {
 	eid := graph.EdgeID{From: "A", To: "B"}
 
 	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, l, eid, nil)
-	line, ok := elems[0].(*Line)
+	path, ok := elems[0].(*Path)
 	if !ok {
-		t.Fatalf("expected *Line, got %T", elems[0])
+		t.Fatalf("expected *Path, got %T", elems[0])
 	}
-	if line.X1 != 20 {
-		t.Errorf("source X clipped to %.2f, want 20 (right edge of A)", line.X1)
+	if !strings.HasPrefix(path.D, "M20.00,0.00") {
+		t.Errorf("source should be clipped to (20,0), path: %s", path.D)
 	}
-	if line.X2 != 80 {
-		t.Errorf("target X clipped to %.2f, want 80 (left edge of B)", line.X2)
+	if !strings.HasSuffix(path.D, "80.00,0.00") {
+		t.Errorf("target should be clipped to (80,0), path: %s", path.D)
 	}
 }
 
@@ -199,13 +199,12 @@ func TestRenderEdgeClipsToDiamond(t *testing.T) {
 	eid := graph.EdgeID{From: "A", To: "B"}
 
 	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, l, eid, shapeByID)
-	line, ok := elems[0].(*Line)
+	path, ok := elems[0].(*Path)
 	if !ok {
-		t.Fatalf("expected *Line, got %T", elems[0])
+		t.Fatalf("expected *Path, got %T", elems[0])
 	}
-	// West vertex of the B diamond.
-	if line.X2 != 80 || line.Y2 != 0 {
-		t.Errorf("diamond clip endpoint = (%.2f,%.2f), want (80,0)", line.X2, line.Y2)
+	if !strings.HasSuffix(path.D, "80.00,0.00") {
+		t.Errorf("diamond clip endpoint should end at (80,0), path: %s", path.D)
 	}
 }
 
@@ -229,14 +228,14 @@ func TestRenderEdgeClipsToCircle(t *testing.T) {
 	eid := graph.EdgeID{From: "A", To: "B"}
 
 	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, l, eid, shapeByID)
-	line, ok := elems[0].(*Line)
+	path, ok := elems[0].(*Path)
 	if !ok {
-		t.Fatalf("expected *Line, got %T", elems[0])
+		t.Fatalf("expected *Path, got %T", elems[0])
 	}
 	// Circle B has r = min(40,40)/2 = 20, center at (100,0). The
 	// edge from (0,0) along +x enters the circle at x=80.
-	if line.X2 != 80 {
-		t.Errorf("circle clip endpoint X = %.2f, want 80 (center - radius)", line.X2)
+	if !strings.HasSuffix(path.D, "80.00,0.00") {
+		t.Errorf("circle clip endpoint should end near (80,0), path: %s", path.D)
 	}
 }
 
@@ -250,18 +249,18 @@ func TestRenderEdgeStraightLine(t *testing.T) {
 	if len(elems) < 1 {
 		t.Fatal("expected at least 1 element")
 	}
-	line, ok := elems[0].(*Line)
+	path, ok := elems[0].(*Path)
 	if !ok {
-		t.Fatalf("expected *Line, got %T", elems[0])
+		t.Fatalf("expected *Path, got %T", elems[0])
 	}
-	if line.X1 != 10 || line.Y1 != 10 {
-		t.Errorf("start = (%.2f,%.2f), want (10,10)", line.X1, line.Y1)
+	if !strings.HasPrefix(path.D, "M10.00,10.00") {
+		t.Errorf("start should be (10,10), path: %s", path.D)
 	}
-	if line.X2 != 110 || line.Y2 != 10 {
-		t.Errorf("end = (%.2f,%.2f), want (110,10)", line.X2, line.Y2)
+	if !strings.HasSuffix(path.D, "110.00,10.00") {
+		t.Errorf("end should be (110,10), path: %s", path.D)
 	}
-	if !strings.Contains(line.MarkerEnd, "arrow-arrow") {
-		t.Errorf("expected arrow marker, got %s", line.MarkerEnd)
+	if !strings.Contains(path.MarkerEnd, "arrow-arrow") {
+		t.Errorf("expected arrow marker, got %s", path.MarkerEnd)
 	}
 }
 
@@ -369,12 +368,12 @@ func TestRenderEdgeDotted(t *testing.T) {
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
 	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{}, nil)
-	line, ok := elems[0].(*Line)
+	path, ok := elems[0].(*Path)
 	if !ok {
-		t.Fatalf("expected *Line, got %T", elems[0])
+		t.Fatalf("expected *Path, got %T", elems[0])
 	}
-	if !strings.Contains(line.Style, "stroke-dasharray:2,2") {
-		t.Errorf("dotted edge should have dasharray, got: %s", line.Style)
+	if !strings.Contains(path.Style, "stroke-dasharray:2,2") {
+		t.Errorf("dotted edge should have dasharray, got: %s", path.Style)
 	}
 }
 
@@ -385,12 +384,12 @@ func TestRenderEdgeNoMarker(t *testing.T) {
 		LabelPos: layout.Point{X: 50, Y: 0},
 	}
 	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{}, nil)
-	line, ok := elems[0].(*Line)
+	path, ok := elems[0].(*Path)
 	if !ok {
-		t.Fatalf("expected *Line, got %T", elems[0])
+		t.Fatalf("expected *Path, got %T", elems[0])
 	}
-	if line.MarkerEnd != "" {
-		t.Errorf("no-arrow edge should have empty marker-end, got %s", line.MarkerEnd)
+	if path.MarkerEnd != "" {
+		t.Errorf("no-arrow edge should have empty marker-end, got %s", path.MarkerEnd)
 	}
 }
 

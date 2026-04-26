@@ -225,15 +225,12 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 		}
 		elems = append(elems, p)
 	case len(pts) == 2:
-		line := &Line{
-			X1: svgFloat(pts[0].X), Y1: svgFloat(pts[0].Y),
-			X2: svgFloat(pts[1].X), Y2: svgFloat(pts[1].Y),
-			Style: style,
-		}
+		d := paddedEdgePath(pts[0], pts[1])
+		p := &Path{D: d, Style: style}
 		if isVisibleArrow(e.ArrowHead) {
-			line.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
+			p.MarkerEnd = fmt.Sprintf("url(#%s)", markerID(e.ArrowHead, e.LineStyle))
 		}
-		elems = append(elems, line)
+		elems = append(elems, p)
 		elems = append(elems, startMarkerElems(e.ArrowTail, pts[0], pts[1], th)...)
 	case len(pts) >= 3:
 		p := &Path{D: svgutil.CatmullRomPath(pts, svgutil.CatmullRomTension), Style: style}
@@ -405,6 +402,23 @@ func edgeStyle(th Theme, ls diagram.LineStyle) string {
 	default:
 		return base
 	}
+}
+
+func paddedEdgePath(src, dst layout.Point) string {
+	const pad = 5.0
+	dx := dst.X - src.X
+	dy := dst.Y - src.Y
+	length := math.Hypot(dx, dy)
+	if length <= 2*pad {
+		return fmt.Sprintf("M%.2f,%.2f L%.2f,%.2f", src.X, src.Y, dst.X, dst.Y)
+	}
+	ux, uy := dx/length, dy/length
+	ps := layout.Point{X: src.X + ux*pad, Y: src.Y + uy*pad}
+	pe := layout.Point{X: dst.X - ux*pad, Y: dst.Y - uy*pad}
+	return fmt.Sprintf("M%.2f,%.2f L%.2f,%.2f C%.2f,%.2f %.2f,%.2f %.2f,%.2f L%.2f,%.2f",
+		src.X, src.Y, ps.X, ps.Y,
+		ps.X, ps.Y, pe.X, pe.Y, pe.X, pe.Y,
+		dst.X, dst.Y)
 }
 
 // clipToShape picks the right endpoint-clip geometry for the given
