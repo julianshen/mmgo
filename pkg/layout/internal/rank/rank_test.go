@@ -269,6 +269,26 @@ func TestRunTightensBranchRanks(t *testing.T) {
 	assertInvariants(t, g, ranks)
 }
 
+// Regression: optimize must cap the shift by the smallest slack on
+// any edge crossing the cut. Pre-fix, optimize shifted the visited
+// component by the candidate edge's slack alone, which could push a
+// different crossing edge below its minLen.
+//
+// Graph: A→B(minLen 1), A→D(minLen 5), C→D(minLen 1).
+// Longest path puts D at rank 5. C→D has slack 4. Naive shift of
+// D's component by 4 would leave A→D with rank diff 1, violating
+// minLen 5.
+func TestRunOptimizeRespectsCutFeasibility(t *testing.T) {
+	g := graph.New()
+	g.SetEdge("A", "B", graph.EdgeAttrs{MinLen: 1})
+	g.SetEdge("A", "D", graph.EdgeAttrs{MinLen: 5})
+	g.SetEdge("C", "D", graph.EdgeAttrs{MinLen: 1})
+
+	ranks := Run(g)
+
+	assertInvariants(t, g, ranks)
+}
+
 // --- Larger graph ---
 
 func TestRunLargerGraphInvariants(t *testing.T) {

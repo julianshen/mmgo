@@ -142,7 +142,10 @@ func renderEdges(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th 
 func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fontSize float64, ruler *textmeasure.Ruler, l *layout.Result, eid graph.EdgeID, shapeByID map[string]diagram.NodeShape) []any {
 	pts := make([]layout.Point, len(el.Points))
 	copy(pts, el.Points)
-	if len(pts) == 0 {
+	// A single-point edge has no direction or extent; nothing useful
+	// can be rendered. Bail out early so it doesn't silently fall
+	// through the switch below (which only matches len>=2 cases).
+	if len(pts) < 2 {
 		return nil
 	}
 
