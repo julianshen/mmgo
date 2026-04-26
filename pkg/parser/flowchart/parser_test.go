@@ -1612,6 +1612,197 @@ func TestClickTabDelimitedArgs(t *testing.T) {
 	}
 }
 
+func TestNormalizeCSSFastPath(t *testing.T) {
+	out := normalizeCSS("fill:#f00")
+	if out != "fill:#f00" {
+		t.Errorf("no-comma fast path = %q", out)
+	}
+}
+
+func TestNormalizeCSSQuotedComma(t *testing.T) {
+	out := normalizeCSS(`font:"Arial, sans",stroke:#000`)
+	if out != `font:"Arial, sans";stroke:#000` {
+		t.Errorf("quoted comma = %q", out)
+	}
+}
+
+func TestNormalizeCSSParenComma(t *testing.T) {
+	out := normalizeCSS("fill:rgb(255,0,0),stroke:#000")
+	if out != "fill:rgb(255,0,0);stroke:#000" {
+		t.Errorf("paren comma = %q", out)
+	}
+}
+
+func TestNormalizeCSSSingleQuote(t *testing.T) {
+	out := normalizeCSS(`font:'Arial, sans',stroke:#000`)
+	if out != `font:'Arial, sans';stroke:#000` {
+		t.Errorf("single-quoted comma = %q", out)
+	}
+}
+
+func TestBidirectionalThickNoHead(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A <=== B")
+	if len(f.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+	}
+	e := f.Edges[0]
+	if e.ArrowTail != diagram.ArrowHeadArrow {
+		t.Errorf("tail = %v, want arrow", e.ArrowTail)
+	}
+	if e.LineStyle != diagram.LineStyleThick {
+		t.Errorf("style = %v, want thick", e.LineStyle)
+	}
+}
+
+func TestBidirectionalCircleNoTip(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A o--o B")
+	if len(f.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+	}
+	e := f.Edges[0]
+	if e.ArrowTail != diagram.ArrowHeadCircle {
+		t.Errorf("tail = %v, want circle", e.ArrowTail)
+	}
+	if e.ArrowHead != diagram.ArrowHeadCircle {
+		t.Errorf("head = %v, want circle", e.ArrowHead)
+	}
+}
+
+func TestBidirectionalCrossNoTip(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A x--x B")
+	if len(f.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+	}
+	e := f.Edges[0]
+	if e.ArrowTail != diagram.ArrowHeadCross {
+		t.Errorf("tail = %v, want cross", e.ArrowTail)
+	}
+	if e.ArrowHead != diagram.ArrowHeadCross {
+		t.Errorf("head = %v, want cross", e.ArrowHead)
+	}
+}
+
+func TestDottedInlineLabelAtNoHead(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A -. text .- B")
+	if len(f.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+	}
+	e := f.Edges[0]
+	if e.Label != "text" {
+		t.Errorf("label = %q, want %q", e.Label, "text")
+	}
+	if e.LineStyle != diagram.LineStyleDotted {
+		t.Errorf("style = %v, want dotted", e.LineStyle)
+	}
+	if e.ArrowHead != diagram.ArrowHeadNone {
+		t.Errorf("head = %v, want none", e.ArrowHead)
+	}
+}
+
+func TestDottedInlineLabelAtCircleNoHead(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A -. text .-o B")
+	if len(f.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+	}
+	e := f.Edges[0]
+	if e.Label != "text" {
+		t.Errorf("label = %q, want %q", e.Label, "text")
+	}
+	if e.ArrowHead != diagram.ArrowHeadCircle {
+		t.Errorf("head = %v, want circle", e.ArrowHead)
+	}
+}
+
+func TestDottedInlineLabelAtCrossNoHead(t *testing.T) {
+	f := mustParse(t, "graph LR\n    A -. text .-x B")
+	if len(f.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(f.Edges))
+	}
+	e := f.Edges[0]
+	if e.Label != "text" {
+		t.Errorf("label = %q, want %q", e.Label, "text")
+	}
+	if e.ArrowHead != diagram.ArrowHeadCross {
+		t.Errorf("head = %v, want cross", e.ArrowHead)
+	}
+}
+
+func TestNestedSubgraphNodeReassignment(t *testing.T) {
+	input := `graph LR
+    A[Alpha]
+    subgraph outer
+        subgraph inner
+            A
+        end
+    end`
+	f := mustParse(t, input)
+	inner := f.Subgraphs[0]
+	found := false
+	for _, sg := range inner.Children {
+		for _, n := range sg.Nodes {
+			if n.ID == "A" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Errorf("node A should be in inner subgraph")
+	}
+	_, rootOk := findNode(f, "A")
+	if rootOk {
+		t.Errorf("node A should have been removed from root nodes")
+	}
+}
+
+func TestRemoveNodeFromSubgraphRecursion(t *testing.T) {
+	input := `graph LR
+    A[Alpha]
+    B[Bravo]
+    subgraph outer
+        subgraph inner
+            A --> B
+        end
+    end
+    B --> C[Charlie]`
+	f := mustParse(t, input)
+	_, ok := findNode(f, "A")
+	if ok {
+		t.Errorf("node A should have been detached from root")
+	}
+	_, ok = findNode(f, "B")
+	if ok {
+		t.Errorf("node B should have been detached from root")
+	}
+	_, ok = findNode(f, "C")
+	if !ok {
+		t.Errorf("node C should remain at root")
+	}
+}
+
+func TestStyleDirectiveWithParens(t *testing.T) {
+	input := "graph LR\n    A --> B\n    style A fill:rgb(255,0,0),stroke:#333"
+	f := mustParse(t, input)
+	if len(f.Styles) != 1 {
+		t.Fatalf("expected 1 style, got %d", len(f.Styles))
+	}
+	s := f.Styles[0]
+	if s.CSS != "fill:rgb(255,0,0);stroke:#333" {
+		t.Errorf("CSS = %q", s.CSS)
+	}
+}
+
+func TestClassDefWithQuotedFont(t *testing.T) {
+	input := "graph LR\n    A --> B\n    classDef fancy font:\"Arial, Helvetica\",stroke:#333"
+	f := mustParse(t, input)
+	css, ok := f.Classes["fancy"]
+	if !ok {
+		t.Fatal("class 'fancy' not found")
+	}
+	if css != `font:"Arial, Helvetica";stroke:#333` {
+		t.Errorf("CSS = %q", css)
+	}
+}
+
 func TestEdgeLabelEntityCodes(t *testing.T) {
 	f := mustParse(t, "graph LR\n    A -->|#quot;quoted#quot;| B")
 	if len(f.Edges) != 1 {
