@@ -70,8 +70,12 @@ func TestRenderAllShapes(t *testing.T) {
 			n := diagram.Node{ID: "A", Label: "Test", Shape: shape}
 			nl := layout.NodeLayout{X: 100, Y: 50, Width: 80, Height: 40}
 			elems := renderNode(n, nl, 10, DefaultTheme(), 16)
-			// TextBlock renders as text only — no shape element.
-			// Every other shape emits at least one shape plus text.
+			if suppressLabel(shape) {
+				if len(elems) < 1 {
+					t.Fatalf("shape %s: expected at least 1 element, got %d", shape, len(elems))
+				}
+				return
+			}
 			minElems := 2
 			if shape == diagram.NodeShapeTextBlock {
 				minElems = 1
