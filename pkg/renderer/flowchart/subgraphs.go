@@ -13,9 +13,22 @@ type bbox struct {
 }
 
 // subgraphTitleBand is the height reserved above a subgraph's contents
-// for its centered title label. Used both by renderSubgraphGroup and
-// by the top-level Render to inflate pad for outer subgraphs.
+// for its centered title label. Bumping it further would push inner
+// subgraph rects up into their parent's other content nodes, so the
+// padding has to stay tight (~14px around the text); see
+// subgraphTitleY for how we compensate for the rasteriser's
+// dominant-baseline interpretation.
 func subgraphTitleBand(fontSize float64) float64 { return fontSize + 14 }
+
+// subgraphTitleY returns the Y anchor for a subgraph's title centered
+// inside its title band. tdewolff/canvas treats dominant-baseline
+// ="central" closer to the alphabetic baseline than browsers do,
+// pushing the visible text up so its top can clip the rect's top
+// border. Anchoring at 60% of the band height (instead of 50%)
+// shifts the visible glyphs ~3px lower, restoring a clean gap.
+func subgraphTitleY(ry, titleBand float64) float64 {
+	return ry + titleBand*0.6
+}
 
 // subgraphBBox returns the bounding box of the given nodes' layout
 // rects. Returns ok=false when no nodes contributed (empty subgraph or
@@ -92,7 +105,7 @@ func renderSubgraphGroup(sg *diagram.Subgraph, l *layout.Result, pad float64, th
 				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.2f", th.SubgraphFill, th.SubgraphStroke, defaultStrokeWidth),
 			},
 			&Text{
-				X: svgFloat(rx + rw/2), Y: svgFloat(ry + titleBand/2),
+				X: svgFloat(rx + rw/2), Y: svgFloat(subgraphTitleY(ry, titleBand)),
 				Anchor: "middle", Dominant: "central",
 				FontSize: svgFloat(fontSize),
 				Style:    fmt.Sprintf("fill:%s;font-size:%.2fpx", th.SubgraphText, fontSize),
