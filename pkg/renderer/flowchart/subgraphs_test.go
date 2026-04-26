@@ -30,7 +30,7 @@ func TestRenderSubgraph(t *testing.T) {
 		Width: 280, Height: 100,
 	}
 
-	elems := renderSubgraphs(d, l, 10, DefaultTheme(), 16)
+	elems, _ := renderSubgraphs(d, l, 10, DefaultTheme(), 16)
 	if len(elems) == 0 {
 		t.Fatal("expected subgraph elements")
 	}
@@ -178,7 +178,7 @@ func TestNestedSubgraph(t *testing.T) {
 		},
 		Width: 200, Height: 300,
 	}
-	elems := renderSubgraphs(d, l, 10, DefaultTheme(), 16)
+	elems, _ := renderSubgraphs(d, l, 10, DefaultTheme(), 16)
 	outer, ok := elems[0].(*Group)
 	if !ok {
 		t.Fatalf("expected *Group, got %T", elems[0])
@@ -192,4 +192,90 @@ func TestNestedSubgraph(t *testing.T) {
 	if !hasInner {
 		t.Error("outer should contain inner group")
 	}
+}
+
+func TestNestedSubgraphWidthProgression(t *testing.T) {
+	d := &diagram.FlowchartDiagram{
+		Subgraphs: []*diagram.Subgraph{
+			{
+				ID: "outer", Label: "Outer",
+				Nodes: []diagram.Node{{ID: "A"}},
+				Children: []*diagram.Subgraph{
+					{
+						ID: "mid", Label: "Mid",
+						Nodes: []diagram.Node{{ID: "B"}},
+						Children: []*diagram.Subgraph{
+							{ID: "inner", Label: "Inner", Nodes: []diagram.Node{{ID: "C"}}},
+						},
+					},
+				},
+			},
+		},
+	}
+	l := &layout.Result{
+		Nodes: map[string]layout.NodeLayout{
+			"A": {X: 100, Y: 100, Width: 60, Height: 40},
+			"B": {X: 100, Y: 200, Width: 60, Height: 40},
+			"C": {X: 100, Y: 300, Width: 60, Height: 40},
+		},
+		Width: 200, Height: 400,
+	}
+
+	_, bb := renderSubgraphs(d, l, 10, DefaultTheme(), 16)
+	if bb.W == 0 {
+		t.Fatal("expected non-zero subgraph bounding box")
+	}
+
+	findRect := func(g *Group, id string) *Rect {
+		for _, c := range g.Children {
+			if r, ok := c.(*Rect); ok {
+				_ = id
+				return r
+			}
+			if child, ok := c.(*Group); ok && child.ID == id {
+				for _, cc := range child.Children {
+					if r, ok := cc.(*Rect); ok {
+						return r
+					}
+				}
+			}
+		}
+		return nil
+	}
+
+	elems, _ := renderSubgraphs(d, l, 10, DefaultTheme(), 16)
+	outerGroup := elems[0].(*Group)
+
+	outerRect := findRect(outerGroup, "")
+	midRect := findRectWithID(outerGroup, "mid")
+	innerRect := findRectWithID(outerGroup, "inner")
+
+	if outerRect == nil || midRect == nil || innerRect == nil {
+		t.Fatal("missing subgraph rects")
+	}
+
+	if outerRect.Width <= midRect.Width {
+		t.Errorf("outer width %.2f should be > mid width %.2f", outerRect.Width, midRect.Width)
+	}
+	if midRect.Width <= innerRect.Width {
+		t.Errorf("mid width %.2f should be > inner width %.2f", midRect.Width, innerRect.Width)
+	}
+}
+
+func findRectWithID(g *Group, id string) *Rect {
+	if g.ID == id {
+		for _, c := range g.Children {
+			if r, ok := c.(*Rect); ok {
+				return r
+			}
+		}
+	}
+	for _, c := range g.Children {
+		if child, ok := c.(*Group); ok {
+			if r := findRectWithID(child, id); r != nil {
+				return r
+			}
+		}
+	}
+	return nil
 }

@@ -57,6 +57,33 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 	viewBoxW := sanitizeDimension(l.Width) + 2*pad
 	viewBoxH := sanitizeDimension(l.Height) + 2*pad + topInset
 
+	// Render subgraphs early to measure their bounding box.
+	// Nested subgraphs expand beyond the layout bounds, so the
+	// viewBox may need to grow to contain them.
+	subgraphElems, subgraphBB := renderSubgraphs(d, l, pad, th, fontSize)
+	var viewOffX, viewOffY float64
+	if subgraphBB.W > 0 {
+		if subgraphBB.X < 0 {
+			viewOffX = -subgraphBB.X
+		}
+		if subgraphBB.Y+topInset < 0 {
+			viewOffY = -(subgraphBB.Y + topInset)
+		}
+		right := subgraphBB.X + subgraphBB.W
+		if viewOffX+right > viewBoxW {
+			viewBoxW = viewOffX + right
+		}
+		if viewOffX+viewBoxW < viewBoxW {
+			// no-op, already wider
+		} else if viewOffX > 0 {
+			viewBoxW = math.Max(viewBoxW, viewOffX+sanitizeDimension(l.Width)+2*pad)
+		}
+		bottom := subgraphBB.Y + subgraphBB.H + topInset
+		if bottom > viewBoxH {
+			viewBoxH = bottom + viewOffY
+		}
+	}
+
 	children := []any{
 		buildDefs(d, th),
 	}
@@ -102,18 +129,30 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 	branchGroups := DetectBranches(d, l)
 	regionElems := renderBranchRegions(branchGroups, l, pad)
 
-	if topInset > 0 {
-		content := &Group{Transform: fmt.Sprintf("translate(0,%.2f)", topInset)}
-		content.Children = append(content.Children, regionElems...)
-		content.Children = append(content.Children, renderSubgraphs(d, l, pad, th, fontSize)...)
-		content.Children = append(content.Children, renderEdges(d, l, pad, th, fontSize, ruler)...)
-		content.Children = append(content.Children, renderNodes(d, l, pad, th, fontSize)...)
-		children = append(children, content)
+	// Wrap all content in a group that shifts it by the viewBox offset
+	// so nothing is clipped when subgraphs extend left of the origin.
+	var contentGroup *Group
+	if topInset > 0 || viewOffX > 0 || viewOffY > 0 {
+		parts := []string{}
+		if viewOffX != 0 || viewOffY != 0 {
+			parts = append(parts, fmt.Sprintf("translate(%.2f,%.2f)", viewOffX, viewOffY))
+		}
+		if topInset > 0 {
+			parts = append(parts, fmt.Sprintf("translate(0,%.2f)", topInset))
+		}
+		contentGroup = &Group{Transform: strings.Join(parts, " ")}
+	}
+
+	var innerChildren []any
+	innerChildren = append(innerChildren, regionElems...)
+	innerChildren = append(innerChildren, subgraphElems...)
+	innerChildren = append(innerChildren, renderEdges(d, l, pad, th, fontSize, ruler)...)
+	innerChildren = append(innerChildren, renderNodes(d, l, pad, th, fontSize)...)
+	if contentGroup != nil {
+		contentGroup.Children = innerChildren
+		children = append(children, contentGroup)
 	} else {
-		children = append(children, regionElems...)
-		children = append(children, renderSubgraphs(d, l, pad, th, fontSize)...)
-		children = append(children, renderEdges(d, l, pad, th, fontSize, ruler)...)
-		children = append(children, renderNodes(d, l, pad, th, fontSize)...)
+		children = append(children, innerChildren...)
 	}
 
 	svg := SVG{
