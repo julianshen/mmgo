@@ -524,6 +524,38 @@ func TestStraightEdgeRendersAsPath(t *testing.T) {
 	}
 }
 
+func TestRenderEdgeEmptyPointsReturnsNil(t *testing.T) {
+	e := diagram.Edge{From: "A", To: "B", ArrowHead: diagram.ArrowHeadArrow}
+	el := layout.EdgeLayout{Points: nil}
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{}, nil)
+	if len(elems) != 0 {
+		t.Errorf("nil points should return nil, got %d elements", len(elems))
+	}
+}
+
+func TestRenderEdgeSinglePointReturnsNil(t *testing.T) {
+	e := diagram.Edge{From: "A", To: "B", ArrowHead: diagram.ArrowHeadArrow}
+	el := layout.EdgeLayout{Points: []layout.Point{{X: 50, Y: 50}}}
+	elems := renderEdge(e, el, 0, DefaultTheme(), 16, nil, nil, graph.EdgeID{}, nil)
+	if len(elems) != 0 {
+		t.Errorf("single-point edge should return nil, got %d elements", len(elems))
+	}
+}
+
+func TestPaddedEdgePathShortSegmentFallback(t *testing.T) {
+	p := paddedEdgePath(layout.Point{X: 0, Y: 0}, layout.Point{X: 5, Y: 0})
+	if !strings.HasPrefix(p, "M0.00,0.00 L5.00,0.00") {
+		t.Errorf("short segment should use simple M…L, got: %s", p)
+	}
+}
+
+func TestPaddedEdgePathLongSegment(t *testing.T) {
+	p := paddedEdgePath(layout.Point{X: 0, Y: 0}, layout.Point{X: 100, Y: 0})
+	if !strings.HasPrefix(p, "M0.00,0.00 L100.00,0.00") {
+		t.Errorf("long segment path: %s", p)
+	}
+}
+
 func TestBackEdgeBowNonZero(t *testing.T) {
 	pt := backEdgeBow(layout.Point{X: 0, Y: 0}, layout.Point{X: 100, Y: 0})
 	if pt.X != 50 {

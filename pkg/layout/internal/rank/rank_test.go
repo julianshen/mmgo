@@ -270,23 +270,46 @@ func TestRunTightensBranchRanks(t *testing.T) {
 }
 
 // Regression: optimize must cap the shift by the smallest slack on
-// any edge crossing the cut. Pre-fix, optimize shifted the visited
-// component by the candidate edge's slack alone, which could push a
-// different crossing edge below its minLen.
+// any edge crossing the cut.
 //
-// Graph: A→B(minLen 1), A→D(minLen 5), C→D(minLen 1).
-// Longest path puts D at rank 5. C→D has slack 4. Naive shift of
-// D's component by 4 would leave A→D with rank diff 1, violating
-// minLen 5.
+// Graph: S→X(minLen 1), S→A(minLen 1), A→B(minLen 1), B→X(minLen 1).
+// Longest path: S=0, X=1, A=1, B=2.
+// B→X has slack 1 (rank diff 2-1=1, but minLen=1, so it's already tight).
+// S→A has slack 0 (tight). Actually this graph has no slack.
+//
+// Better: S→A(1), S→B(1), A→C(1), B→C(1), C→D(1), A→D(3).
+// Longest path: S=0, A=1, B=1, C=2, D=4 (via A→D with minLen 3: 1+3=4).
+// A→D has rank diff 3 (4-1), minLen 3 → tight.
+// All others tight too. No slack.
+//
+// Working example with actual slack:
+// S→A(1), A→B(1), B→T(1), S→C(1), C→T(1), S→T(3).
+// Longest path: S=0, T=3 (via S→T minLen 3), A=1, B=2, C=1.
+// C→T: rank diff 3-1=2, minLen 1 → slack 1.
+// B→T: rank diff 3-2=1, minLen 1 → tight.
+// S→A→B→T is the tight chain. C→T has slack 1.
+// Optimizer should shift T from 3 to 2 (C+1=2).
+// But now S→T: rank diff 2-0=2, minLen 3 → violated!
+// minCutSlack should cap the shift to 2 (can't go below S→T's minLen).
+// So T stays at 3. The optimizer cannot improve this graph.
+//
+// This test verifies that minCutSlack prevents the shift from
+// violating S→T's constraint, and that the final ranks are feasible.
 func TestRunOptimizeRespectsCutFeasibility(t *testing.T) {
 	g := graph.New()
+	g.SetEdge("S", "A", graph.EdgeAttrs{MinLen: 1})
 	g.SetEdge("A", "B", graph.EdgeAttrs{MinLen: 1})
-	g.SetEdge("A", "D", graph.EdgeAttrs{MinLen: 5})
-	g.SetEdge("C", "D", graph.EdgeAttrs{MinLen: 1})
+	g.SetEdge("B", "T", graph.EdgeAttrs{MinLen: 1})
+	g.SetEdge("S", "C", graph.EdgeAttrs{MinLen: 1})
+	g.SetEdge("C", "T", graph.EdgeAttrs{MinLen: 1})
+	g.SetEdge("S", "T", graph.EdgeAttrs{MinLen: 3})
 
 	ranks := Run(g)
 
 	assertInvariants(t, g, ranks)
+	if ranks["T"]-ranks["S"] < 3 {
+		t.Errorf("S→T minLen=3 violated: rank(T)-rank(S)=%d", ranks["T"]-ranks["S"])
+	}
 }
 
 // --- Larger graph ---

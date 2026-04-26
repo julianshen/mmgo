@@ -47,7 +47,6 @@ func Run(g *graph.Graph) map[string]int {
 	for _, n := range nodes {
 		s.dfs(n)
 	}
-	normalize(s.ranks)
 	optimize(g, s.ranks)
 	return s.ranks
 }

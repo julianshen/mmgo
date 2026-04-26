@@ -20,8 +20,8 @@ func optimize(g *graph.Graph, ranks map[string]int) {
 	// monotonic-progress invariant.
 	maxIters := len(allEdges) * (len(g.Nodes()) + 1)
 	for iter := 0; iter < maxIters; iter++ {
-		tightTree := buildTightTree(allEdges, g, ranks)
-		if len(tightTree) == 0 {
+		tightSet := buildTightSet(allEdges, g, ranks)
+		if len(tightSet) == 0 {
 			break
 		}
 
@@ -31,7 +31,7 @@ func optimize(g *graph.Graph, ranks map[string]int) {
 		}
 		var candidates []candidate
 		for _, eid := range allEdges {
-			if tightTree[eid] {
+			if tightSet[eid] {
 				continue
 			}
 			attrs, _ := g.EdgeAttrs(eid)
@@ -46,7 +46,7 @@ func optimize(g *graph.Graph, ranks map[string]int) {
 
 		improved := false
 		for _, c := range candidates {
-			locked := reachLocked(g, c.eid.From, tightTree)
+			locked := reachLocked(g, c.eid.From, tightSet)
 			visited := reachUnlocked(g, c.eid.To, locked)
 			if len(visited) == 0 {
 				continue
@@ -74,7 +74,7 @@ func optimize(g *graph.Graph, ranks map[string]int) {
 // reachLocked returns the connected component of start in the tight
 // subgraph (treating tight edges as undirected). These nodes anchor
 // the cut and must not move.
-func reachLocked(g *graph.Graph, start string, tightTree map[graph.EdgeID]bool) map[string]bool {
+func reachLocked(g *graph.Graph, start string, tightSet map[graph.EdgeID]bool) map[string]bool {
 	locked := make(map[string]bool)
 	stack := []string{start}
 	for len(stack) > 0 {
@@ -85,12 +85,12 @@ func reachLocked(g *graph.Graph, start string, tightTree map[graph.EdgeID]bool) 
 		}
 		locked[node] = true
 		for _, eid := range g.OutEdges(node) {
-			if tightTree[eid] && !locked[eid.To] {
+			if tightSet[eid] && !locked[eid.To] {
 				stack = append(stack, eid.To)
 			}
 		}
 		for _, eid := range g.InEdges(node) {
-			if tightTree[eid] && !locked[eid.From] {
+			if tightSet[eid] && !locked[eid.From] {
 				stack = append(stack, eid.From)
 			}
 		}
@@ -149,7 +149,7 @@ func minCutSlack(g *graph.Graph, locked, visited map[string]bool, ranks map[stri
 	return best
 }
 
-func buildTightTree(allEdges []graph.EdgeID, g *graph.Graph, ranks map[string]int) map[graph.EdgeID]bool {
+func buildTightSet(allEdges []graph.EdgeID, g *graph.Graph, ranks map[string]int) map[graph.EdgeID]bool {
 	tight := make(map[graph.EdgeID]bool, len(allEdges))
 	for _, eid := range allEdges {
 		attrs, _ := g.EdgeAttrs(eid)
