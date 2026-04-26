@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/config"
@@ -929,12 +930,11 @@ func buildFlowchartGraph(d *diagram.FlowchartDiagram, ruler *textmeasure.Ruler, 
 	g := graph.New()
 	for _, n := range d.AllNodes() {
 		w, h := nodeSize(n.Label, ruler, fontSize)
-		// Small-glyph extended shapes (start / junction / stop /
-		// fork / join) render as fixed-size glyphs that must match
-		// their layout box so edges terminate cleanly at the visible
-		// edge. Override the text-derived size for these.
 		if gw, gh, ok := extendedShapeSize(n.Shape); ok {
 			w, h = gw, gh
+		} else if n.Shape == diagram.NodeShapeDiamond {
+			side := math.Max(w, h)
+			w, h = side, side
 		}
 		g.SetNode(n.ID, graph.NodeAttrs{Label: n.Label, Width: w, Height: h, Shape: layoutShapeFor(n.Shape)})
 	}
@@ -985,7 +985,7 @@ func layoutShapeFor(s diagram.NodeShape) graph.NodeShape {
 // the layout box matches the visible glyph. Returns (0, 0, false)
 // for shapes whose box should continue to size from their label.
 func extendedShapeSize(shape diagram.NodeShape) (w, h float64, ok bool) {
-	const terminatorR = 14.0 // circle-glyph radius; box is 2r each side
+	const terminatorR = 7.0 // radius; box is 2r — matches mermaid.js terminal circle size
 	const forkBarH = 8.0
 	const forkBarW = 60.0
 	switch shape {

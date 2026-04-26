@@ -8,8 +8,35 @@ import (
 	"github.com/julianshen/mmgo/pkg/layout"
 )
 
-func TestRenderAllShapes(t *testing.T) {
-	shapes := []diagram.NodeShape{
+// suppressedGlyphShapes is the canonical set of small-glyph shapes
+// that mermaid renders without a text label (terminator dots, fork
+// bars, etc). suppressLabel must agree exactly — adding a shape here
+// without updating the helper, or vice versa, breaks visual parity.
+var suppressedGlyphShapes = map[diagram.NodeShape]bool{
+	diagram.NodeShapeSmallCircle:  true,
+	diagram.NodeShapeFilledCircle: true,
+	diagram.NodeShapeFramedCircle: true,
+	diagram.NodeShapeCrossCircle:  true,
+	diagram.NodeShapeForkJoin:     true,
+}
+
+// Independent oracle for suppressLabel — the shape-iteration test
+// above branches on `suppressLabel(shape)` itself, so a wrongly-true
+// helper would silently pass. This explicit map catches that.
+func TestSuppressLabelMatchesGlyphSet(t *testing.T) {
+	for _, shape := range allFlowchartShapes() {
+		got := suppressLabel(shape)
+		want := suppressedGlyphShapes[shape]
+		if got != want {
+			t.Errorf("suppressLabel(%s) = %v, want %v", shape, got, want)
+		}
+	}
+}
+
+// allFlowchartShapes returns the same list TestRenderAllShapes
+// iterates. Hoisted into a helper so the oracle test stays in sync.
+func allFlowchartShapes() []diagram.NodeShape {
+	return []diagram.NodeShape{
 		diagram.NodeShapeRectangle,
 		diagram.NodeShapeRoundedRectangle,
 		diagram.NodeShapeStadium,
@@ -25,8 +52,6 @@ func TestRenderAllShapes(t *testing.T) {
 		diagram.NodeShapeSubroutine,
 		diagram.NodeShapeAsymmetric,
 		diagram.NodeShapeUnknown,
-
-		// Stage 2 extended shapes
 		diagram.NodeShapeTriangle,
 		diagram.NodeShapeFlippedTriangle,
 		diagram.NodeShapeHourglass,
@@ -43,8 +68,6 @@ func TestRenderAllShapes(t *testing.T) {
 		diagram.NodeShapeLinedRect,
 		diagram.NodeShapeForkJoin,
 		diagram.NodeShapeNotchedRect,
-
-		// Stage 3 path-based shapes
 		diagram.NodeShapeCloud,
 		diagram.NodeShapeBang,
 		diagram.NodeShapeBolt,
@@ -65,13 +88,20 @@ func TestRenderAllShapes(t *testing.T) {
 		diagram.NodeShapeDataStore,
 		diagram.NodeShapeTextBlock,
 	}
-	for _, shape := range shapes {
+}
+
+func TestRenderAllShapes(t *testing.T) {
+	for _, shape := range allFlowchartShapes() {
 		t.Run(shape.String(), func(t *testing.T) {
 			n := diagram.Node{ID: "A", Label: "Test", Shape: shape}
 			nl := layout.NodeLayout{X: 100, Y: 50, Width: 80, Height: 40}
 			elems := renderNode(n, nl, 10, DefaultTheme(), 16)
-			// TextBlock renders as text only — no shape element.
-			// Every other shape emits at least one shape plus text.
+			if suppressLabel(shape) {
+				if len(elems) < 1 {
+					t.Fatalf("shape %s: expected at least 1 element, got %d", shape, len(elems))
+				}
+				return
+			}
 			minElems := 2
 			if shape == diagram.NodeShapeTextBlock {
 				minElems = 1

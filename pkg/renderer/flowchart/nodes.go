@@ -252,6 +252,9 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 		})
 	}
 
+	if suppressLabel(n.Shape) {
+		return elems
+	}
 	label := n.Label
 	if label == "" {
 		label = n.ID
@@ -290,3 +293,14 @@ func asymmetricPoints(cx, cy, w, h float64) string {
 	return polygonPointsAttr(asymmetricVerts(cx, cy, w, h))
 }
 
+func suppressLabel(shape diagram.NodeShape) bool {
+	switch shape {
+	case diagram.NodeShapeSmallCircle,
+		diagram.NodeShapeFilledCircle,
+		diagram.NodeShapeFramedCircle,
+		diagram.NodeShapeCrossCircle,
+		diagram.NodeShapeForkJoin:
+		return true
+	}
+	return false
+}
