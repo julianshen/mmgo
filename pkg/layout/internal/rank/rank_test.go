@@ -252,6 +252,23 @@ func TestRunDeterministic(t *testing.T) {
 	}
 }
 
+// --- Network simplex optimization ---
+
+func TestRunTightensBranchRanks(t *testing.T) {
+	g := buildGraph(
+		[2]string{"A", "B"},
+		[2]string{"B", "C"},
+		[2]string{"C", "D"},
+		[2]string{"D", "E"},
+		[2]string{"C", "F"},
+	)
+	ranks := Run(g)
+	if ranks["F"] != ranks["C"]+1 {
+		t.Errorf("rank(F)=%d, want rank(C)+1=%d; ranks=%v", ranks["F"], ranks["C"]+1, ranks)
+	}
+	assertInvariants(t, g, ranks)
+}
+
 // --- Larger graph ---
 
 func TestRunLargerGraphInvariants(t *testing.T) {
