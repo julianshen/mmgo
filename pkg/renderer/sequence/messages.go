@@ -17,58 +17,57 @@ const (
 )
 
 type messageRenderer struct {
-	lay      seqLayout
-	th       Theme
-	fontSize float64
-	pIndex   map[string]int
-	curY     float64
-	msgNum   int
-	autoNum  diagram.AutoNumber
-	actStack map[string][]float64
-	actElems []any
-	d        *diagram.SequenceDiagram
-	createY  map[string]float64
-	destroyY map[string]float64
+	lay          seqLayout
+	th           Theme
+	fontSize     float64
+	pIndex       map[string]int
+	curY         float64
+	msgNum       int
+	autoNum      diagram.AutoNumber
+	actStack     map[string][]float64
+	actElems     []any
+	participants []diagram.Participant
+	created      map[string]bool
+	createdAtIdx map[int]int
+	createY      map[string]float64
+	destroyY     map[string]float64
 }
 
 func newMessageRenderer(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize float64) *messageRenderer {
-	pix := make(map[string]int, len(d.Participants))
+	createdAtIdx := make(map[int]int)
 	for i, p := range d.Participants {
-		pix[p.ID] = i
+		if p.CreatedAtItem >= 0 {
+			createdAtIdx[p.CreatedAtItem] = i
+		}
 	}
 	return &messageRenderer{
-		lay:      lay,
-		th:       th,
-		fontSize: fontSize,
-		pIndex:   pix,
-		curY:     lay.bodyStartY + defaultRowHeight/2,
-		msgNum:   d.AutoNumber.Start - d.AutoNumber.Step,
-		autoNum:  d.AutoNumber,
-		actStack: make(map[string][]float64),
-		d:        d,
-		createY:  make(map[string]float64),
-		destroyY: make(map[string]float64),
+		lay:          lay,
+		th:           th,
+		fontSize:     fontSize,
+		pIndex:       lay.participantIx,
+		curY:         lay.bodyStartY + defaultRowHeight/2,
+		msgNum:       d.AutoNumber.Start - d.AutoNumber.Step,
+		autoNum:      d.AutoNumber,
+		actStack:     make(map[string][]float64),
+		participants: d.Participants,
+		created:      make(map[string]bool),
+		createdAtIdx: createdAtIdx,
+		createY:      make(map[string]float64),
+		destroyY:     make(map[string]float64),
 	}
 }
 
-func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, created map[string]bool) []any {
+func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel bool) []any {
 	var elems []any
 	for i, item := range items {
-		if created != nil {
-			for pi, p := range mr.d.Participants {
-				if !created[p.ID] && p.CreatedAtItem == i {
-					created[p.ID] = true
+		if isTopLevel {
+			if pi, ok := mr.createdAtIdx[i]; ok {
+				p := mr.participants[pi]
+				if !mr.created[p.ID] {
+					mr.created[p.ID] = true
 					mr.createY[p.ID] = mr.curY
 					x := mr.lay.participantX[pi]
-					label := p.Alias
-					if label == "" {
-						label = p.ID
-					}
-					draw := renderParticipantBox
-					if p.Kind == diagram.ParticipantKindActor {
-						draw = renderActor
-					}
-					elems = append(elems, draw(x, mr.curY-defaultRowHeight/2+2, label, mr.th, mr.fontSize)...)
+					elems = append(elems, drawParticipant(p.Kind, x, mr.curY-defaultRowHeight/2+2, p.Label(), mr.th, mr.fontSize)...)
 				}
 			}
 		}
@@ -84,7 +83,7 @@ func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, created map
 			elems = append(elems, mr.renderNote(*item.Note)...)
 			mr.curY += defaultRowHeight
 		case item.Block != nil:
-			elems = append(elems, mr.renderBlock(*item.Block, created)...)
+			elems = append(elems, mr.renderBlock(*item.Block)...)
 		}
 	}
 	return elems
@@ -238,18 +237,18 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 	}
 }
 
-func (mr *messageRenderer) renderBlock(b diagram.Block, created map[string]bool) []any {
+func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 	startY := mr.curY
 	mr.curY += defaultRowHeight / 2
 
 	var elems []any
-	elems = append(elems, mr.renderItems(b.Items, created)...)
+	elems = append(elems, mr.renderItems(b.Items, false)...)
 
 	var branchYs []float64
 	for _, br := range b.Branches {
 		branchYs = append(branchYs, mr.curY)
 		mr.curY += defaultRowHeight / 2
-		elems = append(elems, mr.renderItems(br.Items, created)...)
+		elems = append(elems, mr.renderItems(br.Items, false)...)
 	}
 	mr.curY += defaultRowHeight / 2
 	endY := mr.curY

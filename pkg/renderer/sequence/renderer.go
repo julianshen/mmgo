@@ -20,8 +20,7 @@ func Render(d *diagram.SequenceDiagram, opts *Options) ([]byte, error) {
 	lay := computeLayout(d, fontSize, pad)
 
 	mr := newMessageRenderer(d, lay, th, fontSize)
-	created := make(map[string]bool)
-	msgElems := mr.renderItems(d.Items, created)
+	msgElems := mr.renderItems(d.Items, true)
 
 	var children []any
 
@@ -53,13 +52,15 @@ func Render(d *diagram.SequenceDiagram, opts *Options) ([]byte, error) {
 }
 
 type seqLayout struct {
-	participantX []float64
-	topY         float64
-	bodyStartY   float64
-	bodyEndY     float64
-	bottomY      float64
-	width        float64
-	height       float64
+	participantX  []float64
+	participantW  []float64
+	participantIx map[string]int
+	topY          float64
+	bodyStartY    float64
+	bodyEndY      float64
+	bottomY       float64
+	width         float64
+	height        float64
 }
 
 func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout {
@@ -75,11 +76,7 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 	widths := make([]float64, n)
 	maxHeaderH := defaultBoxHeight
 	for i, p := range d.Participants {
-		label := p.Alias
-		if label == "" {
-			label = p.ID
-		}
-		widths[i] = textmeasure.EstimateWidth(label, fontSize) + 2*defaultBoxPadX
+		widths[i] = textmeasure.EstimateWidth(p.Label(), fontSize) + 2*defaultBoxPadX
 		if widths[i] < defaultParticipantGap*0.6 {
 			widths[i] = defaultParticipantGap * 0.6
 		}
@@ -136,13 +133,15 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 	totalH := bottomY + maxHeaderH + pad
 
 	return seqLayout{
-		participantX: xs,
-		topY:         topY,
-		bodyStartY:   bodyStart,
-		bodyEndY:     bodyEnd,
-		bottomY:      bottomY,
-		width:        totalW,
-		height:       totalH,
+		participantX:  xs,
+		participantW:  widths,
+		participantIx: pIndex,
+		topY:          topY,
+		bodyStartY:    bodyStart,
+		bodyEndY:      bodyEnd,
+		bottomY:       bottomY,
+		width:         totalW,
+		height:        totalH,
 	}
 }
 
@@ -232,25 +231,24 @@ func renderParticipants(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fon
 	var elems []any
 	for i, p := range d.Participants {
 		x := lay.participantX[i]
-		label := p.Alias
-		if label == "" {
-			label = p.ID
-		}
-
-		draw := renderParticipantBox
-		if p.Kind == diagram.ParticipantKindActor {
-			draw = renderActor
-		}
+		label := p.Label()
 		_, isCreated := createY[p.ID]
 		_, isDestroyed := destroyY[p.ID]
 		if !isCreated {
-			elems = append(elems, draw(x, lay.topY, label, th, fontSize)...)
+			elems = append(elems, drawParticipant(p.Kind, x, lay.topY, label, th, fontSize)...)
 		}
 		if !isDestroyed {
-			elems = append(elems, draw(x, lay.bottomY, label, th, fontSize)...)
+			elems = append(elems, drawParticipant(p.Kind, x, lay.bottomY, label, th, fontSize)...)
 		}
 	}
 	return elems
+}
+
+func drawParticipant(kind diagram.ParticipantKind, cx, topY float64, label string, th Theme, fontSize float64) []any {
+	if kind == diagram.ParticipantKindActor {
+		return renderActor(cx, topY, label, th, fontSize)
+	}
+	return renderParticipantBox(cx, topY, label, th, fontSize)
 }
 
 func renderParticipantBox(cx, topY float64, label string, th Theme, fontSize float64) []any {
@@ -329,19 +327,7 @@ func renderBoxes(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize f
 	if len(d.Boxes) == 0 || len(d.Participants) == 0 {
 		return nil
 	}
-	pIndex := make(map[string]int, len(d.Participants))
-	for i, p := range d.Participants {
-		pIndex[p.ID] = i
-	}
-
-	widths := make([]float64, len(d.Participants))
-	for i, p := range d.Participants {
-		label := p.Alias
-		if label == "" {
-			label = p.ID
-		}
-		widths[i] = textmeasure.EstimateWidth(label, fontSize) + 2*defaultBoxPadX
-	}
+	pIndex := lay.participantIx
 
 	var elems []any
 	for _, bx := range d.Boxes {
@@ -365,8 +351,8 @@ func renderBoxes(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize f
 		}
 
 		const boxPad = 10.0
-		x := lay.participantX[leftIdx] - widths[leftIdx]/2 - boxPad
-		right := lay.participantX[rightIdx] + widths[rightIdx]/2 + boxPad
+		x := lay.participantX[leftIdx] - lay.participantW[leftIdx]/2 - boxPad
+		right := lay.participantX[rightIdx] + lay.participantW[rightIdx]/2 + boxPad
 		w := right - x
 		h := lay.bodyEndY - lay.topY + boxPad
 		y := lay.topY - boxPad/2

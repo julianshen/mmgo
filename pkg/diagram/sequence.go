@@ -29,6 +29,13 @@ type Participant struct {
 	DestroyedAtItem int
 }
 
+func (p Participant) Label() string {
+	if p.Alias != "" {
+		return p.Alias
+	}
+	return p.ID
+}
+
 // ArrowType describes the visual style of a sequence message arrow.
 //
 // Unlike flowchart edges (which decompose cleanly into orthogonal LineStyle
