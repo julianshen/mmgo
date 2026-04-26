@@ -57,9 +57,6 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 	viewBoxW := sanitizeDimension(l.Width) + 2*pad
 	viewBoxH := sanitizeDimension(l.Height) + 2*pad + topInset
 
-	// Render subgraphs early to measure their bounding box.
-	// Nested subgraphs expand beyond the layout bounds, so the
-	// viewBox may need to grow to contain them.
 	subgraphElems, subgraphBB := renderSubgraphs(d, l, pad, th, fontSize)
 	var viewOffX, viewOffY float64
 	if subgraphBB.W > 0 {
@@ -69,17 +66,11 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 		if subgraphBB.Y+topInset < 0 {
 			viewOffY = -(subgraphBB.Y + topInset)
 		}
-		right := subgraphBB.X + subgraphBB.W
-		if viewOffX+right > viewBoxW {
-			viewBoxW = viewOffX + right
+		if right := viewOffX + subgraphBB.X + subgraphBB.W; right > viewBoxW {
+			viewBoxW = right
 		}
-		if viewOffX+viewBoxW < viewBoxW {
-			// no-op, already wider
-		} else if viewOffX > 0 {
-			viewBoxW = math.Max(viewBoxW, viewOffX+sanitizeDimension(l.Width)+2*pad)
-		}
-		bottom := subgraphBB.Y + subgraphBB.H + topInset
-		if bottom > viewBoxH {
+		viewBoxW = math.Max(viewBoxW, viewOffX+sanitizeDimension(l.Width)+2*pad)
+		if bottom := subgraphBB.Y + subgraphBB.H + topInset; bottom > viewBoxH {
 			viewBoxH = bottom + viewOffY
 		}
 	}

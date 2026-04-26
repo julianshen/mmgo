@@ -221,32 +221,13 @@ func TestNestedSubgraphWidthProgression(t *testing.T) {
 		Width: 200, Height: 400,
 	}
 
-	_, bb := renderSubgraphs(d, l, 10, DefaultTheme(), 16)
+	elems, bb := renderSubgraphs(d, l, 10, DefaultTheme(), 16)
 	if bb.W == 0 {
 		t.Fatal("expected non-zero subgraph bounding box")
 	}
 
-	findRect := func(g *Group, id string) *Rect {
-		for _, c := range g.Children {
-			if r, ok := c.(*Rect); ok {
-				_ = id
-				return r
-			}
-			if child, ok := c.(*Group); ok && child.ID == id {
-				for _, cc := range child.Children {
-					if r, ok := cc.(*Rect); ok {
-						return r
-					}
-				}
-			}
-		}
-		return nil
-	}
-
-	elems, _ := renderSubgraphs(d, l, 10, DefaultTheme(), 16)
 	outerGroup := elems[0].(*Group)
-
-	outerRect := findRect(outerGroup, "")
+	outerRect := findRectWithID(outerGroup, "outer")
 	midRect := findRectWithID(outerGroup, "mid")
 	innerRect := findRectWithID(outerGroup, "inner")
 

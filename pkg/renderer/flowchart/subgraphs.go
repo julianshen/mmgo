@@ -20,12 +20,10 @@ type bbox struct {
 // dominant-baseline interpretation.
 func subgraphTitleBand(fontSize float64) float64 { return fontSize + 14 }
 
-// subgraphTitleY returns the Y anchor for a subgraph's title centered
-// inside its title band. tdewolff/canvas treats dominant-baseline
-// ="central" closer to the alphabetic baseline than browsers do,
-// pushing the visible text up so its top can clip the rect's top
-// border. Anchoring at 60% of the band height (instead of 50%)
-// shifts the visible glyphs ~3px lower, restoring a clean gap.
+// subgraphTitleY anchors the title at 60% of the band height rather
+// than 50% because tdewolff/canvas treats dominant-baseline="central"
+// closer to the alphabetic baseline than browsers do, pushing the
+// visible text up into the rect's top border.
 func subgraphTitleY(ry, titleBand float64) float64 {
 	return ry + titleBand*0.6
 }
@@ -66,52 +64,45 @@ func (b *bbox) expand(cx, cy, w, h float64) {
 	}
 }
 
-// renderedRect records the final rect position/dimensions of a rendered
-// subgraph so that the parent can expand its own bbox to contain it.
-type renderedRect struct{ X, Y, W, H float64 }
+// expandCorners expands the bbox to include the rectangle described
+// by its corner coordinates.
+func (b *bbox) expandCorners(x1, y1, x2, y2 float64) {
+	if x1 < b.MinX {
+		b.MinX = x1
+	}
+	if x2 > b.MaxX {
+		b.MaxX = x2
+	}
+	if y1 < b.MinY {
+		b.MinY = y1
+	}
+	if y2 > b.MaxY {
+		b.MaxY = y2
+	}
+}
 
-func (r renderedRect) left() float64   { return r.X }
-func (r renderedRect) right() float64  { return r.X + r.W }
-func (r renderedRect) top() float64    { return r.Y }
-func (r renderedRect) bottom() float64 { return r.Y + r.H }
+type renderedRect struct{ X, Y, W, H float64 }
 
 func renderSubgraphGroup(sg *diagram.Subgraph, l *layout.Result, pad float64, th Theme, fontSize float64) (*Group, renderedRect) {
 	g := &Group{ID: sg.ID}
 
-	var childRects []renderedRect
+	bb, ok := subgraphBBox(sg.AllNodes(), l.Nodes)
+
 	for i := range sg.Children {
 		cg, cr := renderSubgraphGroup(sg.Children[i], l, pad, th, fontSize)
 		g.Children = append(g.Children, cg)
-		childRects = append(childRects, cr)
-	}
-
-	bb, ok := subgraphBBox(sg.AllNodes(), l.Nodes)
-
-	for _, cr := range childRects {
-		if cr.W == 0 && cr.H == 0 {
+		if cr.W == 0 {
 			continue
 		}
-		cl := cr.left() - pad
-		ct := cr.top() - pad
-		cr_ := cr.right() - pad
-		cb := cr.bottom() - pad
 		if !ok {
-			bb = bbox{MinX: cl, MinY: ct, MaxX: cr_, MaxY: cb}
+			bb = bbox{
+				MinX: cr.X - pad, MinY: cr.Y - pad,
+				MaxX: cr.X + cr.W - pad, MaxY: cr.Y + cr.H - pad,
+			}
 			ok = true
 			continue
 		}
-		if cl < bb.MinX {
-			bb.MinX = cl
-		}
-		if ct < bb.MinY {
-			bb.MinY = ct
-		}
-		if cr_ > bb.MaxX {
-			bb.MaxX = cr_
-		}
-		if cb > bb.MaxY {
-			bb.MaxY = cb
-		}
+		bb.expandCorners(cr.X-pad, cr.Y-pad, cr.X+cr.W-pad, cr.Y+cr.H-pad)
 	}
 
 	var rr renderedRect
@@ -155,10 +146,6 @@ func renderSubgraphGroup(sg *diagram.Subgraph, l *layout.Result, pad float64, th
 	return g, rr
 }
 
-// maxSubgraphDepth returns the deepest nesting level across the given
-// top-level subgraphs. A flat list of subgraphs has depth 1; a subgraph
-// containing one nested subgraph has depth 2, and so on. Returns 0 when
-// there are no subgraphs.
 func maxSubgraphDepth(sgs []*diagram.Subgraph) int {
 	best := 0
 	for _, sg := range sgs {

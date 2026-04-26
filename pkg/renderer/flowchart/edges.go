@@ -299,13 +299,9 @@ func startMarkerElems(head diagram.ArrowHead, start, next layout.Point, th Theme
 		return nil
 	}
 	m := buildMarker("_tail", head, th)
-	// InlineMarkerAt rotates the marker so its local +X axis points
-	// from start toward the second arg. For a tail marker we want the
-	// marker's "tip side" to face the SOURCE NODE (outward), not the
-	// next polyline vertex — otherwise an asymmetric shape like the
-	// triangle arrow renders as `>—>` instead of the bidirectional
-	// `<—>` look. Mirror `next` through `start` to flip the rotation
-	// 180°. Symmetric shapes (circle) are unaffected by this swap.
+	// Mirror `next` through `start` so the marker faces the source
+	// node (outward). Without this flip, asymmetric shapes render as
+	// `>—>` instead of the bidirectional `<—>` look.
 	mx := 2*start.X - next.X
 	my := 2*start.Y - next.Y
 	g := svgutil.InlineMarkerAt(start.X, start.Y, mx, my, float64(m.RefX), float64(m.RefY), m.Children)
