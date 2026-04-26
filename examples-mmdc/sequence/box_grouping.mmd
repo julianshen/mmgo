@@ -1,0 +1,15 @@
+sequenceDiagram
+    box Frontend
+        participant Browser
+        participant SPA
+    end
+    box rgb(220, 255, 220) Backend
+        participant API
+        participant Worker
+    end
+    Browser->>SPA: User action
+    SPA->>API: Request
+    API->>Worker: Enqueue job
+    Worker-->>API: Done
+    API-->>SPA: Response
+    SPA-->>Browser: Update UI

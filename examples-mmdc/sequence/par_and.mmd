@@ -1,0 +1,15 @@
+sequenceDiagram
+    participant Coordinator
+    participant ServiceA
+    participant ServiceB
+    participant ServiceC
+    par Fan out
+        Coordinator->>ServiceA: Task A
+    and
+        Coordinator->>ServiceB: Task B
+    and
+        Coordinator->>ServiceC: Task C
+    end
+    ServiceA-->>Coordinator: Result A
+    ServiceB-->>Coordinator: Result B
+    ServiceC-->>Coordinator: Result C

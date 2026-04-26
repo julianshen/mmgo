@@ -1,0 +1,11 @@
+sequenceDiagram
+    participant Consumer
+    participant Queue
+    loop Drain queue
+        Consumer->>Queue: Pop message
+        Queue-->>Consumer: Message
+        break Empty queue
+            Queue-->>Consumer: nil
+        end
+        Consumer->>Consumer: Process message
+    end

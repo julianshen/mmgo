@@ -1,0 +1,47 @@
+sequenceDiagram
+    autonumber
+    box Client side
+        actor User
+        participant Browser
+    end
+    box rgb(230, 240, 255) Server side
+        participant API
+        participant Auth
+        participant DB
+    end
+
+    User->>Browser: Click "Sign in"
+    Browser->>+API: POST /login
+    API->>+Auth: Validate
+    alt valid credentials
+        Auth-->>-API: Token
+        API-->>-Browser: 200 + token
+        Note over Browser,API: Authenticated session
+        rect rgb(240, 255, 240)
+            loop Periodic refresh
+                Browser->>+API: GET /me
+                API->>+DB: SELECT user
+                DB-->>-API: Row
+                API-->>-Browser: User payload
+            end
+        end
+    else invalid
+        Auth-->>API: 401
+        API-->>Browser: 401
+        Browser-->>User: Show error
+    end
+
+    create participant Worker
+    API->>Worker: Enqueue cleanup
+    Worker-->>API: Done
+    destroy Worker
+
+    par Notify channels
+        API->>Browser: WebSocket push
+    and
+        API->>API: Audit log
+    end
+
+    User->>Browser: Sign out
+    Browser->>API: POST /logout
+    API-->>Browser: 204

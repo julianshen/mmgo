@@ -1,0 +1,7 @@
+sequenceDiagram
+    participant Client
+    participant Server
+    Client->>+Server: First call
+    Client->>+Server: Second call (nested)
+    Server-->>-Client: Inner reply
+    Server-->>-Client: Outer reply
