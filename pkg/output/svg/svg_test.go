@@ -231,6 +231,62 @@ func TestBuildFlowchartGraphIncludesNestedNodes(t *testing.T) {
 	}
 }
 
+// Diamond nodes must enter the layout graph as squares (mmdc parity).
+// A wide label whose text-derived width exceeds its height would
+// otherwise produce a flat rhombus instead of the proper square-on-its-
+// corner diamond mermaid renders.
+func TestBuildFlowchartGraphSquaresDiamond(t *testing.T) {
+	d := &diagram.FlowchartDiagram{
+		Nodes: []diagram.Node{
+			{ID: "D", Label: "Decide with a long label", Shape: diagram.NodeShapeDiamond},
+		},
+	}
+	ruler := mustRuler(t)
+	defer func() { _ = ruler.Close() }()
+	g := buildFlowchartGraph(d, ruler, flowchartrenderer.DefaultFontSize)
+	attrs, ok := g.NodeAttrs("D")
+	if !ok {
+		t.Fatal("diamond node missing from graph")
+	}
+	if attrs.Width != attrs.Height {
+		t.Errorf("diamond not squared: w=%v h=%v", attrs.Width, attrs.Height)
+	}
+	wText, hText := nodeSize(d.Nodes[0].Label, ruler, flowchartrenderer.DefaultFontSize)
+	want := wText
+	if hText > want {
+		want = hText
+	}
+	if attrs.Width < want {
+		t.Errorf("squared side %v smaller than max(text dims)=%v", attrs.Width, want)
+	}
+}
+
+// extendedShapeSize is the single source of truth for the small-glyph
+// shape dimensions. Locking the exact numbers in a test guards against
+// silent regressions of the mermaid-parity radius (14→7) and the
+// fork-bar geometry that the layout engine depends on.
+func TestExtendedShapeSizes(t *testing.T) {
+	cases := []struct {
+		shape diagram.NodeShape
+		w, h  float64
+		ok    bool
+	}{
+		{diagram.NodeShapeSmallCircle, 14, 14, true},
+		{diagram.NodeShapeFilledCircle, 14, 14, true},
+		{diagram.NodeShapeFramedCircle, 14, 14, true},
+		{diagram.NodeShapeForkJoin, 60, 8, true},
+		{diagram.NodeShapeRectangle, 0, 0, false},
+		{diagram.NodeShapeDiamond, 0, 0, false},
+	}
+	for _, tc := range cases {
+		w, h, ok := extendedShapeSize(tc.shape)
+		if ok != tc.ok || w != tc.w || h != tc.h {
+			t.Errorf("%v: got (%v, %v, %v); want (%v, %v, %v)",
+				tc.shape, w, h, ok, tc.w, tc.h, tc.ok)
+		}
+	}
+}
+
 func TestNodeSizeRespectsMinimum(t *testing.T) {
 	ruler := mustRuler(t)
 	defer func() { _ = ruler.Close() }()

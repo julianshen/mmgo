@@ -252,12 +252,12 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 		})
 	}
 
+	if suppressLabel(n.Shape) {
+		return elems
+	}
 	label := n.Label
 	if label == "" {
 		label = n.ID
-	}
-	if suppressLabel(n.Shape) {
-		return elems
 	}
 	lines := strings.Split(label, "\n")
 	lineHeight := fontSize * 1.2
