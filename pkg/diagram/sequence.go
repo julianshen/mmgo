@@ -14,10 +14,26 @@ var participantKindNames = []string{"unknown", "participant", "actor"}
 func (p ParticipantKind) String() string { return enumString(p, participantKindNames) }
 
 // Participant is a column in a sequence diagram.
+type Box struct {
+	Label   string
+	Fill    string
+	Members []string
+}
+
 type Participant struct {
-	ID    string
-	Alias string // display name; falls back to ID if empty
-	Kind  ParticipantKind
+	ID              string
+	Alias           string
+	Kind            ParticipantKind
+	BoxIndex        int
+	CreatedAtItem   int
+	DestroyedAtItem int
+}
+
+func (p Participant) Label() string {
+	if p.Alias != "" {
+		return p.Alias
+	}
+	return p.ID
 }
 
 // ArrowType describes the visual style of a sequence message arrow.
@@ -39,6 +55,8 @@ const (
 	ArrowTypeDashedCross            // --x  dashed line with cross
 	ArrowTypeSolidOpen              // -)   solid line with open (async) arrow
 	ArrowTypeDashedOpen             // --)  dashed line with open (async) arrow
+	ArrowTypeSolidBi                // <<->>  solid bidirectional
+	ArrowTypeDashedBi               // <<-->> dashed bidirectional
 )
 
 var arrowTypeNames = []string{
@@ -51,6 +69,8 @@ var arrowTypeNames = []string{
 	"dashed-cross",
 	"solid-open",
 	"dashed-open",
+	"solid-bi",
+	"dashed-bi",
 }
 
 func (a ArrowType) String() string { return enumString(a, arrowTypeNames) }
@@ -90,6 +110,7 @@ type SequenceItem struct {
 	Message *Message
 	Block   *Block
 	Note    *Note
+	Destroy *string
 }
 
 // NewMessageItem wraps a Message as a SequenceItem.
@@ -100,6 +121,8 @@ func NewBlockItem(b Block) SequenceItem { return SequenceItem{Block: &b} }
 
 // NewNoteItem wraps a Note as a SequenceItem.
 func NewNoteItem(n Note) SequenceItem { return SequenceItem{Note: &n} }
+
+func NewDestroyItem(id string) SequenceItem { return SequenceItem{Destroy: &id} }
 
 // BlockKind identifies the structural block type.
 type BlockKind int8
@@ -126,6 +149,7 @@ func (b BlockKind) String() string { return enumString(b, blockKindNames) }
 //   - BlockKindAlt:      else/else-if branches
 //   - BlockKindPar:      'and' branches
 //   - BlockKindCritical: 'option' branches
+//
 // Branches is always empty for single-branch kinds (opt, loop, break, rect).
 // Each branch is itself a Block with Kind matching the parent.
 type Block struct {
@@ -133,6 +157,7 @@ type Block struct {
 	Items    []SequenceItem
 	Branches []Block
 	Kind     BlockKind
+	Fill     string
 }
 
 // NotePosition describes where a note is drawn relative to participants.
@@ -160,16 +185,17 @@ type Note struct {
 	Position     NotePosition
 }
 
-// SequenceDiagram is the AST for a Mermaid sequence diagram.
-//
-// Items holds the body in source order so that rendering preserves the
-// interleaving of messages, notes, and blocks. Participants are declared
-// separately because Mermaid's spec separates participant declarations
-// from the diagram body.
+type AutoNumber struct {
+	Enabled bool
+	Start   int
+	Step    int
+}
+
 type SequenceDiagram struct {
 	Participants []Participant
 	Items        []SequenceItem
-	AutoNumber   bool
+	AutoNumber   AutoNumber
+	Boxes        []Box
 }
 
 // Type implements Diagram.

@@ -32,8 +32,8 @@ func TestRenderEmptyDiagram(t *testing.T) {
 func TestRenderParticipantBoxes(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "Alice", Kind: diagram.ParticipantKindParticipant},
-			{ID: "Bob", Alias: "Bob the Builder", Kind: diagram.ParticipantKindParticipant},
+			{ID: "Alice", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "Bob", Alias: "Bob the Builder", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 	}
 	out, err := Render(d, nil)
@@ -53,8 +53,8 @@ func TestRenderParticipantBoxes(t *testing.T) {
 func TestRenderActorDrawsDifferently(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
-			{ID: "B", Kind: diagram.ParticipantKindActor},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindActor, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 	}
 	out, err := Render(d, nil)
@@ -73,8 +73,8 @@ func TestRenderActorDrawsDifferently(t *testing.T) {
 func TestRenderLifelines(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
-			{ID: "B", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewMessageItem(diagram.Message{
@@ -98,16 +98,16 @@ func TestRenderLifelines(t *testing.T) {
 func TestRenderViewBoxScalesWithParticipants(t *testing.T) {
 	d2 := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
-			{ID: "B", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 	}
 	d4 := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
-			{ID: "B", Kind: diagram.ParticipantKindParticipant},
-			{ID: "C", Kind: diagram.ParticipantKindParticipant},
-			{ID: "D", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "C", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "D", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 	}
 	out2, err := Render(d2, nil)
@@ -128,8 +128,8 @@ func TestRenderViewBoxScalesWithParticipants(t *testing.T) {
 func TestRenderDeterministic(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
-			{ID: "B", Kind: diagram.ParticipantKindActor},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindActor, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewMessageItem(diagram.Message{
@@ -156,8 +156,8 @@ func TestRenderDeterministic(t *testing.T) {
 func TestRenderWithBlocks(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
-			{ID: "B", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewBlockItem(diagram.Block{
@@ -182,7 +182,7 @@ func TestRenderWithBlocks(t *testing.T) {
 func TestRenderWithBlockBranches(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewBlockItem(diagram.Block{
@@ -209,7 +209,7 @@ func TestRenderWithBlockBranches(t *testing.T) {
 func TestRenderCustomOptions(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 	}
 	out, err := Render(d, &Options{FontSize: 20, Padding: 40})
@@ -222,7 +222,7 @@ func TestRenderCustomOptions(t *testing.T) {
 func TestRenderNoteCountsAsRow(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewNoteItem(diagram.Note{
@@ -239,13 +239,79 @@ func TestRenderNoteCountsAsRow(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+func TestRenderRectUsesCustomFill(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind: diagram.BlockKindRect,
+				Fill: "rgb(220, 240, 255)",
+				Items: []diagram.SequenceItem{
+					diagram.NewMessageItem(diagram.Message{
+						From: "A", To: "B", Label: "inside",
+						ArrowType: diagram.ArrowTypeSolid,
+					}),
+				},
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "rgb(220, 240, 255)") {
+		t.Error("expected custom fill color in SVG output")
+	}
+	if !strings.Contains(raw, "fill-opacity:0.2") {
+		t.Error("expected fill-opacity for non-rgba fill")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderRectUsesRgbaFillAsIs(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind: diagram.BlockKindRect,
+				Fill: "rgba(255, 220, 220, 0.6)",
+				Items: []diagram.SequenceItem{
+					diagram.NewMessageItem(diagram.Message{
+						From: "A", To: "B", Label: "inside",
+						ArrowType: diagram.ArrowTypeSolid,
+					}),
+				},
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "rgba(255, 220, 220, 0.6)") {
+		t.Error("expected rgba fill color in SVG output")
+	}
+	if strings.Contains(raw, "fill-opacity") {
+		t.Error("rgba fill should not have additional fill-opacity")
+	}
+	assertValidSVG(t, out)
+}
+
 // --- Slice B: Messages, activation bars, auto-numbering ---
 
 func TestRenderMessageArrow(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
-			{ID: "B", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewMessageItem(diagram.Message{
@@ -278,13 +344,15 @@ func TestRenderAllArrowTypes(t *testing.T) {
 		diagram.ArrowTypeDashedCross,
 		diagram.ArrowTypeSolidOpen,
 		diagram.ArrowTypeDashedOpen,
+		diagram.ArrowTypeSolidBi,
+		diagram.ArrowTypeDashedBi,
 	}
 	for _, at := range types {
 		t.Run(at.String(), func(t *testing.T) {
 			d := &diagram.SequenceDiagram{
 				Participants: []diagram.Participant{
-					{ID: "A", Kind: diagram.ParticipantKindParticipant},
-					{ID: "B", Kind: diagram.ParticipantKindParticipant},
+					{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+					{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 				},
 				Items: []diagram.SequenceItem{
 					diagram.NewMessageItem(diagram.Message{
@@ -305,7 +373,7 @@ func TestRenderAllArrowTypes(t *testing.T) {
 func TestRenderSelfMessage(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewMessageItem(diagram.Message{
@@ -328,8 +396,8 @@ func TestRenderSelfMessage(t *testing.T) {
 func TestRenderDashedMessage(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
-			{ID: "B", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewMessageItem(diagram.Message{
@@ -352,8 +420,8 @@ func TestRenderDashedMessage(t *testing.T) {
 func TestRenderActivationBars(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
-			{ID: "B", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewMessageItem(diagram.Message{
@@ -385,10 +453,10 @@ func TestRenderActivationBars(t *testing.T) {
 
 func TestRenderAutoNumber(t *testing.T) {
 	d := &diagram.SequenceDiagram{
-		AutoNumber: true,
+		AutoNumber: diagram.AutoNumber{Enabled: true, Start: 1, Step: 1},
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
-			{ID: "B", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewMessageItem(diagram.Message{
@@ -412,11 +480,43 @@ func TestRenderAutoNumber(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+func TestRenderAutonumberCustomStartStep(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		AutoNumber: diagram.AutoNumber{Enabled: true, Start: 10, Step: 5},
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{
+				From: "A", To: "B", Label: "x",
+				ArrowType: diagram.ArrowTypeSolid,
+			}),
+			diagram.NewMessageItem(diagram.Message{
+				From: "B", To: "A", Label: "y",
+				ArrowType: diagram.ArrowTypeSolid,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">10<") {
+		t.Error("first autonumber label should be 10")
+	}
+	if !strings.Contains(raw, ">15<") {
+		t.Error("second autonumber label should be 15")
+	}
+	assertValidSVG(t, out)
+}
+
 func TestRenderMessageHeightScales(t *testing.T) {
 	d1 := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
-			{ID: "B", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewMessageItem(diagram.Message{From: "A", To: "B", ArrowType: diagram.ArrowTypeSolid}),
@@ -450,7 +550,7 @@ func TestRenderMessageHeightScales(t *testing.T) {
 func TestRenderNoteLeftOf(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewNoteItem(diagram.Note{
@@ -474,7 +574,7 @@ func TestRenderNoteLeftOf(t *testing.T) {
 func TestRenderNoteRightOf(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewNoteItem(diagram.Note{
@@ -497,8 +597,8 @@ func TestRenderNoteRightOf(t *testing.T) {
 func TestRenderNoteOverTwo(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
-			{ID: "B", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewNoteItem(diagram.Note{
@@ -521,8 +621,8 @@ func TestRenderNoteOverTwo(t *testing.T) {
 func TestRenderBlockRegion(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
-			{ID: "B", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewBlockItem(diagram.Block{
@@ -554,8 +654,8 @@ func TestRenderBlockRegion(t *testing.T) {
 func TestRenderBlockWithBranches(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant},
-			{ID: "B", Kind: diagram.ParticipantKindParticipant},
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewBlockItem(diagram.Block{
@@ -590,6 +690,101 @@ func TestRenderBlockWithBranches(t *testing.T) {
 }
 
 // --- Helpers ---
+
+func TestRenderBidirectionalSolidHasBothMarkers(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{
+				From: "A", To: "B", Label: "sync",
+				ArrowType: diagram.ArrowTypeSolidBi,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, `marker-start`) {
+		t.Error("bidirectional solid should have marker-start")
+	}
+	if !strings.Contains(raw, `marker-end`) {
+		t.Error("bidirectional solid should have marker-end")
+	}
+	if !strings.Contains(raw, "auto-start-reverse") {
+		t.Error("bidirectional start marker should use auto-start-reverse orient")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderBidirectionalDashedStyle(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{
+				From: "A", To: "B", Label: "async-sync",
+				ArrowType: diagram.ArrowTypeDashedBi,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "stroke-dasharray") {
+		t.Error("dashed bidirectional should have stroke-dasharray")
+	}
+	if !strings.Contains(raw, `marker-start`) {
+		t.Error("bidirectional dashed should have marker-start")
+	}
+	if !strings.Contains(raw, `marker-end`) {
+		t.Error("bidirectional dashed should have marker-end")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderBoxEmitsRectAndLabel(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, BoxIndex: 0, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, BoxIndex: 0, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{
+				From: "A", To: "B", Label: "hello",
+				ArrowType: diagram.ArrowTypeSolid,
+			}),
+		},
+		Boxes: []diagram.Box{
+			{Label: "Frontend", Fill: "rgb(220,240,255)", Members: []string{"A", "B"}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "rgb(220,240,255)") {
+		t.Error("expected box fill color in SVG output")
+	}
+	if !strings.Contains(raw, ">Frontend<") {
+		t.Error("expected box label text in SVG output")
+	}
+	if !strings.Contains(raw, "fill-opacity:0.15") {
+		t.Error("expected box fill-opacity")
+	}
+	assertValidSVG(t, out)
+}
+
+// --- Helpers (continued) ---
 
 func viewBoxHeight(t *testing.T, svgBytes []byte) float64 {
 	t.Helper()
@@ -655,4 +850,71 @@ func viewBoxWidth(t *testing.T, svgBytes []byte) float64 {
 		t.Fatalf("parse viewBox width: %v", err)
 	}
 	return w
+}
+
+func TestRenderDestroyTerminatesLifelineWithX(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: 1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{
+				From: "A", To: "B", Label: "work",
+				ArrowType: diagram.ArrowTypeSolid,
+			}),
+			diagram.NewDestroyItem("B"),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">work<") {
+		t.Error("message label missing")
+	}
+	crossCount := strings.Count(raw, "stroke-width:3.0")
+	if crossCount < 2 {
+		t.Errorf("expected at least 2 crossing lines for X glyph (got %d cross-style lines)", crossCount)
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderCreatedParticipantBoxStartsMidDiagram(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "Manager", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "Worker", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: 0, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{
+				From: "Manager", To: "Worker", Label: "spawn",
+				ArrowType: diagram.ArrowTypeSolid,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">spawn<") {
+		t.Error("message label missing")
+	}
+	if !strings.Contains(raw, ">Manager<") {
+		t.Error("Manager label missing")
+	}
+	if !strings.Contains(raw, ">Worker<") {
+		t.Error("Worker label missing")
+	}
+	managerCount := strings.Count(raw, ">Manager<")
+	if managerCount != 2 {
+		t.Errorf("Manager should appear in 2 boxes (top+bottom), got %d", managerCount)
+	}
+	workerCount := strings.Count(raw, ">Worker<")
+	if workerCount != 2 {
+		t.Errorf("Worker should appear in 2 boxes (mid-diagram + bottom), got %d", workerCount)
+	}
+	assertValidSVG(t, out)
 }

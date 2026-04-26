@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
@@ -16,37 +17,65 @@ const (
 )
 
 type messageRenderer struct {
-	lay       seqLayout
-	th        Theme
-	fontSize  float64
-	pIndex    map[string]int
-	curY      float64
-	msgNum    int
-	autoNum   bool
-	actStack  map[string][]float64
-	actElems  []any
+	lay          seqLayout
+	th           Theme
+	fontSize     float64
+	pIndex       map[string]int
+	curY         float64
+	msgNum       int
+	autoNum      diagram.AutoNumber
+	actStack     map[string][]float64
+	actElems     []any
+	participants []diagram.Participant
+	created      map[string]bool
+	createdAtIdx map[int]int
+	createY      map[string]float64
+	destroyY     map[string]float64
 }
 
 func newMessageRenderer(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize float64) *messageRenderer {
-	pix := make(map[string]int, len(d.Participants))
+	createdAtIdx := make(map[int]int)
 	for i, p := range d.Participants {
-		pix[p.ID] = i
+		if p.CreatedAtItem >= 0 {
+			createdAtIdx[p.CreatedAtItem] = i
+		}
 	}
 	return &messageRenderer{
-		lay:      lay,
-		th:       th,
-		fontSize: fontSize,
-		pIndex:   pix,
-		curY:     lay.bodyStartY + defaultRowHeight/2,
-		autoNum:  d.AutoNumber,
-		actStack: make(map[string][]float64),
+		lay:          lay,
+		th:           th,
+		fontSize:     fontSize,
+		pIndex:       lay.participantIx,
+		curY:         lay.bodyStartY + defaultRowHeight/2,
+		msgNum:       d.AutoNumber.Start - d.AutoNumber.Step,
+		autoNum:      d.AutoNumber,
+		actStack:     make(map[string][]float64),
+		participants: d.Participants,
+		created:      make(map[string]bool),
+		createdAtIdx: createdAtIdx,
+		createY:      make(map[string]float64),
+		destroyY:     make(map[string]float64),
 	}
 }
 
-func (mr *messageRenderer) renderItems(items []diagram.SequenceItem) []any {
+func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel bool) []any {
 	var elems []any
-	for _, item := range items {
+	for i, item := range items {
+		if isTopLevel {
+			if pi, ok := mr.createdAtIdx[i]; ok {
+				p := mr.participants[pi]
+				if !mr.created[p.ID] {
+					mr.created[p.ID] = true
+					mr.createY[p.ID] = mr.curY
+					x := mr.lay.participantX[pi]
+					elems = append(elems, drawParticipant(p.Kind, x, mr.curY-defaultRowHeight/2+2, p.Label(), mr.th, mr.fontSize)...)
+				}
+			}
+		}
 		switch {
+		case item.Destroy != nil:
+			mr.destroyY[*item.Destroy] = mr.curY
+			elems = append(elems, mr.renderDestroy(*item.Destroy)...)
+			mr.curY += defaultRowHeight
 		case item.Message != nil:
 			elems = append(elems, mr.renderMessage(*item.Message)...)
 			mr.curY += defaultRowHeight
@@ -73,7 +102,7 @@ func (mr *messageRenderer) renderMessage(m diagram.Message) []any {
 	toX := mr.lay.participantX[toIdx]
 	y := mr.curY
 
-	mr.msgNum++
+	mr.msgNum += mr.autoNum.Step
 	var elems []any
 
 	if fromIdx == toIdx {
@@ -82,7 +111,7 @@ func (mr *messageRenderer) renderMessage(m diagram.Message) []any {
 		elems = append(elems, mr.renderStraightMessage(fromX, toX, y, m)...)
 	}
 
-	if mr.autoNum {
+	if mr.autoNum.Enabled {
 		midX := (fromX + toX) / 2
 		if fromIdx == toIdx {
 			midX = fromX + selfLoopW/2
@@ -110,6 +139,9 @@ func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagra
 	}
 	if hasArrowHead(m.ArrowType) {
 		l.MarkerEnd = fmt.Sprintf("url(#%s)", arrowMarkerID(m.ArrowType))
+	}
+	if isBidirectional(m.ArrowType) {
+		l.MarkerStart = fmt.Sprintf("url(#%s)", arrowBiStartMarkerID(m.ArrowType))
 	}
 	elems = append(elems, l)
 
@@ -210,13 +242,13 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 	mr.curY += defaultRowHeight / 2
 
 	var elems []any
-	elems = append(elems, mr.renderItems(b.Items)...)
+	elems = append(elems, mr.renderItems(b.Items, false)...)
 
 	var branchYs []float64
 	for _, br := range b.Branches {
 		branchYs = append(branchYs, mr.curY)
 		mr.curY += defaultRowHeight / 2
-		elems = append(elems, mr.renderItems(br.Items)...)
+		elems = append(elems, mr.renderItems(br.Items, false)...)
 	}
 	mr.curY += defaultRowHeight / 2
 	endY := mr.curY
@@ -231,18 +263,26 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 		x = blockPad
 	}
 
+	blockStyle := fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.1f", mr.th.MessageStroke, defaultStrokeWidth)
+	if b.Kind == diagram.BlockKindRect && b.Fill != "" {
+		if strings.HasPrefix(b.Fill, "rgba(") {
+			blockStyle = fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f", b.Fill, mr.th.MessageStroke, defaultStrokeWidth)
+		} else {
+			blockStyle = fmt.Sprintf("fill:%s;fill-opacity:0.2;stroke:%s;stroke-width:%.1f", b.Fill, mr.th.MessageStroke, defaultStrokeWidth)
+		}
+	}
 	elems = append(elems, &rect{
 		X: svgFloat(x), Y: svgFloat(startY - defaultRowHeight/4),
 		Width: svgFloat(w), Height: svgFloat(endY - startY + defaultRowHeight/4),
 		RX: 3, RY: 3,
-		Style: fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.1f", mr.th.MessageStroke, defaultStrokeWidth),
+		Style: blockStyle,
 	})
 
 	kindLabel := b.Kind.String()
 	kindLabelW := textmeasure.EstimateWidth(kindLabel, mr.fontSize)
 	elems = append(elems, &rect{
 		X: svgFloat(x), Y: svgFloat(startY - defaultRowHeight/4),
-		Width: svgFloat(kindLabelW + 2*notePad),
+		Width:  svgFloat(kindLabelW + 2*notePad),
 		Height: svgFloat(20),
 		Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f",
 			mr.th.ParticipantFill, mr.th.MessageStroke, defaultStrokeWidth),
@@ -256,8 +296,8 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 
 	if b.Label != "" {
 		elems = append(elems, &text{
-			X: svgFloat(x + kindLabelW + 3*notePad),
-			Y: svgFloat(startY - defaultRowHeight/4 + 14),
+			X:      svgFloat(x + kindLabelW + 3*notePad),
+			Y:      svgFloat(startY - defaultRowHeight/4 + 14),
 			Anchor: "start", Dominant: "auto",
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize-1),
 			Content: "[" + b.Label + "]",
@@ -288,13 +328,27 @@ func (mr *messageRenderer) handleLifeline(m diagram.Message) {
 	case diagram.LifelineEffectActivate:
 		mr.actStack[m.To] = append(mr.actStack[m.To], mr.curY)
 	case diagram.LifelineEffectDeactivate:
-		// Mermaid spec: `-` suffix deactivates the SOURCE, not target.
 		stack := mr.actStack[m.From]
 		if len(stack) > 0 {
 			startY := stack[len(stack)-1]
 			mr.actStack[m.From] = stack[:len(stack)-1]
 			mr.actElems = append(mr.actElems, mr.activationRect(m.From, startY, mr.curY))
 		}
+	}
+}
+
+func (mr *messageRenderer) renderDestroy(id string) []any {
+	idx, ok := mr.pIndex[id]
+	if !ok {
+		return nil
+	}
+	x := mr.lay.participantX[idx]
+	y := mr.curY
+	half := 6.0
+	style := fmt.Sprintf("stroke:%s;stroke-width:%.1f", mr.th.MessageStroke, defaultStrokeWidth*2)
+	return []any{
+		&line{X1: svgFloat(x - half), Y1: svgFloat(y - half), X2: svgFloat(x + half), Y2: svgFloat(y + half), Style: style},
+		&line{X1: svgFloat(x - half), Y1: svgFloat(y + half), X2: svgFloat(x + half), Y2: svgFloat(y - half), Style: style},
 	}
 }
 
@@ -334,7 +388,8 @@ func messageLineStyle(th Theme, at diagram.ArrowType) string {
 	base := fmt.Sprintf("stroke:%s;stroke-width:%.1f;fill:none", th.MessageStroke, defaultStrokeWidth)
 	switch at {
 	case diagram.ArrowTypeDashed, diagram.ArrowTypeDashedNoHead,
-		diagram.ArrowTypeDashedCross, diagram.ArrowTypeDashedOpen:
+		diagram.ArrowTypeDashedCross, diagram.ArrowTypeDashedOpen,
+		diagram.ArrowTypeDashedBi:
 		return base + ";stroke-dasharray:5,5"
 	default:
 		return base
@@ -352,6 +407,14 @@ func hasArrowHead(at diagram.ArrowType) bool {
 
 func arrowMarkerID(at diagram.ArrowType) string {
 	return fmt.Sprintf("seq-arrow-%s", at.String())
+}
+
+func isBidirectional(at diagram.ArrowType) bool {
+	return at == diagram.ArrowTypeSolidBi || at == diagram.ArrowTypeDashedBi
+}
+
+func arrowBiStartMarkerID(at diagram.ArrowType) string {
+	return fmt.Sprintf("seq-arrow-%s-start", at.String())
 }
 
 func buildSequenceMarkers(th Theme) []marker {
@@ -388,6 +451,26 @@ func buildSequenceMarkers(th Theme) []marker {
 			ID: arrowMarkerID(diagram.ArrowTypeDashedOpen), ViewBox: "0 0 10 10",
 			RefX: 10, RefY: 5, Width: 8, Height: 8, Orient: "auto",
 			Children: []any{&polyline{Points: "0,1 10,5 0,9", Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;fill:none", stroke, sw)}},
+		},
+		{
+			ID: arrowMarkerID(diagram.ArrowTypeSolidBi), ViewBox: "0 0 10 10",
+			RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto",
+			Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", stroke)}},
+		},
+		{
+			ID: arrowMarkerID(diagram.ArrowTypeDashedBi), ViewBox: "0 0 10 10",
+			RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto",
+			Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", stroke)}},
+		},
+		{
+			ID: arrowBiStartMarkerID(diagram.ArrowTypeSolidBi), ViewBox: "0 0 10 10",
+			RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto-start-reverse",
+			Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", stroke)}},
+		},
+		{
+			ID: arrowBiStartMarkerID(diagram.ArrowTypeDashedBi), ViewBox: "0 0 10 10",
+			RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto-start-reverse",
+			Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", stroke)}},
 		},
 	}
 }

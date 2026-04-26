@@ -20,7 +20,7 @@ func Render(d *diagram.SequenceDiagram, opts *Options) ([]byte, error) {
 	lay := computeLayout(d, fontSize, pad)
 
 	mr := newMessageRenderer(d, lay, th, fontSize)
-	msgElems := mr.renderItems(d.Items)
+	msgElems := mr.renderItems(d.Items, true)
 
 	var children []any
 
@@ -31,10 +31,11 @@ func Render(d *diagram.SequenceDiagram, opts *Options) ([]byte, error) {
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
-	children = append(children, renderLifelines(d, lay, th)...)
+	children = append(children, renderBoxes(d, lay, th, fontSize)...)
+	children = append(children, renderLifelines(d, lay, th, mr.createY, mr.destroyY)...)
 	children = append(children, mr.flushActivations()...)
 	children = append(children, msgElems...)
-	children = append(children, renderParticipants(d, lay, th, fontSize)...)
+	children = append(children, renderParticipants(d, lay, th, fontSize, mr.createY, mr.destroyY)...)
 
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
@@ -51,13 +52,15 @@ func Render(d *diagram.SequenceDiagram, opts *Options) ([]byte, error) {
 }
 
 type seqLayout struct {
-	participantX []float64
-	topY         float64
-	bodyStartY   float64
-	bodyEndY     float64
-	bottomY      float64
-	width        float64
-	height       float64
+	participantX  []float64
+	participantW  []float64
+	participantIx map[string]int
+	topY          float64
+	bodyStartY    float64
+	bodyEndY      float64
+	bottomY       float64
+	width         float64
+	height        float64
 }
 
 func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout {
@@ -73,11 +76,7 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 	widths := make([]float64, n)
 	maxHeaderH := defaultBoxHeight
 	for i, p := range d.Participants {
-		label := p.Alias
-		if label == "" {
-			label = p.ID
-		}
-		widths[i] = textmeasure.EstimateWidth(label, fontSize) + 2*defaultBoxPadX
+		widths[i] = textmeasure.EstimateWidth(p.Label(), fontSize) + 2*defaultBoxPadX
 		if widths[i] < defaultParticipantGap*0.6 {
 			widths[i] = defaultParticipantGap * 0.6
 		}
@@ -134,13 +133,15 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 	totalH := bottomY + maxHeaderH + pad
 
 	return seqLayout{
-		participantX: xs,
-		topY:         topY,
-		bodyStartY:   bodyStart,
-		bodyEndY:     bodyEnd,
-		bottomY:      bottomY,
-		width:  totalW,
-		height: totalH,
+		participantX:  xs,
+		participantW:  widths,
+		participantIx: pIndex,
+		topY:          topY,
+		bodyStartY:    bodyStart,
+		bodyEndY:      bodyEnd,
+		bottomY:       bottomY,
+		width:         totalW,
+		height:        totalH,
 	}
 }
 
@@ -152,8 +153,8 @@ func actorHeight(fontSize float64) float64 {
 // participants needed to fit any "Note left of" / "Note right of"
 // items. Mirrors the geometry in messageRenderer.renderNote.
 func noteBleed(items []diagram.SequenceItem, pIndex map[string]int, n int) (left, right float64) {
-	const noteHalfW = 60.0  // half of noteW
-	const noteOff = 10.0    // matches noteOffset
+	const noteHalfW = 60.0 // half of noteW
+	const noteOff = 10.0   // matches noteOffset
 	for _, item := range items {
 		switch {
 		case item.Note != nil && len(item.Note.Participants) > 0:
@@ -209,6 +210,8 @@ func countItemRows(items []diagram.SequenceItem) int {
 			count++
 		case item.Note != nil:
 			count++
+		case item.Destroy != nil:
+			count++
 		case item.Block != nil:
 			count += 1 + countBlockRows(item.Block)
 		}
@@ -224,23 +227,28 @@ func countBlockRows(b *diagram.Block) int {
 	return count
 }
 
-func renderParticipants(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize float64) []any {
+func renderParticipants(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize float64, createY, destroyY map[string]float64) []any {
 	var elems []any
 	for i, p := range d.Participants {
 		x := lay.participantX[i]
-		label := p.Alias
-		if label == "" {
-			label = p.ID
+		label := p.Label()
+		_, isCreated := createY[p.ID]
+		_, isDestroyed := destroyY[p.ID]
+		if !isCreated {
+			elems = append(elems, drawParticipant(p.Kind, x, lay.topY, label, th, fontSize)...)
 		}
-
-		draw := renderParticipantBox
-		if p.Kind == diagram.ParticipantKindActor {
-			draw = renderActor
+		if !isDestroyed {
+			elems = append(elems, drawParticipant(p.Kind, x, lay.bottomY, label, th, fontSize)...)
 		}
-		elems = append(elems, draw(x, lay.topY, label, th, fontSize)...)
-		elems = append(elems, draw(x, lay.bottomY, label, th, fontSize)...)
 	}
 	return elems
+}
+
+func drawParticipant(kind diagram.ParticipantKind, cx, topY float64, label string, th Theme, fontSize float64) []any {
+	if kind == diagram.ParticipantKindActor {
+		return renderActor(cx, topY, label, th, fontSize)
+	}
+	return renderParticipantBox(cx, topY, label, th, fontSize)
 }
 
 func renderParticipantBox(cx, topY float64, label string, th Theme, fontSize float64) []any {
@@ -292,16 +300,85 @@ func renderActor(cx, topY float64, label string, th Theme, fontSize float64) []a
 	}
 }
 
-func renderLifelines(d *diagram.SequenceDiagram, lay seqLayout, th Theme) []any {
+func renderLifelines(d *diagram.SequenceDiagram, lay seqLayout, th Theme, createY, destroyY map[string]float64) []any {
 	var elems []any
-	for i := range d.Participants {
+	for i, p := range d.Participants {
 		x := lay.participantX[i]
-		elems = append(elems, &line{
-			X1: svgFloat(x), Y1: svgFloat(lay.bodyStartY),
-			X2: svgFloat(x), Y2: svgFloat(lay.bodyEndY),
-			Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", th.LifelineStroke, defaultStrokeWidth),
-		})
+		startY := lay.bodyStartY
+		endY := lay.bodyEndY
+		if y, ok := createY[p.ID]; ok {
+			startY = y - defaultRowHeight/2
+		}
+		if y, ok := destroyY[p.ID]; ok {
+			endY = y
+		}
+		if startY < endY {
+			elems = append(elems, &line{
+				X1: svgFloat(x), Y1: svgFloat(startY),
+				X2: svgFloat(x), Y2: svgFloat(endY),
+				Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", th.LifelineStroke, defaultStrokeWidth),
+			})
+		}
 	}
 	return elems
 }
 
+func renderBoxes(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize float64) []any {
+	if len(d.Boxes) == 0 || len(d.Participants) == 0 {
+		return nil
+	}
+	pIndex := lay.participantIx
+
+	var elems []any
+	for _, bx := range d.Boxes {
+		if len(bx.Members) == 0 {
+			continue
+		}
+		leftIdx, ok := pIndex[bx.Members[0]]
+		if !ok {
+			continue
+		}
+		rightIdx := leftIdx
+		for _, m := range bx.Members[1:] {
+			if idx, ok := pIndex[m]; ok {
+				if idx < leftIdx {
+					leftIdx = idx
+				}
+				if idx > rightIdx {
+					rightIdx = idx
+				}
+			}
+		}
+
+		const boxPad = 10.0
+		x := lay.participantX[leftIdx] - lay.participantW[leftIdx]/2 - boxPad
+		right := lay.participantX[rightIdx] + lay.participantW[rightIdx]/2 + boxPad
+		w := right - x
+		h := lay.bodyEndY - lay.topY + boxPad
+		y := lay.topY - boxPad/2
+
+		fill := th.ParticipantFill
+		if bx.Fill != "" {
+			fill = bx.Fill
+		}
+		style := fmt.Sprintf("fill:%s;fill-opacity:0.15;stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5",
+			fill, th.ParticipantStroke, defaultStrokeWidth)
+
+		elems = append(elems, &rect{
+			X: svgFloat(x), Y: svgFloat(y),
+			Width: svgFloat(w), Height: svgFloat(h),
+			RX: 3, RY: 3,
+			Style: style,
+		})
+
+		if bx.Label != "" {
+			elems = append(elems, &text{
+				X: svgFloat(x + boxPad), Y: svgFloat(y + fontSize + 2),
+				Anchor: "start", Dominant: "auto",
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.ParticipantText, fontSize-2),
+				Content: bx.Label,
+			})
+		}
+	}
+	return elems
+}
