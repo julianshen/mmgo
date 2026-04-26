@@ -299,13 +299,16 @@ func startMarkerElems(head diagram.ArrowHead, start, next layout.Point, th Theme
 		return nil
 	}
 	m := buildMarker("_tail", head, th)
-	// buildMarker uses viewBox "0 0 10 10" with refX/refY as the
-	// anchor. InlineMarkerAt places children so that (refX, refY)
-	// coincides with (startX, startY), rotated to face from start
-	// toward next — i.e. outward, back toward the source node.
-	// refY=5 centres vertically; refX is per-shape (9 for arrow, 5
-	// for circle, 9 for cross).
-	g := svgutil.InlineMarkerAt(start.X, start.Y, next.X, next.Y, float64(m.RefX), float64(m.RefY), m.Children)
+	// InlineMarkerAt rotates the marker so its local +X axis points
+	// from start toward the second arg. For a tail marker we want the
+	// marker's "tip side" to face the SOURCE NODE (outward), not the
+	// next polyline vertex — otherwise an asymmetric shape like the
+	// triangle arrow renders as `>—>` instead of the bidirectional
+	// `<—>` look. Mirror `next` through `start` to flip the rotation
+	// 180°. Symmetric shapes (circle) are unaffected by this swap.
+	mx := 2*start.X - next.X
+	my := 2*start.Y - next.Y
+	g := svgutil.InlineMarkerAt(start.X, start.Y, mx, my, float64(m.RefX), float64(m.RefY), m.Children)
 	// Wrap the svgutil.Group (which uses svgutil.Float) in a
 	// flowchart Group so the renderer's XML marshaler picks it up.
 	fg := &Group{Transform: g.Transform}
@@ -319,11 +322,15 @@ const (
 	backEdgeDash     = ";stroke-dasharray:6,3"
 )
 
+// shiftInward returns p moved toward q along the p→q vector by dist
+// pixels. Returns p unchanged when the segment is shorter than dist —
+// otherwise the shifted point would overshoot q and flip the direction
+// vector that callers use to orient the start marker outward.
 func shiftInward(p, q layout.Point, dist float64) layout.Point {
 	dx := q.X - p.X
 	dy := q.Y - p.Y
 	length := math.Hypot(dx, dy)
-	if length == 0 {
+	if length <= dist {
 		return p
 	}
 	return layout.Point{X: p.X + dx/length*dist, Y: p.Y + dy/length*dist}
