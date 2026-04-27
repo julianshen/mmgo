@@ -12,8 +12,8 @@
 | Render success (mmdc) | 25 / 26 (`comprehensive.mmd` puppeteer crash) |
 | Render success (mmgo) | 25 / 26 (`activations.mmd` parser error — see G1) |
 | Visually faithful to mmdc | ~3 / 25 (notes, simple, basic arrows are close) |
-| Spec-feature gaps | 7 (G1–G7) |
-| Visual-polish gaps | 8 (V1–V8) |
+| Spec-feature gaps | 7 (G1–G7) + 4 omissions (G8–G11, see below) |
+| Visual-polish gaps | 7 (V1–V7; V8 retracted on review) |
 
 The phase-A1 plan already routes most gaps to phase B (spec) and phase C (visual). This audit reconciles plan-buckets with observed reality.
 
@@ -69,15 +69,29 @@ The phase-A1 plan already routes most gaps to phase B (spec) and phase C (visual
 **Severity:** Medium — common in real-world diagrams; silent break.
 **Plan bucket:** new **B8** — add to phase B. Add an `examples-mmdc/sequence/title.mmd`.
 
+### G6.1 — Severity upgrade
+G6 is upgraded from Medium to **High**. Same failure mode as G1 (parser hard-error on common Mermaid syntax). Caught during review.
+
 ### G7 — `<br/>` in message labels not honored as line break
 **Symptom:** `A->>B: line one<br/>line two` renders as the literal string `line one<br/>line two` (HTML-escaped). mmdc splits into two `<tspan>` lines.
 **Status:** Renderer treats label as a single text run; no `<br/>` tokenisation in the label-formatting path.
 **Severity:** Medium — common pattern for multi-line messages.
 **Plan bucket:** new **B9** — split labels on `<br>` / `<br/>` and emit `<tspan>` per line. Affects message labels, note text, block condition text. Add `examples-mmdc/sequence/multiline_labels.mmd`.
 
+### G8–G11 — Omissions surfaced during review
+
+These features have no example file yet and were not exercised in the initial pass. Each is verified absent from `pkg/parser/sequence/parser.go`'s top-level dispatch.
+
+- **G8** — YAML frontmatter (`---\ntitle: Foo\n---`). Mermaid spec accepts this on every diagram type. Pair with B8.
+- **G9** — `accTitle` / `accDescr` accessibility directives. Common in Mermaid output for screen-reader compatibility. Bucket: B8 sibling.
+- **G10** — `links` / `link` / `properties` directives on participants (per-participant metadata). Lower priority — rarely used in flow examples.
+- **G11** — `autonumber off` to disable a previously-enabled counter mid-diagram. Parser at line 144 accepts only numeric args; "off" produces a strconv error. Pair with B1.
+
+Add probe `.mmd` files under `examples-mmdc/sequence/` for each before fix-PRs land.
+
 ### Confirmed working (no gap)
 
-- All 8 arrow types present and rendered with correct line style (G2 only affects bi-dir arrowheads).
+- All **10** arrow types present and rendered with correct line style (`->`, `-->`, `->>`, `-->>`, `-x`, `--x`, `-)`, `--)`, `<<->>`, `<<-->>`). G2 only affects bi-dir arrowheads; V3 affects the `-x` cross marker visual.
 - `participant Foo as Bar` aliasing (`aliases.mmd`).
 - `actor` vs `participant` distinction (`actor_vs_participant.mmd` — renders both as boxes; mmdc draws stick-figure for actor — see V8).
 - Notes: left/right/over single, over multiple — `note_positions.mmd` is the closest to mmdc of all examples.
@@ -123,10 +137,8 @@ mmdc: ~80px right-side loop arc, message text on the left side of the lifeline. 
 mmdc draws each level of nesting offset to the right by ~half-bar-width. mmgo collapses all levels onto the same bar.
 **Bucket:** C.
 
-### V8 — Actor stick-figure not drawn
-**File:** `actor_vs_participant.mmd`
-mmdc draws stick-figures for `actor`. mmgo draws a regular participant box.
-**Bucket:** C.
+### V8 — *(retracted)*
+Original claim: mmgo draws a regular participant box for `actor`. **Wrong.** `renderActor()` at `pkg/renderer/sequence/renderer.go:279` draws head + body + arms + legs; `actor_vs_participant.mmd` produces correct stick-figures on both top and bottom rows. Caught during review. V-numbering preserved so downstream references stay stable.
 
 ### Other minor (deferred)
 
@@ -140,13 +152,13 @@ mmdc draws stick-figures for `actor`. mmgo draws a regular participant box.
 ## Recommended PR sequencing (revises phase-A1 plan §"Sequencing")
 
 1. **B0** (new) — accept standalone `activate`/`deactivate`. Smallest PR; un-breaks `activations.mmd`. **First.**
-2. **B8 + B9** (new) — `title:` directive parsing + `<br/>` line-break tokenisation. Both are pure parser/text-layout, low blast radius.
+2. **B8 + B9** (new, expanded) — `title:` directive (G6), YAML frontmatter (G8), `accTitle`/`accDescr` (G9), `<br/>` line-break tokenisation (G7). All pure parser/text-layout, low blast radius. Add probe examples first.
 3. **B5 fix** — bidirectional arrowhead end-cap selection.
-4. **B1 fix** — autonumber numbered-circle badge (start/step already done — drop "B7").
+4. **B1 fix** — autonumber numbered-circle badge + `autonumber off` parsing (G11). Start/step (B7) already done — drop B7 from queue.
 5. **B6 fix** — strip "rect" label badge, clip color band to message rows only.
-6. **B3 + B4 + G5 polish** — create/destroy positioning + bottom box at destruction. One PR.
+6. **B3 + B4** (covers G5) — create/destroy positioning + bottom box at destruction. One PR.
 7. **B2 fix** — box grouping title clipping, solid border, bottom-participant containment.
-8. **C / V1–V8** — visual polish, batched per-feature (theme, arrowheads, nested blocks, self-loop, activation offset, actor figure).
+8. **C / V1–V7** — visual polish, batched per-feature (theme, arrowheads, cross marker, block-label collision, nested-block indentation, self-loop arc, activation-bar nesting offset).
 
 After each PR, re-render the corresponding `examples-mmdc/sequence/*.mmd` and update this audit's status table.
 
