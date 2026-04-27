@@ -1147,11 +1147,13 @@ func TestRenderBoxSolidBorder(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	if strings.Contains(raw, "stroke-dasharray") && strings.Contains(raw, ">Group<") {
-		re := regexp.MustCompile(`<rect[^>]*style="[^"]*stroke-dasharray[^"]*"[^>]*>`)
-		if re.MatchString(raw) {
-			t.Error("box rect should use solid border, not stroke-dasharray")
-		}
+	boxRectRe := regexp.MustCompile(`<rect[^>]*rgb\(220,240,255\)[^>]*>`)
+	match := boxRectRe.FindString(raw)
+	if match == "" {
+		t.Fatal("box rect not found in SVG")
+	}
+	if strings.Contains(match, "stroke-dasharray") {
+		t.Error("box rect should use solid border, not stroke-dasharray")
 	}
 	assertValidSVG(t, out)
 }
