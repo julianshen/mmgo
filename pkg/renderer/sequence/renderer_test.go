@@ -3,6 +3,7 @@ package sequence
 import (
 	"bytes"
 	"encoding/xml"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -258,13 +259,62 @@ func TestRenderAutoNumberEmitsCircleBadge(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	if !strings.Contains(raw, "<circle") {
-		t.Error("autonumber should emit a <circle> badge")
-	}
 	if !strings.Contains(raw, ">1<") {
 		t.Error("autonumber should emit numeric content")
 	}
+	// The badge must sit on the SOURCE side of the arrow (mmdc parity),
+	// not the midpoint or destination. Locate the circle's cx and the
+	// two participant lifeline x-coords; assert cx matches A's lifeline
+	// x, not B's, and not the midpoint.
+	circleCX, ok := autoNumberCircleCX(raw)
+	if !ok {
+		t.Fatal("autonumber should emit a <circle> badge with cx attr")
+	}
+	xs := lifelineXs(t, raw)
+	if len(xs) < 2 {
+		t.Fatalf("expected ≥2 lifeline xs, got %v", xs)
+	}
+	srcX, dstX := xs[0], xs[1]
+	mid := (srcX + dstX) / 2
+	if math.Abs(circleCX-srcX) > 0.5 {
+		t.Errorf("badge cx = %.2f, want source x = %.2f (dst=%.2f, mid=%.2f)", circleCX, srcX, dstX, mid)
+	}
 	assertValidSVG(t, out)
+}
+
+var (
+	circleRe = regexp.MustCompile(`<circle[^>]*cx="([^"]+)"[^>]*r="10\.00"`)
+	lineRe   = regexp.MustCompile(`<line x1="([^"]+)" y1="[^"]+" x2="([^"]+)"`)
+)
+
+func autoNumberCircleCX(raw string) (float64, bool) {
+	m := circleRe.FindStringSubmatch(raw)
+	if len(m) != 2 {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
+// lifelineXs returns x positions of vertical <line> elements (x1 == x2),
+// in source order. Lifelines are the only vertical lines in the SVG.
+func lifelineXs(t *testing.T, raw string) []float64 {
+	t.Helper()
+	var xs []float64
+	for _, m := range lineRe.FindAllStringSubmatch(raw, -1) {
+		if m[1] != m[2] {
+			continue
+		}
+		v, err := strconv.ParseFloat(m[1], 64)
+		if err != nil {
+			continue
+		}
+		xs = append(xs, v)
+	}
+	return xs
 }
 
 func TestRenderTitleAppearsAboveDiagram(t *testing.T) {

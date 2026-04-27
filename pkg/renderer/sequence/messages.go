@@ -18,22 +18,30 @@ const (
 )
 
 type messageRenderer struct {
-	lay                seqLayout
-	th                 Theme
-	fontSize           float64
-	pIndex             map[string]int
-	curY               float64
-	msgNum             int
-	autoNum            diagram.AutoNumber
-	actStack           map[string][]float64
-	actElems           []any
-	participants       []diagram.Participant
-	created            map[string]bool
-	createdAtIdx       map[int]int
-	createY            map[string]float64
-	destroyY           map[string]float64
-	autoNumCircleStyle string
-	autoNumTextStyle   string
+	lay          seqLayout
+	th           Theme
+	fontSize     float64
+	pIndex       map[string]int
+	curY         float64
+	msgNum       int
+	autoNum      diagram.AutoNumber
+	actStack     map[string][]float64
+	actElems     []any
+	participants []diagram.Participant
+	created      map[string]bool
+	createdAtIdx map[int]int
+	createY      map[string]float64
+	destroyY     map[string]float64
+	// autoNumStyles is non-nil iff autoNum.Enabled. Grouping the two
+	// pre-formatted style strings under one nilable pointer makes the
+	// "enabled implies styles present" invariant unrepresentable when
+	// violated, mirroring accDescrBlock in the parser.
+	autoNumStyles *autoNumStyles
+}
+
+type autoNumStyles struct {
+	circle string
+	text   string
 }
 
 func newMessageRenderer(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize float64) *messageRenderer {
@@ -59,8 +67,10 @@ func newMessageRenderer(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fon
 		destroyY:     make(map[string]float64),
 	}
 	if d.AutoNumber.Enabled {
-		mr.autoNumCircleStyle = fmt.Sprintf("fill:%s;stroke:none", th.MessageStroke)
-		mr.autoNumTextStyle = fmt.Sprintf("fill:#fff;font-size:%.0fpx;font-weight:bold", fontSize-2)
+		mr.autoNumStyles = &autoNumStyles{
+			circle: fmt.Sprintf("fill:%s;stroke:none", th.MessageStroke),
+			text:   fmt.Sprintf("fill:#fff;font-size:%.0fpx;font-weight:bold", fontSize-2),
+		}
 	}
 	return mr
 }
@@ -130,21 +140,20 @@ func (mr *messageRenderer) renderMessage(m diagram.Message) []any {
 
 const autoNumberRadius = 10.0
 
-// appendAutoNumberBadge appends the Mermaid autonumber marker (filled
-// circle with white numeral centered inside) to elems. White-on-stroke
-// is used regardless of theme so the digits stay legible — Theme.Background
-// would invert on dark themes and put white-on-white.
+// White-on-stroke regardless of theme so the digit stays legible —
+// using Theme.Background would invert under dark themes and put
+// white text on a white circle.
 func (mr *messageRenderer) appendAutoNumberBadge(elems []any, srcX, y float64, n int) []any {
 	return append(elems,
 		&circle{
 			CX: svgFloat(srcX), CY: svgFloat(y),
 			R:     svgFloat(autoNumberRadius),
-			Style: mr.autoNumCircleStyle,
+			Style: mr.autoNumStyles.circle,
 		},
 		&text{
 			X: svgFloat(srcX), Y: svgFloat(y),
 			Anchor: "middle", Dominant: "central",
-			Style:   mr.autoNumTextStyle,
+			Style:   mr.autoNumStyles.text,
 			Content: fmt.Sprintf("%d", n),
 		},
 	)

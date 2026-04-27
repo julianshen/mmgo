@@ -472,6 +472,17 @@ func TestParseAccTitleAccDescr(t *testing.T) {
 	}
 }
 
+func TestParseUnclosedAccDescrBlock(t *testing.T) {
+	src := "sequenceDiagram\naccDescr {\n  unterminated\nA->>B: hi"
+	_, err := Parse(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for unclosed accDescr block")
+	}
+	if !strings.Contains(err.Error(), "accDescr") {
+		t.Errorf("error should mention accDescr: %v", err)
+	}
+}
+
 func TestParseFrontmatterIgnoresUnknownKeys(t *testing.T) {
 	src := `---
 title: Hello

@@ -61,6 +61,9 @@ func Parse(r io.Reader) (*diagram.SequenceDiagram, error) {
 	if len(p.blockStack) > 0 {
 		return nil, fmt.Errorf("unclosed %v block (missing 'end')", p.blockStack[len(p.blockStack)-1].block.Kind)
 	}
+	if p.accDescrBlock != nil {
+		return nil, fmt.Errorf("unclosed accDescr block (missing '}')")
+	}
 	return p.diagram, nil
 }
 
@@ -68,15 +71,12 @@ func Parse(r io.Reader) (*diagram.SequenceDiagram, error) {
 // diagram.Participants so that explicit declarations can upgrade an
 // entry that was implicitly registered by a prior message.
 type parser struct {
-	diagram         *diagram.SequenceDiagram
-	participantIx   map[string]int
-	blockStack      []*blockFrame
-	boxFrame        *boxFrameState
+	diagram       *diagram.SequenceDiagram
+	participantIx map[string]int
+	blockStack    []*blockFrame
+	boxFrame      *boxFrameState
 	destroyed     map[string]bool
-	// accDescrBlock is non-nil while the parser is inside an
-	// `accDescr {…}` multi-line block; nil otherwise. The pointer-vs-bool
-	// representation makes the in-block state and the buffer one
-	// indivisible field.
+	// non-nil while inside an accDescr {…} block.
 	accDescrBlock *strings.Builder
 }
 
