@@ -379,9 +379,10 @@ func (p *parser) closeBox() error {
 	p.boxFrame = nil
 	boxIndex := len(p.diagram.Boxes)
 	p.diagram.Boxes = append(p.diagram.Boxes, diagram.Box{
-		Label:   bx.label,
-		Fill:    bx.fill,
-		Members: bx.memberIDs,
+		Label:    bx.label,
+		Fill:     bx.fill,
+		HasAlpha: strings.HasPrefix(bx.fill, "rgba("),
+		Members:  bx.memberIDs,
 	})
 	for _, id := range bx.memberIDs {
 		if idx, ok := p.participantIx[id]; ok {

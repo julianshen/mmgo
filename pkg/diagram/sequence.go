@@ -15,9 +15,10 @@ func (p ParticipantKind) String() string { return enumString(p, participantKindN
 
 // Participant is a column in a sequence diagram.
 type Box struct {
-	Label   string
-	Fill    string
-	Members []string
+	Label    string
+	Fill     string
+	HasAlpha bool
+	Members  []string
 }
 
 type Participant struct {
@@ -81,6 +82,17 @@ func (a ArrowType) HasArrowHead() bool {
 
 func (a ArrowType) IsBidirectional() bool {
 	return a == ArrowTypeSolidBi || a == ArrowTypeDashedBi
+}
+
+func (a ArrowType) IsDashed() bool {
+	switch a {
+	case ArrowTypeDashed, ArrowTypeDashedNoHead,
+		ArrowTypeDashedCross, ArrowTypeDashedOpen,
+		ArrowTypeDashedBi:
+		return true
+	default:
+		return false
+	}
 }
 
 // LifelineEffect describes the effect of a message on the receiver's lifeline

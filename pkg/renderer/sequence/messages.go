@@ -5,6 +5,7 @@ import (
 	"math"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
@@ -35,6 +36,8 @@ type messageRenderer struct {
 	msgTextStyle          string
 	msgTextSmallStyle     string
 	msgTextSmallBoldStyle string
+	msgLineStyleSolid     string
+	msgLineStyleDashed    string
 }
 
 type autoNumStyles struct {
@@ -66,6 +69,8 @@ func newMessageRenderer(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fon
 		msgTextStyle:          fmt.Sprintf("fill:%s;font-size:%.0fpx", th.MessageText, fontSize),
 		msgTextSmallStyle:     fmt.Sprintf("fill:%s;font-size:%.0fpx", th.MessageText, fontSize-1),
 		msgTextSmallBoldStyle: fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.MessageText, fontSize-1),
+		msgLineStyleSolid:     fmt.Sprintf("stroke:%s;stroke-width:%.1f;fill:none", th.MessageStroke, defaultStrokeWidth),
+		msgLineStyleDashed:    fmt.Sprintf("stroke:%s;stroke-width:%.1f;fill:none;stroke-dasharray:5,5", th.MessageStroke, defaultStrokeWidth),
 	}
 	if d.AutoNumber.Enabled {
 		mr.autoNumStyles = &autoNumStyles{
@@ -161,7 +166,7 @@ func (mr *messageRenderer) appendAutoNumberBadge(elems []any, srcX, y float64, n
 }
 
 func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagram.Message) []any {
-	style := messageLineStyle(mr.th, m.ArrowType)
+	style := mr.messageLineStyle(m.ArrowType)
 	mid := (fromX + toX) / 2
 
 	var elems []any
@@ -193,7 +198,7 @@ func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagra
 }
 
 func (mr *messageRenderer) renderSelfMessage(x, y float64, m diagram.Message) []any {
-	style := messageLineStyle(mr.th, m.ArrowType)
+	style := mr.messageLineStyle(m.ArrowType)
 	p := &path{
 		D: fmt.Sprintf("M%.2f,%.2f h%.2f v%.2f h%.2f",
 			x, y, selfLoopW, selfLoopH, -selfLoopW),
@@ -425,16 +430,11 @@ func (mr *messageRenderer) activationRect(id string, startY, endY float64) *rect
 	}
 }
 
-func messageLineStyle(th Theme, at diagram.ArrowType) string {
-	base := fmt.Sprintf("stroke:%s;stroke-width:%.1f;fill:none", th.MessageStroke, defaultStrokeWidth)
-	switch at {
-	case diagram.ArrowTypeDashed, diagram.ArrowTypeDashedNoHead,
-		diagram.ArrowTypeDashedCross, diagram.ArrowTypeDashedOpen,
-		diagram.ArrowTypeDashedBi:
-		return base + ";stroke-dasharray:5,5"
-	default:
-		return base
+func (mr *messageRenderer) messageLineStyle(at diagram.ArrowType) string {
+	if at.IsDashed() {
+		return mr.msgLineStyleDashed
 	}
+	return mr.msgLineStyleSolid
 }
 
 // brTokenRe matches Mermaid's <br>, <br/>, <br /> (any case, any
@@ -446,6 +446,9 @@ var brTokenRe = regexp.MustCompile(`(?i)<br\s*/?>`)
 // the original string as a single-element slice when no break tokens
 // are present.
 func splitLabelLines(s string) []string {
+	if strings.IndexByte(s, '<') < 0 {
+		return []string{s}
+	}
 	return brTokenRe.Split(s, -1)
 }
 

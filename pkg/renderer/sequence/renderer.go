@@ -388,8 +388,14 @@ func renderBoxes(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize f
 		if bx.Fill != "" {
 			fill = bx.Fill
 		}
-		style := fmt.Sprintf("fill:%s;fill-opacity:0.15;stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5",
-			fill, th.ParticipantStroke, defaultStrokeWidth)
+		var style string
+		if bx.Fill != "" && bx.HasAlpha {
+			style = fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5",
+				fill, th.ParticipantStroke, defaultStrokeWidth)
+		} else {
+			style = fmt.Sprintf("fill:%s;fill-opacity:0.15;stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5",
+				fill, th.ParticipantStroke, defaultStrokeWidth)
+		}
 
 		elems = append(elems, &rect{
 			X: svgFloat(x), Y: svgFloat(y),
