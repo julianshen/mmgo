@@ -349,6 +349,50 @@ func TestParseActivationMarkers(t *testing.T) {
 	}
 }
 
+func TestParseStandaloneActivateDeactivate(t *testing.T) {
+	input := `sequenceDiagram
+    participant Client
+    participant Server
+    Client->>Server: Request
+    activate Server
+    Server-->>Client: Response
+    deactivate Server`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Items) != 4 {
+		t.Fatalf("want 4 items, got %d: %+v", len(d.Items), d.Items)
+	}
+	a1 := d.Items[1].Activation
+	if a1 == nil || a1.Participant != "Server" || !a1.Activate {
+		t.Errorf("item[1] = %+v, want activate Server", d.Items[1])
+	}
+	a2 := d.Items[3].Activation
+	if a2 == nil || a2.Participant != "Server" || a2.Activate {
+		t.Errorf("item[3] = %+v, want deactivate Server", d.Items[3])
+	}
+}
+
+func TestParseActivationMissingID(t *testing.T) {
+	for _, kw := range []string{"activate", "deactivate"} {
+		_, err := Parse(strings.NewReader("sequenceDiagram\n" + kw))
+		if err == nil {
+			t.Errorf("%s without id: expected error", kw)
+		}
+	}
+}
+
+func TestParseActivationAutoRegistersParticipant(t *testing.T) {
+	d, err := Parse(strings.NewReader("sequenceDiagram\nactivate X"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Participants) != 1 || d.Participants[0].ID != "X" {
+		t.Errorf("expected participant X, got %+v", d.Participants)
+	}
+}
+
 func TestParseNoteLeftRight(t *testing.T) {
 	input := `sequenceDiagram
     Note left of Alice: first

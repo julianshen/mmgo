@@ -107,10 +107,19 @@ type Message struct {
 // closed set, and a value-typed container avoids interface allocation
 // overhead during parser/renderer traversal.
 type SequenceItem struct {
-	Message *Message
-	Block   *Block
-	Note    *Note
-	Destroy *string
+	Message    *Message
+	Block      *Block
+	Note       *Note
+	Destroy    *string
+	Activation *Activation
+}
+
+// Activation represents a standalone `activate <id>` or `deactivate <id>`
+// statement. The inline `+`/`-` arrow shorthand is represented on Message.Lifeline
+// instead; this struct exists for the source-ordered standalone form.
+type Activation struct {
+	Participant string
+	Activate    bool
 }
 
 // NewMessageItem wraps a Message as a SequenceItem.
@@ -123,6 +132,9 @@ func NewBlockItem(b Block) SequenceItem { return SequenceItem{Block: &b} }
 func NewNoteItem(n Note) SequenceItem { return SequenceItem{Note: &n} }
 
 func NewDestroyItem(id string) SequenceItem { return SequenceItem{Destroy: &id} }
+
+// NewActivationItem wraps an Activation as a SequenceItem.
+func NewActivationItem(a Activation) SequenceItem { return SequenceItem{Activation: &a} }
 
 // BlockKind identifies the structural block type.
 type BlockKind int8

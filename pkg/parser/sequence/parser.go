@@ -132,6 +132,12 @@ func (p *parser) parseLine(line string) error {
 	if rest, ok := trimKeyword(line, "destroy"); ok {
 		return p.parseDestroy(rest)
 	}
+	if rest, ok := trimKeyword(line, "activate"); ok {
+		return p.parseActivation(rest, true)
+	}
+	if rest, ok := trimKeyword(line, "deactivate"); ok {
+		return p.parseActivation(rest, false)
+	}
 	if m, ok := parseMessage(line); ok {
 		p.ensureParticipant(m.From)
 		p.ensureParticipant(m.To)
@@ -139,6 +145,20 @@ func (p *parser) parseLine(line string) error {
 		return nil
 	}
 	return fmt.Errorf("unrecognized statement: %q", line)
+}
+
+func (p *parser) parseActivation(rest string, activate bool) error {
+	id := strings.TrimSpace(rest)
+	if id == "" {
+		kw := "activate"
+		if !activate {
+			kw = "deactivate"
+		}
+		return fmt.Errorf("%s requires a participant ID", kw)
+	}
+	p.ensureParticipant(id)
+	p.appendItem(diagram.NewActivationItem(diagram.Activation{Participant: id, Activate: activate}))
+	return nil
 }
 
 func (p *parser) parseAutonumber(rest string) error {

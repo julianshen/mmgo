@@ -451,6 +451,30 @@ func TestRenderActivationBars(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+func TestRenderStandaloneActivation(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "B", Label: "req", ArrowType: diagram.ArrowTypeSolid}),
+			diagram.NewActivationItem(diagram.Activation{Participant: "B", Activate: true}),
+			diagram.NewMessageItem(diagram.Message{From: "B", To: "A", Label: "resp", ArrowType: diagram.ArrowTypeDashed}),
+			diagram.NewActivationItem(diagram.Activation{Participant: "B", Activate: false}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// At least one activation bar should be emitted (rect filled with ParticipantFill).
+	if strings.Count(string(out), DefaultTheme().ParticipantFill) < 2 {
+		t.Errorf("standalone activate/deactivate did not produce an activation bar")
+	}
+	assertValidSVG(t, out)
+}
+
 func TestRenderAutoNumber(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		AutoNumber: diagram.AutoNumber{Enabled: true, Start: 1, Step: 1},
