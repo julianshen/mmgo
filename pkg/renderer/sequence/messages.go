@@ -309,7 +309,7 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 	rectH := endY - startY + defaultRowHeight/4
 	if b.Kind == diagram.BlockKindRect {
 		rectY = startY + blockHeaderGap
-		rectH = endY - startY - blockHeaderGap - blockFooterGap - defaultRowHeight/2
+		rectH = math.Max(0, endY-startY-blockHeaderGap-blockFooterGap-defaultRowHeight/2)
 	}
 
 	elems = append(elems, &rect{

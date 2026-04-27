@@ -520,15 +520,27 @@ func TestRenderRectColorClipsToMessageBand(t *testing.T) {
 	if len(matches) < 2 {
 		t.Fatalf("expected at least 2 message lines in SVG, found %d", len(matches))
 	}
-	firstMsgY, _ := strconv.ParseFloat(matches[0][1], 64)
-	secondMsgY, _ := strconv.ParseFloat(matches[1][1], 64)
+	firstMsgY, err := strconv.ParseFloat(matches[0][1], 64)
+	if err != nil {
+		t.Fatalf("parse first msg y: %v", err)
+	}
+	secondMsgY, err := strconv.ParseFloat(matches[1][1], 64)
+	if err != nil {
+		t.Fatalf("parse second msg y: %v", err)
+	}
 
 	fillMatch := fillRectRe.FindStringSubmatch(raw)
 	if fillMatch == nil {
 		t.Fatal("expected colored fill rect in SVG output")
 	}
-	fillY, _ := strconv.ParseFloat(fillMatch[1], 64)
-	fillH, _ := strconv.ParseFloat(fillMatch[2], 64)
+	fillY, err := strconv.ParseFloat(fillMatch[1], 64)
+	if err != nil {
+		t.Fatalf("parse fill y: %v", err)
+	}
+	fillH, err := strconv.ParseFloat(fillMatch[2], 64)
+	if err != nil {
+		t.Fatalf("parse fill height: %v", err)
+	}
 	fillBottom := fillY + fillH
 
 	const band = 26.0
@@ -539,6 +551,72 @@ func TestRenderRectColorClipsToMessageBand(t *testing.T) {
 	if fillBottom > secondMsgY+band {
 		t.Errorf("colored rect bottom=%.2f extends below last message band (msgY=%.2f, threshold=%.2f)",
 			fillBottom, secondMsgY, secondMsgY+band)
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderRectEmptyDoesNotProduceNegativeHeight(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind: diagram.BlockKindRect,
+				Fill: "#ffcc00",
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	re := regexp.MustCompile(`height="(-?[\d.]+)"`)
+	for _, m := range re.FindAllStringSubmatch(raw, -1) {
+		v, err := strconv.ParseFloat(m[1], 64)
+		if err != nil {
+			t.Fatalf("parse height: %v (input: %q)", err, m[1])
+		}
+		if v < 0 {
+			t.Errorf("rect height=%.2f is negative", v)
+		}
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderRectWithLabelSuppressesBadge(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind:     diagram.BlockKindRect,
+				Fill:     "#aabbcc",
+				Label:    "my section",
+				HasAlpha: false,
+				Items: []diagram.SequenceItem{
+					diagram.NewMessageItem(diagram.Message{
+						From: "A", To: "B", Label: "msg",
+						ArrowType: diagram.ArrowTypeSolid,
+					}),
+				},
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if strings.Contains(raw, ">rect<") {
+		t.Error("rect block should not render a 'rect' kind label badge")
+	}
+	if strings.Contains(raw, ">[my section]<") {
+		t.Error("rect block should not render a bracketed label")
 	}
 	assertValidSVG(t, out)
 }
