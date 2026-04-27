@@ -424,8 +424,9 @@ func TestRenderRectUsesRgbaFillAsIs(t *testing.T) {
 		},
 		Items: []diagram.SequenceItem{
 			diagram.NewBlockItem(diagram.Block{
-				Kind: diagram.BlockKindRect,
-				Fill: "rgba(255, 220, 220, 0.6)",
+				Kind:     diagram.BlockKindRect,
+				Fill:     "rgba(255, 220, 220, 0.6)",
+				HasAlpha: true,
 				Items: []diagram.SequenceItem{
 					diagram.NewMessageItem(diagram.Message{
 						From: "A", To: "B", Label: "inside",

@@ -418,8 +418,8 @@ func TestParseTitleDirective(t *testing.T) {
 
 func TestParseAccTitleAccDescr(t *testing.T) {
 	cases := []struct {
-		name              string
-		src               string
+		name                 string
+		src                  string
 		wantTitle, wantDescr string
 	}{
 		{
@@ -977,6 +977,9 @@ func TestParseRectWithRgba(t *testing.T) {
 	if b.Fill != "rgba(255, 220, 220, 0.6)" {
 		t.Errorf("Fill = %q, want %q", b.Fill, "rgba(255, 220, 220, 0.6)")
 	}
+	if !b.HasAlpha {
+		t.Error("HasAlpha = false, want true for rgba fill")
+	}
 }
 
 func TestParseRectWithHex(t *testing.T) {
@@ -988,6 +991,9 @@ func TestParseRectWithHex(t *testing.T) {
 	b := d.Items[0].Block
 	if b.Fill != "#ff0000" {
 		t.Errorf("Fill = %q, want %q", b.Fill, "#ff0000")
+	}
+	if b.HasAlpha {
+		t.Error("HasAlpha = true, want false for hex fill")
 	}
 }
 
@@ -1071,6 +1077,9 @@ func TestParseBoxWithColor(t *testing.T) {
 	}
 	if bx.Label != "Backend" {
 		t.Errorf("Label = %q, want %q", bx.Label, "Backend")
+	}
+	if bx.HasAlpha {
+		t.Error("HasAlpha = true, want false for rgb fill")
 	}
 }
 
@@ -1187,6 +1196,27 @@ func TestParseBoxWithHexColor(t *testing.T) {
 	}
 	if bx.Label != "Red" {
 		t.Errorf("Label = %q, want %q", bx.Label, "Red")
+	}
+	if bx.HasAlpha {
+		t.Error("HasAlpha = true, want false for hex fill")
+	}
+}
+
+func TestParseBoxWithRgba(t *testing.T) {
+	input := `sequenceDiagram
+    box rgba(255,220,220,0.6) Pink
+        participant A
+    end`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	bx := d.Boxes[0]
+	if bx.Fill != "rgba(255,220,220,0.6)" {
+		t.Errorf("Fill = %q, want %q", bx.Fill, "rgba(255,220,220,0.6)")
+	}
+	if !bx.HasAlpha {
+		t.Error("HasAlpha = false, want true for rgba fill")
 	}
 }
 

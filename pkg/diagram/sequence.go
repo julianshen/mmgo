@@ -15,9 +15,10 @@ func (p ParticipantKind) String() string { return enumString(p, participantKindN
 
 // Participant is a column in a sequence diagram.
 type Box struct {
-	Label   string
-	Fill    string
-	Members []string
+	Label    string
+	Fill     string
+	HasAlpha bool
+	Members  []string
 }
 
 type Participant struct {
@@ -74,6 +75,32 @@ var arrowTypeNames = []string{
 }
 
 func (a ArrowType) String() string { return enumString(a, arrowTypeNames) }
+
+func (a ArrowType) HasArrowHead() bool {
+	return a != ArrowTypeSolidNoHead && a != ArrowTypeDashedNoHead
+}
+
+func (a ArrowType) IsBidirectional() bool {
+	return a == ArrowTypeSolidBi || a == ArrowTypeDashedBi
+}
+
+func (a ArrowType) IsDashed() bool {
+	switch a {
+	case ArrowTypeDashed, ArrowTypeDashedNoHead,
+		ArrowTypeDashedCross, ArrowTypeDashedOpen,
+		ArrowTypeDashedBi:
+		return true
+	default:
+		return false
+	}
+}
+
+func (a ArrowType) MarkerRef() string {
+	if a.HasArrowHead() && !a.IsBidirectional() {
+		return "url(#seq-arrow-" + a.String() + ")"
+	}
+	return ""
+}
 
 // LifelineEffect describes the effect of a message on the receiver's lifeline
 // activation bar. Modeled as a single enum (rather than two bools) so that
@@ -170,6 +197,7 @@ type Block struct {
 	Branches []Block
 	Kind     BlockKind
 	Fill     string
+	HasAlpha bool
 }
 
 // NotePosition describes where a note is drawn relative to participants.
