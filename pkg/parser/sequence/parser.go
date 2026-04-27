@@ -82,6 +82,7 @@ type parser struct {
 
 type boxFrameState struct {
 	fill      string
+	hasAlpha  bool
 	label     string
 	memberIDs []string
 }
@@ -310,20 +311,20 @@ func matchBlockOpen(line string) (diagram.BlockKind, string, bool) {
 	return 0, "", false
 }
 
-func parseColorValue(s string) (color, rest string) {
+func parseColorValue(s string) (color, rest string, hasAlpha bool) {
 	if strings.HasPrefix(s, "rgba(") {
 		closeIdx := strings.IndexByte(s, ')')
 		if closeIdx < 0 {
-			return "", s
+			return "", s, false
 		}
-		return s[:closeIdx+1], strings.TrimSpace(s[closeIdx+1:])
+		return s[:closeIdx+1], strings.TrimSpace(s[closeIdx+1:]), true
 	}
 	if strings.HasPrefix(s, "rgb(") {
 		closeIdx := strings.IndexByte(s, ')')
 		if closeIdx < 0 {
-			return "", s
+			return "", s, false
 		}
-		return s[:closeIdx+1], strings.TrimSpace(s[closeIdx+1:])
+		return s[:closeIdx+1], strings.TrimSpace(s[closeIdx+1:]), false
 	}
 	if len(s) > 0 && s[0] == '#' {
 		i := 1
@@ -331,20 +332,20 @@ func parseColorValue(s string) (color, rest string) {
 			i++
 		}
 		if i >= 4 && i <= 9 {
-			return s[:i], strings.TrimSpace(s[i:])
+			return s[:i], strings.TrimSpace(s[i:]), false
 		}
 	}
-	return "", s
+	return "", s, false
 }
 
 func (p *parser) openBlock(kind diagram.BlockKind, label string) error {
 	var fill string
 	var hasAlpha bool
 	if kind == diagram.BlockKindRect {
-		color, rest := parseColorValue(label)
+		color, rest, alpha := parseColorValue(label)
 		fill = color
 		label = rest
-		hasAlpha = strings.HasPrefix(color, "rgba(")
+		hasAlpha = alpha
 	}
 	b := &diagram.Block{Kind: kind, Label: label, Fill: fill, HasAlpha: hasAlpha}
 	frame := &blockFrame{block: b, activeBranch: b}
@@ -366,10 +367,11 @@ func (p *parser) openBox(rest string) error {
 	if p.boxFrame != nil {
 		return fmt.Errorf("nested boxes are not allowed")
 	}
-	color, label := parseColorValue(rest)
+	color, label, hasAlpha := parseColorValue(rest)
 	p.boxFrame = &boxFrameState{
-		fill:  color,
-		label: strings.TrimSpace(label),
+		fill:     color,
+		hasAlpha: hasAlpha,
+		label:    strings.TrimSpace(label),
 	}
 	return nil
 }
@@ -381,7 +383,7 @@ func (p *parser) closeBox() error {
 	p.diagram.Boxes = append(p.diagram.Boxes, diagram.Box{
 		Label:    bx.label,
 		Fill:     bx.fill,
-		HasAlpha: strings.HasPrefix(bx.fill, "rgba("),
+		HasAlpha: bx.hasAlpha,
 		Members:  bx.memberIDs,
 	})
 	for _, id := range bx.memberIDs {

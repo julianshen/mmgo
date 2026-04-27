@@ -21,7 +21,6 @@ type messageRenderer struct {
 	lay                   seqLayout
 	th                    Theme
 	fontSize              float64
-	pIndex                map[string]int
 	curY                  float64
 	msgNum                int
 	autoNum               diagram.AutoNumber
@@ -56,7 +55,6 @@ func newMessageRenderer(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fon
 		lay:                   lay,
 		th:                    th,
 		fontSize:              fontSize,
-		pIndex:                lay.participantIx,
 		curY:                  lay.bodyStartY + defaultRowHeight/2,
 		msgNum:                d.AutoNumber.Start - d.AutoNumber.Step,
 		autoNum:               d.AutoNumber,
@@ -116,8 +114,8 @@ func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel 
 }
 
 func (mr *messageRenderer) renderMessage(m diagram.Message) []any {
-	fromIdx, fromOK := mr.pIndex[m.From]
-	toIdx, toOK := mr.pIndex[m.To]
+	fromIdx, fromOK := mr.lay.participantIx[m.From]
+	toIdx, toOK := mr.lay.participantIx[m.To]
 	if !fromOK || !toOK {
 		return nil
 	}
@@ -175,8 +173,8 @@ func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagra
 		X2: svgFloat(toX), Y2: svgFloat(y),
 		Style: style,
 	}
-	if m.ArrowType.HasArrowHead() && !m.ArrowType.IsBidirectional() {
-		l.MarkerEnd = fmt.Sprintf("url(#%s)", arrowMarkerID(m.ArrowType))
+	if ref := m.ArrowType.MarkerRef(); ref != "" {
+		l.MarkerEnd = ref
 	}
 	elems = append(elems, l)
 	if m.ArrowType.IsBidirectional() {
@@ -204,8 +202,8 @@ func (mr *messageRenderer) renderSelfMessage(x, y float64, m diagram.Message) []
 			x, y, selfLoopW, selfLoopH, -selfLoopW),
 		Style: style,
 	}
-	if m.ArrowType.HasArrowHead() && !m.ArrowType.IsBidirectional() {
-		p.MarkerEnd = fmt.Sprintf("url(#%s)", arrowMarkerID(m.ArrowType))
+	if ref := m.ArrowType.MarkerRef(); ref != "" {
+		p.MarkerEnd = ref
 	}
 
 	var elems []any
@@ -228,7 +226,7 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 	if len(n.Participants) == 0 {
 		return nil
 	}
-	idx0, ok := mr.pIndex[n.Participants[0]]
+	idx0, ok := mr.lay.participantIx[n.Participants[0]]
 	if !ok {
 		return nil
 	}
@@ -244,7 +242,7 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 		cx = x0 + noteOffset + w/2
 	case diagram.NotePositionOver:
 		if len(n.Participants) == 2 {
-			idx1, ok2 := mr.pIndex[n.Participants[1]]
+			idx1, ok2 := mr.lay.participantIx[n.Participants[1]]
 			if !ok2 {
 				return nil
 			}
@@ -384,7 +382,7 @@ func (mr *messageRenderer) handleLifeline(m diagram.Message) {
 }
 
 func (mr *messageRenderer) renderDestroy(id string) []any {
-	idx, ok := mr.pIndex[id]
+	idx, ok := mr.lay.participantIx[id]
 	if !ok {
 		return nil
 	}
@@ -407,7 +405,7 @@ func (mr *messageRenderer) flushActivations() []any {
 		}
 	}
 	sort.Slice(ids, func(i, j int) bool {
-		return mr.pIndex[ids[i]] < mr.pIndex[ids[j]]
+		return mr.lay.participantIx[ids[i]] < mr.lay.participantIx[ids[j]]
 	})
 	var elems []any
 	for _, id := range ids {
@@ -420,7 +418,7 @@ func (mr *messageRenderer) flushActivations() []any {
 }
 
 func (mr *messageRenderer) activationRect(id string, startY, endY float64) *rect {
-	idx := mr.pIndex[id]
+	idx := mr.lay.participantIx[id]
 	x := mr.lay.participantX[idx]
 	return &rect{
 		X: svgFloat(x - defaultActivationW/2), Y: svgFloat(startY),

@@ -95,6 +95,13 @@ func (a ArrowType) IsDashed() bool {
 	}
 }
 
+func (a ArrowType) MarkerRef() string {
+	if a.HasArrowHead() && !a.IsBidirectional() {
+		return "url(#seq-arrow-" + a.String() + ")"
+	}
+	return ""
+}
+
 // LifelineEffect describes the effect of a message on the receiver's lifeline
 // activation bar. Modeled as a single enum (rather than two bools) so that
 // contradictory states are unrepresentable.
