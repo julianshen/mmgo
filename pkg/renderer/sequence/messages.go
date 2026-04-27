@@ -76,6 +76,8 @@ func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel 
 			mr.destroyY[*item.Destroy] = mr.curY
 			elems = append(elems, mr.renderDestroy(*item.Destroy)...)
 			mr.curY += defaultRowHeight
+		case item.Activation != nil:
+			mr.handleStandaloneActivation(*item.Activation)
 		case item.Message != nil:
 			elems = append(elems, mr.renderMessage(*item.Message)...)
 			mr.curY += defaultRowHeight
@@ -321,6 +323,20 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 	}
 
 	return elems
+}
+
+func (mr *messageRenderer) handleStandaloneActivation(a diagram.Activation) {
+	if a.Activate {
+		mr.actStack[a.Participant] = append(mr.actStack[a.Participant], mr.curY)
+		return
+	}
+	stack := mr.actStack[a.Participant]
+	if len(stack) == 0 {
+		return
+	}
+	startY := stack[len(stack)-1]
+	mr.actStack[a.Participant] = stack[:len(stack)-1]
+	mr.actElems = append(mr.actElems, mr.activationRect(a.Participant, startY, mr.curY))
 }
 
 func (mr *messageRenderer) handleLifeline(m diagram.Message) {
