@@ -139,13 +139,21 @@ func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagra
 		X2: svgFloat(toX), Y2: svgFloat(y),
 		Style: style,
 	}
-	if hasArrowHead(m.ArrowType) {
+	if hasArrowHead(m.ArrowType) && !isBidirectional(m.ArrowType) {
 		l.MarkerEnd = fmt.Sprintf("url(#%s)", arrowMarkerID(m.ArrowType))
 	}
-	if isBidirectional(m.ArrowType) {
-		l.MarkerStart = fmt.Sprintf("url(#%s)", arrowBiStartMarkerID(m.ArrowType))
-	}
 	elems = append(elems, l)
+	if isBidirectional(m.ArrowType) {
+		// The PNG rasterizer (tdewolff/canvas) does not reliably render both
+		// marker-start and marker-end on the same line. Emit inline polygon
+		// arrowheads at each endpoint so both heads always appear.
+		dir := 1.0
+		if toX < fromX {
+			dir = -1.0
+		}
+		elems = append(elems, bidirArrowhead(toX, y, dir, mr.th.MessageStroke))
+		elems = append(elems, bidirArrowhead(fromX, y, -dir, mr.th.MessageStroke))
+	}
 
 	if m.Label != "" {
 		elems = append(elems, &text{
@@ -165,7 +173,7 @@ func (mr *messageRenderer) renderSelfMessage(x, y float64, m diagram.Message) []
 			x, y, selfLoopW, selfLoopH, -selfLoopW),
 		Style: style,
 	}
-	if hasArrowHead(m.ArrowType) {
+	if hasArrowHead(m.ArrowType) && !isBidirectional(m.ArrowType) {
 		p.MarkerEnd = fmt.Sprintf("url(#%s)", arrowMarkerID(m.ArrowType))
 	}
 
@@ -429,8 +437,20 @@ func isBidirectional(at diagram.ArrowType) bool {
 	return at == diagram.ArrowTypeSolidBi || at == diagram.ArrowTypeDashedBi
 }
 
-func arrowBiStartMarkerID(at diagram.ArrowType) string {
-	return fmt.Sprintf("seq-arrow-%s-start", at.String())
+// bidirArrowhead returns a filled triangle pointing in the +dir direction
+// (dir is +1 for right-pointing, -1 for left-pointing). The tip sits at
+// (tipX, tipY); the base is 8px back along the line.
+func bidirArrowhead(tipX, tipY, dir float64, fill string) *polygon {
+	const length = 8.0
+	const halfWidth = 4.0
+	baseX := tipX - dir*length
+	return &polygon{
+		Points: fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f",
+			tipX, tipY,
+			baseX, tipY-halfWidth,
+			baseX, tipY+halfWidth),
+		Style: fmt.Sprintf("fill:%s", fill),
+	}
 }
 
 func buildSequenceMarkers(th Theme) []marker {
@@ -467,26 +487,6 @@ func buildSequenceMarkers(th Theme) []marker {
 			ID: arrowMarkerID(diagram.ArrowTypeDashedOpen), ViewBox: "0 0 10 10",
 			RefX: 10, RefY: 5, Width: 8, Height: 8, Orient: "auto",
 			Children: []any{&polyline{Points: "0,1 10,5 0,9", Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;fill:none", stroke, sw)}},
-		},
-		{
-			ID: arrowMarkerID(diagram.ArrowTypeSolidBi), ViewBox: "0 0 10 10",
-			RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto",
-			Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", stroke)}},
-		},
-		{
-			ID: arrowMarkerID(diagram.ArrowTypeDashedBi), ViewBox: "0 0 10 10",
-			RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto",
-			Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", stroke)}},
-		},
-		{
-			ID: arrowBiStartMarkerID(diagram.ArrowTypeSolidBi), ViewBox: "0 0 10 10",
-			RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto-start-reverse",
-			Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", stroke)}},
-		},
-		{
-			ID: arrowBiStartMarkerID(diagram.ArrowTypeDashedBi), ViewBox: "0 0 10 10",
-			RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto-start-reverse",
-			Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", stroke)}},
 		},
 	}
 }
