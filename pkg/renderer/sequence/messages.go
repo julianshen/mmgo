@@ -5,7 +5,6 @@ import (
 	"math"
 	"regexp"
 	"sort"
-	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
@@ -18,25 +17,24 @@ const (
 )
 
 type messageRenderer struct {
-	lay          seqLayout
-	th           Theme
-	fontSize     float64
-	pIndex       map[string]int
-	curY         float64
-	msgNum       int
-	autoNum      diagram.AutoNumber
-	actStack     map[string][]float64
-	actElems     []any
-	participants []diagram.Participant
-	created      map[string]bool
-	createdAtIdx map[int]int
-	createY      map[string]float64
-	destroyY     map[string]float64
-	// autoNumStyles is non-nil iff autoNum.Enabled. Grouping the two
-	// pre-formatted style strings under one nilable pointer makes the
-	// "enabled implies styles present" invariant unrepresentable when
-	// violated, mirroring accDescrBlock in the parser.
-	autoNumStyles *autoNumStyles
+	lay                   seqLayout
+	th                    Theme
+	fontSize              float64
+	pIndex                map[string]int
+	curY                  float64
+	msgNum                int
+	autoNum               diagram.AutoNumber
+	actStack              map[string][]float64
+	actElems              []any
+	participants          []diagram.Participant
+	created               map[string]bool
+	createdAtIdx          map[int]int
+	createY               map[string]float64
+	destroyY              map[string]float64
+	autoNumStyles         *autoNumStyles
+	msgTextStyle          string
+	msgTextSmallStyle     string
+	msgTextSmallBoldStyle string
 }
 
 type autoNumStyles struct {
@@ -52,19 +50,22 @@ func newMessageRenderer(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fon
 		}
 	}
 	mr := &messageRenderer{
-		lay:          lay,
-		th:           th,
-		fontSize:     fontSize,
-		pIndex:       lay.participantIx,
-		curY:         lay.bodyStartY + defaultRowHeight/2,
-		msgNum:       d.AutoNumber.Start - d.AutoNumber.Step,
-		autoNum:      d.AutoNumber,
-		actStack:     make(map[string][]float64),
-		participants: d.Participants,
-		created:      make(map[string]bool),
-		createdAtIdx: createdAtIdx,
-		createY:      make(map[string]float64),
-		destroyY:     make(map[string]float64),
+		lay:                   lay,
+		th:                    th,
+		fontSize:              fontSize,
+		pIndex:                lay.participantIx,
+		curY:                  lay.bodyStartY + defaultRowHeight/2,
+		msgNum:                d.AutoNumber.Start - d.AutoNumber.Step,
+		autoNum:               d.AutoNumber,
+		actStack:              make(map[string][]float64),
+		participants:          d.Participants,
+		created:               make(map[string]bool),
+		createdAtIdx:          createdAtIdx,
+		createY:               make(map[string]float64),
+		destroyY:              make(map[string]float64),
+		msgTextStyle:          fmt.Sprintf("fill:%s;font-size:%.0fpx", th.MessageText, fontSize),
+		msgTextSmallStyle:     fmt.Sprintf("fill:%s;font-size:%.0fpx", th.MessageText, fontSize-1),
+		msgTextSmallBoldStyle: fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.MessageText, fontSize-1),
 	}
 	if d.AutoNumber.Enabled {
 		mr.autoNumStyles = &autoNumStyles{
@@ -85,7 +86,7 @@ func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel 
 					mr.created[p.ID] = true
 					mr.createY[p.ID] = mr.curY
 					x := mr.lay.participantX[pi]
-					elems = append(elems, drawParticipant(p.Kind, x, mr.curY-defaultRowHeight/2+2, p.Label(), mr.th, mr.fontSize)...)
+					elems = append(elems, drawParticipant(p.Kind, x, mr.curY-defaultRowHeight/2+2, mr.lay.participantW[pi], p.Label(), mr.th, mr.fontSize)...)
 				}
 			}
 		}
@@ -169,11 +170,11 @@ func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagra
 		X2: svgFloat(toX), Y2: svgFloat(y),
 		Style: style,
 	}
-	if hasArrowHead(m.ArrowType) && !isBidirectional(m.ArrowType) {
+	if m.ArrowType.HasArrowHead() && !m.ArrowType.IsBidirectional() {
 		l.MarkerEnd = fmt.Sprintf("url(#%s)", arrowMarkerID(m.ArrowType))
 	}
 	elems = append(elems, l)
-	if isBidirectional(m.ArrowType) {
+	if m.ArrowType.IsBidirectional() {
 		// The PNG rasterizer (tdewolff/canvas) does not reliably render both
 		// marker-start and marker-end on the same line. Emit inline polygon
 		// arrowheads at each endpoint so both heads always appear.
@@ -186,8 +187,7 @@ func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagra
 	}
 
 	if m.Label != "" {
-		labelStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize)
-		elems = append(elems, multilineTextAbove(m.Label, mid, y-6, "middle", labelStyle, mr.fontSize)...)
+		elems = append(elems, multilineTextAbove(m.Label, mid, y-6, "middle", mr.msgTextStyle, mr.fontSize)...)
 	}
 	return elems
 }
@@ -199,15 +199,14 @@ func (mr *messageRenderer) renderSelfMessage(x, y float64, m diagram.Message) []
 			x, y, selfLoopW, selfLoopH, -selfLoopW),
 		Style: style,
 	}
-	if hasArrowHead(m.ArrowType) && !isBidirectional(m.ArrowType) {
+	if m.ArrowType.HasArrowHead() && !m.ArrowType.IsBidirectional() {
 		p.MarkerEnd = fmt.Sprintf("url(#%s)", arrowMarkerID(m.ArrowType))
 	}
 
 	var elems []any
 	elems = append(elems, p)
 	if m.Label != "" {
-		style := fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize)
-		elems = append(elems, multilineText(m.Label, x+selfLoopW+4, y+selfLoopH/2, "start", "central", style, mr.fontSize)...)
+		elems = append(elems, multilineText(m.Label, x+selfLoopW+4, y+selfLoopH/2, "start", "central", mr.msgTextStyle, mr.fontSize)...)
 	}
 	return elems
 }
@@ -253,7 +252,6 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 	}
 
 	rx := cx - w/2
-	style := fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize)
 	out := []any{
 		&rect{
 			X: svgFloat(rx), Y: svgFloat(y - noteH/2),
@@ -262,7 +260,7 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f", mr.th.NoteFill, mr.th.MessageStroke, defaultStrokeWidth),
 		},
 	}
-	out = append(out, multilineText(n.Text, cx, y, "middle", "central", style, mr.fontSize)...)
+	out = append(out, multilineText(n.Text, cx, y, "middle", "central", mr.msgTextStyle, mr.fontSize)...)
 	return out
 }
 
@@ -294,7 +292,7 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 
 	blockStyle := fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.1f", mr.th.MessageStroke, defaultStrokeWidth)
 	if b.Kind == diagram.BlockKindRect && b.Fill != "" {
-		if strings.HasPrefix(b.Fill, "rgba(") {
+		if b.HasAlpha {
 			blockStyle = fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f", b.Fill, mr.th.MessageStroke, defaultStrokeWidth)
 		} else {
 			blockStyle = fmt.Sprintf("fill:%s;fill-opacity:0.2;stroke:%s;stroke-width:%.1f", b.Fill, mr.th.MessageStroke, defaultStrokeWidth)
@@ -319,7 +317,7 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 	elems = append(elems, &text{
 		X: svgFloat(x + notePad), Y: svgFloat(startY - defaultRowHeight/4 + 14),
 		Anchor: "start", Dominant: "auto",
-		Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", mr.th.MessageText, mr.fontSize-1),
+		Style:   mr.msgTextSmallBoldStyle,
 		Content: kindLabel,
 	})
 
@@ -328,7 +326,7 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 			X:      svgFloat(x + kindLabelW + 3*notePad),
 			Y:      svgFloat(startY - defaultRowHeight/4 + 14),
 			Anchor: "start", Dominant: "auto",
-			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize-1),
+			Style:   mr.msgTextSmallStyle,
 			Content: "[" + b.Label + "]",
 		})
 	}
@@ -343,7 +341,7 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 			elems = append(elems, &text{
 				X: svgFloat(x + notePad), Y: svgFloat(brY + 14),
 				Anchor: "start", Dominant: "auto",
-				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize-1),
+				Style:   mr.msgTextSmallStyle,
 				Content: "[" + b.Branches[i].Label + "]",
 			})
 		}
@@ -491,21 +489,8 @@ func multilineTextAbove(content string, cx, anchorY float64, anchor, style strin
 	return multilineText(content, cx, cy, anchor, "auto", style, fontSize)
 }
 
-func hasArrowHead(at diagram.ArrowType) bool {
-	switch at {
-	case diagram.ArrowTypeSolidNoHead, diagram.ArrowTypeDashedNoHead:
-		return false
-	default:
-		return true
-	}
-}
-
 func arrowMarkerID(at diagram.ArrowType) string {
 	return fmt.Sprintf("seq-arrow-%s", at.String())
-}
-
-func isBidirectional(at diagram.ArrowType) bool {
-	return at == diagram.ArrowTypeSolidBi || at == diagram.ArrowTypeDashedBi
 }
 
 // bidirArrowhead returns a filled triangle pointing in the +dir direction

@@ -418,8 +418,8 @@ func TestParseTitleDirective(t *testing.T) {
 
 func TestParseAccTitleAccDescr(t *testing.T) {
 	cases := []struct {
-		name              string
-		src               string
+		name                 string
+		src                  string
 		wantTitle, wantDescr string
 	}{
 		{
@@ -977,6 +977,9 @@ func TestParseRectWithRgba(t *testing.T) {
 	if b.Fill != "rgba(255, 220, 220, 0.6)" {
 		t.Errorf("Fill = %q, want %q", b.Fill, "rgba(255, 220, 220, 0.6)")
 	}
+	if !b.HasAlpha {
+		t.Error("HasAlpha = false, want true for rgba fill")
+	}
 }
 
 func TestParseRectWithHex(t *testing.T) {
@@ -988,6 +991,9 @@ func TestParseRectWithHex(t *testing.T) {
 	b := d.Items[0].Block
 	if b.Fill != "#ff0000" {
 		t.Errorf("Fill = %q, want %q", b.Fill, "#ff0000")
+	}
+	if b.HasAlpha {
+		t.Error("HasAlpha = true, want false for hex fill")
 	}
 }
 

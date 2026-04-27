@@ -258,28 +258,28 @@ func renderParticipants(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fon
 	var elems []any
 	for i, p := range d.Participants {
 		x := lay.participantX[i]
+		w := lay.participantW[i]
 		label := p.Label()
 		_, isCreated := createY[p.ID]
 		_, isDestroyed := destroyY[p.ID]
 		if !isCreated {
-			elems = append(elems, drawParticipant(p.Kind, x, lay.topY, label, th, fontSize)...)
+			elems = append(elems, drawParticipant(p.Kind, x, lay.topY, w, label, th, fontSize)...)
 		}
 		if !isDestroyed {
-			elems = append(elems, drawParticipant(p.Kind, x, lay.bottomY, label, th, fontSize)...)
+			elems = append(elems, drawParticipant(p.Kind, x, lay.bottomY, w, label, th, fontSize)...)
 		}
 	}
 	return elems
 }
 
-func drawParticipant(kind diagram.ParticipantKind, cx, topY float64, label string, th Theme, fontSize float64) []any {
+func drawParticipant(kind diagram.ParticipantKind, cx, topY, w float64, label string, th Theme, fontSize float64) []any {
 	if kind == diagram.ParticipantKindActor {
 		return renderActor(cx, topY, label, th, fontSize)
 	}
-	return renderParticipantBox(cx, topY, label, th, fontSize)
+	return renderParticipantBox(cx, topY, w, label, th, fontSize)
 }
 
-func renderParticipantBox(cx, topY float64, label string, th Theme, fontSize float64) []any {
-	w := textmeasure.EstimateWidth(label, fontSize) + 2*defaultBoxPadX
+func renderParticipantBox(cx, topY, w float64, label string, th Theme, fontSize float64) []any {
 	h := defaultBoxHeight
 	rx := cx - w/2
 	ry := topY

@@ -311,7 +311,6 @@ func matchBlockOpen(line string) (diagram.BlockKind, string, bool) {
 }
 
 func parseColorValue(s string) (color, rest string) {
-	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "rgba(") {
 		closeIdx := strings.IndexByte(s, ')')
 		if closeIdx < 0 {
@@ -340,12 +339,14 @@ func parseColorValue(s string) (color, rest string) {
 
 func (p *parser) openBlock(kind diagram.BlockKind, label string) error {
 	var fill string
+	var hasAlpha bool
 	if kind == diagram.BlockKindRect {
 		color, rest := parseColorValue(label)
 		fill = color
 		label = rest
+		hasAlpha = strings.HasPrefix(color, "rgba(")
 	}
-	b := &diagram.Block{Kind: kind, Label: label, Fill: fill}
+	b := &diagram.Block{Kind: kind, Label: label, Fill: fill, HasAlpha: hasAlpha}
 	frame := &blockFrame{block: b, activeBranch: b}
 	p.blockStack = append(p.blockStack, frame)
 	return nil
