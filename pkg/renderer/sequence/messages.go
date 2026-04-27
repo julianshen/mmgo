@@ -43,23 +43,26 @@ func newMessageRenderer(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fon
 			createdAtIdx[p.CreatedAtItem] = i
 		}
 	}
-	return &messageRenderer{
-		lay:                lay,
-		th:                 th,
-		fontSize:           fontSize,
-		pIndex:             lay.participantIx,
-		curY:               lay.bodyStartY + defaultRowHeight/2,
-		msgNum:             d.AutoNumber.Start - d.AutoNumber.Step,
-		autoNum:            d.AutoNumber,
-		actStack:           make(map[string][]float64),
-		participants:       d.Participants,
-		created:            make(map[string]bool),
-		createdAtIdx:       createdAtIdx,
-		createY:            make(map[string]float64),
-		destroyY:           make(map[string]float64),
-		autoNumCircleStyle: fmt.Sprintf("fill:%s;stroke:none", th.MessageStroke),
-		autoNumTextStyle:   fmt.Sprintf("fill:#fff;font-size:%.0fpx;font-weight:bold", fontSize-2),
+	mr := &messageRenderer{
+		lay:          lay,
+		th:           th,
+		fontSize:     fontSize,
+		pIndex:       lay.participantIx,
+		curY:         lay.bodyStartY + defaultRowHeight/2,
+		msgNum:       d.AutoNumber.Start - d.AutoNumber.Step,
+		autoNum:      d.AutoNumber,
+		actStack:     make(map[string][]float64),
+		participants: d.Participants,
+		created:      make(map[string]bool),
+		createdAtIdx: createdAtIdx,
+		createY:      make(map[string]float64),
+		destroyY:     make(map[string]float64),
 	}
+	if d.AutoNumber.Enabled {
+		mr.autoNumCircleStyle = fmt.Sprintf("fill:%s;stroke:none", th.MessageStroke)
+		mr.autoNumTextStyle = fmt.Sprintf("fill:#fff;font-size:%.0fpx;font-weight:bold", fontSize-2)
+	}
+	return mr
 }
 
 func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel bool) []any {

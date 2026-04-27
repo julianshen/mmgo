@@ -72,9 +72,12 @@ type parser struct {
 	participantIx   map[string]int
 	blockStack      []*blockFrame
 	boxFrame        *boxFrameState
-	destroyed       map[string]bool
-	inAccDescrBlock bool
-	accDescrBuf     strings.Builder
+	destroyed     map[string]bool
+	// accDescrBlock is non-nil while the parser is inside an
+	// `accDescr {…}` multi-line block; nil otherwise. The pointer-vs-bool
+	// representation makes the in-block state and the buffer one
+	// indivisible field.
+	accDescrBlock *strings.Builder
 }
 
 type boxFrameState struct {
@@ -86,25 +89,6 @@ type boxFrameState struct {
 type blockFrame struct {
 	block        *diagram.Block
 	activeBranch *diagram.Block
-}
-
-// trimAccessibilityKeyword matches `kw`, `kw <value>`, `kw:<value>`, or
-// `kw: <value>` and returns the trimmed value (or "{" for a block open).
-// Critically, it requires kw to end on a word boundary (end-of-line,
-// whitespace, or `:`) so `accDescr` does NOT match `accDescription`.
-func trimAccessibilityKeyword(line, kw string) (string, bool) {
-	if !strings.HasPrefix(line, kw) {
-		return "", false
-	}
-	rest := line[len(kw):]
-	if rest == "" {
-		return "", true
-	}
-	switch rest[0] {
-	case ':', ' ', '\t':
-		return strings.TrimLeft(rest, ": \t"), true
-	}
-	return "", false
 }
 
 // trimKeyword returns the whitespace-trimmed remainder after kw when
@@ -129,17 +113,16 @@ func (p *parser) parseLine(line string) error {
 	// Inside an accDescr {…} block every line is description text — must
 	// short-circuit before any other dispatch, otherwise lines containing
 	// "note", "end", etc. would be mis-parsed as diagram statements.
-	if p.inAccDescrBlock {
+	if p.accDescrBlock != nil {
 		if line == "}" {
-			p.inAccDescrBlock = false
-			p.diagram.AccDescr = p.accDescrBuf.String()
-			p.accDescrBuf.Reset()
+			p.diagram.AccDescr = p.accDescrBlock.String()
+			p.accDescrBlock = nil
 			return nil
 		}
-		if p.accDescrBuf.Len() > 0 {
-			p.accDescrBuf.WriteByte('\n')
+		if p.accDescrBlock.Len() > 0 {
+			p.accDescrBlock.WriteByte('\n')
 		}
-		p.accDescrBuf.WriteString(line)
+		p.accDescrBlock.WriteString(line)
 		return nil
 	}
 	if rest, ok := trimKeyword(line, "participant"); ok {
@@ -192,13 +175,14 @@ func (p *parser) parseLine(line string) error {
 		p.diagram.Title = rest
 		return nil
 	}
-	if rest, ok := trimAccessibilityKeyword(line, "accTitle"); ok {
-		p.diagram.AccTitle = rest
+	if parserutil.HasHeaderKeyword(line, "accTitle") {
+		p.diagram.AccTitle = parserutil.TrimKeyword(line, "accTitle")
 		return nil
 	}
-	if rest, ok := trimAccessibilityKeyword(line, "accDescr"); ok {
+	if parserutil.HasHeaderKeyword(line, "accDescr") {
+		rest := parserutil.TrimKeyword(line, "accDescr")
 		if rest == "{" {
-			p.inAccDescrBlock = true
+			p.accDescrBlock = &strings.Builder{}
 			return nil
 		}
 		p.diagram.AccDescr = rest
