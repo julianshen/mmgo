@@ -691,7 +691,11 @@ func TestRenderBlockWithBranches(t *testing.T) {
 
 // --- Helpers ---
 
-func TestRenderBidirectionalSolidHasBothMarkers(t *testing.T) {
+// Bidirectional arrows (<<->>, <<-->>) emit inline polygon arrowheads at
+// both endpoints rather than relying on SVG marker-start/marker-end. The
+// marker-based form was unreliable in PNG rasterizers, which often render
+// only one of the two markers per line. See audit gap G2.
+func TestRenderBidirectionalSolidHasBothArrowheads(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
 			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
@@ -709,14 +713,11 @@ func TestRenderBidirectionalSolidHasBothMarkers(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	if !strings.Contains(raw, `marker-start`) {
-		t.Error("bidirectional solid should have marker-start")
+	if strings.Contains(raw, `marker-start`) || strings.Contains(raw, `marker-end`) {
+		t.Error("bidirectional should not depend on marker-start/marker-end (unreliable in rasterizers)")
 	}
-	if !strings.Contains(raw, `marker-end`) {
-		t.Error("bidirectional solid should have marker-end")
-	}
-	if !strings.Contains(raw, "auto-start-reverse") {
-		t.Error("bidirectional start marker should use auto-start-reverse orient")
+	if n := strings.Count(raw, `<polygon`); n < 2 {
+		t.Errorf("bidirectional solid should emit two polygon arrowheads, found %d <polygon> elements", n)
 	}
 	assertValidSVG(t, out)
 }
@@ -742,11 +743,8 @@ func TestRenderBidirectionalDashedStyle(t *testing.T) {
 	if !strings.Contains(raw, "stroke-dasharray") {
 		t.Error("dashed bidirectional should have stroke-dasharray")
 	}
-	if !strings.Contains(raw, `marker-start`) {
-		t.Error("bidirectional dashed should have marker-start")
-	}
-	if !strings.Contains(raw, `marker-end`) {
-		t.Error("bidirectional dashed should have marker-end")
+	if n := strings.Count(raw, `<polygon`); n < 2 {
+		t.Errorf("bidirectional dashed should emit two polygon arrowheads, found %d <polygon> elements", n)
 	}
 	assertValidSVG(t, out)
 }
