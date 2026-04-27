@@ -70,6 +70,7 @@ type seqLayout struct {
 	bodyStartY    float64
 	bodyEndY      float64
 	bottomY       float64
+	maxHeaderH    float64
 	width         float64
 	height        float64
 }
@@ -154,6 +155,7 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 		bodyStartY:    bodyStart,
 		bodyEndY:      bodyEnd,
 		bottomY:       bottomY,
+		maxHeaderH:    maxHeaderH,
 		width:         totalW,
 		height:        totalH,
 	}
@@ -378,11 +380,24 @@ func renderBoxes(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize f
 		}
 
 		const boxPad = 10.0
-		x := lay.participantX[leftIdx] - lay.participantW[leftIdx]/2 - boxPad
+		boxX := lay.participantX[leftIdx] - lay.participantW[leftIdx]/2 - boxPad
 		right := lay.participantX[rightIdx] + lay.participantW[rightIdx]/2 + boxPad
-		w := right - x
-		h := lay.bodyEndY - lay.topY + boxPad
-		y := lay.topY - boxPad/2
+		boxW := right - boxX
+
+		titleFontSize := fontSize - 2
+		titleW := 0.0
+		if bx.Label != "" {
+			titleW = textmeasure.EstimateWidth(bx.Label, titleFontSize) + 2*boxPad
+		}
+		if titleW > boxW {
+			extra := (titleW - boxW) / 2
+			boxX -= extra
+			boxW = titleW
+		}
+
+		const titleStripH = 18.0
+		boxY := lay.topY - titleStripH - boxPad/2
+		boxH := (lay.bottomY + lay.maxHeaderH + boxPad) - boxY
 
 		fill := th.ParticipantFill
 		if bx.Fill != "" {
@@ -390,25 +405,25 @@ func renderBoxes(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize f
 		}
 		var style string
 		if bx.Fill != "" && bx.HasAlpha {
-			style = fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5",
+			style = fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f",
 				fill, th.ParticipantStroke, defaultStrokeWidth)
 		} else {
-			style = fmt.Sprintf("fill:%s;fill-opacity:0.15;stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5",
+			style = fmt.Sprintf("fill:%s;fill-opacity:0.15;stroke:%s;stroke-width:%.1f",
 				fill, th.ParticipantStroke, defaultStrokeWidth)
 		}
 
 		elems = append(elems, &rect{
-			X: svgFloat(x), Y: svgFloat(y),
-			Width: svgFloat(w), Height: svgFloat(h),
+			X: svgFloat(boxX), Y: svgFloat(boxY),
+			Width: svgFloat(boxW), Height: svgFloat(boxH),
 			RX: 3, RY: 3,
 			Style: style,
 		})
 
 		if bx.Label != "" {
 			elems = append(elems, &text{
-				X: svgFloat(x + boxPad), Y: svgFloat(y + fontSize + 2),
-				Anchor: "start", Dominant: "auto",
-				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.ParticipantText, fontSize-2),
+				X: svgFloat(boxX + boxW/2), Y: svgFloat(boxY + titleStripH/2),
+				Anchor: "middle", Dominant: "central",
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.ParticipantText, titleFontSize),
 				Content: bx.Label,
 			})
 		}
