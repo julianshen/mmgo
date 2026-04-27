@@ -224,9 +224,22 @@ func (k diagramKind) String() string {
 // invoking a parser that doesn't know about X.
 func detectDiagramKind(src []byte) (diagramKind, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(src))
+	inFrontmatter := false
+	frontmatterSeen := false
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "%%") {
+			continue
+		}
+		if !frontmatterSeen && !inFrontmatter && line == "---" {
+			inFrontmatter = true
+			frontmatterSeen = true
+			continue
+		}
+		if inFrontmatter {
+			if line == "---" {
+				inFrontmatter = false
+			}
 			continue
 		}
 		if parserutil.HasHeaderKeyword(line, "graph") || parserutil.HasHeaderKeyword(line, "flowchart") {

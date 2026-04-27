@@ -208,6 +208,7 @@ type SequenceDiagram struct {
 	Items        []SequenceItem
 	AutoNumber   AutoNumber
 	Boxes        []Box
+	Title        string
 }
 
 // Type implements Diagram.
