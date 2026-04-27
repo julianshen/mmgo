@@ -115,19 +115,30 @@ func (mr *messageRenderer) renderMessage(m diagram.Message) []any {
 	}
 
 	if mr.autoNum.Enabled {
-		midX := (fromX + toX) / 2
-		if fromIdx == toIdx {
-			midX = fromX + selfLoopW/2
-		}
-		elems = append(elems, &text{
-			X: svgFloat(midX), Y: svgFloat(y - 18),
-			Anchor: "middle", Dominant: "auto",
-			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", mr.th.MessageText, mr.fontSize-2),
-			Content: fmt.Sprintf("%d", mr.msgNum),
-		})
+		elems = append(elems, autoNumberBadge(fromX, y, mr.msgNum, mr.th, mr.fontSize)...)
 	}
 
 	return elems
+}
+
+// autoNumberBadge renders the Mermaid autonumber marker: a filled circle
+// on the source side of the arrow with white numerals centered inside.
+// Matches the mmdc reference visual rather than the prior plain-text form.
+func autoNumberBadge(srcX, y float64, n int, th Theme, fontSize float64) []any {
+	const radius = 10.0
+	return []any{
+		&circle{
+			CX: svgFloat(srcX), CY: svgFloat(y),
+			R:     svgFloat(radius),
+			Style: fmt.Sprintf("fill:%s;stroke:none", th.MessageStroke),
+		},
+		&text{
+			X: svgFloat(srcX), Y: svgFloat(y),
+			Anchor: "middle", Dominant: "central",
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.Background, fontSize-2),
+			Content: fmt.Sprintf("%d", n),
+		},
+	}
 }
 
 func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagram.Message) []any {

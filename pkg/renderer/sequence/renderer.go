@@ -24,6 +24,14 @@ func Render(d *diagram.SequenceDiagram, opts *Options) ([]byte, error) {
 
 	var children []any
 
+	// SVG accessibility children must precede other content per spec
+	// so screen readers announce them as the document's name/desc.
+	if d.AccTitle != "" {
+		children = append(children, &title{Content: d.AccTitle})
+	}
+	if d.AccDescr != "" {
+		children = append(children, &desc{Content: d.AccDescr})
+	}
 	children = append(children, &defs{Markers: buildSequenceMarkers(th)})
 	children = append(children, &rect{
 		X: 0, Y: 0,

@@ -416,6 +416,47 @@ func TestParseTitleDirective(t *testing.T) {
 	}
 }
 
+func TestParseAccTitleAccDescr(t *testing.T) {
+	cases := []struct {
+		name              string
+		src               string
+		wantTitle, wantDescr string
+	}{
+		{
+			name:      "single-line both",
+			src:       "sequenceDiagram\naccTitle: My Title\naccDescr: One-liner\nA->>B: hi",
+			wantTitle: "My Title",
+			wantDescr: "One-liner",
+		},
+		{
+			name:      "multi-line accDescr block",
+			src:       "sequenceDiagram\naccDescr {\n  first\n  second\n}\nA->>B: hi",
+			wantTitle: "",
+			wantDescr: "first\nsecond",
+		},
+		{
+			name:      "neither",
+			src:       "sequenceDiagram\nA->>B: hi",
+			wantTitle: "",
+			wantDescr: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := Parse(strings.NewReader(tc.src))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if d.AccTitle != tc.wantTitle {
+				t.Errorf("AccTitle = %q, want %q", d.AccTitle, tc.wantTitle)
+			}
+			if d.AccDescr != tc.wantDescr {
+				t.Errorf("AccDescr = %q, want %q", d.AccDescr, tc.wantDescr)
+			}
+		})
+	}
+}
+
 func TestParseFrontmatterIgnoresUnknownKeys(t *testing.T) {
 	src := `---
 title: Hello

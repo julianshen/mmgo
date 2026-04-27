@@ -220,6 +220,53 @@ func TestRenderCustomOptions(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+func TestRenderAccTitleAccDescrEmitsTitleAndDesc(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		AccTitle: "Login flow",
+		AccDescr: "User authenticates against the auth service",
+		Participants: []diagram.Participant{
+			{ID: "U", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<title>Login flow</title>") {
+		t.Errorf("AccTitle not emitted as <title>: %s", raw)
+	}
+	if !strings.Contains(raw, "<desc>User authenticates against the auth service</desc>") {
+		t.Errorf("AccDescr not emitted as <desc>: %s", raw)
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderAutoNumberEmitsCircleBadge(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		AutoNumber: diagram.AutoNumber{Enabled: true, Start: 1, Step: 1},
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "B", Label: "hi", ArrowType: diagram.ArrowTypeSolid}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<circle") {
+		t.Error("autonumber should emit a <circle> badge")
+	}
+	if !strings.Contains(raw, ">1<") {
+		t.Error("autonumber should emit numeric content")
+	}
+	assertValidSVG(t, out)
+}
+
 func TestRenderTitleAppearsAboveDiagram(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Title: "My Sequence",

@@ -68,11 +68,12 @@ func Parse(r io.Reader) (*diagram.SequenceDiagram, error) {
 // diagram.Participants so that explicit declarations can upgrade an
 // entry that was implicitly registered by a prior message.
 type parser struct {
-	diagram       *diagram.SequenceDiagram
-	participantIx map[string]int
-	blockStack    []*blockFrame
-	boxFrame      *boxFrameState
-	destroyed     map[string]bool
+	diagram         *diagram.SequenceDiagram
+	participantIx   map[string]int
+	blockStack      []*blockFrame
+	boxFrame        *boxFrameState
+	destroyed       map[string]bool
+	inAccDescrBlock bool
 }
 
 type boxFrameState struct {
@@ -154,6 +155,32 @@ func (p *parser) parseLine(line string) error {
 	}
 	if rest, ok := trimKeyword(line, "title"); ok {
 		p.diagram.Title = rest
+		return nil
+	}
+	if rest, ok := strings.CutPrefix(line, "accTitle:"); ok {
+		p.diagram.AccTitle = strings.TrimSpace(rest)
+		return nil
+	}
+	if rest, ok := strings.CutPrefix(line, "accDescr:"); ok {
+		p.diagram.AccDescr = strings.TrimSpace(rest)
+		return nil
+	}
+	if rest, ok := strings.CutPrefix(line, "accDescr"); ok {
+		// Multi-line form: `accDescr {` ... `}`
+		if strings.TrimSpace(rest) == "{" {
+			p.inAccDescrBlock = true
+			return nil
+		}
+	}
+	if p.inAccDescrBlock {
+		if line == "}" {
+			p.inAccDescrBlock = false
+			return nil
+		}
+		if p.diagram.AccDescr != "" {
+			p.diagram.AccDescr += "\n"
+		}
+		p.diagram.AccDescr += line
 		return nil
 	}
 	if m, ok := parseMessage(line); ok {

@@ -209,6 +209,11 @@ type SequenceDiagram struct {
 	AutoNumber   AutoNumber
 	Boxes        []Box
 	Title        string
+	// AccTitle / AccDescr carry Mermaid's accessibility metadata. The
+	// SVG renderer emits them as <title> / <desc> elements for screen
+	// readers; they are otherwise invisible.
+	AccTitle string
+	AccDescr string
 }
 
 // Type implements Diagram.
