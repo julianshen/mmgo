@@ -440,6 +440,21 @@ func TestParseAccTitleAccDescr(t *testing.T) {
 			wantTitle: "",
 			wantDescr: "",
 		},
+		{
+			// Block content containing diagram keywords like "note" and "end"
+			// must NOT be re-dispatched. Ensures the inAccDescrBlock branch
+			// short-circuits at the top of parseLine.
+			name:      "block content with reserved words",
+			src:       "sequenceDiagram\naccDescr {\n  note about end-to-end flow\n  loop the request\n}\nA->>B: hi",
+			wantTitle: "",
+			wantDescr: "note about end-to-end flow\nloop the request",
+		},
+		{
+			name:      "space form",
+			src:       "sequenceDiagram\naccTitle Login Flow\naccDescr Plain text descr\nA->>B: hi",
+			wantTitle: "Login Flow",
+			wantDescr: "Plain text descr",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

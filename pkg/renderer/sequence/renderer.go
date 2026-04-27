@@ -24,8 +24,8 @@ func Render(d *diagram.SequenceDiagram, opts *Options) ([]byte, error) {
 
 	var children []any
 
-	// SVG accessibility children must precede other content per spec
-	// so screen readers announce them as the document's name/desc.
+	// <title>/<desc> must be the first children of <svg> for assistive
+	// tech to expose them as the document's accessible name/description.
 	if d.AccTitle != "" {
 		children = append(children, &title{Content: d.AccTitle})
 	}

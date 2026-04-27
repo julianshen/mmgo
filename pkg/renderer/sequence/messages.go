@@ -18,20 +18,22 @@ const (
 )
 
 type messageRenderer struct {
-	lay          seqLayout
-	th           Theme
-	fontSize     float64
-	pIndex       map[string]int
-	curY         float64
-	msgNum       int
-	autoNum      diagram.AutoNumber
-	actStack     map[string][]float64
-	actElems     []any
-	participants []diagram.Participant
-	created      map[string]bool
-	createdAtIdx map[int]int
-	createY      map[string]float64
-	destroyY     map[string]float64
+	lay                seqLayout
+	th                 Theme
+	fontSize           float64
+	pIndex             map[string]int
+	curY               float64
+	msgNum             int
+	autoNum            diagram.AutoNumber
+	actStack           map[string][]float64
+	actElems           []any
+	participants       []diagram.Participant
+	created            map[string]bool
+	createdAtIdx       map[int]int
+	createY            map[string]float64
+	destroyY           map[string]float64
+	autoNumCircleStyle string
+	autoNumTextStyle   string
 }
 
 func newMessageRenderer(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize float64) *messageRenderer {
@@ -42,19 +44,21 @@ func newMessageRenderer(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fon
 		}
 	}
 	return &messageRenderer{
-		lay:          lay,
-		th:           th,
-		fontSize:     fontSize,
-		pIndex:       lay.participantIx,
-		curY:         lay.bodyStartY + defaultRowHeight/2,
-		msgNum:       d.AutoNumber.Start - d.AutoNumber.Step,
-		autoNum:      d.AutoNumber,
-		actStack:     make(map[string][]float64),
-		participants: d.Participants,
-		created:      make(map[string]bool),
-		createdAtIdx: createdAtIdx,
-		createY:      make(map[string]float64),
-		destroyY:     make(map[string]float64),
+		lay:                lay,
+		th:                 th,
+		fontSize:           fontSize,
+		pIndex:             lay.participantIx,
+		curY:               lay.bodyStartY + defaultRowHeight/2,
+		msgNum:             d.AutoNumber.Start - d.AutoNumber.Step,
+		autoNum:            d.AutoNumber,
+		actStack:           make(map[string][]float64),
+		participants:       d.Participants,
+		created:            make(map[string]bool),
+		createdAtIdx:       createdAtIdx,
+		createY:            make(map[string]float64),
+		destroyY:           make(map[string]float64),
+		autoNumCircleStyle: fmt.Sprintf("fill:%s;stroke:none", th.MessageStroke),
+		autoNumTextStyle:   fmt.Sprintf("fill:#fff;font-size:%.0fpx;font-weight:bold", fontSize-2),
 	}
 }
 
@@ -115,30 +119,32 @@ func (mr *messageRenderer) renderMessage(m diagram.Message) []any {
 	}
 
 	if mr.autoNum.Enabled {
-		elems = append(elems, autoNumberBadge(fromX, y, mr.msgNum, mr.th, mr.fontSize)...)
+		elems = mr.appendAutoNumberBadge(elems, fromX, y, mr.msgNum)
 	}
 
 	return elems
 }
 
-// autoNumberBadge renders the Mermaid autonumber marker: a filled circle
-// on the source side of the arrow with white numerals centered inside.
-// Matches the mmdc reference visual rather than the prior plain-text form.
-func autoNumberBadge(srcX, y float64, n int, th Theme, fontSize float64) []any {
-	const radius = 10.0
-	return []any{
+const autoNumberRadius = 10.0
+
+// appendAutoNumberBadge appends the Mermaid autonumber marker (filled
+// circle with white numeral centered inside) to elems. White-on-stroke
+// is used regardless of theme so the digits stay legible — Theme.Background
+// would invert on dark themes and put white-on-white.
+func (mr *messageRenderer) appendAutoNumberBadge(elems []any, srcX, y float64, n int) []any {
+	return append(elems,
 		&circle{
 			CX: svgFloat(srcX), CY: svgFloat(y),
-			R:     svgFloat(radius),
-			Style: fmt.Sprintf("fill:%s;stroke:none", th.MessageStroke),
+			R:     svgFloat(autoNumberRadius),
+			Style: mr.autoNumCircleStyle,
 		},
 		&text{
 			X: svgFloat(srcX), Y: svgFloat(y),
 			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.Background, fontSize-2),
+			Style:   mr.autoNumTextStyle,
 			Content: fmt.Sprintf("%d", n),
 		},
-	}
+	)
 }
 
 func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagram.Message) []any {
