@@ -3,6 +3,7 @@ package sequence
 import (
 	"bytes"
 	"encoding/xml"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -218,6 +219,102 @@ func TestRenderCustomOptions(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	assertValidSVG(t, out)
+}
+
+func TestRenderAccTitleAccDescrEmitsTitleAndDesc(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		AccTitle: "Login flow",
+		AccDescr: "User authenticates against the auth service",
+		Participants: []diagram.Participant{
+			{ID: "U", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<title>Login flow</title>") {
+		t.Errorf("AccTitle not emitted as <title>: %s", raw)
+	}
+	if !strings.Contains(raw, "<desc>User authenticates against the auth service</desc>") {
+		t.Errorf("AccDescr not emitted as <desc>: %s", raw)
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderAutoNumberEmitsCircleBadge(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		AutoNumber: diagram.AutoNumber{Enabled: true, Start: 1, Step: 1},
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "B", Label: "hi", ArrowType: diagram.ArrowTypeSolid}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">1<") {
+		t.Error("autonumber should emit numeric content")
+	}
+	// The badge must sit on the SOURCE side of the arrow (mmdc parity),
+	// not the midpoint or destination. Locate the circle's cx and the
+	// two participant lifeline x-coords; assert cx matches A's lifeline
+	// x, not B's, and not the midpoint.
+	circleCX, ok := autoNumberCircleCX(raw)
+	if !ok {
+		t.Fatal("autonumber should emit a <circle> badge with cx attr")
+	}
+	xs := lifelineXs(t, raw)
+	if len(xs) < 2 {
+		t.Fatalf("expected ≥2 lifeline xs, got %v", xs)
+	}
+	srcX, dstX := xs[0], xs[1]
+	mid := (srcX + dstX) / 2
+	if math.Abs(circleCX-srcX) > 0.5 {
+		t.Errorf("badge cx = %.2f, want source x = %.2f (dst=%.2f, mid=%.2f)", circleCX, srcX, dstX, mid)
+	}
+	assertValidSVG(t, out)
+}
+
+var (
+	circleRe = regexp.MustCompile(`<circle[^>]*cx="([^"]+)"[^>]*r="10\.00"`)
+	lineRe   = regexp.MustCompile(`<line x1="([^"]+)" y1="[^"]+" x2="([^"]+)"`)
+)
+
+func autoNumberCircleCX(raw string) (float64, bool) {
+	m := circleRe.FindStringSubmatch(raw)
+	if len(m) != 2 {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
+// lifelineXs returns x positions of vertical <line> elements (x1 == x2),
+// in source order. Lifelines are the only vertical lines in the SVG.
+func lifelineXs(t *testing.T, raw string) []float64 {
+	t.Helper()
+	var xs []float64
+	for _, m := range lineRe.FindAllStringSubmatch(raw, -1) {
+		if m[1] != m[2] {
+			continue
+		}
+		v, err := strconv.ParseFloat(m[1], 64)
+		if err != nil {
+			continue
+		}
+		xs = append(xs, v)
+	}
+	return xs
 }
 
 func TestRenderTitleAppearsAboveDiagram(t *testing.T) {

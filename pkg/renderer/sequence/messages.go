@@ -32,6 +32,16 @@ type messageRenderer struct {
 	createdAtIdx map[int]int
 	createY      map[string]float64
 	destroyY     map[string]float64
+	// autoNumStyles is non-nil iff autoNum.Enabled. Grouping the two
+	// pre-formatted style strings under one nilable pointer makes the
+	// "enabled implies styles present" invariant unrepresentable when
+	// violated, mirroring accDescrBlock in the parser.
+	autoNumStyles *autoNumStyles
+}
+
+type autoNumStyles struct {
+	circle string
+	text   string
 }
 
 func newMessageRenderer(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize float64) *messageRenderer {
@@ -41,7 +51,7 @@ func newMessageRenderer(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fon
 			createdAtIdx[p.CreatedAtItem] = i
 		}
 	}
-	return &messageRenderer{
+	mr := &messageRenderer{
 		lay:          lay,
 		th:           th,
 		fontSize:     fontSize,
@@ -56,6 +66,13 @@ func newMessageRenderer(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fon
 		createY:      make(map[string]float64),
 		destroyY:     make(map[string]float64),
 	}
+	if d.AutoNumber.Enabled {
+		mr.autoNumStyles = &autoNumStyles{
+			circle: fmt.Sprintf("fill:%s;stroke:none", th.MessageStroke),
+			text:   fmt.Sprintf("fill:#fff;font-size:%.0fpx;font-weight:bold", fontSize-2),
+		}
+	}
+	return mr
 }
 
 func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel bool) []any {
@@ -115,19 +132,31 @@ func (mr *messageRenderer) renderMessage(m diagram.Message) []any {
 	}
 
 	if mr.autoNum.Enabled {
-		midX := (fromX + toX) / 2
-		if fromIdx == toIdx {
-			midX = fromX + selfLoopW/2
-		}
-		elems = append(elems, &text{
-			X: svgFloat(midX), Y: svgFloat(y - 18),
-			Anchor: "middle", Dominant: "auto",
-			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", mr.th.MessageText, mr.fontSize-2),
-			Content: fmt.Sprintf("%d", mr.msgNum),
-		})
+		elems = mr.appendAutoNumberBadge(elems, fromX, y, mr.msgNum)
 	}
 
 	return elems
+}
+
+const autoNumberRadius = 10.0
+
+// White-on-stroke regardless of theme so the digit stays legible —
+// using Theme.Background would invert under dark themes and put
+// white text on a white circle.
+func (mr *messageRenderer) appendAutoNumberBadge(elems []any, srcX, y float64, n int) []any {
+	return append(elems,
+		&circle{
+			CX: svgFloat(srcX), CY: svgFloat(y),
+			R:     svgFloat(autoNumberRadius),
+			Style: mr.autoNumStyles.circle,
+		},
+		&text{
+			X: svgFloat(srcX), Y: svgFloat(y),
+			Anchor: "middle", Dominant: "central",
+			Style:   mr.autoNumStyles.text,
+			Content: fmt.Sprintf("%d", n),
+		},
+	)
 }
 
 func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagram.Message) []any {

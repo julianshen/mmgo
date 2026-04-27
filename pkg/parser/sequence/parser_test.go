@@ -416,6 +416,73 @@ func TestParseTitleDirective(t *testing.T) {
 	}
 }
 
+func TestParseAccTitleAccDescr(t *testing.T) {
+	cases := []struct {
+		name              string
+		src               string
+		wantTitle, wantDescr string
+	}{
+		{
+			name:      "single-line both",
+			src:       "sequenceDiagram\naccTitle: My Title\naccDescr: One-liner\nA->>B: hi",
+			wantTitle: "My Title",
+			wantDescr: "One-liner",
+		},
+		{
+			name:      "multi-line accDescr block",
+			src:       "sequenceDiagram\naccDescr {\n  first\n  second\n}\nA->>B: hi",
+			wantTitle: "",
+			wantDescr: "first\nsecond",
+		},
+		{
+			name:      "neither",
+			src:       "sequenceDiagram\nA->>B: hi",
+			wantTitle: "",
+			wantDescr: "",
+		},
+		{
+			// Block content containing diagram keywords like "note" and "end"
+			// must NOT be re-dispatched. Ensures the inAccDescrBlock branch
+			// short-circuits at the top of parseLine.
+			name:      "block content with reserved words",
+			src:       "sequenceDiagram\naccDescr {\n  note about end-to-end flow\n  loop the request\n}\nA->>B: hi",
+			wantTitle: "",
+			wantDescr: "note about end-to-end flow\nloop the request",
+		},
+		{
+			name:      "space form",
+			src:       "sequenceDiagram\naccTitle Login Flow\naccDescr Plain text descr\nA->>B: hi",
+			wantTitle: "Login Flow",
+			wantDescr: "Plain text descr",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := Parse(strings.NewReader(tc.src))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if d.AccTitle != tc.wantTitle {
+				t.Errorf("AccTitle = %q, want %q", d.AccTitle, tc.wantTitle)
+			}
+			if d.AccDescr != tc.wantDescr {
+				t.Errorf("AccDescr = %q, want %q", d.AccDescr, tc.wantDescr)
+			}
+		})
+	}
+}
+
+func TestParseUnclosedAccDescrBlock(t *testing.T) {
+	src := "sequenceDiagram\naccDescr {\n  unterminated\nA->>B: hi"
+	_, err := Parse(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error for unclosed accDescr block")
+	}
+	if !strings.Contains(err.Error(), "accDescr") {
+		t.Errorf("error should mention accDescr: %v", err)
+	}
+}
+
 func TestParseFrontmatterIgnoresUnknownKeys(t *testing.T) {
 	src := `---
 title: Hello

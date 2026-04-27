@@ -14,4 +14,6 @@ type (
 	path     = svgutil.Path
 	defs     = svgutil.Defs
 	marker   = svgutil.Marker
+	title    = svgutil.Title
+	desc     = svgutil.Desc
 )

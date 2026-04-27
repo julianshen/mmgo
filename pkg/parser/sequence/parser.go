@@ -61,6 +61,9 @@ func Parse(r io.Reader) (*diagram.SequenceDiagram, error) {
 	if len(p.blockStack) > 0 {
 		return nil, fmt.Errorf("unclosed %v block (missing 'end')", p.blockStack[len(p.blockStack)-1].block.Kind)
 	}
+	if p.accDescrBlock != nil {
+		return nil, fmt.Errorf("unclosed accDescr block (missing '}')")
+	}
 	return p.diagram, nil
 }
 
@@ -73,6 +76,8 @@ type parser struct {
 	blockStack    []*blockFrame
 	boxFrame      *boxFrameState
 	destroyed     map[string]bool
+	// non-nil while inside an accDescr {…} block.
+	accDescrBlock *strings.Builder
 }
 
 type boxFrameState struct {
@@ -90,7 +95,6 @@ type blockFrame struct {
 // line starts with kw followed by end-of-string or whitespace. The
 // word-boundary check prevents `sequenceDiagramX` from matching
 // `sequenceDiagram`.
-
 func trimKeyword(line, kw string) (string, bool) {
 	if !strings.HasPrefix(line, kw) {
 		return "", false
@@ -106,6 +110,21 @@ func trimKeyword(line, kw string) (string, bool) {
 }
 
 func (p *parser) parseLine(line string) error {
+	// Inside an accDescr {…} block every line is description text — must
+	// short-circuit before any other dispatch, otherwise lines containing
+	// "note", "end", etc. would be mis-parsed as diagram statements.
+	if p.accDescrBlock != nil {
+		if line == "}" {
+			p.diagram.AccDescr = p.accDescrBlock.String()
+			p.accDescrBlock = nil
+			return nil
+		}
+		if p.accDescrBlock.Len() > 0 {
+			p.accDescrBlock.WriteByte('\n')
+		}
+		p.accDescrBlock.WriteString(line)
+		return nil
+	}
 	if rest, ok := trimKeyword(line, "participant"); ok {
 		return p.parseParticipant(rest, diagram.ParticipantKindParticipant)
 	}
@@ -154,6 +173,19 @@ func (p *parser) parseLine(line string) error {
 	}
 	if rest, ok := trimKeyword(line, "title"); ok {
 		p.diagram.Title = rest
+		return nil
+	}
+	if parserutil.HasHeaderKeyword(line, "accTitle") {
+		p.diagram.AccTitle = parserutil.TrimKeyword(line, "accTitle")
+		return nil
+	}
+	if parserutil.HasHeaderKeyword(line, "accDescr") {
+		rest := parserutil.TrimKeyword(line, "accDescr")
+		if rest == "{" {
+			p.accDescrBlock = &strings.Builder{}
+			return nil
+		}
+		p.diagram.AccDescr = rest
 		return nil
 	}
 	if m, ok := parseMessage(line); ok {
@@ -402,6 +434,35 @@ func splitParticipantList(s string) []string {
 	return out
 }
 
+func (p *parser) registerParticipant(id, alias string, kind diagram.ParticipantKind, createdAt int, upgradeExisting bool) {
+	if existing, ok := p.participantIx[id]; ok {
+		if upgradeExisting {
+			p.diagram.Participants[existing].Kind = kind
+			if alias != "" {
+				p.diagram.Participants[existing].Alias = alias
+			}
+		}
+		if createdAt >= 0 {
+			p.diagram.Participants[existing].CreatedAtItem = createdAt
+		}
+		if p.boxFrame != nil && p.diagram.Participants[existing].BoxIndex == -1 {
+			p.diagram.Participants[existing].BoxIndex = len(p.diagram.Boxes)
+			p.boxFrame.memberIDs = append(p.boxFrame.memberIDs, id)
+		}
+		return
+	}
+	boxIdx := -1
+	if p.boxFrame != nil {
+		boxIdx = len(p.diagram.Boxes)
+		p.boxFrame.memberIDs = append(p.boxFrame.memberIDs, id)
+	}
+	p.participantIx[id] = len(p.diagram.Participants)
+	p.diagram.Participants = append(p.diagram.Participants, diagram.Participant{
+		ID: id, Alias: alias, Kind: kind, BoxIndex: boxIdx,
+		CreatedAtItem: createdAt, DestroyedAtItem: -1,
+	})
+}
+
 func (p *parser) parseParticipant(rest string, kind diagram.ParticipantKind) error {
 	if rest == "" {
 		return fmt.Errorf("participant declaration missing ID")
@@ -416,27 +477,7 @@ func (p *parser) parseParticipant(rest string, kind diagram.ParticipantKind) err
 	if id == "" {
 		return fmt.Errorf("participant declaration missing ID")
 	}
-	if existing, ok := p.participantIx[id]; ok {
-		p.diagram.Participants[existing].Kind = kind
-		if alias != "" {
-			p.diagram.Participants[existing].Alias = alias
-		}
-		if p.boxFrame != nil && p.diagram.Participants[existing].BoxIndex == -1 {
-			p.diagram.Participants[existing].BoxIndex = len(p.diagram.Boxes)
-			p.boxFrame.memberIDs = append(p.boxFrame.memberIDs, id)
-		}
-		return nil
-	}
-	boxIdx := -1
-	if p.boxFrame != nil {
-		boxIdx = len(p.diagram.Boxes)
-		p.boxFrame.memberIDs = append(p.boxFrame.memberIDs, id)
-	}
-	p.participantIx[id] = len(p.diagram.Participants)
-	p.diagram.Participants = append(p.diagram.Participants, diagram.Participant{
-		ID: id, Alias: alias, Kind: kind, BoxIndex: boxIdx,
-		CreatedAtItem: -1, DestroyedAtItem: -1,
-	})
+	p.registerParticipant(id, alias, kind, -1, true)
 	return nil
 }
 
@@ -444,16 +485,7 @@ func (p *parser) ensureParticipant(id string) {
 	if _, ok := p.participantIx[id]; ok {
 		return
 	}
-	boxIdx := -1
-	if p.boxFrame != nil {
-		boxIdx = len(p.diagram.Boxes)
-		p.boxFrame.memberIDs = append(p.boxFrame.memberIDs, id)
-	}
-	p.participantIx[id] = len(p.diagram.Participants)
-	p.diagram.Participants = append(p.diagram.Participants, diagram.Participant{
-		ID: id, Kind: diagram.ParticipantKindParticipant, BoxIndex: boxIdx,
-		CreatedAtItem: -1, DestroyedAtItem: -1,
-	})
+	p.registerParticipant(id, "", diagram.ParticipantKindParticipant, -1, false)
 }
 
 func (p *parser) currentItemCount() int {
@@ -488,30 +520,7 @@ func (p *parser) parseCreate(rest string) error {
 		return fmt.Errorf("create participant missing ID")
 	}
 
-	itemIndex := p.currentItemCount()
-
-	if existing, ok := p.participantIx[id]; ok {
-		p.diagram.Participants[existing].Kind = kind
-		if alias != "" {
-			p.diagram.Participants[existing].Alias = alias
-		}
-		p.diagram.Participants[existing].CreatedAtItem = itemIndex
-		if p.boxFrame != nil && p.diagram.Participants[existing].BoxIndex == -1 {
-			p.diagram.Participants[existing].BoxIndex = len(p.diagram.Boxes)
-			p.boxFrame.memberIDs = append(p.boxFrame.memberIDs, id)
-		}
-		return nil
-	}
-	boxIdx := -1
-	if p.boxFrame != nil {
-		boxIdx = len(p.diagram.Boxes)
-		p.boxFrame.memberIDs = append(p.boxFrame.memberIDs, id)
-	}
-	p.participantIx[id] = len(p.diagram.Participants)
-	p.diagram.Participants = append(p.diagram.Participants, diagram.Participant{
-		ID: id, Alias: alias, Kind: kind, BoxIndex: boxIdx,
-		CreatedAtItem: itemIndex, DestroyedAtItem: -1,
-	})
+	p.registerParticipant(id, alias, kind, p.currentItemCount(), true)
 	return nil
 }
 

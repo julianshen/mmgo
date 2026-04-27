@@ -332,6 +332,20 @@ type Doc struct {
 	Children            []any    `xml:",any"`
 }
 
+// Title is the SVG <title> element. Screen readers announce it as the
+// document's accessible name.
+type Title struct {
+	XMLName xml.Name `xml:"title"`
+	Content string   `xml:",chardata"`
+}
+
+// Desc is the SVG <desc> element. Screen readers announce it as the
+// document's longer description.
+type Desc struct {
+	XMLName xml.Name `xml:"desc"`
+	Content string   `xml:",chardata"`
+}
+
 type Rect struct {
 	XMLName xml.Name `xml:"rect"`
 	X       Float    `xml:"x,attr"`
