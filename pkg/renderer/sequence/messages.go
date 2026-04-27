@@ -171,7 +171,7 @@ func (mr *messageRenderer) renderSelfMessage(x, y float64, m diagram.Message) []
 			x, y, selfLoopW, selfLoopH, -selfLoopW),
 		Style: style,
 	}
-	if hasArrowHead(m.ArrowType) {
+	if hasArrowHead(m.ArrowType) && !isBidirectional(m.ArrowType) {
 		p.MarkerEnd = fmt.Sprintf("url(#%s)", arrowMarkerID(m.ArrowType))
 	}
 
@@ -471,16 +471,6 @@ func buildSequenceMarkers(th Theme) []marker {
 			ID: arrowMarkerID(diagram.ArrowTypeDashedOpen), ViewBox: "0 0 10 10",
 			RefX: 10, RefY: 5, Width: 8, Height: 8, Orient: "auto",
 			Children: []any{&polyline{Points: "0,1 10,5 0,9", Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;fill:none", stroke, sw)}},
-		},
-		{
-			ID: arrowMarkerID(diagram.ArrowTypeSolidBi), ViewBox: "0 0 10 10",
-			RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto",
-			Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", stroke)}},
-		},
-		{
-			ID: arrowMarkerID(diagram.ArrowTypeDashedBi), ViewBox: "0 0 10 10",
-			RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto",
-			Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", stroke)}},
 		},
 	}
 }

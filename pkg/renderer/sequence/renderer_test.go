@@ -3,6 +3,7 @@ package sequence
 import (
 	"bytes"
 	"encoding/xml"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -716,8 +717,14 @@ func TestRenderBidirectionalSolidHasBothArrowheads(t *testing.T) {
 	if strings.Contains(raw, `marker-start`) || strings.Contains(raw, `marker-end`) {
 		t.Error("bidirectional should not depend on marker-start/marker-end (unreliable in rasterizers)")
 	}
-	if n := strings.Count(raw, `<polygon`); n < 2 {
-		t.Errorf("bidirectional solid should emit two polygon arrowheads, found %d <polygon> elements", n)
+	tipXs := bidirArrowheadTipXs(t, raw)
+	if len(tipXs) != 2 {
+		t.Fatalf("expected 2 bidir arrowhead polygons, got %d", len(tipXs))
+	}
+	// The two tips must sit at the line endpoints (fromX != toX), not the
+	// same end. Endpoints are derived from the layout — assert they differ.
+	if tipXs[0] == tipXs[1] {
+		t.Errorf("both arrowheads at same x=%v — expected one at each line endpoint", tipXs[0])
 	}
 	assertValidSVG(t, out)
 }
@@ -807,6 +814,35 @@ func viewBoxHeight(t *testing.T, svgBytes []byte) float64 {
 	}
 	return h
 }
+
+// bidirArrowheadTipXs extracts the tip x-coordinate of every polygon
+// emitted by bidirArrowhead. The helper strips the <defs> block first
+// so polygons inside marker definitions (which also use <polygon>) are
+// excluded. The polygon's first "points" coordinate is the tip — see
+// bidirArrowhead in messages.go.
+func bidirArrowheadTipXs(t *testing.T, raw string) []float64 {
+	t.Helper()
+	if i := strings.Index(raw, "<defs>"); i >= 0 {
+		if j := strings.Index(raw, "</defs>"); j > i {
+			raw = raw[:i] + raw[j+len("</defs>"):]
+		}
+	}
+	var tips []float64
+	for _, m := range polygonRe.FindAllStringSubmatch(raw, -1) {
+		coords := strings.Fields(strings.ReplaceAll(m[1], ",", " "))
+		if len(coords) < 2 {
+			continue
+		}
+		x, err := strconv.ParseFloat(coords[0], 64)
+		if err != nil {
+			continue
+		}
+		tips = append(tips, x)
+	}
+	return tips
+}
+
+var polygonRe = regexp.MustCompile(`<polygon[^>]*points="([^"]+)"`)
 
 func assertValidSVG(t *testing.T, svgBytes []byte) {
 	t.Helper()
