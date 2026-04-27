@@ -1,0 +1,13 @@
+sequenceDiagram
+    participant Manager
+    Manager->>Manager: Boot
+    create participant Worker1
+    Manager->>Worker1: Spawn
+    create participant Worker2
+    Manager->>Worker2: Spawn
+    Worker1-->>Manager: Done
+    destroy Worker1
+    Manager->>Worker1: Join
+    Worker2-->>Manager: Done
+    destroy Worker2
+    Manager->>Worker2: Join

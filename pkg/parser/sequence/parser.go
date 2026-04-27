@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
@@ -19,6 +20,7 @@ func Parse(r io.Reader) (*diagram.SequenceDiagram, error) {
 	p := &parser{
 		diagram:       &diagram.SequenceDiagram{},
 		participantIx: make(map[string]int),
+		destroyed:     make(map[string]bool),
 	}
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
@@ -59,7 +61,15 @@ func Parse(r io.Reader) (*diagram.SequenceDiagram, error) {
 type parser struct {
 	diagram       *diagram.SequenceDiagram
 	participantIx map[string]int
-	blockStack []*blockFrame
+	blockStack    []*blockFrame
+	boxFrame      *boxFrameState
+	destroyed     map[string]bool
+}
+
+type boxFrameState struct {
+	fill      string
+	label     string
+	memberIDs []string
 }
 
 type blockFrame struct {
@@ -92,9 +102,8 @@ func (p *parser) parseLine(line string) error {
 	if rest, ok := trimKeyword(line, "actor"); ok {
 		return p.parseParticipant(rest, diagram.ParticipantKindActor)
 	}
-	if _, ok := trimKeyword(line, "autonumber"); ok {
-		p.diagram.AutoNumber = true
-		return nil
+	if rest, ok := trimKeyword(line, "autonumber"); ok {
+		return p.parseAutonumber(rest)
 	}
 	if rest, ok := trimKeyword(line, "Note"); ok {
 		return p.parseNote(rest)
@@ -102,7 +111,13 @@ func (p *parser) parseLine(line string) error {
 	if rest, ok := trimKeyword(line, "note"); ok {
 		return p.parseNote(rest)
 	}
+	if rest, ok := trimKeyword(line, "box"); ok {
+		return p.openBox(rest)
+	}
 	if line == "end" {
+		if p.boxFrame != nil {
+			return p.closeBox()
+		}
 		return p.closeBlock()
 	}
 	if kind, label, ok := matchBlockOpen(line); ok {
@@ -111,6 +126,12 @@ func (p *parser) parseLine(line string) error {
 	if parent, label, ok := matchBranchKeyword(line); ok {
 		return p.addBranch(parent, label)
 	}
+	if rest, ok := trimKeyword(line, "create"); ok {
+		return p.parseCreate(rest)
+	}
+	if rest, ok := trimKeyword(line, "destroy"); ok {
+		return p.parseDestroy(rest)
+	}
 	if m, ok := parseMessage(line); ok {
 		p.ensureParticipant(m.From)
 		p.ensureParticipant(m.To)
@@ -118,6 +139,38 @@ func (p *parser) parseLine(line string) error {
 		return nil
 	}
 	return fmt.Errorf("unrecognized statement: %q", line)
+}
+
+func (p *parser) parseAutonumber(rest string) error {
+	an := diagram.AutoNumber{Enabled: true, Start: 1, Step: 1}
+	if rest == "" {
+		p.diagram.AutoNumber = an
+		return nil
+	}
+	fields := strings.Fields(rest)
+	if len(fields) > 2 {
+		return fmt.Errorf("autonumber accepts at most 2 arguments (start step), got %d", len(fields))
+	}
+	start, err := strconv.Atoi(fields[0])
+	if err != nil {
+		return fmt.Errorf("autonumber start: %w", err)
+	}
+	if start <= 0 {
+		return fmt.Errorf("autonumber start must be positive, got %d", start)
+	}
+	an.Start = start
+	if len(fields) == 2 {
+		step, err := strconv.Atoi(fields[1])
+		if err != nil {
+			return fmt.Errorf("autonumber step: %w", err)
+		}
+		if step <= 0 {
+			return fmt.Errorf("autonumber step must be positive, got %d", step)
+		}
+		an.Step = step
+	}
+	p.diagram.AutoNumber = an
+	return nil
 }
 
 func (p *parser) parseNote(rest string) error {
@@ -187,8 +240,42 @@ func matchBlockOpen(line string) (diagram.BlockKind, string, bool) {
 	return 0, "", false
 }
 
+func parseColorValue(s string) (color, rest string) {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "rgba(") {
+		closeIdx := strings.IndexByte(s, ')')
+		if closeIdx < 0 {
+			return "", s
+		}
+		return s[:closeIdx+1], strings.TrimSpace(s[closeIdx+1:])
+	}
+	if strings.HasPrefix(s, "rgb(") {
+		closeIdx := strings.IndexByte(s, ')')
+		if closeIdx < 0 {
+			return "", s
+		}
+		return s[:closeIdx+1], strings.TrimSpace(s[closeIdx+1:])
+	}
+	if len(s) > 0 && s[0] == '#' {
+		i := 1
+		for i < len(s) && ((s[i] >= '0' && s[i] <= '9') || (s[i] >= 'a' && s[i] <= 'f') || (s[i] >= 'A' && s[i] <= 'F')) {
+			i++
+		}
+		if i >= 4 && i <= 9 {
+			return s[:i], strings.TrimSpace(s[i:])
+		}
+	}
+	return "", s
+}
+
 func (p *parser) openBlock(kind diagram.BlockKind, label string) error {
-	b := &diagram.Block{Kind: kind, Label: label}
+	var fill string
+	if kind == diagram.BlockKindRect {
+		color, rest := parseColorValue(label)
+		fill = color
+		label = rest
+	}
+	b := &diagram.Block{Kind: kind, Label: label, Fill: fill}
 	frame := &blockFrame{block: b, activeBranch: b}
 	p.blockStack = append(p.blockStack, frame)
 	return nil
@@ -201,6 +288,35 @@ func (p *parser) closeBlock() error {
 	top := p.blockStack[len(p.blockStack)-1]
 	p.blockStack = p.blockStack[:len(p.blockStack)-1]
 	p.appendItem(diagram.NewBlockItem(*top.block))
+	return nil
+}
+
+func (p *parser) openBox(rest string) error {
+	if p.boxFrame != nil {
+		return fmt.Errorf("nested boxes are not allowed")
+	}
+	color, label := parseColorValue(rest)
+	p.boxFrame = &boxFrameState{
+		fill:  color,
+		label: strings.TrimSpace(label),
+	}
+	return nil
+}
+
+func (p *parser) closeBox() error {
+	bx := p.boxFrame
+	p.boxFrame = nil
+	boxIndex := len(p.diagram.Boxes)
+	p.diagram.Boxes = append(p.diagram.Boxes, diagram.Box{
+		Label:   bx.label,
+		Fill:    bx.fill,
+		Members: bx.memberIDs,
+	})
+	for _, id := range bx.memberIDs {
+		if idx, ok := p.participantIx[id]; ok {
+			p.diagram.Participants[idx].BoxIndex = boxIndex
+		}
+	}
 	return nil
 }
 
@@ -267,11 +383,21 @@ func (p *parser) parseParticipant(rest string, kind diagram.ParticipantKind) err
 		if alias != "" {
 			p.diagram.Participants[existing].Alias = alias
 		}
+		if p.boxFrame != nil && p.diagram.Participants[existing].BoxIndex == -1 {
+			p.diagram.Participants[existing].BoxIndex = len(p.diagram.Boxes)
+			p.boxFrame.memberIDs = append(p.boxFrame.memberIDs, id)
+		}
 		return nil
+	}
+	boxIdx := -1
+	if p.boxFrame != nil {
+		boxIdx = len(p.diagram.Boxes)
+		p.boxFrame.memberIDs = append(p.boxFrame.memberIDs, id)
 	}
 	p.participantIx[id] = len(p.diagram.Participants)
 	p.diagram.Participants = append(p.diagram.Participants, diagram.Participant{
-		ID: id, Alias: alias, Kind: kind,
+		ID: id, Alias: alias, Kind: kind, BoxIndex: boxIdx,
+		CreatedAtItem: -1, DestroyedAtItem: -1,
 	})
 	return nil
 }
@@ -280,10 +406,93 @@ func (p *parser) ensureParticipant(id string) {
 	if _, ok := p.participantIx[id]; ok {
 		return
 	}
+	boxIdx := -1
+	if p.boxFrame != nil {
+		boxIdx = len(p.diagram.Boxes)
+		p.boxFrame.memberIDs = append(p.boxFrame.memberIDs, id)
+	}
 	p.participantIx[id] = len(p.diagram.Participants)
 	p.diagram.Participants = append(p.diagram.Participants, diagram.Participant{
-		ID: id, Kind: diagram.ParticipantKindParticipant,
+		ID: id, Kind: diagram.ParticipantKindParticipant, BoxIndex: boxIdx,
+		CreatedAtItem: -1, DestroyedAtItem: -1,
 	})
+}
+
+func (p *parser) currentItemCount() int {
+	if len(p.blockStack) > 0 {
+		top := p.blockStack[len(p.blockStack)-1]
+		return len(top.activeBranch.Items)
+	}
+	return len(p.diagram.Items)
+}
+
+func (p *parser) parseCreate(rest string) error {
+	var kind diagram.ParticipantKind
+	var idRest string
+	if r, ok := trimKeyword(rest, "participant"); ok {
+		kind = diagram.ParticipantKindParticipant
+		idRest = r
+	} else if r, ok := trimKeyword(rest, "actor"); ok {
+		kind = diagram.ParticipantKindActor
+		idRest = r
+	} else {
+		return fmt.Errorf("create expects 'participant' or 'actor', got %q", rest)
+	}
+
+	var id, alias string
+	if idx := strings.Index(idRest, " as "); idx >= 0 {
+		id = strings.TrimSpace(idRest[:idx])
+		alias = strings.TrimSpace(idRest[idx+len(" as "):])
+	} else {
+		id = strings.TrimSpace(idRest)
+	}
+	if id == "" {
+		return fmt.Errorf("create participant missing ID")
+	}
+
+	itemIndex := p.currentItemCount()
+
+	if existing, ok := p.participantIx[id]; ok {
+		p.diagram.Participants[existing].Kind = kind
+		if alias != "" {
+			p.diagram.Participants[existing].Alias = alias
+		}
+		p.diagram.Participants[existing].CreatedAtItem = itemIndex
+		if p.boxFrame != nil && p.diagram.Participants[existing].BoxIndex == -1 {
+			p.diagram.Participants[existing].BoxIndex = len(p.diagram.Boxes)
+			p.boxFrame.memberIDs = append(p.boxFrame.memberIDs, id)
+		}
+		return nil
+	}
+	boxIdx := -1
+	if p.boxFrame != nil {
+		boxIdx = len(p.diagram.Boxes)
+		p.boxFrame.memberIDs = append(p.boxFrame.memberIDs, id)
+	}
+	p.participantIx[id] = len(p.diagram.Participants)
+	p.diagram.Participants = append(p.diagram.Participants, diagram.Participant{
+		ID: id, Alias: alias, Kind: kind, BoxIndex: boxIdx,
+		CreatedAtItem: itemIndex, DestroyedAtItem: -1,
+	})
+	return nil
+}
+
+func (p *parser) parseDestroy(rest string) error {
+	id := strings.TrimSpace(rest)
+	if id == "" {
+		return fmt.Errorf("destroy missing participant ID")
+	}
+	if _, ok := p.participantIx[id]; !ok {
+		return fmt.Errorf("destroy: unknown participant %q", id)
+	}
+	if p.destroyed[id] {
+		return fmt.Errorf("destroy: participant %q already destroyed", id)
+	}
+	itemIndex := p.currentItemCount()
+	p.diagram.Participants[p.participantIx[id]].DestroyedAtItem = itemIndex
+	p.destroyed[id] = true
+	p.appendItem(diagram.NewDestroyItem(id))
+	return nil
 }
 
 // arrowTokens lists the 8 supported message arrow literals with their
@@ -293,6 +502,8 @@ var arrowTokens = []struct {
 	lit string
 	typ diagram.ArrowType
 }{
+	{"<<-->>", diagram.ArrowTypeDashedBi},
+	{"<<->>", diagram.ArrowTypeSolidBi},
 	{"-->>", diagram.ArrowTypeDashed},
 	{"-->", diagram.ArrowTypeDashedNoHead},
 	{"--x", diagram.ArrowTypeDashedCross},

@@ -1,0 +1,7 @@
+sequenceDiagram
+    participant Poller
+    participant API
+    loop Every minute
+        Poller->>API: Heartbeat
+        API-->>Poller: OK
+    end

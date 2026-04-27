@@ -1,0 +1,11 @@
+sequenceDiagram
+    participant Service
+    participant DB
+    critical Establish DB connection
+        Service->>DB: Connect
+    option Network timeout
+        Service->>Service: Retry with backoff
+    option Authentication failure
+        Service->>Service: Refresh credentials
+    end
+    Service->>DB: Query

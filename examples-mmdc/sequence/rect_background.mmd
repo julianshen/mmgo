@@ -1,0 +1,12 @@
+sequenceDiagram
+    participant Client
+    participant Server
+    Client->>Server: Public request
+    rect
+        Note over Client,Server: Authenticated section
+        Client->>Server: Login
+        Server-->>Client: Token
+        Client->>Server: Authorized request
+        Server-->>Client: Sensitive data
+    end
+    Client->>Server: Public request again

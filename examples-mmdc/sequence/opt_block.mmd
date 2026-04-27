@@ -1,0 +1,8 @@
+sequenceDiagram
+    participant Browser
+    participant CDN
+    Browser->>CDN: GET /asset
+    opt cache miss
+        CDN->>CDN: Fetch from origin
+    end
+    CDN-->>Browser: Asset bytes
