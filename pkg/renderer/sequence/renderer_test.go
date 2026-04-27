@@ -283,8 +283,10 @@ func TestRenderAutoNumberEmitsCircleBadge(t *testing.T) {
 }
 
 var (
-	circleRe = regexp.MustCompile(`<circle[^>]*cx="([^"]+)"[^>]*r="10\.00"`)
-	lineRe   = regexp.MustCompile(`<line x1="([^"]+)" y1="[^"]+" x2="([^"]+)"`)
+	circleRe   = regexp.MustCompile(`<circle[^>]*cx="([^"]+)"[^>]*r="10\.00"`)
+	lineRe     = regexp.MustCompile(`<line x1="([^"]+)" y1="[^"]+" x2="([^"]+)"`)
+	msgLineYRe = regexp.MustCompile(`<line x1="[\d.]+" y1="([\d.]+)" x2="[\d.]+" y2="([\d.]+)" style="stroke:#333`)
+	fillRectRe = regexp.MustCompile(`<rect[^>]*y="([\d.]+)"[^>]*height="([\d.]+)"[^>]*fill:#[0-9a-fA-F]{6}`)
 )
 
 func autoNumberCircleCX(raw string) (float64, bool) {
@@ -446,6 +448,175 @@ func TestRenderRectUsesRgbaFillAsIs(t *testing.T) {
 	}
 	if strings.Contains(raw, "fill-opacity") {
 		t.Error("rgba fill should not have additional fill-opacity")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderRectNoLabelBadge(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind:     diagram.BlockKindRect,
+				Fill:     "#ffcc00",
+				HasAlpha: false,
+				Items: []diagram.SequenceItem{
+					diagram.NewMessageItem(diagram.Message{
+						From: "A", To: "B", Label: "msg",
+						ArrowType: diagram.ArrowTypeSolid,
+					}),
+				},
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if strings.Contains(raw, ">rect<") {
+		t.Error("rect block should not render a 'rect' kind label badge")
+	}
+	if strings.Contains(raw, ">[") {
+		t.Error("rect block should not render a bracketed label")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderRectColorClipsToMessageBand(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind:     diagram.BlockKindRect,
+				Fill:     "#ffcc00",
+				HasAlpha: false,
+				Items: []diagram.SequenceItem{
+					diagram.NewMessageItem(diagram.Message{
+						From: "A", To: "B", Label: "first",
+						ArrowType: diagram.ArrowTypeSolid,
+					}),
+					diagram.NewMessageItem(diagram.Message{
+						From: "B", To: "A", Label: "second",
+						ArrowType: diagram.ArrowTypeDashed,
+					}),
+				},
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+
+	matches := msgLineYRe.FindAllStringSubmatch(raw, -1)
+	if len(matches) < 2 {
+		t.Fatalf("expected at least 2 message lines in SVG, found %d", len(matches))
+	}
+	firstMsgY, err := strconv.ParseFloat(matches[0][1], 64)
+	if err != nil {
+		t.Fatalf("parse first msg y: %v", err)
+	}
+	secondMsgY, err := strconv.ParseFloat(matches[1][1], 64)
+	if err != nil {
+		t.Fatalf("parse second msg y: %v", err)
+	}
+
+	fillMatch := fillRectRe.FindStringSubmatch(raw)
+	if fillMatch == nil {
+		t.Fatal("expected colored fill rect in SVG output")
+	}
+	fillY, err := strconv.ParseFloat(fillMatch[1], 64)
+	if err != nil {
+		t.Fatalf("parse fill y: %v", err)
+	}
+	fillH, err := strconv.ParseFloat(fillMatch[2], 64)
+	if err != nil {
+		t.Fatalf("parse fill height: %v", err)
+	}
+	fillBottom := fillY + fillH
+
+	const band = 26.0
+	if fillY < firstMsgY-band {
+		t.Errorf("colored rect top Y=%.2f extends above first message band (msgY=%.2f, threshold=%.2f)",
+			fillY, firstMsgY, firstMsgY-band)
+	}
+	if fillBottom > secondMsgY+band {
+		t.Errorf("colored rect bottom=%.2f extends below last message band (msgY=%.2f, threshold=%.2f)",
+			fillBottom, secondMsgY, secondMsgY+band)
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderRectEmptyDoesNotProduceNegativeHeight(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind: diagram.BlockKindRect,
+				Fill: "#ffcc00",
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	re := regexp.MustCompile(`height="(-?[\d.]+)"`)
+	for _, m := range re.FindAllStringSubmatch(raw, -1) {
+		v, err := strconv.ParseFloat(m[1], 64)
+		if err != nil {
+			t.Fatalf("parse height: %v (input: %q)", err, m[1])
+		}
+		if v < 0 {
+			t.Errorf("rect height=%.2f is negative", v)
+		}
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderRectWithLabelSuppressesBadge(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind:     diagram.BlockKindRect,
+				Fill:     "#aabbcc",
+				Label:    "my section",
+				HasAlpha: false,
+				Items: []diagram.SequenceItem{
+					diagram.NewMessageItem(diagram.Message{
+						From: "A", To: "B", Label: "msg",
+						ArrowType: diagram.ArrowTypeSolid,
+					}),
+				},
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if strings.Contains(raw, ">rect<") {
+		t.Error("rect block should not render a 'rect' kind label badge")
+	}
+	if strings.Contains(raw, ">[my section]<") {
+		t.Error("rect block should not render a bracketed label")
 	}
 	assertValidSVG(t, out)
 }

@@ -269,7 +269,9 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 
 func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 	startY := mr.curY
-	mr.curY += defaultRowHeight / 2
+
+	blockHeaderGap := defaultRowHeight / 2
+	mr.curY += blockHeaderGap
 
 	var elems []any
 	elems = append(elems, mr.renderItems(b.Items, false)...)
@@ -280,7 +282,8 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 		mr.curY += defaultRowHeight / 2
 		elems = append(elems, mr.renderItems(br.Items, false)...)
 	}
-	mr.curY += defaultRowHeight / 2
+	blockFooterGap := defaultRowHeight / 2
+	mr.curY += blockFooterGap
 	endY := mr.curY
 
 	x := blockPad
@@ -301,37 +304,47 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 			blockStyle = fmt.Sprintf("fill:%s;fill-opacity:0.2;stroke:%s;stroke-width:%.1f", b.Fill, mr.th.MessageStroke, defaultStrokeWidth)
 		}
 	}
+
+	rectY := startY - defaultRowHeight/4
+	rectH := endY - startY + defaultRowHeight/4
+	if b.Kind == diagram.BlockKindRect {
+		rectY = startY + blockHeaderGap
+		rectH = math.Max(0, endY-startY-blockHeaderGap-blockFooterGap-defaultRowHeight/2)
+	}
+
 	elems = append(elems, &rect{
-		X: svgFloat(x), Y: svgFloat(startY - defaultRowHeight/4),
-		Width: svgFloat(w), Height: svgFloat(endY - startY + defaultRowHeight/4),
+		X: svgFloat(x), Y: svgFloat(rectY),
+		Width: svgFloat(w), Height: svgFloat(rectH),
 		RX: 3, RY: 3,
 		Style: blockStyle,
 	})
 
-	kindLabel := b.Kind.String()
-	kindLabelW := textmeasure.EstimateWidth(kindLabel, mr.fontSize)
-	elems = append(elems, &rect{
-		X: svgFloat(x), Y: svgFloat(startY - defaultRowHeight/4),
-		Width:  svgFloat(kindLabelW + 2*notePad),
-		Height: svgFloat(20),
-		Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f",
-			mr.th.ParticipantFill, mr.th.MessageStroke, defaultStrokeWidth),
-	})
-	elems = append(elems, &text{
-		X: svgFloat(x + notePad), Y: svgFloat(startY - defaultRowHeight/4 + 14),
-		Anchor: "start", Dominant: "auto",
-		Style:   mr.msgTextSmallBoldStyle,
-		Content: kindLabel,
-	})
-
-	if b.Label != "" {
-		elems = append(elems, &text{
-			X:      svgFloat(x + kindLabelW + 3*notePad),
-			Y:      svgFloat(startY - defaultRowHeight/4 + 14),
-			Anchor: "start", Dominant: "auto",
-			Style:   mr.msgTextSmallStyle,
-			Content: "[" + b.Label + "]",
+	if b.Kind != diagram.BlockKindRect {
+		kindLabel := b.Kind.String()
+		kindLabelW := textmeasure.EstimateWidth(kindLabel, mr.fontSize)
+		elems = append(elems, &rect{
+			X: svgFloat(x), Y: svgFloat(startY - defaultRowHeight/4),
+			Width:  svgFloat(kindLabelW + 2*notePad),
+			Height: svgFloat(20),
+			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f",
+				mr.th.ParticipantFill, mr.th.MessageStroke, defaultStrokeWidth),
 		})
+		elems = append(elems, &text{
+			X: svgFloat(x + notePad), Y: svgFloat(startY - defaultRowHeight/4 + 14),
+			Anchor: "start", Dominant: "auto",
+			Style:   mr.msgTextSmallBoldStyle,
+			Content: kindLabel,
+		})
+
+		if b.Label != "" {
+			elems = append(elems, &text{
+				X:      svgFloat(x + kindLabelW + 3*notePad),
+				Y:      svgFloat(startY - defaultRowHeight/4 + 14),
+				Anchor: "start", Dominant: "auto",
+				Style:   mr.msgTextSmallStyle,
+				Content: "[" + b.Label + "]",
+			})
+		}
 	}
 
 	for i, brY := range branchYs {
