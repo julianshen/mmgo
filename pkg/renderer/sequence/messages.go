@@ -3,6 +3,7 @@ package sequence
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -156,12 +157,8 @@ func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagra
 	}
 
 	if m.Label != "" {
-		elems = append(elems, &text{
-			X: svgFloat(mid), Y: svgFloat(y - 6),
-			Anchor: "middle", Dominant: "auto",
-			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize),
-			Content: m.Label,
-		})
+		labelStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize)
+		elems = append(elems, multilineTextAbove(m.Label, mid, y-6, "middle", labelStyle, mr.fontSize)...)
 	}
 	return elems
 }
@@ -180,12 +177,8 @@ func (mr *messageRenderer) renderSelfMessage(x, y float64, m diagram.Message) []
 	var elems []any
 	elems = append(elems, p)
 	if m.Label != "" {
-		elems = append(elems, &text{
-			X: svgFloat(x + selfLoopW + 4), Y: svgFloat(y + selfLoopH/2),
-			Anchor: "start", Dominant: "central",
-			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize),
-			Content: m.Label,
-		})
+		style := fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize)
+		elems = append(elems, multilineText(m.Label, x+selfLoopW+4, y+selfLoopH/2, "start", "central", style, mr.fontSize)...)
 	}
 	return elems
 }
@@ -231,20 +224,17 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 	}
 
 	rx := cx - w/2
-	return []any{
+	style := fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize)
+	out := []any{
 		&rect{
 			X: svgFloat(rx), Y: svgFloat(y - noteH/2),
 			Width: svgFloat(w), Height: svgFloat(noteH),
 			RX: 3, RY: 3,
 			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f", mr.th.NoteFill, mr.th.MessageStroke, defaultStrokeWidth),
 		},
-		&text{
-			X: svgFloat(cx), Y: svgFloat(y),
-			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize),
-			Content: n.Text,
-		},
 	}
+	out = append(out, multilineText(n.Text, cx, y, "middle", "central", style, mr.fontSize)...)
+	return out
 }
 
 func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
@@ -418,6 +408,58 @@ func messageLineStyle(th Theme, at diagram.ArrowType) string {
 	default:
 		return base
 	}
+}
+
+// brTokenRe matches Mermaid's <br>, <br/>, <br /> (any case, any
+// whitespace before the slash) so multi-line message labels split
+// correctly regardless of how the user spells the tag.
+var brTokenRe = regexp.MustCompile(`(?i)<br\s*/?>`)
+
+// splitLabelLines splits s on Mermaid's <br> family of tokens. Returns
+// the original string as a single-element slice when no break tokens
+// are present.
+func splitLabelLines(s string) []string {
+	return brTokenRe.Split(s, -1)
+}
+
+// labelLineHeight is the per-line vertical advance for stacked labels.
+// Owned here so callers don't need to recompute it when positioning the
+// stack relative to other elements (see multilineTextAbove).
+func labelLineHeight(fontSize float64) float64 { return fontSize + 2 }
+
+// multilineText returns one or more text elements forming a vertically
+// stacked label centered on (cx, cy). Used wherever a Mermaid label may
+// contain `<br/>` line breaks.
+func multilineText(content string, cx, cy float64, anchor, dominant, style string, fontSize float64) []any {
+	lines := splitLabelLines(content)
+	if len(lines) <= 1 {
+		return []any{&text{
+			X: svgFloat(cx), Y: svgFloat(cy),
+			Anchor: anchor, Dominant: dominant,
+			Style: style, Content: content,
+		}}
+	}
+	lineH := labelLineHeight(fontSize)
+	totalH := lineH * float64(len(lines)-1)
+	startY := cy - totalH/2
+	out := make([]any, 0, len(lines))
+	for i, ln := range lines {
+		out = append(out, &text{
+			X: svgFloat(cx), Y: svgFloat(startY + float64(i)*lineH),
+			Anchor: anchor, Dominant: dominant,
+			Style: style, Content: ln,
+		})
+	}
+	return out
+}
+
+// multilineTextAbove is like multilineText but positions the *bottom*
+// line at anchorY and grows upward. Use when the label sits above a
+// reference y like an arrow.
+func multilineTextAbove(content string, cx, anchorY float64, anchor, style string, fontSize float64) []any {
+	lines := splitLabelLines(content)
+	cy := anchorY - float64(len(lines)-1)*labelLineHeight(fontSize)/2
+	return multilineText(content, cx, cy, anchor, "auto", style, fontSize)
 }
 
 func hasArrowHead(at diagram.ArrowType) bool {

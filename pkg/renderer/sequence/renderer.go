@@ -31,6 +31,9 @@ func Render(d *diagram.SequenceDiagram, opts *Options) ([]byte, error) {
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
+	if d.Title != "" {
+		children = append(children, renderTitle(d.Title, lay, th, fontSize)...)
+	}
 	children = append(children, renderBoxes(d, lay, th, fontSize)...)
 	children = append(children, renderLifelines(d, lay, th, mr.createY, mr.destroyY)...)
 	children = append(children, mr.flushActivations()...)
@@ -99,6 +102,9 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 	}
 
 	topY := pad
+	if d.Title != "" {
+		topY += titleHeight(fontSize)
+	}
 	bodyStart := topY + maxHeaderH + 10
 	rows := countRows(d)
 	bodyEnd := bodyStart + float64(rows)*defaultRowHeight
@@ -147,6 +153,19 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 
 func actorHeight(fontSize float64) float64 {
 	return 2*defaultActorHeadR + defaultActorBodyH + fontSize + 2
+}
+
+func titleHeight(fontSize float64) float64 {
+	return fontSize + 12
+}
+
+func renderTitle(title string, lay seqLayout, th Theme, fontSize float64) []any {
+	return []any{&text{
+		X: svgFloat(lay.width / 2), Y: svgFloat(titleHeight(fontSize) / 2),
+		Anchor: "middle", Dominant: "central",
+		Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.MessageText, fontSize+2),
+		Content: title,
+	}}
 }
 
 // noteBleed returns the pixel extent past the leftmost and rightmost

@@ -393,6 +393,46 @@ func TestParseActivationAutoRegistersParticipant(t *testing.T) {
 	}
 }
 
+func TestParseTitleDirective(t *testing.T) {
+	cases := []struct {
+		name, src, want string
+	}{
+		{"colon form", "sequenceDiagram\ntitle: My Diagram\nA->>B: hi", "My Diagram"},
+		{"space form", "sequenceDiagram\ntitle My Diagram\nA->>B: hi", "My Diagram"},
+		{"frontmatter", "---\ntitle: Frontmatter Title\n---\nsequenceDiagram\nA->>B: hi", "Frontmatter Title"},
+		{"frontmatter quoted", "---\ntitle: \"Quoted Title\"\n---\nsequenceDiagram\nA->>B: hi", "Quoted Title"},
+		{"no title", "sequenceDiagram\nA->>B: hi", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := Parse(strings.NewReader(tc.src))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if d.Title != tc.want {
+				t.Errorf("Title = %q, want %q", d.Title, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseFrontmatterIgnoresUnknownKeys(t *testing.T) {
+	src := `---
+title: Hello
+config:
+  theme: dark
+---
+sequenceDiagram
+A->>B: hi`
+	d, err := Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Title != "Hello" {
+		t.Errorf("Title = %q, want Hello", d.Title)
+	}
+}
+
 func TestParseNoteLeftRight(t *testing.T) {
 	input := `sequenceDiagram
     Note left of Alice: first

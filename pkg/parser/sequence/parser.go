@@ -4,6 +4,7 @@ package sequence
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"strconv"
@@ -17,12 +18,20 @@ import (
 // resulting SequenceDiagram. Errors include a 1-based line number
 // pointing to the offending input.
 func Parse(r io.Reader) (*diagram.SequenceDiagram, error) {
+	src, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading input: %w", err)
+	}
 	p := &parser{
 		diagram:       &diagram.SequenceDiagram{},
 		participantIx: make(map[string]int),
 		destroyed:     make(map[string]bool),
 	}
-	scanner := bufio.NewScanner(r)
+	frontmatter, body := parserutil.SplitFrontmatter(src)
+	if title := parserutil.FrontmatterValue(frontmatter, "title"); title != "" {
+		p.diagram.Title = title
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(body))
 	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	lineNum := 0
 	headerSeen := false
@@ -81,6 +90,7 @@ type blockFrame struct {
 // line starts with kw followed by end-of-string or whitespace. The
 // word-boundary check prevents `sequenceDiagramX` from matching
 // `sequenceDiagram`.
+
 func trimKeyword(line, kw string) (string, bool) {
 	if !strings.HasPrefix(line, kw) {
 		return "", false
@@ -137,6 +147,14 @@ func (p *parser) parseLine(line string) error {
 	}
 	if rest, ok := trimKeyword(line, "deactivate"); ok {
 		return p.parseActivation(rest, false)
+	}
+	if rest, ok := strings.CutPrefix(line, "title:"); ok {
+		p.diagram.Title = strings.TrimSpace(rest)
+		return nil
+	}
+	if rest, ok := trimKeyword(line, "title"); ok {
+		p.diagram.Title = rest
+		return nil
 	}
 	if m, ok := parseMessage(line); ok {
 		p.ensureParticipant(m.From)

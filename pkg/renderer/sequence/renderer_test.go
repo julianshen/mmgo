@@ -220,6 +220,52 @@ func TestRenderCustomOptions(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+func TestRenderTitleAppearsAboveDiagram(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Title: "My Sequence",
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), ">My Sequence<") {
+		t.Errorf("title text not found in output")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderMultilineLabelEmitsMultipleTexts(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{
+				From: "A", To: "B", Label: "line one<br/>line two",
+				ArrowType: diagram.ArrowTypeSolid,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">line one<") {
+		t.Error("first line not rendered")
+	}
+	if !strings.Contains(raw, ">line two<") {
+		t.Error("second line not rendered")
+	}
+	if strings.Contains(raw, "&lt;br/&gt;") || strings.Contains(raw, "<br") {
+		t.Error("<br/> token leaked into output")
+	}
+}
+
 func TestRenderNoteCountsAsRow(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
