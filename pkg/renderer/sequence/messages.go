@@ -3,6 +3,7 @@ package sequence
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -157,10 +158,7 @@ func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagra
 
 	if m.Label != "" {
 		labelStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", mr.th.MessageText, mr.fontSize)
-		// For multi-line labels, anchor at y-6 above the line and grow upward.
-		lines := splitLabelLines(m.Label)
-		baseY := y - 6 - float64(len(lines)-1)*(mr.fontSize+2)/2
-		elems = append(elems, multilineText(m.Label, mid, baseY, "middle", "auto", labelStyle, mr.fontSize)...)
+		elems = append(elems, multilineTextAbove(m.Label, mid, y-6, "middle", labelStyle, mr.fontSize)...)
 	}
 	return elems
 }
@@ -412,23 +410,22 @@ func messageLineStyle(th Theme, at diagram.ArrowType) string {
 	}
 }
 
-// splitLabelLines splits s on Mermaid's <br>, <br/>, and <br /> tokens
-// (case-insensitive). Returns the original string as a single-element
-// slice when no break tokens are present.
+// brTokenRe matches Mermaid's <br>, <br/>, <br /> (any case, any
+// whitespace before the slash) so multi-line message labels split
+// correctly regardless of how the user spells the tag.
+var brTokenRe = regexp.MustCompile(`(?i)<br\s*/?>`)
+
+// splitLabelLines splits s on Mermaid's <br> family of tokens. Returns
+// the original string as a single-element slice when no break tokens
+// are present.
 func splitLabelLines(s string) []string {
-	if !strings.Contains(s, "<") {
-		return []string{s}
-	}
-	out := []string{s}
-	for _, tok := range []string{"<br/>", "<br />", "<br>", "<BR/>", "<BR />", "<BR>"} {
-		var next []string
-		for _, part := range out {
-			next = append(next, strings.Split(part, tok)...)
-		}
-		out = next
-	}
-	return out
+	return brTokenRe.Split(s, -1)
 }
+
+// labelLineHeight is the per-line vertical advance for stacked labels.
+// Owned here so callers don't need to recompute it when positioning the
+// stack relative to other elements (see multilineTextAbove).
+func labelLineHeight(fontSize float64) float64 { return fontSize + 2 }
 
 // multilineText returns one or more text elements forming a vertically
 // stacked label centered on (cx, cy). Used wherever a Mermaid label may
@@ -442,7 +439,7 @@ func multilineText(content string, cx, cy float64, anchor, dominant, style strin
 			Style: style, Content: content,
 		}}
 	}
-	lineH := fontSize + 2
+	lineH := labelLineHeight(fontSize)
 	totalH := lineH * float64(len(lines)-1)
 	startY := cy - totalH/2
 	out := make([]any, 0, len(lines))
@@ -454,6 +451,15 @@ func multilineText(content string, cx, cy float64, anchor, dominant, style strin
 		})
 	}
 	return out
+}
+
+// multilineTextAbove is like multilineText but positions the *bottom*
+// line at anchorY and grows upward. Use when the label sits above a
+// reference y like an arrow.
+func multilineTextAbove(content string, cx, anchorY float64, anchor, style string, fontSize float64) []any {
+	lines := splitLabelLines(content)
+	cy := anchorY - float64(len(lines)-1)*labelLineHeight(fontSize)/2
+	return multilineText(content, cx, cy, anchor, "auto", style, fontSize)
 }
 
 func hasArrowHead(at diagram.ArrowType) bool {

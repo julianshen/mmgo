@@ -223,23 +223,11 @@ func (k diagramKind) String() string {
 // can return a clean "X diagrams not yet supported" error before
 // invoking a parser that doesn't know about X.
 func detectDiagramKind(src []byte) (diagramKind, error) {
-	scanner := bufio.NewScanner(bytes.NewReader(src))
-	inFrontmatter := false
-	frontmatterSeen := false
+	_, body := parserutil.SplitFrontmatter(src)
+	scanner := bufio.NewScanner(bytes.NewReader(body))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "%%") {
-			continue
-		}
-		if !frontmatterSeen && !inFrontmatter && line == "---" {
-			inFrontmatter = true
-			frontmatterSeen = true
-			continue
-		}
-		if inFrontmatter {
-			if line == "---" {
-				inFrontmatter = false
-			}
 			continue
 		}
 		if parserutil.HasHeaderKeyword(line, "graph") || parserutil.HasHeaderKeyword(line, "flowchart") {

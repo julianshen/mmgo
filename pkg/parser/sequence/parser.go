@@ -4,6 +4,7 @@ package sequence
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"strconv"
@@ -17,36 +18,27 @@ import (
 // resulting SequenceDiagram. Errors include a 1-based line number
 // pointing to the offending input.
 func Parse(r io.Reader) (*diagram.SequenceDiagram, error) {
+	src, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading input: %w", err)
+	}
 	p := &parser{
 		diagram:       &diagram.SequenceDiagram{},
 		participantIx: make(map[string]int),
 		destroyed:     make(map[string]bool),
 	}
-	scanner := bufio.NewScanner(r)
+	frontmatter, body := parserutil.SplitFrontmatter(src)
+	if title := parserutil.FrontmatterValue(frontmatter, "title"); title != "" {
+		p.diagram.Title = title
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(body))
 	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	lineNum := 0
 	headerSeen := false
-	inFrontmatter := false
 	for scanner.Scan() {
 		lineNum++
-		raw := scanner.Text()
-		line := strings.TrimSpace(parserutil.StripComment(raw))
+		line := strings.TrimSpace(parserutil.StripComment(scanner.Text()))
 		if line == "" {
-			continue
-		}
-		if !headerSeen && !inFrontmatter && line == "---" {
-			inFrontmatter = true
-			continue
-		}
-		if inFrontmatter {
-			if line == "---" {
-				inFrontmatter = false
-				continue
-			}
-			if rest, ok := trimYAMLKey(line, "title"); ok {
-				p.diagram.Title = rest
-			}
-			// Other YAML keys are ignored for now.
 			continue
 		}
 		if !headerSeen {
@@ -98,28 +90,6 @@ type blockFrame struct {
 // line starts with kw followed by end-of-string or whitespace. The
 // word-boundary check prevents `sequenceDiagramX` from matching
 // `sequenceDiagram`.
-// trimYAMLKey returns the trimmed value when line is `key: value`, with
-// optional surrounding whitespace. Returns false if the line does not
-// start with the key followed by a colon. Quoted values are unquoted
-// (single or double quotes).
-func trimYAMLKey(line, key string) (string, bool) {
-	rest, ok := strings.CutPrefix(line, key)
-	if !ok {
-		return "", false
-	}
-	rest = strings.TrimLeft(rest, " \t")
-	rest, ok = strings.CutPrefix(rest, ":")
-	if !ok {
-		return "", false
-	}
-	val := strings.TrimSpace(rest)
-	if len(val) >= 2 {
-		if (val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'') {
-			val = val[1 : len(val)-1]
-		}
-	}
-	return val, true
-}
 
 func trimKeyword(line, kw string) (string, bool) {
 	if !strings.HasPrefix(line, kw) {
