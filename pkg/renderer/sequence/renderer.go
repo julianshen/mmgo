@@ -147,6 +147,46 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 	bottomY := bodyEnd + bottomGap
 	totalH := bottomY + maxHeaderH + pad
 
+	for _, bx := range d.Boxes {
+		if len(bx.Members) == 0 || bx.Label == "" {
+			continue
+		}
+		firstIdx, ok := pIndex[bx.Members[0]]
+		if !ok {
+			continue
+		}
+		lastIdx := firstIdx
+		for _, m := range bx.Members[1:] {
+			if idx, ok := pIndex[m]; ok {
+				if idx < firstIdx {
+					firstIdx = idx
+				}
+				if idx > lastIdx {
+					lastIdx = idx
+				}
+			}
+		}
+		const boxPad = 10.0
+		left := xs[firstIdx] - widths[firstIdx]/2 - boxPad
+		right := xs[lastIdx] + widths[lastIdx]/2 + boxPad
+		boxW := right - left
+		titleFontSize := fontSize - 2
+		titleW := textmeasure.EstimateWidth(bx.Label, titleFontSize) + 2*boxPad
+		if titleW > boxW {
+			extra := (titleW - boxW) / 2
+			if left-extra < 0 {
+				shift := -(left - extra)
+				for i := range xs {
+					xs[i] += shift
+				}
+				totalW += shift
+			}
+			if left-extra+titleW > totalW {
+				totalW = left - extra + titleW + pad
+			}
+		}
+	}
+
 	return seqLayout{
 		participantX:  xs,
 		participantW:  widths,
@@ -407,7 +447,7 @@ func renderBoxes(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize f
 			boxW = titleW
 		}
 
-		const titleStripH = 18.0
+		titleStripH := titleFontSize + 6.0
 		boxY := lay.topY - titleStripH - boxPad/2
 		boxH := (lay.bottomY + lay.maxHeaderH + boxPad) - boxY
 
