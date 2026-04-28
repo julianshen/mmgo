@@ -126,6 +126,15 @@ func (mr *messageRenderer) renderMessage(m diagram.Message) []any {
 	toX := mr.lay.participantX[toIdx]
 	y := mr.curY
 
+	if mr.created[m.To] && mr.createY[m.To] == y {
+		halfW := mr.lay.participantW[toIdx] / 2
+		if toX > fromX {
+			toX -= halfW
+		} else {
+			toX += halfW
+		}
+	}
+
 	mr.msgNum += mr.autoNum.Step
 	var elems []any
 

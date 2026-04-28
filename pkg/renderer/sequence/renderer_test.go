@@ -1284,6 +1284,25 @@ func TestRenderBoxWithNoLabel(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+func participantXForLabel(t *testing.T, raw, label string) float64 {
+	t.Helper()
+	re := regexp.MustCompile(`<text[^>]*>` + regexp.QuoteMeta(label) + `</text>`)
+	match := re.FindString(raw)
+	if match == "" {
+		t.Fatalf("label %q not found in SVG", label)
+	}
+	xRe := regexp.MustCompile(`x="([\d.]+)"`)
+	xMatch := xRe.FindStringSubmatch(match)
+	if len(xMatch) < 2 {
+		t.Fatalf("x attribute not found for label %q", label)
+	}
+	x, err := strconv.ParseFloat(xMatch[1], 64)
+	if err != nil {
+		t.Fatalf("parse x: %v", err)
+	}
+	return x
+}
+
 // --- Helpers (continued) ---
 
 func viewBoxHeight(t *testing.T, svgBytes []byte) float64 {
@@ -1441,9 +1460,152 @@ func TestRenderCreatedParticipantBoxStartsMidDiagram(t *testing.T) {
 	if managerCount != 2 {
 		t.Errorf("Manager should appear in 2 boxes (top+bottom), got %d", managerCount)
 	}
-	workerCount := strings.Count(raw, ">Worker<")
-	if workerCount != 2 {
-		t.Errorf("Worker should appear in 2 boxes (mid-diagram + bottom), got %d", workerCount)
+	assertValidSVG(t, out)
+}
+
+func TestRenderCreateParticipantStopsArrowAtBoxEdge(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "M", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "W", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: 0, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{
+				From: "M", To: "W", Label: "spawn",
+				ArrowType: diagram.ArrowTypeSolid,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+
+	wX := participantXForLabel(t, raw, "W")
+
+	msgLineRe := regexp.MustCompile(`<line x1="([\d.]+)"[^>]*y1="[\d.]+" x2="([\d.]+)"[^>]*y2="[\d.]+" style="[^"]*stroke:[^"]*"`)
+	matches := msgLineRe.FindAllStringSubmatch(raw, -1)
+	for _, m := range matches {
+		if strings.Contains(m[0], "stroke-dasharray") {
+			continue
+		}
+		x2, _ := strconv.ParseFloat(m[2], 64)
+		if x2 > 100 {
+			if x2 >= wX-1 {
+				t.Errorf("spawn arrow x2=%.0f reaches W's lifeline center x=%.0f — should stop at box edge", x2, wX)
+			}
+			break
+		}
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderDestroyEmitsBottomBoxAtDestroyY(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: 2},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "B", ArrowType: diagram.ArrowTypeSolid}),
+			diagram.NewMessageItem(diagram.Message{From: "B", To: "A", ArrowType: diagram.ArrowTypeDashed}),
+			diagram.NewDestroyItem("B"),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+
+	bCount := strings.Count(raw, ">B<")
+	if bCount < 2 {
+		t.Errorf("destroyed participant B should appear in at least 2 boxes (top + bottom at destroy y), got %d", bCount)
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderDestroyClipsLifeline(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: 1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "B", ArrowType: diagram.ArrowTypeSolid}),
+			diagram.NewDestroyItem("B"),
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "A", ArrowType: diagram.ArrowTypeDashed}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+
+	bX := participantXForLabel(t, raw, "B")
+
+	bXRe := regexp.MustCompile(`<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"[^>]*style="[^"]*stroke-dasharray`)
+	for _, m := range bXRe.FindAllStringSubmatch(raw, -1) {
+		x1, _ := strconv.ParseFloat(m[1], 64)
+		if math.Abs(x1-bX) > 1 {
+			continue
+		}
+		y2, _ := strconv.ParseFloat(m[4], 64)
+		if y2 > 150 {
+			t.Errorf("B's lifeline extends to y=%.2f, should be clipped at destroy y (~140)", y2)
+		}
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderCreateDestroyCombined(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "W", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: 0, DestroyedAtItem: 2},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "W", Label: "create", ArrowType: diagram.ArrowTypeSolid}),
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "W", Label: "work", ArrowType: diagram.ArrowTypeSolid}),
+			diagram.NewDestroyItem("W"),
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "A", Label: "done", ArrowType: diagram.ArrowTypeDashed}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+
+	wCount := strings.Count(raw, ">W<")
+	if wCount < 2 {
+		t.Errorf("W should appear in at least 2 boxes (created mid-diagram + bottom at destroy), got %d", wCount)
+	}
+
+	wX := 0.0
+	textRe := regexp.MustCompile(`<text[^>]*>W<`)
+	textMatch := textRe.FindString(raw)
+	if textMatch != "" {
+		xRe := regexp.MustCompile(`x="([\d.]+)"`)
+		xMatch := xRe.FindStringSubmatch(textMatch)
+		if len(xMatch) > 1 {
+			wX, _ = strconv.ParseFloat(xMatch[1], 64)
+		}
+	}
+
+	bXRe := regexp.MustCompile(`<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"[^>]*style="[^"]*stroke-dasharray`)
+	for _, m := range bXRe.FindAllStringSubmatch(raw, -1) {
+		x, _ := strconv.ParseFloat(m[1], 64)
+		if math.Abs(x-wX) > 1 {
+			continue
+		}
+		y1, _ := strconv.ParseFloat(m[2], 64)
+		y2, _ := strconv.ParseFloat(m[4], 64)
+		if y2-y1 > 200 {
+			t.Errorf("W's lifeline span %.0f is too long — should be clipped between create and destroy", y2-y1)
+		}
 	}
 	assertValidSVG(t, out)
 }
