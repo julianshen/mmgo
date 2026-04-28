@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
 func TestRenderNilDiagram(t *testing.T) {
@@ -1124,6 +1125,161 @@ func TestRenderBoxEmitsRectAndLabel(t *testing.T) {
 	}
 	if !strings.Contains(raw, "fill-opacity:0.15") {
 		t.Error("expected box fill-opacity")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderBoxSolidBorder(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, BoxIndex: 0, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, BoxIndex: 0, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "B", ArrowType: diagram.ArrowTypeSolid}),
+		},
+		Boxes: []diagram.Box{
+			{Label: "Group", Fill: "rgb(220,240,255)", Members: []string{"A", "B"}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	boxRectRe := regexp.MustCompile(`<rect[^>]*rgb\(220,240,255\)[^>]*>`)
+	match := boxRectRe.FindString(raw)
+	if match == "" {
+		t.Fatal("box rect not found in SVG")
+	}
+	if strings.Contains(match, "stroke-dasharray") {
+		t.Error("box rect should use solid border, not stroke-dasharray")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderBoxTitleCentered(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, BoxIndex: 0, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, BoxIndex: 0, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "B", ArrowType: diagram.ArrowTypeSolid}),
+		},
+		Boxes: []diagram.Box{
+			{Label: "Backend", Fill: "rgb(220,240,255)", Members: []string{"A", "B"}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+
+	labelRe := regexp.MustCompile(`<text[^>]*>Backend</text>`)
+	labelMatch := labelRe.FindString(raw)
+	if labelMatch == "" {
+		t.Fatal("expected 'Backend' label text in SVG")
+	}
+	anchorRe := regexp.MustCompile(`text-anchor="([^"]+)"`)
+	anchorMatch := anchorRe.FindStringSubmatch(labelMatch)
+	if len(anchorMatch) < 2 || anchorMatch[1] != "middle" {
+		t.Errorf("box label should be text-anchor=middle, got %v", anchorMatch)
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderBoxTitleNotClipped(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, BoxIndex: 0, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "A", ArrowType: diagram.ArrowTypeSolid}),
+		},
+		Boxes: []diagram.Box{
+			{Label: "VeryLongTitleNameThatExceedsBoxWidth", Fill: "rgb(220,240,255)", Members: []string{"A"}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+
+	boxRectRe := regexp.MustCompile(`<rect[^>]*style="[^"]*rgb\(220,240,255\)[^"]*"[^>]*>`)
+	boxMatch := boxRectRe.FindString(raw)
+	if boxMatch == "" {
+		t.Fatal("expected box rect in SVG")
+	}
+	widthRe := regexp.MustCompile(`width="([\d.]+)"`)
+	widthMatch := widthRe.FindStringSubmatch(boxMatch)
+	if len(widthMatch) < 2 {
+		t.Fatal("expected width attribute on box rect")
+	}
+	boxW, _ := strconv.ParseFloat(widthMatch[1], 64)
+
+	titleW := textmeasure.EstimateWidth("VeryLongTitleNameThatExceedsBoxWidth", 12)
+	if titleW > boxW {
+		t.Errorf("title width=%.0f exceeds box width=%.0f — title will be clipped", titleW, boxW)
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderBoxWithRgbaFillNoFillOpacity(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, BoxIndex: 0, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, BoxIndex: 0, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "B", ArrowType: diagram.ArrowTypeSolid}),
+		},
+		Boxes: []diagram.Box{
+			{Fill: "rgba(255,200,200,0.6)", HasAlpha: true, Members: []string{"A", "B"}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "rgba(255,200,200,0.6)") {
+		t.Error("expected rgba fill in SVG output")
+	}
+	if strings.Contains(raw, "fill-opacity") {
+		t.Error("rgba box fill should not have additional fill-opacity")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderBoxWithNoLabel(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, BoxIndex: 0, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, BoxIndex: 0, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "B", ArrowType: diagram.ArrowTypeSolid}),
+		},
+		Boxes: []diagram.Box{
+			{Fill: "rgb(220,240,255)", Members: []string{"A", "B"}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "rgb(220,240,255)") {
+		t.Error("expected box fill color in SVG output")
+	}
+
+	boxRectRe := regexp.MustCompile(`<rect[^>]*rgb\(220,240,255\)[^>]*>`)
+	boxMatch := boxRectRe.FindString(raw)
+	if boxMatch == "" {
+		t.Fatal("expected box rect in SVG output")
 	}
 	assertValidSVG(t, out)
 }
