@@ -172,22 +172,13 @@ func titleHeight(fontSize float64) float64 {
 const defaultBoxFillOpacity = 0.15
 const defaultBlockFillOpacity = 0.2
 
-func boxFillStyle(fill, stroke string, hasAlpha bool) string {
+func fillStyleWithOpacity(fill, stroke string, hasAlpha bool, opacity float64) string {
 	if hasAlpha {
 		return fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f",
 			fill, stroke, defaultStrokeWidth)
 	}
 	return fmt.Sprintf("fill:%s;fill-opacity:%g;stroke:%s;stroke-width:%.1f",
-		fill, defaultBoxFillOpacity, stroke, defaultStrokeWidth)
-}
-
-func blockFillStyle(fill, stroke string, hasAlpha bool) string {
-	if hasAlpha {
-		return fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f",
-			fill, stroke, defaultStrokeWidth)
-	}
-	return fmt.Sprintf("fill:%s;fill-opacity:%g;stroke:%s;stroke-width:%.1f",
-		fill, defaultBlockFillOpacity, stroke, defaultStrokeWidth)
+		fill, opacity, stroke, defaultStrokeWidth)
 }
 
 func renderTitle(title string, lay seqLayout, th Theme, fontSize float64) []any {
@@ -426,9 +417,9 @@ func renderBoxes(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize f
 		}
 		var style string
 		if bx.Fill != "" && bx.HasAlpha {
-			style = boxFillStyle(fill, th.ParticipantStroke, true)
+			style = fillStyleWithOpacity(fill, th.ParticipantStroke, true, defaultBoxFillOpacity)
 		} else {
-			style = boxFillStyle(fill, th.ParticipantStroke, false)
+			style = fillStyleWithOpacity(fill, th.ParticipantStroke, false, defaultBoxFillOpacity)
 		}
 
 		elems = append(elems, &rect{

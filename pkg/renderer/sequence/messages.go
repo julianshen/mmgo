@@ -298,7 +298,7 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 
 	blockStyle := fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.1f", mr.th.MessageStroke, defaultStrokeWidth)
 	if b.Kind == diagram.BlockKindRect && b.Fill != "" {
-		blockStyle = blockFillStyle(b.Fill, mr.th.MessageStroke, b.HasAlpha)
+		blockStyle = fillStyleWithOpacity(b.Fill, mr.th.MessageStroke, b.HasAlpha, defaultBlockFillOpacity)
 	}
 
 	rectY := startY - defaultRowHeight/4
