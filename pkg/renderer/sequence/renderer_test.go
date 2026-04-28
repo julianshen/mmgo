@@ -90,10 +90,66 @@ func TestRenderLifelines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	// Lifelines are dashed vertical lines — check for stroke-dasharray.
 	raw := string(out)
 	if !strings.Contains(raw, "stroke-dasharray") {
 		t.Error("expected dashed lifeline (stroke-dasharray)")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderLifelineUsesThemeColor(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{
+				From: "A", To: "B", Label: "hello",
+				ArrowType: diagram.ArrowTypeSolid,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+
+	if !strings.Contains(raw, "stroke:#9370DB") {
+		t.Error("lifeline should use theme color #9370DB")
+	}
+	if !strings.Contains(raw, "stroke-width:2.0") {
+		t.Error("lifeline should use stroke-width:2.0")
+	}
+	assertValidSVG(t, out)
+}
+
+func TestRenderLifelineCustomTheme(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{
+				From: "A", To: "B", Label: "hello",
+				ArrowType: diagram.ArrowTypeSolid,
+			}),
+		},
+	}
+	out, err := Render(d, &Options{
+		Theme: Theme{LifelineStroke: "#00ff00"},
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	lifelineRe := regexp.MustCompile(`<line[^>]*stroke-dasharray[^>]*>`)
+	for _, m := range lifelineRe.FindAllString(raw, -1) {
+		if !strings.Contains(m, "stroke:#00ff00") {
+			t.Errorf("lifeline should use custom color #00ff00, got: %s", m)
+		}
 	}
 	assertValidSVG(t, out)
 }

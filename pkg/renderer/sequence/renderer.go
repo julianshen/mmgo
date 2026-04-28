@@ -400,7 +400,7 @@ func renderLifelines(d *diagram.SequenceDiagram, lay seqLayout, th Theme, create
 			elems = append(elems, &line{
 				X1: svgFloat(x), Y1: svgFloat(startY),
 				X2: svgFloat(x), Y2: svgFloat(endY),
-				Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", th.LifelineStroke, defaultStrokeWidth),
+				Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", th.LifelineStroke, defaultLifelineWidth),
 			})
 		}
 	}
