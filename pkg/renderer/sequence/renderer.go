@@ -319,7 +319,10 @@ func renderParticipants(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fon
 		if !isCreated {
 			elems = append(elems, drawParticipant(p.Kind, x, lay.topY, w, label, th, fontSize)...)
 		}
-		if !isDestroyed {
+		if isDestroyed {
+			destroyYVal := destroyY[p.ID]
+			elems = append(elems, drawParticipant(p.Kind, x, destroyYVal+defaultBoxHeight/2, w, label, th, fontSize)...)
+		} else {
 			elems = append(elems, drawParticipant(p.Kind, x, lay.bottomY, w, label, th, fontSize)...)
 		}
 	}
