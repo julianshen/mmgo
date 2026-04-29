@@ -322,6 +322,7 @@ var (
 	msgLineYRe      = regexp.MustCompile(`<line x1="[\d.]+" y1="([\d.]+)" x2="[\d.]+" y2="([\d.]+)" style="stroke:#333`)
 	fillRectRe      = regexp.MustCompile(`<rect[^>]*y="([\d.]+)"[^>]*height="([\d.]+)"[^>]*fill:#[0-9a-fA-F]{6}`)
 	lifelineStyleRe = regexp.MustCompile(`<line[^>]*stroke-width:2\.0[^>]*stroke-dasharray[^>]*>`)
+	markerContentRe = regexp.MustCompile(`<marker[^>]*id="seq-arrow-([^"]+)"[^>]*>(.*?)</marker>`)
 )
 
 func autoNumberCircleCX(raw string) (float64, bool) {
@@ -721,6 +722,65 @@ func TestRenderAllArrowTypes(t *testing.T) {
 	}
 }
 
+func TestRenderArrowheadFillStyle(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+
+	cases := []struct {
+		name    string
+		markers []string
+		filled  bool
+	}{
+		{"filled", []string{"solid", "dashed"}, true},
+		{"open", []string{"solid-open", "dashed-open"}, false},
+		{"cross", []string{"solid-cross", "dashed-cross"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, id := range tc.markers {
+				marker := findMarker(t, raw, id)
+				if marker == "" {
+					t.Fatalf("marker seq-arrow-%s not found", id)
+				}
+				if tc.filled {
+					if !strings.Contains(marker, "<polygon") {
+						t.Errorf("marker %s should contain filled <polygon>, got: %s", id, marker)
+					}
+					if strings.Contains(marker, "fill:none") {
+						t.Errorf("marker %s should not have fill:none", id)
+					}
+				} else {
+					if !strings.Contains(marker, "<polyline") {
+						t.Errorf("marker %s should contain <polyline>, got: %s", id, marker)
+					}
+					if !strings.Contains(marker, "fill:none") {
+						t.Errorf("marker %s should have fill:none, got: %s", id, marker)
+					}
+				}
+			}
+		})
+	}
+}
+
+func findMarker(t *testing.T, raw, id string) string {
+	t.Helper()
+	for _, m := range markerContentRe.FindAllStringSubmatch(raw, -1) {
+		if m[1] == id {
+			return m[2]
+		}
+	}
+	return ""
+}
+
 func TestRenderSelfMessage(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
@@ -1099,6 +1159,10 @@ func TestRenderBidirectionalSolidHasBothArrowheads(t *testing.T) {
 	// same end. Endpoints are derived from the layout — assert they differ.
 	if tipXs[0] == tipXs[1] {
 		t.Errorf("both arrowheads at same x=%v — expected one at each line endpoint", tipXs[0])
+	}
+	fillCount := strings.Count(raw, fmt.Sprintf("fill:%s", DefaultTheme().MessageStroke))
+	if fillCount < 2 {
+		t.Errorf("bidirectional arrowheads should have fill:%s, found %d occurrences", DefaultTheme().MessageStroke, fillCount)
 	}
 	assertValidSVG(t, out)
 }
