@@ -3,6 +3,7 @@ package sequence
 import (
 	"bytes"
 	"encoding/xml"
+	"fmt"
 	"math"
 	"regexp"
 	"strconv"
@@ -73,30 +74,6 @@ func TestRenderActorDrawsDifferently(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
-func TestRenderLifelines(t *testing.T) {
-	d := &diagram.SequenceDiagram{
-		Participants: []diagram.Participant{
-			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
-			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
-		},
-		Items: []diagram.SequenceItem{
-			diagram.NewMessageItem(diagram.Message{
-				From: "A", To: "B", Label: "hello",
-				ArrowType: diagram.ArrowTypeSolid,
-			}),
-		},
-	}
-	out, err := Render(d, nil)
-	if err != nil {
-		t.Fatalf("Render: %v", err)
-	}
-	raw := string(out)
-	if !strings.Contains(raw, "stroke-dasharray") {
-		t.Error("expected dashed lifeline (stroke-dasharray)")
-	}
-	assertValidSVG(t, out)
-}
-
 func TestRenderLifelineUsesThemeColor(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
@@ -116,11 +93,12 @@ func TestRenderLifelineUsesThemeColor(t *testing.T) {
 	}
 	raw := string(out)
 
-	if !strings.Contains(raw, "stroke:#9370DB") {
-		t.Error("lifeline should use theme color #9370DB")
+	wantStyle := fmt.Sprintf("stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", DefaultTheme().LifelineStroke, defaultLifelineWidth)
+	if !strings.Contains(raw, wantStyle) {
+		t.Errorf("lifeline should use theme style %q", wantStyle)
 	}
-	if !strings.Contains(raw, "stroke-width:2.0") {
-		t.Error("lifeline should use stroke-width:2.0")
+	if !strings.Contains(raw, "stroke-dasharray") {
+		t.Error("expected dashed lifeline (stroke-dasharray)")
 	}
 	assertValidSVG(t, out)
 }
@@ -145,8 +123,7 @@ func TestRenderLifelineCustomTheme(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	lifelineRe := regexp.MustCompile(`<line[^>]*stroke-dasharray[^>]*>`)
-	for _, m := range lifelineRe.FindAllString(raw, -1) {
+	for _, m := range lifelineStyleRe.FindAllString(raw, -1) {
 		if !strings.Contains(m, "stroke:#00ff00") {
 			t.Errorf("lifeline should use custom color #00ff00, got: %s", m)
 		}
@@ -340,10 +317,11 @@ func TestRenderAutoNumberEmitsCircleBadge(t *testing.T) {
 }
 
 var (
-	circleRe   = regexp.MustCompile(`<circle[^>]*cx="([^"]+)"[^>]*r="10\.00"`)
-	lineRe     = regexp.MustCompile(`<line x1="([^"]+)" y1="[^"]+" x2="([^"]+)"`)
-	msgLineYRe = regexp.MustCompile(`<line x1="[\d.]+" y1="([\d.]+)" x2="[\d.]+" y2="([\d.]+)" style="stroke:#333`)
-	fillRectRe = regexp.MustCompile(`<rect[^>]*y="([\d.]+)"[^>]*height="([\d.]+)"[^>]*fill:#[0-9a-fA-F]{6}`)
+	circleRe        = regexp.MustCompile(`<circle[^>]*cx="([^"]+)"[^>]*r="10\.00"`)
+	lineRe          = regexp.MustCompile(`<line x1="([^"]+)" y1="[^"]+" x2="([^"]+)"`)
+	msgLineYRe      = regexp.MustCompile(`<line x1="[\d.]+" y1="([\d.]+)" x2="[\d.]+" y2="([\d.]+)" style="stroke:#333`)
+	fillRectRe      = regexp.MustCompile(`<rect[^>]*y="([\d.]+)"[^>]*height="([\d.]+)"[^>]*fill:#[0-9a-fA-F]{6}`)
+	lifelineStyleRe = regexp.MustCompile(`<line[^>]*stroke-width:2\.0[^>]*stroke-dasharray[^>]*>`)
 )
 
 func autoNumberCircleCX(raw string) (float64, bool) {

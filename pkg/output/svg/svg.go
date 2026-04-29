@@ -634,7 +634,7 @@ func toSequenceTheme(tc *config.ThemeColors) sequencerenderer.Theme {
 		ParticipantFill:   tc.Secondary,
 		ParticipantStroke: tc.LineColor,
 		ParticipantText:   tc.Text,
-		LifelineStroke:    tc.LineColor,
+		LifelineStroke:    "",
 		MessageStroke:     tc.LineColor,
 		MessageText:       tc.Text,
 		NoteFill:          tc.NoteFill,

@@ -386,6 +386,7 @@ func renderActor(cx, topY float64, label string, th Theme, fontSize float64) []a
 
 func renderLifelines(d *diagram.SequenceDiagram, lay seqLayout, th Theme, createY, destroyY map[string]float64) []any {
 	var elems []any
+	lifelineStyle := fmt.Sprintf("stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", th.LifelineStroke, defaultLifelineWidth)
 	for i, p := range d.Participants {
 		x := lay.participantX[i]
 		startY := lay.bodyStartY
@@ -400,7 +401,7 @@ func renderLifelines(d *diagram.SequenceDiagram, lay seqLayout, th Theme, create
 			elems = append(elems, &line{
 				X1: svgFloat(x), Y1: svgFloat(startY),
 				X2: svgFloat(x), Y2: svgFloat(endY),
-				Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", th.LifelineStroke, defaultLifelineWidth),
+				Style: lifelineStyle,
 			})
 		}
 	}
