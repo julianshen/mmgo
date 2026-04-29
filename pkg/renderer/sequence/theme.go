@@ -9,6 +9,7 @@ const (
 	defaultBoxPadY        = 10.0
 	defaultBoxHeight      = 35.0
 	defaultStrokeWidth    = 1.5
+	defaultLifelineWidth  = 2.0
 	defaultActorHeadR     = 12.0
 	defaultActorBodyH     = 28.0
 )
@@ -36,7 +37,7 @@ func DefaultTheme() Theme {
 		ParticipantFill:   "#ECECFF",
 		ParticipantStroke: "#9370DB",
 		ParticipantText:   "#333",
-		LifelineStroke:    "#999",
+		LifelineStroke:    "#9370DB",
 		MessageStroke:     "#333",
 		MessageText:       "#333",
 		NoteFill:          "#ffffcc",
