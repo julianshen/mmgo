@@ -544,14 +544,16 @@ func buildSequenceMarkers(th Theme) []marker {
 			Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", stroke)}},
 		},
 		{
+			// `-x` / `--x` arrows render as an ✕ at the destination end
+			// (mmdc parity). Two crossed strokes inside the 10×10 viewBox.
 			ID: arrowMarkerID(diagram.ArrowTypeSolidCross), ViewBox: "0 0 10 10",
-			RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto",
-			Children: []any{&polyline{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;fill:none", stroke, sw)}},
+			RefX: 5, RefY: 5, Width: 10, Height: 10, Orient: "auto",
+			Children: []any{&path{D: "M2,2 L8,8 M2,8 L8,2", Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;fill:none", stroke, sw)}},
 		},
 		{
 			ID: arrowMarkerID(diagram.ArrowTypeDashedCross), ViewBox: "0 0 10 10",
-			RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto",
-			Children: []any{&polyline{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;fill:none", stroke, sw)}},
+			RefX: 5, RefY: 5, Width: 10, Height: 10, Orient: "auto",
+			Children: []any{&path{D: "M2,2 L8,8 M2,8 L8,2", Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;fill:none", stroke, sw)}},
 		},
 		{
 			ID: arrowMarkerID(diagram.ArrowTypeSolidOpen), ViewBox: "0 0 10 10",

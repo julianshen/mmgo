@@ -736,13 +736,13 @@ func TestRenderArrowheadFillStyle(t *testing.T) {
 	raw := string(out)
 
 	cases := []struct {
-		name    string
-		markers []string
-		filled  bool
+		name      string
+		markers   []string
+		wantShape string // "polygon" (filled), "polyline" (open arrow), or "path" (cross)
 	}{
-		{"filled", []string{"solid", "dashed"}, true},
-		{"open", []string{"solid-open", "dashed-open"}, false},
-		{"cross", []string{"solid-cross", "dashed-cross"}, false},
+		{"filled", []string{"solid", "dashed"}, "polygon"},
+		{"open", []string{"solid-open", "dashed-open"}, "polyline"},
+		{"cross", []string{"solid-cross", "dashed-cross"}, "path"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -751,19 +751,23 @@ func TestRenderArrowheadFillStyle(t *testing.T) {
 				if marker == "" {
 					t.Fatalf("marker seq-arrow-%s not found", id)
 				}
-				if tc.filled {
-					if !strings.Contains(marker, "<polygon") {
-						t.Errorf("marker %s should contain filled <polygon>, got: %s", id, marker)
-					}
+				if !strings.Contains(marker, "<"+tc.wantShape) {
+					t.Errorf("marker %s should contain <%s>, got: %s", id, tc.wantShape, marker)
+				}
+				if tc.wantShape == "polygon" {
 					if strings.Contains(marker, "fill:none") {
 						t.Errorf("marker %s should not have fill:none", id)
 					}
 				} else {
-					if !strings.Contains(marker, "<polyline") {
-						t.Errorf("marker %s should contain <polyline>, got: %s", id, marker)
-					}
 					if !strings.Contains(marker, "fill:none") {
 						t.Errorf("marker %s should have fill:none, got: %s", id, marker)
+					}
+				}
+				if tc.wantShape == "path" {
+					// The ✕ glyph is two crossing strokes — verify both
+					// "Move L" pairs are present in the path data.
+					if !strings.Contains(marker, "M2,2 L8,8") || !strings.Contains(marker, "M2,8 L8,2") {
+						t.Errorf("cross marker %s missing crossed strokes, got: %s", id, marker)
 					}
 				}
 			}
