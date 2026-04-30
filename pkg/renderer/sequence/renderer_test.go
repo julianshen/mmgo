@@ -765,14 +765,34 @@ func TestRenderArrowheadFillStyle(t *testing.T) {
 				}
 				if tc.wantShape == "path" {
 					// The ✕ glyph is two crossing strokes — verify both
-					// "Move L" pairs are present in the path data.
+					// M…L pairs are present in the path data.
 					if !strings.Contains(marker, "M2,2 L8,8") || !strings.Contains(marker, "M2,8 L8,2") {
 						t.Errorf("cross marker %s missing crossed strokes, got: %s", id, marker)
+					}
+					// Cross is centered on the line endpoint (refX=refY=5
+					// in the 10×10 viewBox), not at the tip like the
+					// open/filled markers. findMarker returns only the
+					// children block, so check refX/refY against the raw
+					// SVG near the marker opening tag.
+					tag := findMarkerOpenTag(raw, id)
+					if !strings.Contains(tag, `refX="5.00"`) || !strings.Contains(tag, `refY="5.00"`) {
+						t.Errorf("cross marker %s should center on endpoint (refX=5, refY=5), got tag: %s", id, tag)
 					}
 				}
 			}
 		})
 	}
+}
+
+var markerOpenTagRe = regexp.MustCompile(`<marker[^>]*id="seq-arrow-([^"]+)"[^>]*>`)
+
+func findMarkerOpenTag(raw, id string) string {
+	for _, m := range markerOpenTagRe.FindAllStringSubmatch(raw, -1) {
+		if m[1] == id {
+			return m[0]
+		}
+	}
+	return ""
 }
 
 func findMarker(t *testing.T, raw, id string) string {
