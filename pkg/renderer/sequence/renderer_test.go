@@ -318,7 +318,7 @@ var (
 	lineRe          = regexp.MustCompile(`<line x1="([^"]+)" y1="[^"]+" x2="([^"]+)"`)
 	msgLineYRe      = regexp.MustCompile(`<line x1="[\d.]+" y1="([\d.]+)" x2="[\d.]+" y2="([\d.]+)" style="stroke:#333`)
 	fillRectRe      = regexp.MustCompile(`<rect[^>]*y="([\d.]+)"[^>]*height="([\d.]+)"[^>]*fill:#[0-9a-fA-F]{6}`)
-	lifelineStyleRe = regexp.MustCompile(`<line[^>]*stroke-width:2\.0[^>]*stroke-dasharray[^>]*>`)
+	lifelineStyleRe = regexp.MustCompile(`<line[^>]*stroke-width:2\.0[^>]*>`)
 	markerContentRe = regexp.MustCompile(`<marker[^>]*id="seq-arrow-([^"]+)"[^>]*>(.*?)</marker>`)
 )
 
@@ -2001,10 +2001,12 @@ func TestRenderCreateParticipantStopsArrowAtBoxEdge(t *testing.T) {
 
 	msgLineRe := regexp.MustCompile(`<line x1="([\d.]+)"[^>]*y1="[\d.]+" x2="([\d.]+)"[^>]*y2="[\d.]+" style="[^"]*stroke:[^"]*"`)
 	matches := msgLineRe.FindAllStringSubmatch(raw, -1)
+	lifelineStroke := DefaultTheme().LifelineStroke
 	for _, m := range matches {
-		// Filter out lifelines (theme stroke color, width 2.0).
-		// Message lines use MessageStroke (#333) at width 1.5.
-		if strings.Contains(m[0], "stroke-width:2.0") {
+		// Lifelines use the theme accent color; message lines use
+		// MessageStroke. Filter by color so the test isn't coupled
+		// to incidental width values.
+		if strings.Contains(m[0], "stroke:"+lifelineStroke) {
 			continue
 		}
 		x2, _ := strconv.ParseFloat(m[2], 64)
