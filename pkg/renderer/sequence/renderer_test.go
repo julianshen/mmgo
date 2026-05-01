@@ -736,6 +736,39 @@ func TestRenderNestedBlocksHaveOffsetBorders(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+func TestRenderSelfMessageUsesArcPath(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{
+				From: "A", To: "A", Label: "callback",
+				ArrowType: diagram.ArrowTypeSolid,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+
+	pathRe := regexp.MustCompile(`<path d="(M[^"]*)"`)
+	matches := pathRe.FindAllStringSubmatch(raw, -1)
+	var selfPath string
+	for _, m := range matches {
+		if strings.ContainsAny(m[1], "QqCc") {
+			selfPath = m[1]
+			break
+		}
+	}
+	if selfPath == "" {
+		t.Fatalf("expected self-message path with curve command (Q/C); got paths: %v", matches)
+	}
+	assertValidSVG(t, out)
+}
+
 func TestRenderRectWithLabelSuppressesBadge(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{

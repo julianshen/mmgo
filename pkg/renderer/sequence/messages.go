@@ -13,8 +13,8 @@ import (
 
 const (
 	defaultActivationW = 10.0
-	selfLoopW          = 30.0
-	selfLoopH          = 20.0
+	selfLoopW          = 50.0
+	selfLoopH          = 40.0
 )
 
 type messageRenderer struct {
@@ -206,9 +206,15 @@ func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagra
 
 func (mr *messageRenderer) renderSelfMessage(x, y float64, m diagram.Message) []any {
 	style := mr.messageLineStyle(m.ArrowType)
+	// Symmetric control points keep the curve's end tangent
+	// horizontal so the auto-oriented arrowhead points cleanly back
+	// at the lifeline.
 	p := &path{
-		D: fmt.Sprintf("M%.2f,%.2f h%.2f v%.2f h%.2f",
-			x, y, selfLoopW, selfLoopH, -selfLoopW),
+		D: fmt.Sprintf("M%.2f,%.2f C%.2f,%.2f %.2f,%.2f %.2f,%.2f",
+			x, y,
+			x+selfLoopW, y,
+			x+selfLoopW, y+selfLoopH,
+			x, y+selfLoopH),
 		Style: style,
 	}
 	if ref := m.ArrowType.MarkerRef(); ref != "" {
