@@ -660,7 +660,10 @@ func TestRenderBranchLabelDoesNotOverlapMessage(t *testing.T) {
 	textYRe := regexp.MustCompile(`<text[^>]*y="([\d.]+)"[^>]*>([^<]+)</text>`)
 	var bracketY, msgLabelY float64 = -1, -1
 	for _, m := range textYRe.FindAllStringSubmatch(raw, -1) {
-		y, _ := strconv.ParseFloat(m[1], 64)
+		y, err := strconv.ParseFloat(m[1], 64)
+		if err != nil {
+			t.Fatalf("parse text y=%q: %v", m[1], err)
+		}
 		switch m[2] {
 		case "[ELSE_LABEL]":
 			bracketY = y
@@ -679,6 +682,7 @@ func TestRenderBranchLabelDoesNotOverlapMessage(t *testing.T) {
 		t.Errorf("branch bracket label y=%.2f overlaps message label y=%.2f (gap=%.2f, min=%.2f)",
 			bracketY, msgLabelY, msgLabelY-bracketY, minGap)
 	}
+	assertValidSVG(t, out)
 }
 
 func TestRenderRectWithLabelSuppressesBadge(t *testing.T) {
