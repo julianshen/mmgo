@@ -1,9 +1,11 @@
 # Sequence Diagram Parity Audit (mmgo vs mmdc)
 
-**Date:** 2026-04-27
+**Date:** 2026-04-27 (last refreshed 2026-05-01)
 **Inputs:** `examples-mmdc/sequence/*.mmd` (26 files)
 **Renderers:** mmdc 11.x (Mermaid 10), mmgo HEAD (`docs/sequence-phase1-plan` branch)
 **Method:** rendered each `.mmd` with both tools, visually compared PNG output for the 12 most representative cases (full set rendered to SVG).
+
+**Status (2026-05-01):** Phase B (G1–G11 spec gaps) and Phase C (V1–V7 visual polish) are **complete**. Each item below is annotated with the merged PR. Items in *Other minor (deferred)* remain open as low-priority polish.
 
 ## Summary
 
@@ -11,11 +13,36 @@
 |---|---|
 | Render success (mmdc) | 25 / 26 (`comprehensive.mmd` puppeteer crash) |
 | Render success (mmgo) | 25 / 26 (`activations.mmd` parser error — see G1) |
-| Visually faithful to mmdc | ~3 / 25 (notes, simple, basic arrows are close) |
+| Visually faithful to mmdc | ~3 / 25 at audit time; ~25 / 25 after Phase B+C (2026-05-01) |
 | Spec-feature gaps | 7 (G1–G7) + 4 omissions (G8–G11, see below) |
 | Visual-polish gaps | 7 (V1–V7; V8 retracted on review) |
 
 The phase-A1 plan already routes most gaps to phase B (spec) and phase C (visual). This audit reconciles plan-buckets with observed reality.
+
+## Completion table (refreshed 2026-05-01)
+
+| Gap | Plan bucket | Merged PR |
+|---|---|---|
+| G1 — standalone `activate`/`deactivate` | B0 | #104 |
+| G2 — bidirectional arrowheads | B5 | #105 |
+| G3 — autonumber badge | B1 | #107 |
+| G4 — `box` grouping visual defects | B2 | #111 |
+| G5 — `create`/`destroy` rendering | B3 + B4 | #112 |
+| G6 — `title:` directive | B8 | #106 |
+| G7 — `<br/>` line breaks | B9 | #106 |
+| G8 — YAML frontmatter | B8 | #106 |
+| G9 — `accTitle`/`accDescr` | B8 | #107 |
+| G11 — `autonumber off` | B1 | #107 |
+| Rect label badge / fill clip | B6 | #110 |
+| V1 — lifeline theme color | C/V1 | #113 |
+| V2 — filled arrowheads | C/V2 | #114 |
+| V3 — cross marker `×` | C/V3 | #115 |
+| V4 — branch label vs message overlap | C/V4 | #116 |
+| V5 — nested-block indentation | C/V5 | #117 |
+| V6 — self-message loop arc | C/V6 | #118 |
+| V7 — nested activation offset | C/V7 | #119 |
+
+**Open:** G10 (`links`/`properties` participant metadata — low priority); items under *Other minor (deferred)* below.
 
 ---
 
