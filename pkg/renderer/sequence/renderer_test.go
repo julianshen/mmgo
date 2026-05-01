@@ -93,12 +93,9 @@ func TestRenderLifelineUsesThemeColor(t *testing.T) {
 	}
 	raw := string(out)
 
-	wantStyle := fmt.Sprintf("stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", DefaultTheme().LifelineStroke, defaultLifelineWidth)
+	wantStyle := fmt.Sprintf("stroke:%s;stroke-width:%.1f", DefaultTheme().LifelineStroke, defaultLifelineWidth)
 	if !strings.Contains(raw, wantStyle) {
 		t.Errorf("lifeline should use theme style %q", wantStyle)
-	}
-	if !strings.Contains(raw, "stroke-dasharray") {
-		t.Error("expected dashed lifeline (stroke-dasharray)")
 	}
 	assertValidSVG(t, out)
 }
@@ -2005,7 +2002,9 @@ func TestRenderCreateParticipantStopsArrowAtBoxEdge(t *testing.T) {
 	msgLineRe := regexp.MustCompile(`<line x1="([\d.]+)"[^>]*y1="[\d.]+" x2="([\d.]+)"[^>]*y2="[\d.]+" style="[^"]*stroke:[^"]*"`)
 	matches := msgLineRe.FindAllStringSubmatch(raw, -1)
 	for _, m := range matches {
-		if strings.Contains(m[0], "stroke-dasharray") {
+		// Filter out lifelines (theme stroke color, width 2.0).
+		// Message lines use MessageStroke (#333) at width 1.5.
+		if strings.Contains(m[0], "stroke-width:2.0") {
 			continue
 		}
 		x2, _ := strconv.ParseFloat(m[2], 64)
