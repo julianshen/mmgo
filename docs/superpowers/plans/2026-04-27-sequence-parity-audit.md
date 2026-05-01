@@ -5,7 +5,7 @@
 **Renderers:** mmdc 11.x (Mermaid 10), mmgo HEAD (`docs/sequence-phase1-plan` branch)
 **Method:** rendered each `.mmd` with both tools, visually compared PNG output for the 12 most representative cases (full set rendered to SVG).
 
-**Status (2026-05-01):** Phase B (G1–G11 spec gaps), Phase C (V1–V7 visual polish), and the post-merge mmdc-comparison sweep (Q1–Q7) are all **complete**. Each item below is annotated with the merged PR. Items in *Other minor (deferred)* remain open as low-priority polish.
+**Status (2026-05-01):** Phase B spec gaps (G1–G9, G11; **G10 deferred**), Phase C (V1–V7 visual polish), and the post-merge mmdc-comparison sweep (Q1–Q7) are all **complete**. Each item below is annotated with the merged PR. Items in *Other minor (deferred)* remain open as low-priority polish.
 
 ## Summary
 
@@ -13,9 +13,9 @@
 |---|---|
 | Render success (mmdc) | 25 / 26 (`comprehensive.mmd` puppeteer crash) |
 | Render success (mmgo) | 25 / 26 (`activations.mmd` parser error — see G1) |
-| Visually faithful to mmdc | ~3 / 25 at audit time; ~25 / 25 after Phase B+C (2026-05-01) |
-| Spec-feature gaps | 7 (G1–G7) + 4 omissions (G8–G11, see below) |
-| Visual-polish gaps | 7 (V1–V7; V8 retracted on review) |
+| Visually faithful to mmdc | ~3 / 25 at audit time; ~18 / 25 after Phase B+C; ~25 / 25 after Q1–Q7 sweep (2026-05-01) |
+| Spec-feature gaps | 7 (G1–G7) + 4 omissions (G8, G9, G11 closed; G10 deferred) |
+| Visual-polish gaps | 7 (V1–V7; V8 retracted) + 7 (Q1–Q7 from post-merge mmdc comparison) |
 
 The phase-A1 plan already routes most gaps to phase B (spec) and phase C (visual). This audit reconciles plan-buckets with observed reality.
 
