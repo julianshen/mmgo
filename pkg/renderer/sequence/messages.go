@@ -325,7 +325,7 @@ func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 	// Rect blocks carry only a fill (no border) since the colored
 	// region is the entire visual cue — a dark stroke would read as
 	// a flow-control region instead.
-	blockStyle := fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", mr.th.MessageStroke, defaultStrokeWidth)
+	blockStyle := fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", mr.th.ParticipantStroke, defaultStrokeWidth)
 	if b.Kind == diagram.BlockKindRect && b.Fill != "" {
 		blockStyle = fillStyleWithOpacity(b.Fill, "none", b.HasAlpha, defaultBlockFillOpacity)
 	}
@@ -388,7 +388,7 @@ func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 		elems = append(elems, &line{
 			X1: svgFloat(x), Y1: svgFloat(brY),
 			X2: svgFloat(x + w), Y2: svgFloat(brY),
-			Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", mr.th.MessageStroke, defaultStrokeWidth),
+			Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", mr.th.ParticipantStroke, defaultStrokeWidth),
 		})
 		if i < len(b.Branches) && b.Branches[i].Label != "" {
 			elems = append(elems, &text{
