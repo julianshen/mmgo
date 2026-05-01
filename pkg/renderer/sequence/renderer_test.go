@@ -782,7 +782,6 @@ func TestRenderArrowheadFillStyle(t *testing.T) {
 	}
 }
 
-// findMarker returns the inner block of a <marker id="seq-arrow-{id}"> element.
 func findMarker(t *testing.T, raw, id string) string {
 	t.Helper()
 	for _, m := range markerContentRe.FindAllStringSubmatch(raw, -1) {
@@ -793,9 +792,6 @@ func findMarker(t *testing.T, raw, id string) string {
 	return ""
 }
 
-// findMarkerOpenTag returns the `<marker ...>` opening tag for a given id.
-// markerContentRe's m[0] already begins with that tag, so the tag is the
-// prefix up through (and including) the first `>`.
 func findMarkerOpenTag(raw, id string) string {
 	for _, m := range markerContentRe.FindAllStringSubmatch(raw, -1) {
 		if m[1] == id {
