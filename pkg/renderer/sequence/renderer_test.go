@@ -1532,7 +1532,7 @@ func TestRenderBoxEmitsRectAndLabel(t *testing.T) {
 	if !strings.Contains(raw, ">Frontend<") {
 		t.Error("expected box label text in SVG output")
 	}
-	if !strings.Contains(raw, "fill-opacity:0.15") {
+	if !strings.Contains(raw, "fill-opacity:0.5") {
 		t.Error("expected box fill-opacity")
 	}
 	assertValidSVG(t, out)
