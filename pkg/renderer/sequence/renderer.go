@@ -114,6 +114,15 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 	if d.Title != "" {
 		topY += titleHeight(fontSize)
 	}
+	// Reserve room for the title strip drawn above each `box` group
+	// (renderBoxes draws at boxY = topY - titleStripH - boxPad/2).
+	// Without this, boxes start at y < 0 and their title text clips
+	// against the viewBox top edge.
+	if len(d.Boxes) > 0 {
+		const boxPad = 10.0
+		titleStripH := (fontSize - 2) + 6.0
+		topY += titleStripH + boxPad/2
+	}
 	bodyStart := topY + maxHeaderH + 10
 	rows := countRows(d)
 	bodyEnd := bodyStart + float64(rows)*defaultRowHeight
