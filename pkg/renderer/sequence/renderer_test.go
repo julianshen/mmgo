@@ -685,6 +685,57 @@ func TestRenderBranchLabelDoesNotOverlapMessage(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+func TestRenderNestedBlocksHaveOffsetBorders(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind: diagram.BlockKindLoop,
+				Items: []diagram.SequenceItem{
+					diagram.NewBlockItem(diagram.Block{
+						Kind: diagram.BlockKindAlt,
+						Items: []diagram.SequenceItem{
+							diagram.NewMessageItem(diagram.Message{
+								From: "A", To: "B", Label: "inner",
+								ArrowType: diagram.ArrowTypeSolid,
+							}),
+						},
+					}),
+				},
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+
+	rectXRe := regexp.MustCompile(`<rect x="([\d.]+)"[^>]*style="fill:none;stroke:`)
+	matches := rectXRe.FindAllStringSubmatch(raw, -1)
+	if len(matches) < 2 {
+		t.Fatalf("expected at least 2 block-border rects, found %d", len(matches))
+	}
+	xs := make([]float64, 0, len(matches))
+	for _, m := range matches {
+		v, err := strconv.ParseFloat(m[1], 64)
+		if err != nil {
+			t.Fatalf("parse x=%q: %v", m[1], err)
+		}
+		xs = append(xs, v)
+	}
+	// renderItems recurses inner-first, so the inner rect is appended
+	// (and emitted) before the enclosing outer rect.
+	innerX, outerX := xs[0], xs[1]
+	if innerX <= outerX {
+		t.Errorf("inner block x=%.2f should be greater than outer block x=%.2f", innerX, outerX)
+	}
+	assertValidSVG(t, out)
+}
+
 func TestRenderRectWithLabelSuppressesBadge(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
