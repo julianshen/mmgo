@@ -769,6 +769,45 @@ func TestRenderSelfMessageUsesArcPath(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+func TestRenderNestedActivationsOffsetByDepth(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "B", ArrowType: diagram.ArrowTypeSolid, Lifeline: diagram.LifelineEffectActivate}),
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "B", ArrowType: diagram.ArrowTypeSolid, Lifeline: diagram.LifelineEffectActivate}),
+			diagram.NewMessageItem(diagram.Message{From: "B", To: "A", ArrowType: diagram.ArrowTypeDashed, Lifeline: diagram.LifelineEffectDeactivate}),
+			diagram.NewMessageItem(diagram.Message{From: "B", To: "A", ArrowType: diagram.ArrowTypeDashed, Lifeline: diagram.LifelineEffectDeactivate}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+
+	// Activation bars are width-10 rects with the participant fill.
+	actRe := regexp.MustCompile(`<rect x="([\d.]+)" y="[\d.]+" width="10\.00"`)
+	matches := actRe.FindAllStringSubmatch(raw, -1)
+	if len(matches) < 2 {
+		t.Fatalf("expected 2 activation rects, found %d", len(matches))
+	}
+	xs := make(map[float64]bool)
+	for _, m := range matches {
+		v, err := strconv.ParseFloat(m[1], 64)
+		if err != nil {
+			t.Fatalf("parse activation x=%q: %v", m[1], err)
+		}
+		xs[v] = true
+	}
+	if len(xs) < 2 {
+		t.Errorf("nested activations should render at distinct x positions, got %v", xs)
+	}
+	assertValidSVG(t, out)
+}
+
 func TestRenderRectWithLabelSuppressesBadge(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
