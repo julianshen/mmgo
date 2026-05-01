@@ -318,7 +318,10 @@ func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 		w = mr.lay.width - 2*x
 	}
 
-	blockStyle := fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.1f", mr.th.MessageStroke, defaultStrokeWidth)
+	// Non-rect blocks render with a dashed border for mmdc parity;
+	// rect uses solid since it carries a fill that should read as a
+	// distinct shape, not a flow-control region.
+	blockStyle := fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", mr.th.MessageStroke, defaultStrokeWidth)
 	if b.Kind == diagram.BlockKindRect && b.Fill != "" {
 		blockStyle = fillStyleWithOpacity(b.Fill, mr.th.MessageStroke, b.HasAlpha, defaultBlockFillOpacity)
 	}
@@ -356,9 +359,9 @@ func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 
 		if b.Label != "" {
 			elems = append(elems, &text{
-				X:      svgFloat(x + kindLabelW + 3*notePad),
+				X:      svgFloat(x + w/2),
 				Y:      svgFloat(startY - defaultRowHeight/4 + 14),
-				Anchor: "start", Dominant: "auto",
+				Anchor: "middle", Dominant: "auto",
 				Style:   mr.msgTextSmallStyle,
 				Content: "[" + b.Label + "]",
 			})
@@ -373,8 +376,8 @@ func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 		})
 		if i < len(b.Branches) && b.Branches[i].Label != "" {
 			elems = append(elems, &text{
-				X: svgFloat(x + notePad), Y: svgFloat(brY + 14),
-				Anchor: "start", Dominant: "auto",
+				X: svgFloat(x + w/2), Y: svgFloat(brY + 14),
+				Anchor: "middle", Dominant: "auto",
 				Style:   mr.msgTextSmallStyle,
 				Content: "[" + b.Branches[i].Label + "]",
 			})
