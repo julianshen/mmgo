@@ -206,9 +206,9 @@ func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagra
 
 func (mr *messageRenderer) renderSelfMessage(x, y float64, m diagram.Message) []any {
 	style := mr.messageLineStyle(m.ArrowType)
-	// Cubic Bézier loop bulging right of the lifeline. Both control
-	// points sit at x+selfLoopW so the curve hits its rightmost
-	// extent halfway down before returning to the lifeline.
+	// Symmetric control points keep the curve's end tangent
+	// horizontal so the auto-oriented arrowhead points cleanly back
+	// at the lifeline.
 	p := &path{
 		D: fmt.Sprintf("M%.2f,%.2f C%.2f,%.2f %.2f,%.2f %.2f,%.2f",
 			x, y,

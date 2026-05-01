@@ -758,7 +758,7 @@ func TestRenderSelfMessageUsesArcPath(t *testing.T) {
 	matches := pathRe.FindAllStringSubmatch(raw, -1)
 	var selfPath string
 	for _, m := range matches {
-		if strings.Contains(m[1], "M") && (strings.ContainsAny(m[1], "QqCc")) {
+		if strings.ContainsAny(m[1], "QqCc") {
 			selfPath = m[1]
 			break
 		}
