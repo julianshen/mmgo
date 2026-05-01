@@ -910,6 +910,84 @@ func TestRenderBranchLabelsCentered(t *testing.T) {
 	}
 }
 
+func TestRenderBlockBordersUsePurpleStroke(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind: diagram.BlockKindLoop,
+				Items: []diagram.SequenceItem{
+					diagram.NewMessageItem(diagram.Message{From: "A", To: "B", ArrowType: diagram.ArrowTypeSolid}),
+				},
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	re := regexp.MustCompile(`<rect [^>]*style="fill:none;stroke:([^;"]+)`)
+	m := re.FindStringSubmatch(raw)
+	if m == nil {
+		t.Fatal("did not find block-border rect")
+	}
+	defaultTheme := DefaultTheme()
+	if m[1] != defaultTheme.ParticipantStroke {
+		t.Errorf("block border stroke=%q, want ParticipantStroke=%q", m[1], defaultTheme.ParticipantStroke)
+	}
+}
+
+func TestRenderBlockEndsAboveBottomParticipantRow(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind: diagram.BlockKindLoop,
+				Items: []diagram.SequenceItem{
+					diagram.NewMessageItem(diagram.Message{From: "A", To: "B", ArrowType: diagram.ArrowTypeSolid}),
+				},
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	rectRe := regexp.MustCompile(`<rect x="[\d.]+" y="([\d.]+)" width="[\d.]+" height="([\d.]+)"[^>]*style="fill:none`)
+	rm := rectRe.FindStringSubmatch(raw)
+	if rm == nil {
+		t.Fatal("did not find block-border rect")
+	}
+	rectY, _ := strconv.ParseFloat(rm[1], 64)
+	rectH, _ := strconv.ParseFloat(rm[2], 64)
+	rectBottom := rectY + rectH
+
+	// Bottom participant boxes are width-90, fill ECECFF; pick the
+	// largest y to find the bottom-row band.
+	pRe := regexp.MustCompile(`<rect x="[\d.]+" y="([\d.]+)" width="90\.00" height="35\.00"[^>]*fill:#ECECFF`)
+	var bottomRowY float64
+	for _, m := range pRe.FindAllStringSubmatch(raw, -1) {
+		v, _ := strconv.ParseFloat(m[1], 64)
+		if v > bottomRowY {
+			bottomRowY = v
+		}
+	}
+	if bottomRowY == 0 {
+		t.Fatal("did not find bottom participant boxes")
+	}
+	if rectBottom > bottomRowY {
+		t.Errorf("block bottom y=%.2f bleeds into bottom participant row top y=%.2f", rectBottom, bottomRowY)
+	}
+}
+
 func TestRenderRectWithLabelSuppressesBadge(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
