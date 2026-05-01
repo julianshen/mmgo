@@ -393,9 +393,10 @@ func (mr *messageRenderer) handleStandaloneActivation(a diagram.Activation) {
 	if len(stack) == 0 {
 		return
 	}
-	startY := stack[len(stack)-1]
-	mr.actStack[a.Participant] = stack[:len(stack)-1]
-	mr.actElems = append(mr.actElems, mr.activationRect(a.Participant, startY, mr.curY))
+	depth := len(stack) - 1
+	startY := stack[depth]
+	mr.actStack[a.Participant] = stack[:depth]
+	mr.actElems = append(mr.actElems, mr.activationRect(a.Participant, startY, mr.curY, depth))
 }
 
 func (mr *messageRenderer) handleLifeline(m diagram.Message) {
@@ -405,9 +406,10 @@ func (mr *messageRenderer) handleLifeline(m diagram.Message) {
 	case diagram.LifelineEffectDeactivate:
 		stack := mr.actStack[m.From]
 		if len(stack) > 0 {
-			startY := stack[len(stack)-1]
-			mr.actStack[m.From] = stack[:len(stack)-1]
-			mr.actElems = append(mr.actElems, mr.activationRect(m.From, startY, mr.curY))
+			depth := len(stack) - 1
+			startY := stack[depth]
+			mr.actStack[m.From] = stack[:depth]
+			mr.actElems = append(mr.actElems, mr.activationRect(m.From, startY, mr.curY, depth))
 		}
 	}
 }
@@ -440,19 +442,22 @@ func (mr *messageRenderer) flushActivations() []any {
 	})
 	var elems []any
 	for _, id := range ids {
-		for _, startY := range mr.actStack[id] {
-			elems = append(elems, mr.activationRect(id, startY, mr.curY))
+		for depth, startY := range mr.actStack[id] {
+			elems = append(elems, mr.activationRect(id, startY, mr.curY, depth))
 		}
 	}
 	elems = append(elems, mr.actElems...)
 	return elems
 }
 
-func (mr *messageRenderer) activationRect(id string, startY, endY float64) *rect {
+func (mr *messageRenderer) activationRect(id string, startY, endY float64, depth int) *rect {
 	idx := mr.lay.participantIx[id]
 	x := mr.lay.participantX[idx]
+	// Stacked activations shift right by half-bar-width per nesting
+	// level so inner bars stay visible alongside their parents.
+	offset := float64(depth) * defaultActivationW / 2
 	return &rect{
-		X: svgFloat(x - defaultActivationW/2), Y: svgFloat(startY),
+		X: svgFloat(x - defaultActivationW/2 + offset), Y: svgFloat(startY),
 		Width: svgFloat(defaultActivationW), Height: svgFloat(endY - startY),
 		Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f",
 			mr.th.ParticipantFill, mr.th.ParticipantStroke, defaultStrokeWidth),
