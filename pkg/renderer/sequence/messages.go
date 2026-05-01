@@ -308,7 +308,13 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 	startY := mr.curY
 
-	blockHeaderGap := defaultRowHeight / 2
+	// Full row of header so the b.Label inside the kind tab clears
+	// the first message's above-line label. Rect blocks have no tab
+	// or label, so a half-row gap is enough.
+	blockHeaderGap := defaultRowHeight
+	if b.Kind == diagram.BlockKindRect {
+		blockHeaderGap = defaultRowHeight / 2
+	}
 	mr.curY += blockHeaderGap
 
 	content := mr.renderItems(b.Items, false, depth+1)
