@@ -288,7 +288,12 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 	var branchYs []float64
 	for _, br := range b.Branches {
 		branchYs = append(branchYs, mr.curY)
-		mr.curY += defaultRowHeight / 2
+		// Reserve a full row between the branch divider/bracket
+		// label and the first message of the branch so the label
+		// (drawn at brY+14) does not overlap the message label
+		// (drawn 6px above the message line). countBlockRows
+		// already reserves one row per branch for this purpose.
+		mr.curY += defaultRowHeight
 		elems = append(elems, mr.renderItems(br.Items, false)...)
 	}
 	blockFooterGap := defaultRowHeight / 2
