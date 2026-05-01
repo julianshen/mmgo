@@ -357,6 +357,13 @@ func extraLabelHeight(items []diagram.SequenceItem, fontSize float64) float64 {
 		case item.Note != nil && item.Note.Text != "":
 			extra += extraLinesHeight(item.Note.Text, fontSize)
 		case item.Block != nil:
+			// Non-rect blocks consume a full-row header so their
+			// b.Label inside the kind tab clears the first message
+			// label below — that's defaultRowHeight/2 more than the
+			// "1" countBlockRows reserves.
+			if item.Block.Kind != diagram.BlockKindRect {
+				extra += defaultRowHeight / 2
+			}
 			extra += extraLabelHeight(item.Block.Items, fontSize)
 			for _, br := range item.Block.Branches {
 				extra += extraLabelHeight(br.Items, fontSize)
