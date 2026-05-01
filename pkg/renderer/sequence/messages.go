@@ -79,7 +79,7 @@ func newMessageRenderer(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fon
 	return mr
 }
 
-func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel bool) []any {
+func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel bool, depth int) []any {
 	var elems []any
 	for i, item := range items {
 		if isTopLevel {
@@ -107,7 +107,7 @@ func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel 
 			elems = append(elems, mr.renderNote(*item.Note)...)
 			mr.curY += defaultRowHeight
 		case item.Block != nil:
-			elems = append(elems, mr.renderBlock(*item.Block)...)
+			elems = append(elems, mr.renderBlock(*item.Block, depth)...)
 		}
 	}
 	return elems
@@ -227,8 +227,9 @@ const (
 	noteW      = 120.0
 	noteH      = 30.0
 	notePad    = 8.0
-	noteOffset = 10.0
-	blockPad   = 15.0
+	noteOffset  = 10.0
+	blockPad    = 15.0
+	blockIndent = 8.0
 )
 
 func (mr *messageRenderer) renderNote(n diagram.Note) []any {
@@ -276,14 +277,14 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 	return out
 }
 
-func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
+func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 	startY := mr.curY
 
 	blockHeaderGap := defaultRowHeight / 2
 	mr.curY += blockHeaderGap
 
 	var elems []any
-	elems = append(elems, mr.renderItems(b.Items, false)...)
+	elems = append(elems, mr.renderItems(b.Items, false, depth+1)...)
 
 	var branchYs []float64
 	for _, br := range b.Branches {
@@ -291,20 +292,24 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 		// Full row matches the slot countBlockRows reserves so the
 		// bracket label clears the next message's above-line label.
 		mr.curY += defaultRowHeight
-		elems = append(elems, mr.renderItems(br.Items, false)...)
+		elems = append(elems, mr.renderItems(br.Items, false, depth+1)...)
 	}
 	blockFooterGap := defaultRowHeight / 2
 	mr.curY += blockFooterGap
 	endY := mr.curY
 
-	x := blockPad
+	indent := float64(depth) * blockIndent
+	x := blockPad + indent
 	if len(mr.lay.participantX) > 0 {
-		x = mr.lay.participantX[0] - defaultParticipantGap/3
+		x = mr.lay.participantX[0] - defaultParticipantGap/3 + indent
 	}
 	w := mr.lay.width - 2*x
 	if w < 0 {
-		w = mr.lay.width - 2*blockPad
+		// Degenerate layout (lay.width < 2*blockPad). Fall back to
+		// the un-indented base so we still emit a non-negative
+		// width; visual nesting is lost but the SVG stays valid.
 		x = blockPad
+		w = mr.lay.width - 2*x
 	}
 
 	blockStyle := fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.1f", mr.th.MessageStroke, defaultStrokeWidth)
