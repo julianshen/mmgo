@@ -212,7 +212,7 @@ func titleHeight(fontSize float64) float64 {
 	return fontSize + 12
 }
 
-const defaultBoxFillOpacity = 0.15
+const defaultBoxFillOpacity = 0.5
 const defaultBlockFillOpacity = 0.2
 
 func fillStyleWithOpacity(fill, stroke string, hasAlpha bool, opacity float64) string {
