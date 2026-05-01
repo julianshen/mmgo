@@ -146,7 +146,10 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 	}
 	// Mermaid renders participant/actor boxes at both ends of every
 	// lifeline. bottomGap separates the lifelines from the bottom row.
-	const bottomGap = 10.0
+	// Sized to also clear the trailing half-row a block-rect consumes
+	// past bodyEnd (= block footer gap of defaultRowHeight/2 = 25 px),
+	// so block borders never bleed into the bottom participant boxes.
+	const bottomGap = 35.0
 	bottomY := bodyEnd + bottomGap
 	totalH := bottomY + maxHeaderH + pad
 
