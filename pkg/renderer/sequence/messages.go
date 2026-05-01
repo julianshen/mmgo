@@ -293,8 +293,7 @@ func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 	blockHeaderGap := defaultRowHeight / 2
 	mr.curY += blockHeaderGap
 
-	var elems []any
-	elems = append(elems, mr.renderItems(b.Items, false, depth+1)...)
+	content := mr.renderItems(b.Items, false, depth+1)
 
 	var branchYs []float64
 	for _, br := range b.Branches {
@@ -302,7 +301,7 @@ func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 		// Full row matches the slot countBlockRows reserves so the
 		// bracket label clears the next message's above-line label.
 		mr.curY += defaultRowHeight
-		elems = append(elems, mr.renderItems(br.Items, false, depth+1)...)
+		content = append(content, mr.renderItems(br.Items, false, depth+1)...)
 	}
 	blockFooterGap := defaultRowHeight / 2
 	mr.curY += blockFooterGap
@@ -322,12 +321,13 @@ func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 		w = mr.lay.width - 2*x
 	}
 
-	// Non-rect blocks render with a dashed border for mmdc parity;
-	// rect uses solid since it carries a fill that should read as a
-	// distinct shape, not a flow-control region.
+	// Non-rect blocks render with a dashed border for mmdc parity.
+	// Rect blocks carry only a fill (no border) since the colored
+	// region is the entire visual cue — a dark stroke would read as
+	// a flow-control region instead.
 	blockStyle := fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", mr.th.MessageStroke, defaultStrokeWidth)
 	if b.Kind == diagram.BlockKindRect && b.Fill != "" {
-		blockStyle = fillStyleWithOpacity(b.Fill, mr.th.MessageStroke, b.HasAlpha, defaultBlockFillOpacity)
+		blockStyle = fillStyleWithOpacity(b.Fill, "none", b.HasAlpha, defaultBlockFillOpacity)
 	}
 
 	rectY := startY - defaultRowHeight/4
@@ -337,12 +337,23 @@ func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 		rectH = math.Max(0, endY-startY-blockHeaderGap-blockFooterGap-defaultRowHeight/2)
 	}
 
-	elems = append(elems, &rect{
+	// Rect blocks emit the fill *before* their content so messages
+	// draw on top of the colored band. Other block kinds have
+	// fill:none and can emit in either order.
+	bodyRect := &rect{
 		X: svgFloat(x), Y: svgFloat(rectY),
 		Width: svgFloat(w), Height: svgFloat(rectH),
 		RX: 3, RY: 3,
 		Style: blockStyle,
-	})
+	}
+	var elems []any
+	if b.Kind == diagram.BlockKindRect {
+		elems = append(elems, bodyRect)
+		elems = append(elems, content...)
+	} else {
+		elems = append(elems, content...)
+		elems = append(elems, bodyRect)
+	}
 
 	if b.Kind != diagram.BlockKindRect {
 		kindLabel := b.Kind.String()
@@ -466,8 +477,10 @@ func (mr *messageRenderer) activationRect(id string, startY, endY float64, depth
 	return &rect{
 		X: svgFloat(x - defaultActivationW/2 + offset), Y: svgFloat(startY),
 		Width: svgFloat(defaultActivationW), Height: svgFloat(endY - startY),
+		// Neutral gray so bars don't visually compete with the
+		// purple lifeline / participant theme — mmdc parity.
 		Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f",
-			mr.th.ParticipantFill, mr.th.ParticipantStroke, defaultStrokeWidth),
+			"#F4F4F4", "#666", defaultStrokeWidth),
 	}
 }
 
