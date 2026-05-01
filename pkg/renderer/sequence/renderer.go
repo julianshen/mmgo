@@ -123,7 +123,12 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 	}
 	bodyStart := topY + maxHeaderH + 10
 	rows := countRows(d)
-	bodyEnd := bodyStart + float64(rows)*defaultRowHeight
+	// messageRenderer initialises curY at bodyStart + defaultRowHeight/2
+	// so the first message line lands mid-row, and curY advances by
+	// defaultRowHeight per item. After N rows curY = bodyStart + (N+0.5)
+	// * defaultRowHeight. The reservation must match, otherwise blocks
+	// (which extend the rect to curY) bleed past bodyEnd.
+	bodyEnd := bodyStart + (float64(rows)+0.5)*defaultRowHeight
 	if rows == 0 {
 		bodyEnd = bodyStart + defaultRowHeight
 	}
@@ -153,10 +158,7 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 	}
 	// Mermaid renders participant/actor boxes at both ends of every
 	// lifeline. bottomGap separates the lifelines from the bottom row.
-	// Sized to also clear the trailing half-row a block-rect consumes
-	// past bodyEnd (= block footer gap of defaultRowHeight/2 = 25 px),
-	// so block borders never bleed into the bottom participant boxes.
-	const bottomGap = 35.0
+	const bottomGap = 10.0
 	bottomY := bodyEnd + bottomGap
 	totalH := bottomY + maxHeaderH + pad
 
