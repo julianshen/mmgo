@@ -5,7 +5,7 @@
 **Renderers:** mmdc 11.x (Mermaid 10), mmgo HEAD (`docs/sequence-phase1-plan` branch)
 **Method:** rendered each `.mmd` with both tools, visually compared PNG output for the 12 most representative cases (full set rendered to SVG).
 
-**Status (2026-05-01):** Phase B (G1–G11 spec gaps) and Phase C (V1–V7 visual polish) are **complete**. Each item below is annotated with the merged PR. Items in *Other minor (deferred)* remain open as low-priority polish.
+**Status (2026-05-01):** Phase B (G1–G11 spec gaps), Phase C (V1–V7 visual polish), and the post-merge mmdc-comparison sweep (Q1–Q7) are all **complete**. Each item below is annotated with the merged PR. Items in *Other minor (deferred)* remain open as low-priority polish.
 
 ## Summary
 
@@ -43,6 +43,20 @@ The phase-A1 plan already routes most gaps to phase B (spec) and phase C (visual
 | V7 — nested activation offset | C/V7 | #119 |
 
 **Open:** G10 (`links`/`properties` participant metadata — low priority); items under *Other minor (deferred)* below.
+
+## Post-merge mmdc visual comparison (Q1–Q7, 2026-05-01)
+
+After Phase B+C merged, rendered 10 representative mmgo PNGs alongside fresh mmdc references and identified seven remaining gaps. All fixed in a same-day sweep.
+
+| Gap | Symptom | Fix | Merged PR |
+|---|---|---|---|
+| Q1 | Block borders solid; mmdc dashed | `stroke-dasharray:5,5` for non-rect blocks | #122 |
+| Q2 | Bracket labels left-anchored next to kind tab; mmdc centered | Center at `x + w/2`, `text-anchor:middle` | #122 |
+| Q3 | Self-message label clipped on right of loop arc | Render left of lifeline (`text-anchor:end`); add `selfMsgLeftBleed` to layout | #123 |
+| Q4 | Box grouping fills nearly invisible (opacity 0.15) | Bump `defaultBoxFillOpacity` 0.15 → 0.5 | #124 |
+| Q5 | Block-kind tab square + dark stroke | Rounded corners (`RX/RY=6`) + ParticipantStroke | #126 |
+| Q6 | Rect block fill drawn after content (washed out text); had dark border | Emit fill rect *before* content; drop stroke | #125 |
+| Q7 | Activation bars used purple participant theme | Neutral `#F4F4F4` fill + `#666` stroke | #125 |
 
 ---
 
