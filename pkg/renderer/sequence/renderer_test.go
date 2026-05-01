@@ -988,6 +988,37 @@ func TestRenderBlockEndsAboveBottomParticipantRow(t *testing.T) {
 	}
 }
 
+func TestRenderBoxGroupTitleNotClippedAtTop(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Boxes: []diagram.Box{{Label: "Frontend", Members: []string{"A", "B"}}},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "B", Label: "msg", ArrowType: diagram.ArrowTypeSolid}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// The box rect is the only one with the participant fill + opacity.
+	re := regexp.MustCompile(`<rect x="[\d.]+" y="(-?[\d.]+)"[^>]*fill-opacity:0\.5`)
+	m := re.FindStringSubmatch(raw)
+	if m == nil {
+		t.Fatal("did not find box-group rect")
+	}
+	y, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		t.Fatalf("parse box y=%q: %v", m[1], err)
+	}
+	if y < 0 {
+		t.Errorf("box-group rect y=%.2f is above viewBox top, title would clip", y)
+	}
+}
+
 func TestRenderRectWithLabelSuppressesBadge(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
