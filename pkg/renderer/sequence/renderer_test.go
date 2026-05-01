@@ -808,6 +808,78 @@ func TestRenderNestedActivationsOffsetByDepth(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+func TestRenderBlockBordersAreDashed(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind:  diagram.BlockKindLoop,
+				Label: "until done",
+				Items: []diagram.SequenceItem{
+					diagram.NewMessageItem(diagram.Message{From: "A", To: "B", Label: "ping", ArrowType: diagram.ArrowTypeSolid}),
+				},
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// The block border rect (fill:none) must have a stroke-dasharray.
+	re := regexp.MustCompile(`<rect [^>]*style="fill:none;stroke:[^"]*"`)
+	m := re.FindString(raw)
+	if m == "" {
+		t.Fatal("did not find block-border rect")
+	}
+	if !strings.Contains(m, "stroke-dasharray") {
+		t.Errorf("block-border rect should have stroke-dasharray for parity with mmdc; got: %s", m)
+	}
+}
+
+func TestRenderBranchLabelsCentered(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind:  diagram.BlockKindAlt,
+				Label: "MAIN",
+				Items: []diagram.SequenceItem{
+					diagram.NewMessageItem(diagram.Message{From: "A", To: "B", Label: "m1", ArrowType: diagram.ArrowTypeSolid}),
+				},
+				Branches: []diagram.Block{{
+					Kind:  diagram.BlockKindAlt,
+					Label: "ELSE_BR",
+					Items: []diagram.SequenceItem{
+						diagram.NewMessageItem(diagram.Message{From: "A", To: "B", Label: "m2", ArrowType: diagram.ArrowTypeDashed}),
+					},
+				}},
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	re := regexp.MustCompile(`<text[^>]*text-anchor="(\w+)"[^>]*>(\[(?:MAIN|ELSE_BR)\])</text>`)
+	matches := re.FindAllStringSubmatch(raw, -1)
+	if len(matches) < 2 {
+		t.Fatalf("expected both bracket labels in SVG, found %d: %v", len(matches), matches)
+	}
+	for _, m := range matches {
+		if m[1] != "middle" {
+			t.Errorf("bracket label %s should be center-anchored, got text-anchor=%q", m[2], m[1])
+		}
+	}
+}
+
 func TestRenderRectWithLabelSuppressesBadge(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
