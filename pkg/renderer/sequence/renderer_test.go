@@ -1016,6 +1016,43 @@ func TestRenderBoxGroupTitleNotClippedAtTop(t *testing.T) {
 	}
 }
 
+func TestRenderMultilineLabelsDoNotOverlap(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "B", Label: "alpha<br/>beta", ArrowType: diagram.ArrowTypeSolid}),
+			diagram.NewMessageItem(diagram.Message{From: "A", To: "B", Label: "GAMMA<br/>DELTA<br/>EPSILON", ArrowType: diagram.ArrowTypeSolid}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	textRe := regexp.MustCompile(`<text[^>]*y="([\d.]+)"[^>]*>([^<]+)</text>`)
+	ys := map[string]float64{}
+	for _, m := range textRe.FindAllStringSubmatch(raw, -1) {
+		y, _ := strconv.ParseFloat(m[1], 64)
+		ys[m[2]] = y
+	}
+	// Bottom of label-1 (alpha is the top line, beta below; both
+	// appear ABOVE the message line). Top of label-2 is the highest
+	// line ("GAMMA").
+	betaY, ok1 := ys["beta"]
+	gammaY, ok2 := ys["GAMMA"]
+	if !ok1 || !ok2 {
+		t.Fatalf("missing labels in SVG: betaY=%v, gammaY=%v, found=%v", ok1, ok2, ys)
+	}
+	// beta's baseline must be strictly above GAMMA's baseline by at
+	// least one fontSize, otherwise they overlap.
+	if gammaY-betaY < 12 {
+		t.Errorf("multi-line labels overlap: beta y=%.2f, GAMMA y=%.2f (gap=%.2f)", betaY, gammaY, gammaY-betaY)
+	}
+}
+
 func TestRenderRectWithLabelSuppressesBadge(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{

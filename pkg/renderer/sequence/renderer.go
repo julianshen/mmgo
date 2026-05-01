@@ -353,10 +353,9 @@ func extraLabelHeight(items []diagram.SequenceItem, fontSize float64) float64 {
 	for _, item := range items {
 		switch {
 		case item.Message != nil && item.Message.Label != "":
-			n := len(splitLabelLines(item.Message.Label))
-			if n > 1 {
-				extra += float64(n-1) * fontSize
-			}
+			extra += extraLinesHeight(item.Message.Label, fontSize)
+		case item.Note != nil && item.Note.Text != "":
+			extra += extraLinesHeight(item.Note.Text, fontSize)
 		case item.Block != nil:
 			extra += extraLabelHeight(item.Block.Items, fontSize)
 			for _, br := range item.Block.Branches {
@@ -365,6 +364,13 @@ func extraLabelHeight(items []diagram.SequenceItem, fontSize float64) float64 {
 		}
 	}
 	return extra
+}
+
+func extraLinesHeight(label string, fontSize float64) float64 {
+	if n := len(splitLabelLines(label)); n > 1 {
+		return float64(n-1) * fontSize
+	}
+	return 0
 }
 
 func countItemRows(items []diagram.SequenceItem) int {

@@ -105,16 +105,10 @@ func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel 
 			// Multiline labels render above the message line; reserve
 			// extra vertical space so the next row's label doesn't
 			// collide with the current label's top lines.
-			extra := 0.0
-			if item.Message.Label != "" {
-				if n := len(splitLabelLines(item.Message.Label)); n > 1 {
-					extra = float64(n-1) * mr.fontSize
-				}
-			}
-			mr.curY += defaultRowHeight + extra
+			mr.curY += defaultRowHeight + extraLinesHeight(item.Message.Label, mr.fontSize)
 		case item.Note != nil:
 			elems = append(elems, mr.renderNote(*item.Note)...)
-			mr.curY += defaultRowHeight
+			mr.curY += defaultRowHeight + extraLinesHeight(item.Note.Text, mr.fontSize)
 		case item.Block != nil:
 			elems = append(elems, mr.renderBlock(*item.Block, depth)...)
 		}
