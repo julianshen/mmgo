@@ -131,6 +131,9 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 		pIndex[p.ID] = i
 	}
 	leftBleed, rightBleed := noteBleed(d.Items, pIndex, n)
+	if l := selfMsgLeftBleed(d.Items, pIndex, fontSize); l > leftBleed {
+		leftBleed = l
+	}
 	if extra := leftBleed - pad; extra > 0 {
 		// Shift everything right so left-side notes fit.
 		for i := range xs {
@@ -277,6 +280,42 @@ func noteBleed(items []diagram.SequenceItem, pIndex map[string]int, n int) (left
 		}
 	}
 	return
+}
+
+// selfMsgLeftBleed returns the pixel extent the layout's left edge
+// must reserve for self-message labels on the leftmost participant
+// (text-anchor:end at lifeline x, label rendered to the left).
+func selfMsgLeftBleed(items []diagram.SequenceItem, pIndex map[string]int, fontSize float64) float64 {
+	const gap = 4.0
+	var bleed float64
+	for _, item := range items {
+		switch {
+		case item.Message != nil:
+			m := item.Message
+			if m.From != m.To || m.Label == "" {
+				continue
+			}
+			idx, ok := pIndex[m.From]
+			if !ok || idx != 0 {
+				continue
+			}
+			for _, ln := range splitLabelLines(m.Label) {
+				if w := textmeasure.EstimateWidth(ln, fontSize) + gap; w > bleed {
+					bleed = w
+				}
+			}
+		case item.Block != nil:
+			if l := selfMsgLeftBleed(item.Block.Items, pIndex, fontSize); l > bleed {
+				bleed = l
+			}
+			for _, br := range item.Block.Branches {
+				if l := selfMsgLeftBleed(br.Items, pIndex, fontSize); l > bleed {
+					bleed = l
+				}
+			}
+		}
+	}
+	return bleed
 }
 
 func countRows(d *diagram.SequenceDiagram) int {

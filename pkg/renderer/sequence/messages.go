@@ -224,7 +224,11 @@ func (mr *messageRenderer) renderSelfMessage(x, y float64, m diagram.Message) []
 	var elems []any
 	elems = append(elems, p)
 	if m.Label != "" {
-		elems = append(elems, multilineText(m.Label, x+selfLoopW+4, y+selfLoopH/2, "start", "central", mr.msgTextStyle, mr.fontSize)...)
+		// Label sits to the left of the lifeline (mmdc parity).
+		// The arc bulges right, so left is the only side that
+		// won't collide with the curve or get clipped at the
+		// layout's right edge for a rightmost participant.
+		elems = append(elems, multilineText(m.Label, x-4, y+selfLoopH/2, "end", "central", mr.msgTextStyle, mr.fontSize)...)
 	}
 	return elems
 }
