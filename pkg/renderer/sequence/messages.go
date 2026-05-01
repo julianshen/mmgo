@@ -398,9 +398,13 @@ func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 			Style: fmt.Sprintf("stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", mr.th.ParticipantStroke, defaultStrokeWidth),
 		})
 		if i < len(b.Branches) && b.Branches[i].Label != "" {
+			// Roughly equidistant between the divider above (at brY)
+			// and the next message's above-line label (at brY+44):
+			// central baseline at brY+15 gives ~8 px breathing room
+			// on each side without crashing into either neighbour.
 			elems = append(elems, &text{
-				X: svgFloat(x + w/2), Y: svgFloat(brY + 14),
-				Anchor: "middle", Dominant: "auto",
+				X: svgFloat(x + w/2), Y: svgFloat(brY + 15),
+				Anchor: "middle", Dominant: "central",
 				Style:   mr.msgTextSmallStyle,
 				Content: "[" + b.Branches[i].Label + "]",
 			})
