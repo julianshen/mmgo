@@ -1,0 +1,20 @@
+sequenceDiagram
+    participant Worker
+    participant Cache
+    participant DB
+    loop Until done
+        Worker->>Cache: Lookup
+        alt cache hit
+            Cache-->>Worker: Value
+        else cache miss
+            par Fan out lookups
+                Worker->>DB: Primary read
+            and
+                Worker->>Cache: Negative cache check
+            end
+            DB-->>Worker: Row
+            opt Refresh cache
+                Worker->>Cache: Set value
+            end
+        end
+    end

@@ -10,7 +10,7 @@ for side-by-side inspection.
 | Diagram type | Source count | mmgo OK | mmdc OK | Notes |
 |---|---:|---:|---:|---|
 | flowchart    | 14 | 14 | 14 | |
-| sequence     | 3 | 3 | 3 | |
+| sequence     | 13 | 13 | 13 | |
 | pie          | 2 | 2 | 2 | |
 | class        | 2 | 2 | 2 | |
 | state        | 2 | 2 | 2 | |
@@ -25,7 +25,7 @@ for side-by-side inspection.
 | xychart      | 2 | 2 | 2 | |
 | quadrant     | 2 | 2 | 2 | |
 | kanban       | 2 | 2 | 2 | |
-| **Total**    | **45** | **45** | **43** | |
+| **Total**    | **55** | **55** | **53** | |
 
 ## Speed (3 renders of `flowchart/simple.mmd`, wall clock)
 
