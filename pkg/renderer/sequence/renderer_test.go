@@ -622,6 +622,69 @@ func TestRenderRectEmptyDoesNotProduceNegativeHeight(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+func TestRenderBranchLabelDoesNotOverlapMessage(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewBlockItem(diagram.Block{
+				Kind:  diagram.BlockKindAlt,
+				Label: "main_branch",
+				Items: []diagram.SequenceItem{
+					diagram.NewMessageItem(diagram.Message{
+						From: "A", To: "B", Label: "primary_msg",
+						ArrowType: diagram.ArrowTypeSolid,
+					}),
+				},
+				Branches: []diagram.Block{{
+					Kind:  diagram.BlockKindAlt,
+					Label: "ELSE_LABEL",
+					Items: []diagram.SequenceItem{
+						diagram.NewMessageItem(diagram.Message{
+							From: "A", To: "B", Label: "ALT_MSG",
+							ArrowType: diagram.ArrowTypeDashed,
+						}),
+					},
+				}},
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+
+	textYRe := regexp.MustCompile(`<text[^>]*y="([\d.]+)"[^>]*>([^<]+)</text>`)
+	var bracketY, msgLabelY float64 = -1, -1
+	for _, m := range textYRe.FindAllStringSubmatch(raw, -1) {
+		y, err := strconv.ParseFloat(m[1], 64)
+		if err != nil {
+			t.Fatalf("parse text y=%q: %v", m[1], err)
+		}
+		switch m[2] {
+		case "[ELSE_LABEL]":
+			bracketY = y
+		case "ALT_MSG":
+			msgLabelY = y
+		}
+	}
+	if bracketY < 0 {
+		t.Fatal("did not find branch bracket label [ELSE_LABEL]")
+	}
+	if msgLabelY < 0 {
+		t.Fatal("did not find branch message label ALT_MSG")
+	}
+	const minGap = 12.0
+	if msgLabelY-bracketY < minGap {
+		t.Errorf("branch bracket label y=%.2f overlaps message label y=%.2f (gap=%.2f, min=%.2f)",
+			bracketY, msgLabelY, msgLabelY-bracketY, minGap)
+	}
+	assertValidSVG(t, out)
+}
+
 func TestRenderRectWithLabelSuppressesBadge(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{

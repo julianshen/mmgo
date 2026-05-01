@@ -288,7 +288,9 @@ func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
 	var branchYs []float64
 	for _, br := range b.Branches {
 		branchYs = append(branchYs, mr.curY)
-		mr.curY += defaultRowHeight / 2
+		// Full row matches the slot countBlockRows reserves so the
+		// bracket label clears the next message's above-line label.
+		mr.curY += defaultRowHeight
 		elems = append(elems, mr.renderItems(br.Items, false)...)
 	}
 	blockFooterGap := defaultRowHeight / 2
