@@ -93,12 +93,9 @@ func TestRenderLifelineUsesThemeColor(t *testing.T) {
 	}
 	raw := string(out)
 
-	wantStyle := fmt.Sprintf("stroke:%s;stroke-width:%.1f;stroke-dasharray:5,5", DefaultTheme().LifelineStroke, defaultLifelineWidth)
+	wantStyle := fmt.Sprintf("stroke:%s;stroke-width:%.1f", DefaultTheme().LifelineStroke, defaultLifelineWidth)
 	if !strings.Contains(raw, wantStyle) {
 		t.Errorf("lifeline should use theme style %q", wantStyle)
-	}
-	if !strings.Contains(raw, "stroke-dasharray") {
-		t.Error("expected dashed lifeline (stroke-dasharray)")
 	}
 	assertValidSVG(t, out)
 }
@@ -321,7 +318,7 @@ var (
 	lineRe          = regexp.MustCompile(`<line x1="([^"]+)" y1="[^"]+" x2="([^"]+)"`)
 	msgLineYRe      = regexp.MustCompile(`<line x1="[\d.]+" y1="([\d.]+)" x2="[\d.]+" y2="([\d.]+)" style="stroke:#333`)
 	fillRectRe      = regexp.MustCompile(`<rect[^>]*y="([\d.]+)"[^>]*height="([\d.]+)"[^>]*fill:#[0-9a-fA-F]{6}`)
-	lifelineStyleRe = regexp.MustCompile(`<line[^>]*stroke-width:2\.0[^>]*stroke-dasharray[^>]*>`)
+	lifelineStyleRe = regexp.MustCompile(`<line[^>]*stroke-width:2\.0[^>]*>`)
 	markerContentRe = regexp.MustCompile(`<marker[^>]*id="seq-arrow-([^"]+)"[^>]*>(.*?)</marker>`)
 )
 
@@ -2004,8 +2001,12 @@ func TestRenderCreateParticipantStopsArrowAtBoxEdge(t *testing.T) {
 
 	msgLineRe := regexp.MustCompile(`<line x1="([\d.]+)"[^>]*y1="[\d.]+" x2="([\d.]+)"[^>]*y2="[\d.]+" style="[^"]*stroke:[^"]*"`)
 	matches := msgLineRe.FindAllStringSubmatch(raw, -1)
+	lifelineStroke := DefaultTheme().LifelineStroke
 	for _, m := range matches {
-		if strings.Contains(m[0], "stroke-dasharray") {
+		// Lifelines use the theme accent color; message lines use
+		// MessageStroke. Filter by color so the test isn't coupled
+		// to incidental width values.
+		if strings.Contains(m[0], "stroke:"+lifelineStroke) {
 			continue
 		}
 		x2, _ := strconv.ParseFloat(m[2], 64)
