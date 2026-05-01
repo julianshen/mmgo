@@ -122,13 +122,13 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 		topY += boxTitleStripH(fontSize) + boxGroupPad/2
 	}
 	bodyStart := topY + maxHeaderH + 10
-	rows := countRows(d)
+	rows, extraH := bodyRowsAndExtra(d, fontSize)
 	// messageRenderer initialises curY at bodyStart + defaultRowHeight/2
 	// so the first message line lands mid-row, and curY advances by
 	// defaultRowHeight per item. After N rows curY = bodyStart + (N+0.5)
 	// * defaultRowHeight. The reservation must match, otherwise blocks
 	// (which extend the rect to curY) bleed past bodyEnd.
-	bodyEnd := bodyStart + (float64(rows)+0.5)*defaultRowHeight
+	bodyEnd := bodyStart + (float64(rows)+0.5)*defaultRowHeight + extraH
 	if rows == 0 {
 		bodyEnd = bodyStart + defaultRowHeight
 	}
@@ -337,6 +337,34 @@ func selfMsgLeftBleed(items []diagram.SequenceItem, pIndex map[string]int, fontS
 
 func countRows(d *diagram.SequenceDiagram) int {
 	return countItemRows(d.Items)
+}
+
+// bodyRowsAndExtra returns the row count and any per-row extra
+// vertical space needed for multi-line message labels — each
+// extra line above the first contributes fontSize px of headroom.
+func bodyRowsAndExtra(d *diagram.SequenceDiagram, fontSize float64) (rows int, extra float64) {
+	rows = countItemRows(d.Items)
+	extra = extraLabelHeight(d.Items, fontSize)
+	return
+}
+
+func extraLabelHeight(items []diagram.SequenceItem, fontSize float64) float64 {
+	var extra float64
+	for _, item := range items {
+		switch {
+		case item.Message != nil && item.Message.Label != "":
+			n := len(splitLabelLines(item.Message.Label))
+			if n > 1 {
+				extra += float64(n-1) * fontSize
+			}
+		case item.Block != nil:
+			extra += extraLabelHeight(item.Block.Items, fontSize)
+			for _, br := range item.Block.Branches {
+				extra += extraLabelHeight(br.Items, fontSize)
+			}
+		}
+	}
+	return extra
 }
 
 func countItemRows(items []diagram.SequenceItem) int {
