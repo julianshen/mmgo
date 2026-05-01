@@ -362,8 +362,9 @@ func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 			X: svgFloat(x), Y: svgFloat(startY - defaultRowHeight/4),
 			Width:  svgFloat(kindLabelW + 2*notePad),
 			Height: svgFloat(20),
+			RX: 6, RY: 6,
 			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f",
-				mr.th.ParticipantFill, mr.th.MessageStroke, defaultStrokeWidth),
+				mr.th.ParticipantFill, mr.th.ParticipantStroke, defaultStrokeWidth),
 		})
 		elems = append(elems, &text{
 			X: svgFloat(x + notePad), Y: svgFloat(startY - defaultRowHeight/4 + 14),
