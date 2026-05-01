@@ -102,10 +102,13 @@ func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel 
 			mr.handleStandaloneActivation(*item.Activation)
 		case item.Message != nil:
 			elems = append(elems, mr.renderMessage(*item.Message)...)
-			mr.curY += defaultRowHeight
+			// Multiline labels render above the message line; reserve
+			// extra vertical space so the next row's label doesn't
+			// collide with the current label's top lines.
+			mr.curY += defaultRowHeight + extraLinesHeight(item.Message.Label, mr.fontSize)
 		case item.Note != nil:
 			elems = append(elems, mr.renderNote(*item.Note)...)
-			mr.curY += defaultRowHeight
+			mr.curY += defaultRowHeight + extraLinesHeight(item.Note.Text, mr.fontSize)
 		case item.Block != nil:
 			elems = append(elems, mr.renderBlock(*item.Block, depth)...)
 		}
