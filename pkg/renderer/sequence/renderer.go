@@ -20,7 +20,7 @@ func Render(d *diagram.SequenceDiagram, opts *Options) ([]byte, error) {
 	lay := computeLayout(d, fontSize, pad)
 
 	mr := newMessageRenderer(d, lay, th, fontSize)
-	msgElems := mr.renderItems(d.Items, true)
+	msgElems := mr.renderItems(d.Items, true, 0)
 
 	var children []any
 

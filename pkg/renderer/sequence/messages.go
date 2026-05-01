@@ -79,11 +79,7 @@ func newMessageRenderer(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fon
 	return mr
 }
 
-func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel bool) []any {
-	return mr.renderItemsAtDepth(items, isTopLevel, 0)
-}
-
-func (mr *messageRenderer) renderItemsAtDepth(items []diagram.SequenceItem, isTopLevel bool, depth int) []any {
+func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel bool, depth int) []any {
 	var elems []any
 	for i, item := range items {
 		if isTopLevel {
@@ -111,7 +107,7 @@ func (mr *messageRenderer) renderItemsAtDepth(items []diagram.SequenceItem, isTo
 			elems = append(elems, mr.renderNote(*item.Note)...)
 			mr.curY += defaultRowHeight
 		case item.Block != nil:
-			elems = append(elems, mr.renderBlockAtDepth(*item.Block, depth)...)
+			elems = append(elems, mr.renderBlock(*item.Block, depth)...)
 		}
 	}
 	return elems
@@ -281,18 +277,14 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 	return out
 }
 
-func (mr *messageRenderer) renderBlock(b diagram.Block) []any {
-	return mr.renderBlockAtDepth(b, 0)
-}
-
-func (mr *messageRenderer) renderBlockAtDepth(b diagram.Block, depth int) []any {
+func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 	startY := mr.curY
 
 	blockHeaderGap := defaultRowHeight / 2
 	mr.curY += blockHeaderGap
 
 	var elems []any
-	elems = append(elems, mr.renderItemsAtDepth(b.Items, false, depth+1)...)
+	elems = append(elems, mr.renderItems(b.Items, false, depth+1)...)
 
 	var branchYs []float64
 	for _, br := range b.Branches {
@@ -300,7 +292,7 @@ func (mr *messageRenderer) renderBlockAtDepth(b diagram.Block, depth int) []any 
 		// Full row matches the slot countBlockRows reserves so the
 		// bracket label clears the next message's above-line label.
 		mr.curY += defaultRowHeight
-		elems = append(elems, mr.renderItemsAtDepth(br.Items, false, depth+1)...)
+		elems = append(elems, mr.renderItems(br.Items, false, depth+1)...)
 	}
 	blockFooterGap := defaultRowHeight / 2
 	mr.curY += blockFooterGap
@@ -313,8 +305,11 @@ func (mr *messageRenderer) renderBlockAtDepth(b diagram.Block, depth int) []any 
 	}
 	w := mr.lay.width - 2*x
 	if w < 0 {
-		w = mr.lay.width - 2*(blockPad+indent)
-		x = blockPad + indent
+		// Degenerate layout (lay.width < 2*blockPad). Fall back to
+		// the un-indented base so we still emit a non-negative
+		// width; visual nesting is lost but the SVG stays valid.
+		x = blockPad
+		w = mr.lay.width - 2*x
 	}
 
 	blockStyle := fmt.Sprintf("fill:none;stroke:%s;stroke-width:%.1f", mr.th.MessageStroke, defaultStrokeWidth)
