@@ -141,10 +141,12 @@ func (mr *messageRenderer) renderMessage(m diagram.Message) []any {
 	mr.msgNum += mr.autoNum.Step
 	var elems []any
 
-	// When an autonumber badge sits at the source endpoint, start the
-	// arrow line at the badge's edge (one radius along the message
-	// direction) so the line doesn't visibly pierce the circle —
-	// mmdc parity.
+	// When an autonumber badge sits at the source endpoint of a
+	// straight (cross-participant) message, start the arrow line at
+	// the badge's edge (one radius along the message direction) so
+	// the line doesn't visibly pierce the circle — mmdc parity.
+	// Self-message loops anchor both ends on the lifeline so the
+	// offset would break the geometry; left as-is.
 	lineFromX := fromX
 	if mr.autoNum.Enabled && fromIdx != toIdx {
 		if toX > fromX {

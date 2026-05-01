@@ -1053,6 +1053,51 @@ func TestRenderMultilineLabelsDoNotOverlap(t *testing.T) {
 	}
 }
 
+func TestRenderAutoNumberOffsetsArrowFromBadge(t *testing.T) {
+	tests := []struct {
+		name     string
+		fromID   string
+		toID     string
+		wantLeft bool // arrow goes left (from B to A)
+	}{
+		{"left-to-right", "A", "B", false},
+		{"right-to-left", "B", "A", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &diagram.SequenceDiagram{
+				AutoNumber: diagram.AutoNumber{Enabled: true, Start: 1, Step: 1},
+				Participants: []diagram.Participant{
+					{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+					{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+				},
+				Items: []diagram.SequenceItem{
+					diagram.NewMessageItem(diagram.Message{From: tc.fromID, To: tc.toID, Label: "msg", ArrowType: diagram.ArrowTypeSolid}),
+				},
+			}
+			out, err := Render(d, nil)
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			raw := string(out)
+			fromX := participantXForLabel(t, raw, tc.fromID)
+			lineRe := regexp.MustCompile(`<line x1="([\d.]+)"[^>]*style="stroke:#333`)
+			m := lineRe.FindStringSubmatch(raw)
+			if m == nil {
+				t.Fatal("did not find message line")
+			}
+			x1, _ := strconv.ParseFloat(m[1], 64)
+			expected := fromX + autoNumberRadius
+			if tc.wantLeft {
+				expected = fromX - autoNumberRadius
+			}
+			if math.Abs(x1-expected) > 0.5 {
+				t.Errorf("autonumber arrow x1=%.2f, want %.2f (fromX=%.2f, radius=%v)", x1, expected, fromX, autoNumberRadius)
+			}
+		})
+	}
+}
+
 func TestRenderRectWithLabelSuppressesBadge(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
