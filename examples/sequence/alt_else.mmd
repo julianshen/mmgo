@@ -1,0 +1,11 @@
+sequenceDiagram
+    participant User
+    participant Auth
+    User->>Auth: Login
+    alt valid credentials
+        Auth-->>User: Token
+    else invalid credentials
+        Auth-->>User: 401 Unauthorized
+    else locked account
+        Auth-->>User: 423 Locked
+    end
