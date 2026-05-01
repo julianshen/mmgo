@@ -336,8 +336,12 @@ func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 	rectY := startY - defaultRowHeight/4
 	rectH := endY - startY + defaultRowHeight/4
 	if b.Kind == diagram.BlockKindRect {
-		rectY = startY + blockHeaderGap
-		rectH = math.Max(0, endY-startY-blockHeaderGap-blockFooterGap-defaultRowHeight/2)
+		// Span the full row band so the first message's above-line
+		// label still falls inside the colored region. rectY starts
+		// at startY (= header-gap above the first message line),
+		// rectH stops half a row below the last message line.
+		rectY = startY
+		rectH = math.Max(0, endY-startY-blockFooterGap-defaultRowHeight/2)
 	}
 
 	// Rect blocks emit the fill *before* their content so messages
