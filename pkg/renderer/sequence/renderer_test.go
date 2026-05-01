@@ -769,6 +769,36 @@ func TestRenderSelfMessageUsesArcPath(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+func TestRenderSelfMessageLabelLeftOfLifeline(t *testing.T) {
+	// mmdc renders a self-message label to the *left* of the lifeline
+	// (text-anchor:end) so it doesn't collide with the right-side
+	// loop arc and avoids being clipped by the rightmost layout edge.
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "Worker", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{
+				From: "Worker", To: "Worker", Label: "Recursive step",
+				ArrowType: diagram.ArrowTypeSolid,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	re := regexp.MustCompile(`<text[^>]*text-anchor="(\w+)"[^>]*>Recursive step</text>`)
+	m := re.FindStringSubmatch(raw)
+	if m == nil {
+		t.Fatalf("did not find self-message label; raw: %s", raw)
+	}
+	if m[1] != "end" {
+		t.Errorf("self-message label should be end-anchored (left of lifeline), got text-anchor=%q", m[1])
+	}
+}
+
 func TestRenderNestedActivationsOffsetByDepth(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
