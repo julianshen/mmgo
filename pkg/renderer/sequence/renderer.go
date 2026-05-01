@@ -119,9 +119,7 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 	// Without this, boxes start at y < 0 and their title text clips
 	// against the viewBox top edge.
 	if len(d.Boxes) > 0 {
-		const boxPad = 10.0
-		titleStripH := (fontSize - 2) + 6.0
-		topY += titleStripH + boxPad/2
+		topY += boxTitleStripH(fontSize) + boxGroupPad/2
 	}
 	bodyStart := topY + maxHeaderH + 10
 	rows := countRows(d)
@@ -181,12 +179,11 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 				}
 			}
 		}
-		const boxPad = 10.0
-		left := xs[firstIdx] - widths[firstIdx]/2 - boxPad
-		right := xs[lastIdx] + widths[lastIdx]/2 + boxPad
+		left := xs[firstIdx] - widths[firstIdx]/2 - boxGroupPad
+		right := xs[lastIdx] + widths[lastIdx]/2 + boxGroupPad
 		boxW := right - left
 		titleFontSize := fontSize - 2
-		titleW := textmeasure.EstimateWidth(bx.Label, titleFontSize) + 2*boxPad
+		titleW := textmeasure.EstimateWidth(bx.Label, titleFontSize) + 2*boxGroupPad
 		if titleW > boxW {
 			extra := (titleW - boxW) / 2
 			if left-extra < 0 {
@@ -222,6 +219,12 @@ func actorHeight(fontSize float64) float64 {
 
 func titleHeight(fontSize float64) float64 {
 	return fontSize + 12
+}
+
+const boxGroupPad = 10.0
+
+func boxTitleStripH(fontSize float64) float64 {
+	return (fontSize - 2) + 6.0
 }
 
 const defaultBoxFillOpacity = 0.5
@@ -486,15 +489,14 @@ func renderBoxes(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize f
 			}
 		}
 
-		const boxPad = 10.0
-		boxX := lay.participantX[leftIdx] - lay.participantW[leftIdx]/2 - boxPad
-		right := lay.participantX[rightIdx] + lay.participantW[rightIdx]/2 + boxPad
+		boxX := lay.participantX[leftIdx] - lay.participantW[leftIdx]/2 - boxGroupPad
+		right := lay.participantX[rightIdx] + lay.participantW[rightIdx]/2 + boxGroupPad
 		boxW := right - boxX
 
 		titleFontSize := fontSize - 2
 		titleW := 0.0
 		if bx.Label != "" {
-			titleW = textmeasure.EstimateWidth(bx.Label, titleFontSize) + 2*boxPad
+			titleW = textmeasure.EstimateWidth(bx.Label, titleFontSize) + 2*boxGroupPad
 		}
 		if titleW > boxW {
 			extra := (titleW - boxW) / 2
@@ -502,9 +504,9 @@ func renderBoxes(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize f
 			boxW = titleW
 		}
 
-		titleStripH := titleFontSize + 6.0
-		boxY := lay.topY - titleStripH - boxPad/2
-		boxH := (lay.bottomY + lay.maxHeaderH + boxPad) - boxY
+		titleStripH := boxTitleStripH(fontSize)
+		boxY := lay.topY - titleStripH - boxGroupPad/2
+		boxH := (lay.bottomY + lay.maxHeaderH + boxGroupPad) - boxY
 
 		fill := th.ParticipantFill
 		if bx.Fill != "" {
