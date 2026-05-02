@@ -697,6 +697,47 @@ func TestRenderLollipopReverse(t *testing.T) {
 	}
 }
 
+// A ClassClickDef with a URL wraps the whole class group in <a>;
+// tooltip surfaces as a <title> child inside the anchor.
+func TestRenderClickHrefWrapsAnchor(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{{ID: "Foo", Label: "Foo"}},
+		Clicks: []diagram.ClassClickDef{{
+			ClassID: "Foo", URL: "https://example.com",
+			Tooltip: "Open docs", Target: "_blank",
+		}},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, `<a href="https://example.com" target="_blank">`) {
+		t.Errorf("anchor element missing or malformed:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<title>Open docs</title>") {
+		t.Error("tooltip <title> missing inside anchor")
+	}
+	if !strings.Contains(raw, ">Foo<") {
+		t.Error("class header missing")
+	}
+}
+
+// Callback-only clicks (no URL) don't get wrapped — there's nothing
+// for a static SVG renderer to do with the JS reference.
+func TestRenderCallbackOnlyDoesNotWrapAnchor(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{{ID: "Foo", Label: "Foo"}},
+		Clicks: []diagram.ClassClickDef{{
+			ClassID: "Foo", Callback: "openDetails",
+		}},
+	}
+	out, _ := Render(d, nil)
+	if strings.Contains(string(out), "<a ") {
+		t.Errorf("callback-only click should not produce <a>:\n%s", out)
+	}
+}
+
 func assertValidSVG(t *testing.T, svgBytes []byte) {
 	t.Helper()
 	body := svgBytes

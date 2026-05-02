@@ -470,37 +470,7 @@ func (p *parser) parseClick(line string) error {
 	return nil
 }
 
-func parseClickArgs(s string) []string {
-	var parts []string
-	i := 0
-	for i < len(s) && len(parts) < 3 {
-		for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
-			i++
-		}
-		if i >= len(s) {
-			break
-		}
-		if s[i] == '"' {
-			i++
-			end := strings.IndexByte(s[i:], '"')
-			if end < 0 {
-				parts = append(parts, s[i:])
-				break
-			}
-			parts = append(parts, s[i:i+end])
-			i = i + end + 1
-		} else {
-			end := strings.IndexAny(s[i:], " \t")
-			if end < 0 {
-				parts = append(parts, s[i:])
-				break
-			}
-			parts = append(parts, s[i:i+end])
-			i = i + end
-		}
-	}
-	return parts
-}
+func parseClickArgs(s string) []string { return parserutil.SplitClickArgs(s, 3) }
 
 func (p *parser) parseLinkStyle(line string) error {
 	rest := line[len("linkStyle "):]

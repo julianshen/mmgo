@@ -75,6 +75,15 @@ func (p *parser) parseLine(line string) error {
 	if strings.HasPrefix(line, "cssClass ") {
 		return p.parseCSSClassBinding(line)
 	}
+	if strings.HasPrefix(line, "click ") {
+		return p.parseClick(line)
+	}
+	if strings.HasPrefix(line, "link ") {
+		return p.parseLinkOrCallback(line, "link")
+	}
+	if strings.HasPrefix(line, "callback ") {
+		return p.parseLinkOrCallback(line, "callback")
+	}
 	if rest, ok := strings.CutPrefix(line, "class "); ok {
 		rest = strings.TrimSpace(rest)
 		hdr, hasBody, err := parseClassHeader(rest)
@@ -244,6 +253,85 @@ func (p *parser) parseCSSClassBinding(line string) error {
 		}
 		idx := p.ensureClass(id)
 		p.diagram.Classes[idx].CSSClasses = append(p.diagram.Classes[idx].CSSClasses, cssName)
+	}
+	return nil
+}
+
+// parseClick handles `click ID call func(args) "tooltip"` (Callback)
+// and `click ID href "url" "tooltip" "target"` (URL). The two forms
+// share a keyword so they're disambiguated by the `call` / `href`
+// subkeyword. Bare `click ID "url" …` is treated as the href form
+// for compatibility.
+func (p *parser) parseClick(line string) error {
+	rest := strings.TrimSpace(line[len("click "):])
+	fields := strings.Fields(rest)
+	if len(fields) < 2 {
+		return fmt.Errorf("click requires class id and URL or callback")
+	}
+	classID := fields[0]
+	p.ensureClass(classID)
+	cd := diagram.ClassClickDef{ClassID: classID}
+	afterID := strings.TrimSpace(rest[len(classID):])
+	switch {
+	case strings.HasPrefix(afterID, "call "):
+		cd.Callback = strings.TrimSpace(afterID[len("call "):])
+	case afterID == "href" || strings.HasPrefix(afterID, "href "):
+		argSrc := strings.TrimSpace(afterID[len("href"):])
+		if err := fillClickArgs(&cd, argSrc); err != nil {
+			return fmt.Errorf("click %s: %w", classID, err)
+		}
+	default:
+		if err := fillClickArgs(&cd, afterID); err != nil {
+			return fmt.Errorf("click %s: %w", classID, err)
+		}
+	}
+	p.diagram.Clicks = append(p.diagram.Clicks, cd)
+	return nil
+}
+
+// parseLinkOrCallback handles the `link` / `callback` aliases.
+// `link ID "url" "tooltip"` ⇔ `click ID href "url" "tooltip"`.
+// `callback ID "func" "tooltip"` ⇔ `click ID call func` plus tooltip.
+func (p *parser) parseLinkOrCallback(line, kw string) error {
+	rest := strings.TrimSpace(line[len(kw)+1:])
+	fields := strings.Fields(rest)
+	if len(fields) < 2 {
+		return fmt.Errorf("%s requires class id and target", kw)
+	}
+	classID := fields[0]
+	p.ensureClass(classID)
+	argSrc := strings.TrimSpace(rest[len(classID):])
+	parts := parserutil.SplitClickArgs(argSrc, 3)
+	if len(parts) == 0 {
+		return fmt.Errorf("%s %s: missing target", kw, classID)
+	}
+	cd := diagram.ClassClickDef{ClassID: classID}
+	if kw == "callback" {
+		cd.Callback = parts[0]
+	} else {
+		cd.URL = parts[0]
+	}
+	if len(parts) >= 2 {
+		cd.Tooltip = parts[1]
+	}
+	if len(parts) >= 3 {
+		cd.Target = parts[2]
+	}
+	p.diagram.Clicks = append(p.diagram.Clicks, cd)
+	return nil
+}
+
+func fillClickArgs(cd *diagram.ClassClickDef, src string) error {
+	parts := parserutil.SplitClickArgs(src, 3)
+	if len(parts) == 0 {
+		return fmt.Errorf("missing URL")
+	}
+	cd.URL = parts[0]
+	if len(parts) >= 2 {
+		cd.Tooltip = parts[1]
+	}
+	if len(parts) >= 3 {
+		cd.Target = parts[2]
 	}
 	return nil
 }

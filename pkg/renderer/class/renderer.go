@@ -223,6 +223,7 @@ func memberText(m diagram.ClassMember) string {
 }
 
 func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float64, th Theme) []any {
+	clicks := clicksByClass(d.Clicks)
 	var elems []any
 	for _, c := range d.Classes {
 		nl, ok := l.Nodes[c.ID]
@@ -236,11 +237,16 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 		x := cx - w/2
 		y := cy - h/2
 
+		// Per-class buffer; if the class has a URL click action it
+		// gets wrapped in <a> at the end so a click anywhere in the
+		// box (rect, header, members) activates the link.
+		var classElems []any
+
 		rectStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.NodeFill, th.NodeStroke)
 		if override := classRectStyle(d, c); override != "" {
 			rectStyle = rectStyle + ";" + override
 		}
-		elems = append(elems, &rect{
+		classElems = append(classElems, &rect{
 			X: svgFloat(x), Y: svgFloat(y),
 			Width: svgFloat(w), Height: svgFloat(h),
 			Style: rectStyle,
@@ -248,7 +254,7 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 
 		curY := y + headerH/2
 		if c.Annotation != diagram.AnnotationNone {
-			elems = append(elems, &text{
+			classElems = append(classElems, &text{
 				X: svgFloat(cx), Y: svgFloat(y + 14),
 				Anchor: "middle", Dominant: "auto",
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-style:italic", th.AnnotationText, fontSize-2),
@@ -257,7 +263,7 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 			curY = y + headerH/2 + memberRowH/2
 		}
 
-		elems = append(elems, &text{
+		classElems = append(classElems, &text{
 			X: svgFloat(cx), Y: svgFloat(curY),
 			Anchor: "middle", Dominant: "central",
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.NodeText, fontSize),
@@ -271,13 +277,42 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 
 		fields, methods := splitMembers(c.Members)
 		if len(fields) > 0 {
-			elems, sectionY = appendMemberSection(elems, fields, x, w, sectionY, fontSize, th)
+			classElems, sectionY = appendMemberSection(classElems, fields, x, w, sectionY, fontSize, th)
 		}
 		if len(methods) > 0 {
-			elems, _ = appendMemberSection(elems, methods, x, w, sectionY, fontSize, th)
+			classElems, _ = appendMemberSection(classElems, methods, x, w, sectionY, fontSize, th)
+		}
+
+		// If a click action with a URL is set for this class, wrap
+		// the whole class group in <a>. Tooltip becomes a <title>
+		// inside so hovering shows it. Callback-only clicks fall
+		// through and the class renders normally.
+		if cd, ok := clicks[c.ID]; ok && cd.URL != "" {
+			a := &anchor{Href: cd.URL, Target: cd.Target}
+			if cd.Tooltip != "" {
+				a.Children = append(a.Children, &svgTitle{Content: cd.Tooltip})
+			}
+			a.Children = append(a.Children, classElems...)
+			elems = append(elems, a)
+		} else {
+			elems = append(elems, classElems...)
 		}
 	}
 	return elems
+}
+
+// clicksByClass indexes click defs by class id. Mermaid allows a
+// class to appear in `click` more than once but the AST only carries
+// the last definition forward (later overrides earlier).
+func clicksByClass(clicks []diagram.ClassClickDef) map[string]diagram.ClassClickDef {
+	if len(clicks) == 0 {
+		return nil
+	}
+	out := make(map[string]diagram.ClassClickDef, len(clicks))
+	for _, c := range clicks {
+		out[c.ClassID] = c
+	}
+	return out
 }
 
 func appendMemberSection(elems []any, members []diagram.ClassMember, x, w, sectionY, fontSize float64, th Theme) ([]any, float64) {

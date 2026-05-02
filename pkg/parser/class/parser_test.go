@@ -1006,6 +1006,67 @@ func TestParseLollipopReverse(t *testing.T) {
 	}
 }
 
+func TestParseClickHref(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class Foo
+    click Foo href "https://example.com" "Open docs"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Clicks) != 1 {
+		t.Fatalf("want 1 click, got %d", len(d.Clicks))
+	}
+	c := d.Clicks[0]
+	if c.ClassID != "Foo" || c.URL != "https://example.com" || c.Tooltip != "Open docs" {
+		t.Errorf("click = %+v", c)
+	}
+}
+
+// `link` is mermaid's alias for `click ID href`.
+func TestParseLinkAlias(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class Foo
+    link Foo "https://example.com" "tooltip"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Clicks) != 1 {
+		t.Fatalf("want 1 click, got %d", len(d.Clicks))
+	}
+	c := d.Clicks[0]
+	if c.URL != "https://example.com" || c.Tooltip != "tooltip" {
+		t.Errorf("click = %+v", c)
+	}
+}
+
+// `click ID call func()` and `callback ID "func"` both populate Callback.
+func TestParseCallback(t *testing.T) {
+	for _, src := range []string{
+		`classDiagram
+    class Foo
+    click Foo call openDetails()`,
+		`classDiagram
+    class Foo
+    callback Foo "openDetails"`,
+	} {
+		t.Run("", func(t *testing.T) {
+			d, err := Parse(strings.NewReader(src))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(d.Clicks) != 1 {
+				t.Fatalf("want 1 click, got %d", len(d.Clicks))
+			}
+			if d.Clicks[0].Callback == "" {
+				t.Errorf("Callback empty: %+v", d.Clicks[0])
+			}
+			if d.Clicks[0].URL != "" {
+				t.Errorf("URL should be empty for callback form: %+v", d.Clicks[0])
+			}
+		})
+	}
+}
+
 func TestParseDirectionInvalid(t *testing.T) {
 	_, err := Parse(strings.NewReader("classDiagram\n    direction WAT"))
 	if err == nil {

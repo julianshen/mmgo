@@ -9,6 +9,7 @@ type (
 	svgDesc  = svgutil.Desc
 	rect     = svgutil.Rect
 	circle   = svgutil.Circle
+	anchor   = svgutil.Anchor
 	line     = svgutil.Line
 	text     = svgutil.Text
 	polygon  = svgutil.Polygon
