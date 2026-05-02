@@ -484,10 +484,16 @@ func renderActor(cx, topY float64, label string, th Theme, fontSize float64) []a
 func renderLifelines(d *diagram.SequenceDiagram, lay seqLayout, th Theme, createY, destroyY map[string]float64) []any {
 	var elems []any
 	lifelineStyle := fmt.Sprintf("stroke:%s;stroke-width:%.1f", th.LifelineStroke, defaultLifelineWidth)
+	// Lifelines should visually touch the participant boxes at both
+	// ends. Top-row box bottom = lay.topY + lay.maxHeaderH; bottom-row
+	// box top = lay.bottomY. Use those instead of the body bounds so
+	// no white gap appears between the box and the lifeline.
+	defaultStart := lay.topY + lay.maxHeaderH
+	defaultEnd := lay.bottomY
 	for i, p := range d.Participants {
 		x := lay.participantX[i]
-		startY := lay.bodyStartY
-		endY := lay.bodyEndY
+		startY := defaultStart
+		endY := defaultEnd
 		if y, ok := createY[p.ID]; ok {
 			startY = y - defaultRowHeight/2
 		}
