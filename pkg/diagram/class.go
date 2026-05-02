@@ -31,6 +31,11 @@ type ClassMember struct {
 	ReturnType string
 	Visibility Visibility
 	IsMethod   bool
+	// IsStatic / IsAbstract are UML modifiers parsed from trailing
+	// `$` and `*` markers respectively. Renderers conventionally
+	// underline static members and italicize abstract ones.
+	IsStatic   bool
+	IsAbstract bool
 }
 
 type ClassAnnotation int8
@@ -48,8 +53,12 @@ var classAnnotationNames = []string{"none", "interface", "abstract", "service", 
 func (a ClassAnnotation) String() string { return enumString(a, classAnnotationNames) }
 
 type ClassDef struct {
-	ID         string
-	Label      string
+	ID    string
+	Label string
+	// Generic carries the parametric-type list parsed from
+	// `class Name~T~` or `class Map~K, V~`. Empty when the class
+	// has no generic. The angle brackets are not stored.
+	Generic    string
 	Members    []ClassMember
 	Annotation ClassAnnotation
 }

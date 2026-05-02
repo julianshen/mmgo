@@ -98,7 +98,7 @@ func rankDirFor(d diagram.Direction) layout.RankDir {
 }
 
 func classNodeSize(c diagram.ClassDef, ruler *textmeasure.Ruler, fontSize float64) (w, h float64) {
-	tw, _ := ruler.Measure(c.Label, fontSize)
+	tw, _ := ruler.Measure(headerText(c), fontSize)
 	w = tw + 2*classPadX
 	h = headerH
 	if c.Annotation != diagram.AnnotationNone {
@@ -140,6 +140,16 @@ func splitMembers(members []diagram.ClassMember) (fields, methods []diagram.Clas
 		}
 	}
 	return
+}
+
+// headerText is the rendered class header — the label (custom or
+// defaulted to the ID) optionally followed by `<Generic>`. Mermaid
+// renders generics with angle brackets, mirroring TypeScript / Java.
+func headerText(c diagram.ClassDef) string {
+	if c.Generic == "" {
+		return c.Label
+	}
+	return c.Label + "<" + c.Generic + ">"
 }
 
 func memberText(m diagram.ClassMember) string {
@@ -199,7 +209,7 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 			X: svgFloat(cx), Y: svgFloat(curY),
 			Anchor: "middle", Dominant: "central",
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.NodeText, fontSize),
-			Content: c.Label,
+			Content: headerText(c),
 		})
 
 		sectionY := y + headerH
@@ -226,10 +236,17 @@ func appendMemberSection(elems []any, members []diagram.ClassMember, x, w, secti
 	})
 	for i, m := range members {
 		my := sectionY + classPadY/2 + float64(i)*memberRowH + memberRowH/2
+		style := fmt.Sprintf("fill:%s;font-size:%.0fpx", th.NodeText, fontSize-1)
+		if m.IsStatic {
+			style += ";text-decoration:underline"
+		}
+		if m.IsAbstract {
+			style += ";font-style:italic"
+		}
 		elems = append(elems, &text{
 			X: svgFloat(x + classPadX), Y: svgFloat(my),
 			Anchor: "start", Dominant: "central",
-			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.NodeText, fontSize-1),
+			Style:   style,
 			Content: memberText(m),
 		})
 	}

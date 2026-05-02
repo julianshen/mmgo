@@ -436,6 +436,98 @@ func parseViewBoxWH(t *testing.T, svgBytes []byte) (w, h float64) {
 	return w, h
 }
 
+// Generic types render as `Label<Generic>` in the header — Mermaid's
+// convention; matches the way TypeScript/Java declare parametric types.
+func TestRenderGenericInHeader(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{
+			{ID: "List", Label: "List", Generic: "T"},
+			{ID: "Map", Label: "Map", Generic: "K, V"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// XML-escaped angle brackets — what browsers render as `List<T>`.
+	if !strings.Contains(raw, "List&lt;T&gt;") {
+		t.Errorf("expected `List<T>` header in output")
+	}
+	if !strings.Contains(raw, "Map&lt;K, V&gt;") {
+		t.Errorf("expected `Map<K, V>` header in output")
+	}
+}
+
+// Custom labels override the ID in the header.
+func TestRenderCustomLabel(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{
+			{ID: "Animal", Label: "A friendly animal"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">A friendly animal<") {
+		t.Errorf("expected custom label in header, got:\n%s", raw)
+	}
+	// The bare ID must not also appear as the header (regression
+	// guard: previously the renderer always used Label which equals
+	// the ID by default — here the custom label must replace the ID).
+	if strings.Contains(raw, ">Animal<") {
+		t.Errorf("ID should not be rendered when custom label is set")
+	}
+}
+
+func TestRenderStaticUnderlined(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{
+			{ID: "C", Label: "C", Members: []diagram.ClassMember{
+				{Name: "pi", ReturnType: "double", Visibility: diagram.VisibilityPublic, IsStatic: true},
+				{Name: "log", IsMethod: true, ReturnType: "void", Visibility: diagram.VisibilityPublic, IsStatic: true},
+				{Name: "instance", Visibility: diagram.VisibilityPublic}, // not static — guard
+			}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if got := strings.Count(raw, "text-decoration:underline"); got != 2 {
+		t.Errorf("expected 2 underlined static members, got %d", got)
+	}
+	// `instance` row must NOT carry the underline style.
+	if strings.Contains(raw, `text-decoration:underline">+instance`) {
+		t.Errorf("non-static member rendered as underlined")
+	}
+}
+
+func TestRenderAbstractItalic(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{
+			{ID: "Shape", Label: "Shape", Members: []diagram.ClassMember{
+				{Name: "draw", IsMethod: true, ReturnType: "void", Visibility: diagram.VisibilityPublic, IsAbstract: true},
+				{Name: "color", Visibility: diagram.VisibilityPublic}, // not abstract — guard
+			}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// 1 abstract member; the «interface» annotation is also italic
+	// but this class has no annotation so any italic must come from
+	// the abstract member.
+	if got := strings.Count(raw, "font-style:italic"); got != 1 {
+		t.Errorf("expected 1 italic abstract member, got %d", got)
+	}
+}
+
 func assertValidSVG(t *testing.T, svgBytes []byte) {
 	t.Helper()
 	body := svgBytes
