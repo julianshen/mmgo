@@ -1260,6 +1260,40 @@ func TestParseNamespaceCrossingRelation(t *testing.T) {
 	}
 }
 
+// A relation INSIDE a namespace whose endpoints aren't declared
+// elsewhere puts both auto-registered classes into that namespace.
+// This pins the documented behavior so a future refactor can't
+// silently drop forward-referenced classes from their namespace.
+func TestParseNamespaceRelationAutoRegisters(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    namespace Mod {
+        Foo --> Bar
+    }`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Namespaces) != 1 {
+		t.Fatalf("want 1 namespace, got %d", len(d.Namespaces))
+	}
+	got := d.Namespaces[0].ClassIDs
+	want := []string{"Foo", "Bar"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("ClassIDs = %v, want %v", got, want)
+	}
+}
+
+// `namespace<TAB>Name` should parse the same as `namespace Name`.
+// Otherwise a tab-indented file slips past the keyword detection.
+func TestParseNamespaceTabKeyword(t *testing.T) {
+	d, err := Parse(strings.NewReader("classDiagram\n    namespace\tMod {\n        class A\n    }"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Namespaces) != 1 || d.Namespaces[0].Name != "Mod" {
+		t.Errorf("namespaces = %+v", d.Namespaces)
+	}
+}
+
 // An unclosed namespace block is an error rather than silently
 // consuming the rest of the file.
 func TestParseNamespaceUnclosedError(t *testing.T) {

@@ -412,6 +412,47 @@ type Defs struct {
 	Markers []Marker `xml:"marker,omitempty"`
 }
 
+// BBox accumulates an axis-aligned bounding box of arbitrary
+// rectangles. Initialise with NewInfiniteBBox so the first Expand
+// call seeds the extents instead of clamping against zero.
+type BBox struct {
+	MinX, MinY, MaxX, MaxY float64
+}
+
+// NewInfiniteBBox returns a BBox seeded with ±Inf so any Expand call
+// replaces the extents. Used by callers that want to know whether
+// any rectangles contributed (Empty()==true means none did).
+func NewInfiniteBBox() BBox {
+	return BBox{MinX: math.Inf(1), MinY: math.Inf(1), MaxX: math.Inf(-1), MaxY: math.Inf(-1)}
+}
+
+// Expand grows the bbox to include the centred rectangle (cx, cy,
+// w, h). Centred form (rather than top-left + size) is what the
+// layout engine produces.
+func (b *BBox) Expand(cx, cy, w, h float64) {
+	left, right := cx-w/2, cx+w/2
+	top, bottom := cy-h/2, cy+h/2
+	if left < b.MinX {
+		b.MinX = left
+	}
+	if right > b.MaxX {
+		b.MaxX = right
+	}
+	if top < b.MinY {
+		b.MinY = top
+	}
+	if bottom > b.MaxY {
+		b.MaxY = bottom
+	}
+}
+
+// Empty reports whether the bbox is still at its ±Inf seed values
+// — i.e. no Expand call has happened. Renderers use this to skip
+// emitting a degenerate rectangle when the source set was empty.
+func (b BBox) Empty() bool {
+	return math.IsInf(b.MinX, 1) || math.IsInf(b.MaxX, -1)
+}
+
 // Anchor renders an SVG `<a>` hyperlink. Children inside (rects,
 // paths, text) become clickable. Uses the SVG 2 unprefixed `href`
 // attribute, which all modern renderers accept; older xlink:href

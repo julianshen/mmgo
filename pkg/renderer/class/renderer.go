@@ -3,7 +3,6 @@ package class
 import (
 	"encoding/xml"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 
@@ -373,34 +372,30 @@ func renderNamespaces(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize f
 	textStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.NamespaceText, fontSize-1)
 	var elems []any
 	for _, ns := range d.Namespaces {
-		minX, minY := math.Inf(1), math.Inf(1)
-		maxX, maxY := math.Inf(-1), math.Inf(-1)
-		matched := 0
+		bb := svgutil.NewInfiniteBBox()
 		for _, id := range ns.ClassIDs {
 			n, ok := l.Nodes[id]
 			if !ok {
 				continue
 			}
-			matched++
-			cx := n.X + pad
-			cy := n.Y + pad
-			minX = math.Min(minX, cx-n.Width/2)
-			minY = math.Min(minY, cy-n.Height/2)
-			maxX = math.Max(maxX, cx+n.Width/2)
-			maxY = math.Max(maxY, cy+n.Height/2)
+			bb.Expand(n.X+pad, n.Y+pad, n.Width, n.Height)
 		}
-		if matched == 0 {
+		if bb.Empty() {
 			continue
 		}
 		// Reserve nsLabelH at the top for the namespace name so the
 		// label band sits above the framed area, not on top of a
 		// member class.
-		x := minX - nsPadX
-		y := minY - nsPadY - nsLabelH
-		w := (maxX - minX) + 2*nsPadX
-		h := (maxY - minY) + 2*nsPadY + nsLabelH
+		x := bb.MinX - nsPadX
+		y := bb.MinY - nsPadY - nsLabelH
+		w := (bb.MaxX - bb.MinX) + 2*nsPadX
+		h := (bb.MaxY - bb.MinY) + 2*nsPadY + nsLabelH
 		labelW, _ := ruler.Measure(ns.Name, fontSize-1)
+		// If the label is wider than the bbox-plus-padding, grow the
+		// rect symmetrically so it stays roughly centred over its
+		// members instead of stretching only to the right.
 		if minLabel := labelW + 2*nsPadX; w < minLabel {
+			x -= (minLabel - w) / 2
 			w = minLabel
 		}
 		elems = append(elems,

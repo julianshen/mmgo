@@ -84,7 +84,7 @@ func (p *parser) parseLine(line string) error {
 	if strings.HasPrefix(line, "callback ") {
 		return p.parseLinkOrCallback(line, true)
 	}
-	if rest, ok := strings.CutPrefix(line, "namespace "); ok {
+	if rest, ok := cutNamespaceKeyword(line); ok {
 		return p.parseNamespace(rest)
 	}
 	if rest, ok := strings.CutPrefix(line, "class "); ok {
@@ -260,16 +260,31 @@ func (p *parser) parseCSSClassBinding(line string) error {
 	return nil
 }
 
-// parseNamespace consumes a `namespace NAME { … }` block. The
-// classes declared inside register at the top level (so relations
-// across namespaces resolve normally) and their IDs are also
-// recorded on a ClassNamespace entry so the renderer can group them
-// visually.
+// cutNamespaceKeyword recognises the `namespace` keyword followed by
+// a space OR tab and returns the trailing argument. Both whitespace
+// forms are common in real diagrams; using strings.CutPrefix with a
+// single-space literal would let `namespace\t…` slip past.
+func cutNamespaceKeyword(line string) (string, bool) {
+	const kw = "namespace"
+	if !strings.HasPrefix(line, kw) || len(line) <= len(kw) {
+		return "", false
+	}
+	switch line[len(kw)] {
+	case ' ', '\t':
+		return strings.TrimSpace(line[len(kw)+1:]), true
+	}
+	return "", false
+}
+
+// parseNamespace consumes a `namespace NAME { … }` block. Inner
+// content is dispatched back to parseLine so the same syntax (class
+// declarations, relations, members) is accepted as at top level.
+// Classes declared inside still register flat in p.diagram.Classes,
+// so cross-namespace relations resolve normally; their IDs are also
+// recorded on a ClassNamespace entry for the renderer.
 //
-// We delegate inner-line parsing back to parseLine — namespaces
-// nest the same syntax as the top-level diagram, just without
-// further `namespace` blocks (which are explicitly rejected to
-// avoid surprising recursion).
+// Nested `namespace` blocks are rejected — Mermaid doesn't support
+// them and the recursive case would surprise.
 func (p *parser) parseNamespace(rest string) error {
 	rest = strings.TrimSpace(rest)
 	rest = strings.TrimSuffix(rest, "{")
@@ -286,18 +301,17 @@ func (p *parser) parseNamespace(rest string) error {
 			continue
 		}
 		if line == "}" {
-			// Collect every class registered while we were inside
-			// the block. parseLine routes class declarations through
-			// declareClass / ensureClass which appends to
-			// p.diagram.Classes; we use the slice grew-from-here
-			// invariant to capture them in source order.
+			// Anything appended to p.diagram.Classes while we were
+			// inside the block belongs to this namespace, including
+			// classes auto-registered by relations (`A --> B` inside
+			// a namespace puts both A and B in the namespace).
 			for i := classesBefore; i < len(p.diagram.Classes); i++ {
 				ns.ClassIDs = append(ns.ClassIDs, p.diagram.Classes[i].ID)
 			}
 			p.diagram.Namespaces = append(p.diagram.Namespaces, ns)
 			return nil
 		}
-		if strings.HasPrefix(line, "namespace ") {
+		if _, isNamespace := cutNamespaceKeyword(line); isNamespace {
 			return fmt.Errorf("namespace %q: nested namespaces are not supported", name)
 		}
 		if err := p.parseLine(line); err != nil {
