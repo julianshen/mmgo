@@ -61,6 +61,10 @@ type ClassDef struct {
 	Generic    string
 	Members    []ClassMember
 	Annotation ClassAnnotation
+	// CSSClasses are user-defined CSS class names attached via
+	// `cssClass "Name" foo` or the inline `Name:::foo` shorthand.
+	// The renderer resolves each name against ClassDiagram.CSSClasses.
+	CSSClasses []string
 }
 
 type RelationType int8
@@ -129,13 +133,31 @@ type ClassNote struct {
 	For  string // class ID, or "" for a general note
 }
 
+// ClassStyleDef is a per-class inline style override parsed from
+// `style Foo fill:#f9f,stroke:#333`.
+type ClassStyleDef struct {
+	ClassID string
+	CSS     string
+}
+
 type ClassDiagram struct {
 	Classes   []ClassDef
 	Relations []ClassRelation
 	Notes     []ClassNote
+	// CSSClasses maps a user-defined class name (from `classDef foo …`)
+	// to its semicolon-separated CSS declarations. Renderers look up
+	// names referenced from ClassDef.CSSClasses against this map.
+	CSSClasses map[string]string
+	// Styles are per-class inline overrides from `style ID …` lines.
+	Styles []ClassStyleDef
 	// Direction is the layout flow. DirectionUnknown means "use the
 	// renderer's default" (currently top-to-bottom).
 	Direction Direction
+	// Title and accessibility metadata (Mermaid `title:`, `accTitle:`,
+	// `accDescr:` keywords). Empty when the source omits them.
+	Title    string
+	AccTitle string
+	AccDescr string
 }
 
 func (*ClassDiagram) Type() DiagramType { return Class }

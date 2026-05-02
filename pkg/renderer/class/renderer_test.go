@@ -585,6 +585,72 @@ func TestRenderMultilineNote(t *testing.T) {
 	}
 }
 
+// AccTitle / AccDescr / Title surface as <title> and <desc> children
+// at the root of the SVG. Screen readers announce these.
+func TestRenderAccessibilityMetadata(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Title:    "general title",
+		AccTitle: "explicit acc title",
+		AccDescr: "longer description",
+		Classes:  []diagram.ClassDef{{ID: "Foo", Label: "Foo"}},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<title>explicit acc title</title>") {
+		t.Error("AccTitle should win over Title for <title>")
+	}
+	if !strings.Contains(raw, "<desc>longer description</desc>") {
+		t.Error("AccDescr should produce <desc>")
+	}
+}
+
+// Title (without AccTitle) still surfaces as <title>.
+func TestRenderTitleFallback(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Title:   "general title",
+		Classes: []diagram.ClassDef{{ID: "Foo", Label: "Foo"}},
+	}
+	out, _ := Render(d, nil)
+	if !strings.Contains(string(out), "<title>general title</title>") {
+		t.Error("Title should surface as <title> when AccTitle is empty")
+	}
+}
+
+// classDef + cssClass binding produces inline style overrides on the
+// class rectangle.
+func TestRenderClassDefStyling(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{
+			{ID: "Foo", Label: "Foo", CSSClasses: []string{"important"}},
+		},
+		CSSClasses: map[string]string{
+			"important": "fill:#ffaa00;stroke:#aa0000",
+		},
+	}
+	out, _ := Render(d, nil)
+	if !strings.Contains(string(out), "fill:#ffaa00;stroke:#aa0000") {
+		t.Errorf("classDef CSS missing from output:\n%s", out)
+	}
+}
+
+// `style ID …` rules append to the rect style after classDef
+// references; the later-declared value wins per CSS rules.
+func TestRenderStyleRule(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{{ID: "Foo", Label: "Foo"}},
+		Styles: []diagram.ClassStyleDef{
+			{ClassID: "Foo", CSS: "fill:#123456"},
+		},
+	}
+	out, _ := Render(d, nil)
+	if !strings.Contains(string(out), "fill:#123456") {
+		t.Error("style override missing")
+	}
+}
+
 func assertValidSVG(t *testing.T, svgBytes []byte) {
 	t.Helper()
 	body := svgBytes
