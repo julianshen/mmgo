@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -133,7 +134,11 @@ func TestRenderAllRelationTypes(t *testing.T) {
 		{diagram.RelationTypeComposition, true, false, false, `fill:#333;stroke:#333`},
 		{diagram.RelationTypeAggregation, true, false, false, `fill:white;stroke:#333;stroke-width:1"`},
 		{diagram.RelationTypeRealization, false, true, true, `fill:white;stroke:#333;stroke-width:1.5"`},
-		{diagram.RelationTypeDependency, false, true, true, `id="cls-dependency"`},
+		// Dependency and Association share the same arrowhead geometry;
+		// they differ only in line style (dashed vs solid). The
+		// stroke-dasharray check (wantDashed) covers that distinction;
+		// here we just confirm the arrowhead marker fires for both.
+		{diagram.RelationTypeDependency, false, true, true, `id="cls-association"`},
 		{diagram.RelationTypeAssociation, false, true, false, `id="cls-association"`},
 		{diagram.RelationTypeLink, false, false, false, ""},
 		{diagram.RelationTypeDashedLink, false, false, true, ""},
@@ -281,6 +286,154 @@ func TestRenderDeterministic(t *testing.T) {
 			t.Fatalf("iter %d: output diverges", i)
 		}
 	}
+}
+
+// Reverse arrows render the relation glyph at the To end (not the
+// canonical-forward From end) and skip the `marker-end` SVG reference
+// since the glyph is inline-placed instead. This pins the glyph's
+// polygon points so a fill/orientation regression can't pass.
+func TestRenderReverseRelations(t *testing.T) {
+	cases := []struct {
+		name      string
+		rt        diagram.RelationType
+		wantPoly  string // unique polygon-points substring
+	}{
+		{"inheritance", diagram.RelationTypeInheritance, `points="20,0 0,10 20,20"`},
+		{"composition", diagram.RelationTypeComposition, `fill:#333;stroke:#333;stroke-width:1`},
+		{"aggregation", diagram.RelationTypeAggregation, `fill:white;stroke:#333;stroke-width:1"`},
+		{"realization", diagram.RelationTypeRealization, `fill:white;stroke:#333;stroke-width:1.5`},
+		{"association", diagram.RelationTypeAssociation, `points="0,0 20,10 0,20"`},
+		{"dependency", diagram.RelationTypeDependency, `points="0,0 20,10 0,20"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &diagram.ClassDiagram{
+				Classes: []diagram.ClassDef{
+					{ID: "A", Label: "A"}, {ID: "B", Label: "B"},
+				},
+				Relations: []diagram.ClassRelation{
+					{From: "A", To: "B", RelationType: tc.rt, Direction: diagram.RelationReverse},
+				},
+			}
+			out, err := Render(d, nil)
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			raw := string(out)
+			if !strings.Contains(raw, tc.wantPoly) {
+				t.Errorf("missing %q in output", tc.wantPoly)
+			}
+			if strings.Contains(raw, `marker-end="url(#`) {
+				t.Error("reverse edges must not use SVG marker-end")
+			}
+		})
+	}
+}
+
+// Bidirectional arrows draw the same glyph at BOTH ends with the
+// arrowhead polygon present twice and the two transforms anchored
+// at distinct coordinates (otherwise both glyphs would overlap on
+// the same endpoint, which is a realistic regression to catch).
+func TestRenderBidirectionalAssociation(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{
+			{ID: "A", Label: "A"},
+			{ID: "B", Label: "B"},
+		},
+		Relations: []diagram.ClassRelation{
+			{From: "A", To: "B", RelationType: diagram.RelationTypeAssociation, Direction: diagram.RelationBidirectional},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if got := strings.Count(raw, `points="0,0 20,10 0,20"`); got != 2 {
+		t.Errorf("expected arrowhead polygon twice, got %d", got)
+	}
+	if strings.Contains(raw, `marker-end="url(#`) {
+		t.Error("bidirectional edges must not use SVG marker-end")
+	}
+	transforms := transformOffsets(t, raw)
+	if len(transforms) != 2 {
+		t.Fatalf("expected 2 inline glyph transforms, got %d", len(transforms))
+	}
+	if transforms[0] == transforms[1] {
+		t.Errorf("both glyphs anchored at same point %v — they should sit at opposite ends", transforms[0])
+	}
+}
+
+var translateRe = regexp.MustCompile(`<g transform="translate\(([-\d.]+),([-\d.]+)\)`)
+
+func transformOffsets(t *testing.T, raw string) [][2]string {
+	t.Helper()
+	matches := translateRe.FindAllStringSubmatch(raw, -1)
+	out := make([][2]string, 0, len(matches))
+	for _, m := range matches {
+		out = append(out, [2]string{m[1], m[2]})
+	}
+	return out
+}
+
+// Direction selects the layout RankDir. The visible signal is the
+// viewBox aspect ratio: TB/BT lay classes vertically (taller than
+// wide), LR/RL lay them horizontally (wider than tall).
+func TestRenderDirection(t *testing.T) {
+	cases := []struct {
+		dir       diagram.Direction
+		widerThan bool // true → expect width > height
+	}{
+		{diagram.DirectionTB, false},
+		{diagram.DirectionBT, false},
+		{diagram.DirectionLR, true},
+		{diagram.DirectionRL, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.dir.String(), func(t *testing.T) {
+			d := &diagram.ClassDiagram{
+				Direction: tc.dir,
+				Classes: []diagram.ClassDef{
+					{ID: "A", Label: "A"},
+					{ID: "B", Label: "B"},
+				},
+				Relations: []diagram.ClassRelation{
+					{From: "A", To: "B", RelationType: diagram.RelationTypeAssociation},
+				},
+			}
+			out, err := Render(d, nil)
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			w, h := parseViewBoxWH(t, out)
+			if tc.widerThan && !(w > h) {
+				t.Errorf("%s viewBox should be wider than tall: %fx%f", tc.dir, w, h)
+			}
+			if !tc.widerThan && !(h > w) {
+				t.Errorf("%s viewBox should be taller than wide: %fx%f", tc.dir, w, h)
+			}
+		})
+	}
+}
+
+func parseViewBoxWH(t *testing.T, svgBytes []byte) (w, h float64) {
+	t.Helper()
+	body := svgBytes
+	if i := bytes.Index(body, []byte("<svg")); i >= 0 {
+		body = body[i:]
+	}
+	var doc struct {
+		XMLName xml.Name `xml:"svg"`
+		ViewBox string   `xml:"viewBox,attr"`
+	}
+	if err := xml.Unmarshal(body, &doc); err != nil {
+		t.Fatalf("invalid SVG: %v", err)
+	}
+	var minX, minY float64
+	if _, err := fmt.Sscanf(doc.ViewBox, "%f %f %f %f", &minX, &minY, &w, &h); err != nil {
+		t.Fatalf("viewBox %q unparseable: %v", doc.ViewBox, err)
+	}
+	return w, h
 }
 
 func assertValidSVG(t *testing.T, svgBytes []byte) {

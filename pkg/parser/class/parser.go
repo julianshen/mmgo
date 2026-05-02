@@ -61,11 +61,22 @@ func (p *parser) parseLine(line string) error {
 		p.ensureClass(rest)
 		return nil
 	}
-	if rel, ok := parseRelation(line); ok {
+	if rest, ok := strings.CutPrefix(line, "direction "); ok {
+		dir, err := parserutil.ParseDirection(strings.TrimSpace(rest))
+		if err != nil {
+			return err
+		}
+		p.diagram.Direction = dir
+		return nil
+	}
+	rel, hasArrow, err := parseRelation(line)
+	if err != nil {
+		return err
+	}
+	if hasArrow {
 		p.ensureClass(rel.From)
 		p.ensureClass(rel.To)
 		p.diagram.Relations = append(p.diagram.Relations, rel)
-		return nil
 	}
 	return nil
 }
@@ -178,46 +189,259 @@ func parseAnnotation(s string) diagram.ClassAnnotation {
 	}
 }
 
-var relationArrows = []struct {
-	lit string
-	typ diagram.RelationType
-}{
-	{"<|--", diagram.RelationTypeInheritance},
-	{"..|>", diagram.RelationTypeRealization},
-	{"*--", diagram.RelationTypeComposition},
-	{"o--", diagram.RelationTypeAggregation},
-	{"..>", diagram.RelationTypeDependency},
-	{"-->", diagram.RelationTypeAssociation},
-	{"--", diagram.RelationTypeLink},
-	{"..", diagram.RelationTypeDashedLink},
+// arrowGlyph tags one end of a relation arrow. The same glyph can render
+// differently depending on direction (e.g., the inheritance triangle is
+// written `<|` on the left and `|>` on the right), but the *kind* is the
+// same — that's what arrowGlyph captures.
+type arrowGlyph int8
+
+const (
+	glyphNone           arrowGlyph = iota
+	glyphTriangle                  // `<|` or `|>` — inheritance/realization head
+	glyphFilledDiamond             // `*` — composition
+	glyphHollowDiamond             // `o` — aggregation
+	glyphArrowhead                 // `<` or `>` — association/dependency head
+)
+
+// arrowMatch is the structured result of tokenizing a relation arrow.
+type arrowMatch struct {
+	startIdx int // start of the arrow span in the source line
+	endIdx   int // index just past the last arrow character
+	left     arrowGlyph
+	right    arrowGlyph
+	dashed   bool // true for `..` line, false for `--`
 }
 
-func parseRelation(line string) (diagram.ClassRelation, bool) {
-	for _, arr := range relationArrows {
-		idx := strings.Index(line, arr.lit)
-		if idx < 0 {
-			continue
-		}
-		leftRaw := strings.TrimSpace(line[:idx])
-		rightRaw := strings.TrimSpace(line[idx+len(arr.lit):])
-
-		from, fromCard := extractCardinality(leftRaw)
-		to, label, toCard := extractRightSide(rightRaw)
-
-		if from == "" || to == "" {
-			continue
-		}
-
-		return diagram.ClassRelation{
-			From:            from,
-			To:              to,
-			RelationType:    arr.typ,
-			Label:           label,
-			FromCardinality: fromCard,
-			ToCardinality:   toCard,
-		}, true
+// parseRelation returns (relation, hasArrow, error). Once the line is
+// recognised as an arrow (tokenizeArrow matched), a downstream failure
+// — unsupported glyph pair, missing endpoint — surfaces as an error
+// rather than a silent drop, since the user clearly intended to write
+// a relation.
+func parseRelation(line string) (diagram.ClassRelation, bool, error) {
+	m, ok := tokenizeArrow(line)
+	if !ok {
+		return diagram.ClassRelation{}, false, nil
 	}
-	return diagram.ClassRelation{}, false
+	rt, dir, ok := classifyArrow(m)
+	if !ok {
+		return diagram.ClassRelation{}, false, fmt.Errorf("unsupported relation arrow in %q", line)
+	}
+
+	leftRaw := strings.TrimSpace(line[:m.startIdx])
+	rightRaw := strings.TrimSpace(line[m.endIdx:])
+
+	from, fromCard := extractCardinality(leftRaw)
+	to, label, toCard := extractRightSide(rightRaw)
+	if from == "" || to == "" {
+		return diagram.ClassRelation{}, false, fmt.Errorf("relation %q is missing an endpoint", line)
+	}
+
+	return diagram.ClassRelation{
+		From:            from,
+		To:              to,
+		RelationType:    rt,
+		Label:           label,
+		FromCardinality: fromCard,
+		ToCardinality:   toCard,
+		Direction:       dir,
+	}, true, nil
+}
+
+// tokenizeArrow finds the relation arrow inside a line by locating the
+// line core (a contiguous run of `--` or `..`) and walking outward to
+// pick up any glyph characters bracketing it. Glyphs are restricted to
+// the chars `< > | * o` so they can't be confused with class names.
+//
+// We deliberately do not anchor to whitespace — `Animal<|--Dog` (no
+// spaces, as some users write) tokenizes the same as `Animal <|-- Dog`.
+//
+// Cardinality literals like "0..*" contain arrow-shaped chars; we track
+// whether we're inside a `"…"` run as we scan and skip arrow-detection
+// on those positions.
+func tokenizeArrow(line string) (arrowMatch, bool) {
+	bestLen := 0
+	var best arrowMatch
+	inString := false
+	for i := 0; i < len(line)-1; i++ {
+		if line[i] == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		c := line[i]
+		if c != '-' && c != '.' {
+			continue
+		}
+		if line[i+1] != c {
+			continue
+		}
+		// `i..i+1` is a candidate line core. Extend in case of `---`
+		// (we still treat the line as solid; only its first 2 chars
+		// matter for meaning).
+		j := i + 2
+		for j < len(line) && line[j] == c {
+			j++
+		}
+		left, lstart := scanLeftGlyph(line, i)
+		right, rend := scanRightGlyph(line, j)
+		span := rend - lstart
+		if span > bestLen {
+			bestLen = span
+			best = arrowMatch{
+				startIdx: lstart,
+				endIdx:   rend,
+				left:     left,
+				right:    right,
+				dashed:   c == '.',
+			}
+		}
+	}
+	if bestLen == 0 {
+		return arrowMatch{}, false
+	}
+	return best, true
+}
+
+// scanLeftGlyph reads up to two glyph characters immediately preceding
+// the line core and returns the glyph kind plus the new start index.
+func scanLeftGlyph(line string, lineStart int) (arrowGlyph, int) {
+	if lineStart == 0 {
+		return glyphNone, lineStart
+	}
+	// `<|` is two chars; check it before the single-char glyphs.
+	if lineStart >= 2 && line[lineStart-2] == '<' && line[lineStart-1] == '|' {
+		return glyphTriangle, lineStart - 2
+	}
+	switch line[lineStart-1] {
+	case '*':
+		return glyphFilledDiamond, lineStart - 1
+	case 'o':
+		// Disambiguate against an identifier ending in `o` like `Foo--Bar`:
+		// require either start-of-line or a non-identifier char before it.
+		if lineStart-1 == 0 || !isIdentChar(line[lineStart-2]) {
+			return glyphHollowDiamond, lineStart - 1
+		}
+	case '<':
+		return glyphArrowhead, lineStart - 1
+	}
+	return glyphNone, lineStart
+}
+
+// scanRightGlyph reads up to two glyph characters immediately following
+// the line core and returns the glyph kind plus the new end index.
+func scanRightGlyph(line string, lineEnd int) (arrowGlyph, int) {
+	if lineEnd >= len(line) {
+		return glyphNone, lineEnd
+	}
+	if lineEnd+1 < len(line) && line[lineEnd] == '|' && line[lineEnd+1] == '>' {
+		return glyphTriangle, lineEnd + 2
+	}
+	switch line[lineEnd] {
+	case '*':
+		return glyphFilledDiamond, lineEnd + 1
+	case 'o':
+		if lineEnd+1 == len(line) || !isIdentChar(line[lineEnd+1]) {
+			return glyphHollowDiamond, lineEnd + 1
+		}
+	case '>':
+		return glyphArrowhead, lineEnd + 1
+	}
+	return glyphNone, lineEnd
+}
+
+func isIdentChar(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9') || c == '_'
+}
+
+// classifyArrow maps a glyph pair + line style to a RelationType and
+// RelationDirection. Unsupported glyph combinations (e.g., a triangle
+// on one end and a diamond on the other) are rejected with ok=false.
+func classifyArrow(m arrowMatch) (rt diagram.RelationType, dir diagram.RelationDirection, ok bool) {
+	// Both ends carry a glyph → bidirectional. Glyphs must agree on kind.
+	if m.left != glyphNone && m.right != glyphNone {
+		if m.left != m.right {
+			return 0, 0, false
+		}
+		switch m.left {
+		case glyphTriangle:
+			if m.dashed {
+				return diagram.RelationTypeRealization, diagram.RelationBidirectional, true
+			}
+			return diagram.RelationTypeInheritance, diagram.RelationBidirectional, true
+		case glyphFilledDiamond:
+			return diagram.RelationTypeComposition, diagram.RelationBidirectional, true
+		case glyphHollowDiamond:
+			return diagram.RelationTypeAggregation, diagram.RelationBidirectional, true
+		case glyphArrowhead:
+			if m.dashed {
+				return diagram.RelationTypeDependency, diagram.RelationBidirectional, true
+			}
+			return diagram.RelationTypeAssociation, diagram.RelationBidirectional, true
+		}
+		return 0, 0, false
+	}
+
+	// Single-end glyph: forward is whichever side matches Mermaid's
+	// canonical literal. The canonical side is not consistent across
+	// types — `<|--` (inheritance) puts the triangle on the LEFT, but
+	// `..|>` (realization) puts it on the RIGHT. canonicalRightSide
+	// encodes that small table.
+	if m.left != glyphNone {
+		rt, ok = glyphToRelation(m.left, m.dashed)
+		if canonicalRightSide(m.left, m.dashed) {
+			return rt, diagram.RelationReverse, ok
+		}
+		return rt, diagram.RelationForward, ok
+	}
+	if m.right != glyphNone {
+		rt, ok = glyphToRelation(m.right, m.dashed)
+		if canonicalRightSide(m.right, m.dashed) {
+			return rt, diagram.RelationForward, ok
+		}
+		return rt, diagram.RelationReverse, ok
+	}
+	// No glyph at either end: plain link / dashed link.
+	if m.dashed {
+		return diagram.RelationTypeDashedLink, diagram.RelationForward, true
+	}
+	return diagram.RelationTypeLink, diagram.RelationForward, true
+}
+
+// canonicalRightSide returns true when Mermaid's canonical literal for
+// the given (glyph, line) pair places the glyph on the right end. It's
+// a small lookup table — the only "right canonical" cases are the
+// arrowhead heads (`-->`, `..>`) and realization (`..|>`).
+func canonicalRightSide(g arrowGlyph, dashed bool) bool {
+	switch g {
+	case glyphArrowhead:
+		return true
+	case glyphTriangle:
+		return dashed // realization: `..|>`
+	}
+	return false
+}
+
+func glyphToRelation(g arrowGlyph, dashed bool) (diagram.RelationType, bool) {
+	switch g {
+	case glyphTriangle:
+		if dashed {
+			return diagram.RelationTypeRealization, true
+		}
+		return diagram.RelationTypeInheritance, true
+	case glyphFilledDiamond:
+		return diagram.RelationTypeComposition, true
+	case glyphHollowDiamond:
+		return diagram.RelationTypeAggregation, true
+	case glyphArrowhead:
+		if dashed {
+			return diagram.RelationTypeDependency, true
+		}
+		return diagram.RelationTypeAssociation, true
+	}
+	return 0, false
 }
 
 func extractCardinality(s string) (id, cardinality string) {

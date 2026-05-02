@@ -277,21 +277,7 @@ func matchKeyword(line, kw string) (rest string, ok bool) {
 }
 
 func parseDirection(s string) (diagram.Direction, error) {
-	if i := strings.IndexAny(s, " \t"); i >= 0 {
-		return diagram.DirectionUnknown, fmt.Errorf("extra tokens after direction %q", s)
-	}
-	switch s {
-	case "", "TB", "TD":
-		return diagram.DirectionTB, nil
-	case "BT":
-		return diagram.DirectionBT, nil
-	case "LR":
-		return diagram.DirectionLR, nil
-	case "RL":
-		return diagram.DirectionRL, nil
-	default:
-		return diagram.DirectionUnknown, fmt.Errorf("unknown direction %q", s)
-	}
+	return parserutil.ParseDirection(s)
 }
 
 func (p *parser) parseLine(line string) error {
