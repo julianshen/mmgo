@@ -307,23 +307,17 @@ func (p *parser) parseLine(line string) error {
 	if strings.HasPrefix(trimmed, "click ") {
 		return p.parseClick(trimmed)
 	}
-	if strings.HasPrefix(trimmed, "title ") || strings.HasPrefix(trimmed, "title:") {
-		p.diagram.Title = parserutil.TrimKeyword(trimmed, "title")
+	if v, ok := parserutil.MatchKeywordValue(trimmed, "title"); ok {
+		p.diagram.Title = v
 		return nil
 	}
-	if strings.HasPrefix(trimmed, "accTitle") {
-		rest := trimmed[len("accTitle"):]
-		if rest == "" || rest[0] == ':' || rest[0] == ' ' {
-			p.diagram.AccTitle = parserutil.TrimKeyword(trimmed, "accTitle")
-			return nil
-		}
+	if v, ok := parserutil.MatchKeywordValue(trimmed, "accTitle"); ok {
+		p.diagram.AccTitle = v
+		return nil
 	}
-	if strings.HasPrefix(trimmed, "accDescr") {
-		rest := trimmed[len("accDescr"):]
-		if rest == "" || rest[0] == ':' || rest[0] == ' ' {
-			p.diagram.AccDescr = parserutil.TrimKeyword(trimmed, "accDescr")
-			return nil
-		}
+	if v, ok := parserutil.MatchKeywordValue(trimmed, "accDescr"); ok {
+		p.diagram.AccDescr = v
+		return nil
 	}
 
 	return p.parseEdgeLine(line)

@@ -953,6 +953,16 @@ func TestParseCSSClassShorthand(t *testing.T) {
 	}
 }
 
+// Mermaid only allows one `:::` cssClass shorthand per class header.
+// A chained form should error so the second name doesn't silently
+// vanish into the ID.
+func TestParseChainedCSSClassError(t *testing.T) {
+	_, err := Parse(strings.NewReader("classDiagram\n    class Foo:::a:::b"))
+	if err == nil {
+		t.Error("expected error for chained `:::` shorthand")
+	}
+}
+
 func TestParseDirectionInvalid(t *testing.T) {
 	_, err := Parse(strings.NewReader("classDiagram\n    direction WAT"))
 	if err == nil {

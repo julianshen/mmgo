@@ -12,7 +12,9 @@ import (
 
 func Parse(r io.Reader) (*diagram.ClassDiagram, error) {
 	p := &parser{
-		diagram:  &diagram.ClassDiagram{},
+		diagram: &diagram.ClassDiagram{
+			CSSClasses: make(map[string]string),
+		},
 		classIdx: make(map[string]int),
 	}
 	p.scanner = bufio.NewScanner(r)
@@ -52,23 +54,17 @@ type parser struct {
 }
 
 func (p *parser) parseLine(line string) error {
-	if strings.HasPrefix(line, "title ") || strings.HasPrefix(line, "title:") {
-		p.diagram.Title = parserutil.TrimKeyword(line, "title")
+	if v, ok := parserutil.MatchKeywordValue(line, "title"); ok {
+		p.diagram.Title = v
 		return nil
 	}
-	if strings.HasPrefix(line, "accTitle") {
-		rest := line[len("accTitle"):]
-		if rest == "" || rest[0] == ':' || rest[0] == ' ' {
-			p.diagram.AccTitle = parserutil.TrimKeyword(line, "accTitle")
-			return nil
-		}
+	if v, ok := parserutil.MatchKeywordValue(line, "accTitle"); ok {
+		p.diagram.AccTitle = v
+		return nil
 	}
-	if strings.HasPrefix(line, "accDescr") {
-		rest := line[len("accDescr"):]
-		if rest == "" || rest[0] == ':' || rest[0] == ' ' {
-			p.diagram.AccDescr = parserutil.TrimKeyword(line, "accDescr")
-			return nil
-		}
+	if v, ok := parserutil.MatchKeywordValue(line, "accDescr"); ok {
+		p.diagram.AccDescr = v
+		return nil
 	}
 	if strings.HasPrefix(line, "classDef ") {
 		return p.parseClassDef(line)
@@ -204,9 +200,6 @@ func (p *parser) parseClassDef(line string) error {
 	if len(parts) < 2 {
 		return fmt.Errorf("classDef requires a name and CSS")
 	}
-	if p.diagram.CSSClasses == nil {
-		p.diagram.CSSClasses = make(map[string]string)
-	}
 	p.diagram.CSSClasses[parts[0]] = parserutil.NormalizeCSS(strings.TrimSpace(parts[1]))
 	return nil
 }
@@ -214,6 +207,10 @@ func (p *parser) parseClassDef(line string) error {
 // parseStyleRule stores `style ID CSS` as an inline override on the
 // named class. Multiple style lines for the same class accumulate in
 // source order; the renderer applies them after classDef references.
+//
+// `style ID …` references an actual class by ID, so we ensure the
+// class exists. classDef, by contrast, defines a free-standing CSS
+// class name and never auto-registers a diagram class.
 func (p *parser) parseStyleRule(line string) error {
 	rest := line[len("style "):]
 	parts := strings.SplitN(rest, " ", 2)
@@ -356,10 +353,16 @@ func parseClassHeader(rest string) (classHeader, bool, error) {
 	// `:::cssClass` shorthand attaches a named CSS class. The marker
 	// is always at the very end of the header (after any annotation /
 	// label / generic) so we strip it before the rest of the parsing.
+	// Mermaid only allows a single class name here; chained
+	// `class Foo:::a:::b` is rejected so the second name doesn't get
+	// silently absorbed into the ID.
 	var cssClass string
-	if i := strings.LastIndex(rest, ":::"); i >= 0 {
+	if i := strings.Index(rest, ":::"); i >= 0 {
 		cssClass = strings.TrimSpace(rest[i+3:])
 		rest = strings.TrimSpace(rest[:i])
+		if strings.Contains(cssClass, ":::") {
+			return classHeader{}, false, fmt.Errorf("class header: only one `:::` cssClass shorthand is allowed, got %q", cssClass)
+		}
 	}
 	// Inline annotation: `class Foo <<Interface>>`. Strip before
 	// label/generic so the brackets/tildes don't trip on `<<` chars.
