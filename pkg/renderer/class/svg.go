@@ -8,6 +8,7 @@ type (
 	svgTitle = svgutil.Title
 	svgDesc  = svgutil.Desc
 	rect     = svgutil.Rect
+	circle   = svgutil.Circle
 	line     = svgutil.Line
 	text     = svgutil.Text
 	polygon  = svgutil.Polygon

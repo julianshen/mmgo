@@ -651,6 +651,52 @@ func TestRenderStyleRule(t *testing.T) {
 	}
 }
 
+// Lollipop interfaces render a hollow circle at the canonical-left
+// (From) end of the connector, drawn inline (no SVG marker-end).
+func TestRenderLollipopForward(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{
+			{ID: "bar", Label: "bar"},
+			{ID: "foo", Label: "foo"},
+		},
+		Relations: []diagram.ClassRelation{
+			{From: "bar", To: "foo", RelationType: diagram.RelationTypeLollipop, Direction: diagram.RelationForward},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<circle") {
+		t.Error("lollipop circle missing")
+	}
+	// Circle radius 5, hollow fill — guards against accidentally
+	// using a different glyph (e.g. a diamond) for lollipops.
+	if !strings.Contains(raw, `r="5.00"`) || !strings.Contains(raw, "fill:white;stroke:#333") {
+		t.Errorf("lollipop geometry/styling unexpected:\n%s", raw)
+	}
+}
+
+func TestRenderLollipopReverse(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{
+			{ID: "foo", Label: "foo"},
+			{ID: "bar", Label: "bar"},
+		},
+		Relations: []diagram.ClassRelation{
+			{From: "foo", To: "bar", RelationType: diagram.RelationTypeLollipop, Direction: diagram.RelationReverse},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "<circle") {
+		t.Error("lollipop circle missing on reverse form")
+	}
+}
+
 func assertValidSVG(t *testing.T, svgBytes []byte) {
 	t.Helper()
 	body := svgBytes

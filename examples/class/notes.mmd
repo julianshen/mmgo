@@ -1,0 +1,15 @@
+classDiagram
+    title: Repository pattern
+    accDescr: Two collaborating classes with explanatory notes
+
+    class Repository {
+        +find(id) Item
+        +save(item) void
+    }
+    class Cache <<Service>> {
+        -store: Map
+    }
+    Repository --> Cache : delegates
+
+    note "Repository fronts the persistent store"
+    note for Cache "In-memory; cleared on restart"

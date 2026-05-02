@@ -1,0 +1,12 @@
+classDiagram
+    class List~T~ {
+        +get(i) T
+        +set(i, v T) void
+        +size() int
+    }
+    class Map~K, V~ {
+        +get(key K) V
+        +put(key K, val V) void
+    }
+    class ArrayList~T~
+    List <|.. ArrayList

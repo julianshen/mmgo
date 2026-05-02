@@ -1,0 +1,15 @@
+classDiagram
+    classDef important fill:#ffe066,stroke:#f59f00,stroke-width:2px
+    classDef faded fill:#f1f3f5,stroke:#adb5bd
+
+    class Hot:::important {
+        +burning() bool
+    }
+    class Cold {
+        +chilled() bool
+    }
+    class Lukewarm:::faded
+    Hot <|-- Lukewarm
+    Cold <|-- Lukewarm
+
+    style Cold fill:#a5d8ff,stroke:#1971c2
