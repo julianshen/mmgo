@@ -3,6 +3,7 @@ package class
 import (
 	"encoding/xml"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -12,6 +13,11 @@ import (
 	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
+
+// lollipopLineInset is how far the line endpoint pulls back from the
+// class edge when a lollipop glyph caps that end. Equals the far-edge
+// distance of the inlined circle from its anchor (CX=14, R=5 → 19).
+const lollipopLineInset = 19.0
 
 const (
 	defaultFontSize    = 14.0
@@ -66,13 +72,40 @@ func Render(d *diagram.ClassDiagram, opts *Options) ([]byte, error) {
 	contentH := svgutil.Sanitize(l.Height) + 2*pad
 
 	notes := layoutNotes(d, contentW, pad, fontSize, ruler)
-	viewW, viewH := contentW, contentH
+	namespaces := layoutNamespaces(d, l, pad, fontSize, ruler)
+
+	// Start with a viewBox sized for the class layout, then expand
+	// to include note + namespace extents. Namespaces in particular
+	// can sit at negative (x,y) when their label band reserves space
+	// above the topmost class — the viewBox's min-corner must follow
+	// or the label gets clipped.
+	viewMinX, viewMinY := 0.0, 0.0
+	viewMaxX, viewMaxY := contentW, contentH
 	if len(notes) > 0 {
-		viewW = notes[len(notes)-1].x + notes[len(notes)-1].w + pad
-		if last := notes[len(notes)-1].y + notes[len(notes)-1].h + pad; last > viewH {
-			viewH = last
+		last := notes[len(notes)-1]
+		if right := last.x + last.w + pad; right > viewMaxX {
+			viewMaxX = right
+		}
+		if bottom := last.y + last.h + pad; bottom > viewMaxY {
+			viewMaxY = bottom
 		}
 	}
+	for _, p := range namespaces {
+		if p.x-pad < viewMinX {
+			viewMinX = p.x - pad
+		}
+		if p.y-pad < viewMinY {
+			viewMinY = p.y - pad
+		}
+		if right := p.x + p.w + pad; right > viewMaxX {
+			viewMaxX = right
+		}
+		if bottom := p.y + p.h + pad; bottom > viewMaxY {
+			viewMaxY = bottom
+		}
+	}
+	viewW := viewMaxX - viewMinX
+	viewH := viewMaxY - viewMinY
 
 	var children []any
 	// Accessibility metadata comes first per SVG 1.1 §5.4: screen
@@ -92,20 +125,21 @@ func Render(d *diagram.ClassDiagram, opts *Options) ([]byte, error) {
 		children = append(children, defs)
 	}
 	children = append(children, &rect{
-		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
+		X: svgFloat(viewMinX), Y: svgFloat(viewMinY),
+		Width: svgFloat(viewW), Height: svgFloat(viewH),
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
 	// Namespace rects render *behind* classes/edges so the borders
 	// frame the group without occluding member content.
-	children = append(children, renderNamespaces(d, l, pad, fontSize, ruler, th)...)
+	children = append(children, renderNamespaces(namespaces, fontSize, th)...)
 	children = append(children, renderEdges(d, l, pad, fontSize, th, ruler)...)
 	children = append(children, renderClasses(d, l, pad, fontSize, th)...)
 	children = append(children, renderNotes(notes, l, pad, fontSize, th)...)
 
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
-		ViewBox:  fmt.Sprintf("0 0 %.2f %.2f", viewW, viewH),
+		ViewBox:  fmt.Sprintf("%.2f %.2f %.2f %.2f", viewMinX, viewMinY, viewW, viewH),
 		Children: children,
 	}
 	svgBytes, err := xml.Marshal(svg)
@@ -353,24 +387,30 @@ func appendMemberSection(elems []any, members []diagram.ClassMember, x, w, secti
 	return elems, sectionY + classPadY + float64(len(members))*memberRowH
 }
 
-// renderNamespaces draws a labelled bounding rectangle around each
-// namespace's classes. Layout doesn't cluster namespace members,
-// so the rect is a post-pass enclosure of whatever positions dagre
-// chose. For diagrams where members are scattered the rect stretches
-// wide; this is a known limitation of decoration-only namespaces.
-func renderNamespaces(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler, th Theme) []any {
+// placedNamespace is a sized + positioned namespace rectangle.
+type placedNamespace struct {
+	name    string
+	x, y    float64
+	w, h    float64
+}
+
+const (
+	nsPadX    = 12.0
+	nsPadY    = 10.0
+	nsLabelH  = 22.0
+	nsCornerR = 6.0
+)
+
+// layoutNamespaces sizes each namespace's bounding rect from its
+// member classes' layout positions. Returned rects can have negative
+// x/y when a namespace sits at the top-left of the diagram (the
+// label band reserves space *above* the topmost member). Render
+// callers must include these extents when sizing the viewBox.
+func layoutNamespaces(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler) []placedNamespace {
 	if len(d.Namespaces) == 0 {
 		return nil
 	}
-	const (
-		nsPadX     = 12.0
-		nsPadY     = 10.0
-		nsLabelH   = 22.0
-		nsCornerR  = 6.0
-	)
-	style := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5;stroke-dasharray:4,3", th.NamespaceFill, th.NamespaceStroke)
-	textStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.NamespaceText, fontSize-1)
-	var elems []any
+	out := make([]placedNamespace, 0, len(d.Namespaces))
 	for _, ns := range d.Namespaces {
 		bb := svgutil.NewInfiniteBBox()
 		for _, id := range ns.ClassIDs {
@@ -398,18 +438,34 @@ func renderNamespaces(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize f
 			x -= (minLabel - w) / 2
 			w = minLabel
 		}
+		out = append(out, placedNamespace{name: ns.Name, x: x, y: y, w: w, h: h})
+	}
+	return out
+}
+
+// renderNamespaces emits the rect + label for each pre-placed
+// namespace. Geometry is decided in layoutNamespaces; this layer is
+// styling-only.
+func renderNamespaces(namespaces []placedNamespace, fontSize float64, th Theme) []any {
+	if len(namespaces) == 0 {
+		return nil
+	}
+	style := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5;stroke-dasharray:4,3", th.NamespaceFill, th.NamespaceStroke)
+	textStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.NamespaceText, fontSize-1)
+	elems := make([]any, 0, 2*len(namespaces))
+	for _, p := range namespaces {
 		elems = append(elems,
 			&rect{
-				X: svgFloat(x), Y: svgFloat(y),
-				Width: svgFloat(w), Height: svgFloat(h),
+				X: svgFloat(p.x), Y: svgFloat(p.y),
+				Width: svgFloat(p.w), Height: svgFloat(p.h),
 				RX: svgFloat(nsCornerR), RY: svgFloat(nsCornerR),
 				Style: style,
 			},
 			&text{
-				X: svgFloat(x + nsPadX), Y: svgFloat(y + nsLabelH/2 + nsPadY/2),
+				X: svgFloat(p.x + nsPadX), Y: svgFloat(p.y + nsLabelH/2 + nsPadY/2),
 				Anchor: "start", Dominant: "central",
 				Style:   textStyle,
-				Content: ns.Name,
+				Content: p.name,
 			},
 		)
 	}
@@ -562,6 +618,20 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 		// marker-end can't address the start.
 		atFrom, atTo := edgeGlyphs(rel)
 		canUseEndMarker := rel.Direction == diagram.RelationForward
+		// Lollipop glyphs sit 14–19px along the line from their
+		// anchor (a circle, not a tip-anchored shape). If we let the
+		// line run all the way to the anchor, it visually pierces
+		// the circle. Pull the line endpoint back so it terminates
+		// at the circle's far edge; the inline glyph still anchors
+		// at the original class-edge point.
+		glyphAnchorFrom := pts[0]
+		glyphAnchorTo := pts[len(pts)-1]
+		if atFrom == glyphLollipop {
+			pts[0] = pullbackToward(pts[0], srcDir, lollipopLineInset)
+		}
+		if atTo == glyphLollipop {
+			pts[len(pts)-1] = pullbackToward(pts[len(pts)-1], dstDir, lollipopLineInset)
+		}
 		endRef := ""
 		if canUseEndMarker && atTo != glyphNoneKind {
 			if m, ok := endMarkerForGlyph(atTo); ok {
@@ -584,15 +654,16 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 		}
 		// Inline-place the start glyph (canonical forward path) and any
 		// glyph the SVG marker-end couldn't carry (reverse / bidirectional
-		// or non-end-marker glyphs at the To end).
+		// or non-end-marker glyphs at the To end). Anchor at the
+		// pre-pullback class-edge point so the glyph stays attached
+		// to the class regardless of any line-inset adjustment.
 		if atFrom != glyphNoneKind {
-			if g := inlineGlyphAt(atFrom, pts[0], srcDir); g != nil {
+			if g := inlineGlyphAt(atFrom, glyphAnchorFrom, srcDir); g != nil {
 				elems = append(elems, g)
 			}
 		}
 		if atTo != glyphNoneKind && endRef == "" {
-			last := len(pts) - 1
-			if g := inlineGlyphAt(atTo, pts[last], dstDir); g != nil {
+			if g := inlineGlyphAt(atTo, glyphAnchorTo, dstDir); g != nil {
 				elems = append(elems, g)
 			}
 		}
@@ -691,6 +762,19 @@ func glyphForRelation(rt diagram.RelationType) (g glyphKind, atTo bool) {
 		return glyphLollipop, false
 	}
 	return glyphNoneKind, false
+}
+
+// pullbackToward moves p along the unit vector from p toward dirRef
+// by `dist` units. Used to terminate a line at the outer edge of an
+// inline glyph (e.g., a lollipop circle) instead of letting the line
+// pierce through the glyph to the class-edge anchor.
+func pullbackToward(p, dirRef layout.Point, dist float64) layout.Point {
+	dx, dy := dirRef.X-p.X, dirRef.Y-p.Y
+	n := math.Hypot(dx, dy)
+	if n < 1e-9 {
+		return p
+	}
+	return layout.Point{X: p.X + dx/n*dist, Y: p.Y + dy/n*dist}
 }
 
 func inlineGlyphAt(g glyphKind, anchor, dirRef layout.Point) *group {
