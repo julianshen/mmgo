@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
@@ -21,6 +22,10 @@ const (
 	classPadY          = 10.0
 	headerH            = 30.0
 	minClassW          = 120.0
+	notePadX           = 10.0
+	notePadY           = 8.0
+	noteGap            = 16.0
+	noteLineH          = 18.0
 )
 
 type Options struct {
@@ -57,8 +62,17 @@ func Render(d *diagram.ClassDiagram, opts *Options) ([]byte, error) {
 	l := layout.Layout(g, layout.Options{RankDir: rankDirFor(d.Direction)})
 	pad := defaultPadding
 
-	viewW := svgutil.Sanitize(l.Width) + 2*pad
-	viewH := svgutil.Sanitize(l.Height) + 2*pad
+	contentW := svgutil.Sanitize(l.Width) + 2*pad
+	contentH := svgutil.Sanitize(l.Height) + 2*pad
+
+	notes := layoutNotes(d, l, contentW, contentH, pad, fontSize, ruler)
+	viewW, viewH := contentW, contentH
+	if len(notes) > 0 {
+		viewW = notes[len(notes)-1].x + notes[len(notes)-1].w + pad
+		if last := notes[len(notes)-1].y + notes[len(notes)-1].h + pad; last > viewH {
+			viewH = last
+		}
+	}
 
 	var children []any
 	if defs := buildDefs(d); defs != nil {
@@ -71,6 +85,7 @@ func Render(d *diagram.ClassDiagram, opts *Options) ([]byte, error) {
 
 	children = append(children, renderEdges(d, l, pad, fontSize, th, ruler)...)
 	children = append(children, renderClasses(d, l, pad, fontSize, th)...)
+	children = append(children, renderNotes(notes, l, pad, fontSize, th)...)
 
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
@@ -251,6 +266,95 @@ func appendMemberSection(elems []any, members []diagram.ClassMember, x, w, secti
 		})
 	}
 	return elems, sectionY + classPadY + float64(len(members))*memberRowH
+}
+
+// placedNote is a sized + positioned ClassNote ready to emit.
+type placedNote struct {
+	note    diagram.ClassNote
+	lines   []string
+	x, y    float64
+	w, h    float64
+}
+
+// layoutNotes sizes each note from its text and stacks the lot in a
+// column to the right of the class diagram. Class-anchored notes
+// keep their `For` so renderNotes can draw a connector to the
+// referenced class.
+//
+// The layout is intentionally simple: source order, single column,
+// no collision avoidance. It reads cleanly for typical 1–3 notes
+// per diagram and avoids wiring notes into the dagre graph (which
+// would distort class placement just to satisfy decoration).
+func layoutNotes(d *diagram.ClassDiagram, l *layout.Result, contentW, contentH, pad, fontSize float64, ruler *textmeasure.Ruler) []placedNote {
+	if len(d.Notes) == 0 {
+		return nil
+	}
+	out := make([]placedNote, 0, len(d.Notes))
+	colX := contentW + noteGap
+	cursorY := pad
+	for _, n := range d.Notes {
+		lines := strings.Split(n.Text, "\n")
+		w := 0.0
+		for _, line := range lines {
+			lw, _ := ruler.Measure(line, fontSize-1)
+			if lw > w {
+				w = lw
+			}
+		}
+		w += 2 * notePadX
+		h := float64(len(lines))*noteLineH + 2*notePadY
+		out = append(out, placedNote{
+			note: n, lines: lines,
+			x: colX, y: cursorY, w: w, h: h,
+		})
+		cursorY += h + noteGap
+	}
+	_ = contentH // contentH currently informational; reserved for future per-target placement
+	return out
+}
+
+// renderNotes emits the rect + text per note, plus a dashed connector
+// line from each `note for X` to the class X box.
+func renderNotes(notes []placedNote, l *layout.Result, pad, fontSize float64, th Theme) []any {
+	var elems []any
+	noteStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1", th.NoteFill, th.NoteStroke)
+	textStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", th.NoteText, fontSize-1)
+	connStyle := fmt.Sprintf("stroke:%s;stroke-width:1;stroke-dasharray:4,3;fill:none", th.NoteStroke)
+	for _, p := range notes {
+		elems = append(elems, &rect{
+			X: svgFloat(p.x), Y: svgFloat(p.y),
+			Width: svgFloat(p.w), Height: svgFloat(p.h),
+			Style: noteStyle,
+		})
+		for i, ln := range p.lines {
+			elems = append(elems, &text{
+				X:        svgFloat(p.x + notePadX),
+				Y:        svgFloat(p.y + notePadY + float64(i)*noteLineH + noteLineH/2),
+				Anchor:   "start",
+				Dominant: "central",
+				Style:    textStyle,
+				Content:  ln,
+			})
+		}
+		if p.note.For == "" {
+			continue
+		}
+		target, ok := l.Nodes[p.note.For]
+		if !ok {
+			continue
+		}
+		// Connect note's left-middle to the class's right-middle.
+		nx := p.x
+		ny := p.y + p.h/2
+		cx := target.X + pad + target.Width/2
+		cy := target.Y + pad
+		elems = append(elems, &line{
+			X1: svgFloat(cx), Y1: svgFloat(cy + target.Height/2),
+			X2: svgFloat(nx), Y2: svgFloat(ny),
+			Style: connStyle,
+		})
+	}
+	return elems
 }
 
 func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float64, th Theme, ruler *textmeasure.Ruler) []any {

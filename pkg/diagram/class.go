@@ -116,9 +116,23 @@ type ClassRelation struct {
 	Direction       RelationDirection
 }
 
+// ClassNote is a free-floating annotation on the diagram. When For
+// names a class ID, the renderer anchors the note next to that class
+// with a thin connector. When For is empty, the note is general and
+// floats beside the diagram.
+//
+// Mermaid supports line breaks inside note text via the literal `\n`
+// sequence in the source; the parser stores the text with `\n`
+// converted to a real newline so renderers can split on it directly.
+type ClassNote struct {
+	Text string
+	For  string // class ID, or "" for a general note
+}
+
 type ClassDiagram struct {
 	Classes   []ClassDef
 	Relations []ClassRelation
+	Notes     []ClassNote
 	// Direction is the layout flow. DirectionUnknown means "use the
 	// renderer's default" (currently top-to-bottom).
 	Direction Direction
