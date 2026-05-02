@@ -335,10 +335,6 @@ func selfMsgLeftBleed(items []diagram.SequenceItem, pIndex map[string]int, fontS
 	return bleed
 }
 
-func countRows(d *diagram.SequenceDiagram) int {
-	return countItemRows(d.Items)
-}
-
 // bodyRowsAndExtra returns the row count and any per-row extra
 // vertical space needed for multi-line message labels — each
 // extra line above the first contributes fontSize px of headroom.
