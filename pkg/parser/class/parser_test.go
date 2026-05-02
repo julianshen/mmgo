@@ -625,6 +625,81 @@ func TestParseCustomLabelWithRelation(t *testing.T) {
 	}
 }
 
+// Malformed class headers should error rather than swallow the brackets/
+// tildes into the parsed ID and trigger mysterious lookup failures.
+func TestParseClassHeaderErrors(t *testing.T) {
+	for _, src := range []string{
+		"class Foo[no quotes]",         // bracketed but unquoted
+		"class Foo[unclosed",           // no `]`
+		"class Foo~T",                  // unmatched `~`
+	} {
+		t.Run(src, func(t *testing.T) {
+			_, err := Parse(strings.NewReader("classDiagram\n    " + src))
+			if err == nil {
+				t.Errorf("expected parse error for %q", src)
+			}
+		})
+	}
+}
+
+// Conflicting redeclarations of the same class with different explicit
+// metadata are an error, not a silent overwrite.
+func TestParseClassDuplicateLabelConflict(t *testing.T) {
+	_, err := Parse(strings.NewReader(`classDiagram
+    class Foo["A"]
+    class Foo["B"]`))
+	if err == nil {
+		t.Error("expected error for conflicting labels")
+	}
+}
+
+func TestParseClassDuplicateGenericConflict(t *testing.T) {
+	_, err := Parse(strings.NewReader(`classDiagram
+    class Foo~T~
+    class Foo~U~`))
+	if err == nil {
+		t.Error("expected error for conflicting generics")
+	}
+}
+
+// Re-declaring a class with the *same* label should be a no-op, not
+// an error — common in real diagrams that mention a class in a
+// relation before its full declaration.
+func TestParseClassDuplicateLabelSameValueOK(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    Foo --> Bar
+    class Foo["My Label"]
+    class Foo["My Label"]`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if d.Classes[0].Label != "My Label" {
+		t.Errorf("Label = %q", d.Classes[0].Label)
+	}
+}
+
+// Token-boundary modifier stripping: `$`/`*` inside a token (e.g. an
+// identifier or generic-typed return) must NOT be stripped. Only
+// trailing markers on whitespace-separated tokens count.
+func TestParseMemberModifierTokenBoundary(t *testing.T) {
+	// A type literal containing `*` (e.g. C-style pointer in a comment)
+	// preserved verbatim: not a real Mermaid type, but a stress test.
+	d, err := Parse(strings.NewReader(`classDiagram
+    class C {
+        +ptr Foo*Bar
+    }`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	m := d.Classes[0].Members[0]
+	if m.IsAbstract {
+		t.Errorf("embedded `*` in `Foo*Bar` should not flag abstract")
+	}
+	if !strings.Contains(m.Name, "Foo*Bar") {
+		t.Errorf("embedded `*` was stripped: Name=%q", m.Name)
+	}
+}
+
 func TestParseDirectionInvalid(t *testing.T) {
 	_, err := Parse(strings.NewReader("classDiagram\n    direction WAT"))
 	if err == nil {

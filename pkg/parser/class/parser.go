@@ -54,8 +54,13 @@ type parser struct {
 func (p *parser) parseLine(line string) error {
 	if rest, ok := strings.CutPrefix(line, "class "); ok {
 		rest = strings.TrimSpace(rest)
-		hdr, hasBody := parseClassHeader(rest)
-		p.declareClass(hdr.id, hdr.label, hdr.generic)
+		hdr, hasBody, err := parseClassHeader(rest)
+		if err != nil {
+			return err
+		}
+		if err := p.declareClass(hdr.id, hdr.label, hdr.generic); err != nil {
+			return err
+		}
 		if hasBody {
 			return p.parseClassBody(hdr.id)
 		}
@@ -117,18 +122,31 @@ func (p *parser) ensureClass(id string) int {
 	return p.classIdx[id]
 }
 
-// declareClass registers a class with explicit metadata. Non-empty
-// label and generic override what ensureClass set, so a relation
-// auto-registering a class first and a later `class Foo["…"]~T~`
-// declaration still wins.
-func (p *parser) declareClass(id, label, generic string) {
+// declareClass registers a class with explicit metadata. Each class
+// may carry one explicit label and one generic across the source —
+// a second declaration with a different label or generic is a
+// conflict and surfaces as an error rather than silently shadowing.
+// Re-declaring a class with the same metadata (or with no metadata,
+// e.g. a bare `class Foo` after `class Foo["L"]`) is a no-op.
+func (p *parser) declareClass(id, label, generic string) error {
 	idx := p.ensureClass(id)
+	c := &p.diagram.Classes[idx]
 	if label != "" {
-		p.diagram.Classes[idx].Label = label
+		// c.Label == c.ID is the auto-default ensureClass sets; treat
+		// it as "no explicit label yet" so an attached `class Foo["L"]`
+		// after a relation-only mention is welcome, not a conflict.
+		if c.Label != id && c.Label != label {
+			return fmt.Errorf("class %q already declared with label %q; cannot reassign to %q", id, c.Label, label)
+		}
+		c.Label = label
 	}
 	if generic != "" {
-		p.diagram.Classes[idx].Generic = generic
+		if c.Generic != "" && c.Generic != generic {
+			return fmt.Errorf("class %q already declared with generic %q; cannot reassign to %q", id, c.Generic, generic)
+		}
+		c.Generic = generic
 	}
+	return nil
 }
 
 // classHeader is the parsed result of `class NAME[...]~...~`.
@@ -141,7 +159,12 @@ type classHeader struct {
 // parseClassHeader splits `Foo["My Label"]~T~` (or any subset) into
 // id / label / generic and reports whether a `{` follows. Body content
 // is left for parseClassBody to consume from the scanner.
-func parseClassHeader(rest string) (classHeader, bool) {
+//
+// Malformed `[…]` (no closing bracket / no quoted content) and an
+// unmatched `~` (no closing tilde) surface as errors — silently
+// dropping them would leave bracket / tilde junk inside the parsed ID
+// and trigger mysterious lookup failures downstream.
+func parseClassHeader(rest string) (classHeader, bool, error) {
 	hasBody := false
 	if i := strings.IndexByte(rest, '{'); i >= 0 {
 		rest = strings.TrimSpace(rest[:i])
@@ -149,24 +172,30 @@ func parseClassHeader(rest string) (classHeader, bool) {
 	}
 	var label string
 	if i := strings.IndexByte(rest, '['); i >= 0 {
-		if j := strings.LastIndexByte(rest, ']'); j > i {
-			inside := rest[i+1 : j]
-			if len(inside) >= 2 && inside[0] == '"' && inside[len(inside)-1] == '"' {
-				label = inside[1 : len(inside)-1]
-				rest = strings.TrimSpace(rest[:i])
-			}
+		j := strings.LastIndexByte(rest, ']')
+		if j <= i {
+			return classHeader{}, false, fmt.Errorf("class header %q: unclosed `[`", rest)
 		}
+		inside := strings.TrimSpace(rest[i+1 : j])
+		unq := parserutil.Unquote(inside)
+		if unq == inside {
+			return classHeader{}, false, fmt.Errorf("class header %q: bracketed label must be quoted", rest)
+		}
+		label = unq
+		rest = strings.TrimSpace(rest[:i])
 	}
 	var generic string
 	if i := strings.IndexByte(rest, '~'); i >= 0 {
 		// Use the LAST `~` so nested generics like `Wrapper~List~int~~`
 		// give Generic="List~int~" rather than "List".
-		if j := strings.LastIndexByte(rest, '~'); j > i {
-			generic = rest[i+1 : j]
-			rest = strings.TrimSpace(rest[:i])
+		j := strings.LastIndexByte(rest, '~')
+		if j <= i {
+			return classHeader{}, false, fmt.Errorf("class header %q: unmatched `~`", rest)
 		}
+		generic = rest[i+1 : j]
+		rest = strings.TrimSpace(rest[:i])
 	}
-	return classHeader{id: rest, label: label, generic: generic}, hasBody
+	return classHeader{id: rest, label: label, generic: generic}, hasBody, nil
 }
 
 func parseMember(line string) diagram.ClassMember {
@@ -215,27 +244,35 @@ func parseMember(line string) diagram.ClassMember {
 	return m
 }
 
-// extractMemberModifiers strips trailing-or-embedded `$` (static) and
-// `*` (abstract) markers from a member text. The Mermaid grammar puts
-// the marker either right after the member's name (`pi$ double`) or
-// after its type (`name double$`); both reduce to "remove the rune".
-// Identifier text never contains either character, so we drop all
-// occurrences and report which kind we saw.
+// extractMemberModifiers strips trailing `$` (static) / `*` (abstract)
+// markers from a member text. Mermaid's grammar attaches them at the
+// end of a token — after the name (`pi$ double`), after the type
+// (`name double$`), or after a method's `)` (`log()$ void`). We strip
+// only at token boundaries (the *last* char of a whitespace-delimited
+// token), so a `$` or `*` appearing inside an identifier or type name
+// is preserved verbatim.
 func extractMemberModifiers(s string) (cleaned string, isStatic, isAbstract bool) {
-	if strings.ContainsRune(s, '$') {
-		isStatic = true
-		s = strings.ReplaceAll(s, "$", "")
+	tokens := strings.Fields(s)
+	out := tokens[:0]
+	for _, tok := range tokens {
+		for len(tok) > 0 {
+			switch tok[len(tok)-1] {
+			case '$':
+				isStatic = true
+				tok = tok[:len(tok)-1]
+			case '*':
+				isAbstract = true
+				tok = tok[:len(tok)-1]
+			default:
+				goto done
+			}
+		}
+	done:
+		if tok != "" {
+			out = append(out, tok)
+		}
 	}
-	if strings.ContainsRune(s, '*') {
-		isAbstract = true
-		s = strings.ReplaceAll(s, "*", "")
-	}
-	// Collapse the double-space that "name$ double" → "name  double"
-	// produces after marker removal.
-	for strings.Contains(s, "  ") {
-		s = strings.ReplaceAll(s, "  ", " ")
-	}
-	return s, isStatic, isAbstract
+	return strings.Join(out, " "), isStatic, isAbstract
 }
 
 // matchCloseParen returns the index of the `)` that pairs with the `(`
