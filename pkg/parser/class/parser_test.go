@@ -700,6 +700,155 @@ func TestParseMemberModifierTokenBoundary(t *testing.T) {
 	}
 }
 
+// Single-line member shorthand: `ClassName : memberText` adds a
+// member to ClassName without a `{ … }` block.
+func TestParseSingleLineMember(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class Vehicle
+    Vehicle : +tires int
+    Vehicle : +start() void
+    BareClass : +autoRegistered`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Classes) != 2 {
+		t.Fatalf("want 2 classes (Vehicle + auto BareClass), got %d", len(d.Classes))
+	}
+	veh := d.Classes[0]
+	if veh.ID != "Vehicle" || len(veh.Members) != 2 {
+		t.Errorf("Vehicle = %+v", veh)
+	}
+	if veh.Members[0].Name != "tires int" || veh.Members[0].Visibility != diagram.VisibilityPublic {
+		t.Errorf("Vehicle field = %+v", veh.Members[0])
+	}
+	if !veh.Members[1].IsMethod || veh.Members[1].Name != "start" || veh.Members[1].ReturnType != "void" {
+		t.Errorf("Vehicle method = %+v", veh.Members[1])
+	}
+	bare := d.Classes[1]
+	if bare.ID != "BareClass" || len(bare.Members) != 1 {
+		t.Errorf("BareClass = %+v", bare)
+	}
+}
+
+// Inline annotation on the class declaration line — `class Foo <<Interface>>`
+// — and the bare-line form `Foo <<Service>>` both attach to class Foo.
+func TestParseInlineAnnotation(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class Drawable <<Interface>>
+    class Repository
+    Repository <<Service>>`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Classes) != 2 {
+		t.Fatalf("want 2 classes, got %d", len(d.Classes))
+	}
+	if d.Classes[0].Annotation != diagram.AnnotationInterface {
+		t.Errorf("Drawable annotation = %v", d.Classes[0].Annotation)
+	}
+	if d.Classes[1].Annotation != diagram.AnnotationService {
+		t.Errorf("Repository annotation = %v", d.Classes[1].Annotation)
+	}
+}
+
+// Inline annotation must work even when the class also has a body.
+func TestParseInlineAnnotationWithBody(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class Shape <<Abstract>> {
+        +draw() void
+    }`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := d.Classes[0]
+	if c.Annotation != diagram.AnnotationAbstract {
+		t.Errorf("annotation = %v", c.Annotation)
+	}
+	if len(c.Members) != 1 {
+		t.Errorf("members = %v", c.Members)
+	}
+}
+
+func TestParseGeneralNote(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class Foo
+    note "This diagram is a stub."`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Notes) != 1 {
+		t.Fatalf("want 1 note, got %d", len(d.Notes))
+	}
+	n := d.Notes[0]
+	if n.Text != "This diagram is a stub." || n.For != "" {
+		t.Errorf("note = %+v", n)
+	}
+}
+
+func TestParseNoteForClass(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class Foo
+    note for Foo "Annotation describing Foo"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Notes) != 1 {
+		t.Fatalf("want 1 note, got %d", len(d.Notes))
+	}
+	n := d.Notes[0]
+	if n.For != "Foo" || n.Text != "Annotation describing Foo" {
+		t.Errorf("note = %+v", n)
+	}
+}
+
+// Mermaid uses the literal `\n` sequence to mean a line break inside
+// a note's text. The parser converts it to a real newline so
+// renderers can split on '\n' directly.
+func TestParseNoteLineBreaks(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    note "line one\nline two"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Notes[0].Text != "line one\nline two" {
+		t.Errorf("note text = %q, want with embedded newline", d.Notes[0].Text)
+	}
+}
+
+// `note for UnknownClass "..."` should auto-register the target
+// rather than error — mirrors how relations create classes on the
+// fly. Otherwise users who write notes before declaring classes get
+// surprise errors.
+func TestParseNoteAutoRegistersTarget(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    note for Foo "hello"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Classes) != 1 || d.Classes[0].ID != "Foo" {
+		t.Errorf("Foo not auto-registered: %v", d.Classes)
+	}
+}
+
+// Mermaid allows only one inline annotation per class. A second
+// `<<…>>` would be silently absorbed into the ID; require an error.
+func TestParseClassHeaderMultipleAnnotationsError(t *testing.T) {
+	_, err := Parse(strings.NewReader("classDiagram\n    class Foo <<Interface>> <<Service>>"))
+	if err == nil {
+		t.Error("expected error for multiple inline annotations")
+	}
+}
+
+// `note for "X" "text"` (quoted target) is malformed; the parser
+// should reject it instead of silently keeping the wrong text.
+func TestParseNoteQuotedTargetError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`classDiagram
+    note for "Foo" "hello"`))
+	if err == nil {
+		t.Error("expected error for quoted note target")
+	}
+}
+
 func TestParseDirectionInvalid(t *testing.T) {
 	_, err := Parse(strings.NewReader("classDiagram\n    direction WAT"))
 	if err == nil {

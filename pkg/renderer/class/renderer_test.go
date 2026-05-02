@@ -528,6 +528,63 @@ func TestRenderAbstractItalic(t *testing.T) {
 	}
 }
 
+// General notes render as a yellow sticky-note rect with the text;
+// they sit to the right of the class diagram.
+func TestRenderGeneralNote(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{{ID: "Foo", Label: "Foo"}},
+		Notes:   []diagram.ClassNote{{Text: "stub diagram"}},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">stub diagram<") {
+		t.Error("note text missing")
+	}
+	if !strings.Contains(raw, DefaultTheme().NoteFill) {
+		t.Error("note fill color missing")
+	}
+}
+
+// `note for X` renders alongside class X with a dashed connector.
+func TestRenderNoteForClass(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{{ID: "Foo", Label: "Foo"}},
+		Notes:   []diagram.ClassNote{{Text: "see Foo", For: "Foo"}},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">see Foo<") {
+		t.Error("note text missing")
+	}
+	if !strings.Contains(raw, "stroke-dasharray:4,3") {
+		t.Error("dashed connector missing for class-anchored note")
+	}
+}
+
+// Multiline note text (split on \n) emits one <text> element per line.
+func TestRenderMultilineNote(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{{ID: "Foo", Label: "Foo"}},
+		Notes:   []diagram.ClassNote{{Text: "alpha\nbeta\ngamma"}},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, line := range []string{">alpha<", ">beta<", ">gamma<"} {
+		if !strings.Contains(raw, line) {
+			t.Errorf("missing line %q in output", line)
+		}
+	}
+}
+
 func assertValidSVG(t *testing.T, svgBytes []byte) {
 	t.Helper()
 	body := svgBytes
@@ -633,6 +690,9 @@ func TestDefaultThemeStable(t *testing.T) {
 		EdgeStroke:     "#333",
 		EdgeText:       "#333",
 		Background:     "#fff",
+		NoteFill:       "#fff5ad",
+		NoteStroke:     "#aaaa33",
+		NoteText:       "#333",
 	}
 	if got != want {
 		t.Errorf("DefaultTheme drifted:\n got  %+v\n want %+v", got, want)

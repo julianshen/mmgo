@@ -61,6 +61,10 @@ func (p *parser) parseLine(line string) error {
 		if err := p.declareClass(hdr.id, hdr.label, hdr.generic); err != nil {
 			return err
 		}
+		if hdr.annotation != diagram.AnnotationNone {
+			idx := p.classIdx[hdr.id]
+			p.diagram.Classes[idx].Annotation = hdr.annotation
+		}
 		if hasBody {
 			return p.parseClassBody(hdr.id)
 		}
@@ -74,6 +78,20 @@ func (p *parser) parseLine(line string) error {
 		p.diagram.Direction = dir
 		return nil
 	}
+	if strings.HasPrefix(line, "note ") || line == "note" {
+		return p.parseNote(line)
+	}
+	if id, ann, ok := parseBareAnnotation(line); ok {
+		p.ensureClass(id)
+		p.diagram.Classes[p.classIdx[id]].Annotation = ann
+		return nil
+	}
+	if id, memberLine, ok := parseSingleLineMember(line); ok {
+		p.ensureClass(id)
+		idx := p.classIdx[id]
+		p.diagram.Classes[idx].Members = append(p.diagram.Classes[idx].Members, parseMember(memberLine))
+		return nil
+	}
 	rel, hasArrow, err := parseRelation(line)
 	if err != nil {
 		return err
@@ -84,6 +102,83 @@ func (p *parser) parseLine(line string) error {
 		p.diagram.Relations = append(p.diagram.Relations, rel)
 	}
 	return nil
+}
+
+// parseNote handles `note "text"` and `note for ClassName "text"`.
+// `\n` inside the quoted body becomes a real newline so renderers
+// can split on it directly.
+func (p *parser) parseNote(line string) error {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "note"))
+	target := ""
+	if r, ok := strings.CutPrefix(rest, "for "); ok {
+		// `note for ClassName "text"` — split on the first quote.
+		q := strings.IndexByte(r, '"')
+		if q < 0 {
+			return fmt.Errorf("note %q: missing quoted text", line)
+		}
+		target = strings.TrimSpace(r[:q])
+		if target == "" {
+			return fmt.Errorf("note %q: missing target class", line)
+		}
+		// Mermaid's grammar requires a bare identifier here. Reject
+		// quoted or whitespace-containing targets so the text doesn't
+		// silently absorb part of the body.
+		if strings.ContainsAny(target, "\"' \t") {
+			return fmt.Errorf("note %q: target class must be a bare identifier, got %q", line, target)
+		}
+		rest = r[q:]
+		p.ensureClass(target)
+	}
+	text := parserutil.Unquote(rest)
+	if text == rest {
+		return fmt.Errorf("note %q: text must be quoted", line)
+	}
+	p.diagram.Notes = append(p.diagram.Notes, diagram.ClassNote{
+		Text: strings.ReplaceAll(text, `\n`, "\n"),
+		For:  target,
+	})
+	return nil
+}
+
+// parseBareAnnotation matches `ClassName <<Annotation>>` and returns
+// (id, annotation, true) on success. An unrecognised annotation
+// keyword is treated as AnnotationNone — the caller decides whether
+// to apply it (we still consume the line so it doesn't fall through
+// to the relation parser).
+func parseBareAnnotation(line string) (string, diagram.ClassAnnotation, bool) {
+	open := strings.Index(line, "<<")
+	close := strings.Index(line, ">>")
+	if open < 0 || close < open {
+		return "", diagram.AnnotationNone, false
+	}
+	id := strings.TrimSpace(line[:open])
+	if id == "" {
+		return "", diagram.AnnotationNone, false
+	}
+	// Reject if the prefix isn't a bare identifier — a relation line
+	// like `A <-- B <<...>>` (nonsense, but parseable) should fall
+	// through to other matchers.
+	if strings.ContainsAny(id, " \t") {
+		return "", diagram.AnnotationNone, false
+	}
+	ann := parseAnnotation(strings.TrimSpace(line[open+2 : close]))
+	return id, ann, true
+}
+
+// parseSingleLineMember matches `ClassName : memberText` and returns
+// the class id and the member text (without the colon). The colon
+// must be surrounded by whitespace so a field type containing `:`
+// inside a class body — `template: String` — doesn't false-match.
+func parseSingleLineMember(line string) (string, string, bool) {
+	idx := strings.Index(line, " : ")
+	if idx < 0 {
+		return "", "", false
+	}
+	id := strings.TrimSpace(line[:idx])
+	if id == "" || strings.ContainsAny(id, " \t") {
+		return "", "", false
+	}
+	return id, strings.TrimSpace(line[idx+3:]), true
 }
 
 func (p *parser) parseClassBody(name string) error {
@@ -149,11 +244,12 @@ func (p *parser) declareClass(id, label, generic string) error {
 	return nil
 }
 
-// classHeader is the parsed result of `class NAME[...]~...~`.
+// classHeader is the parsed result of `class NAME[...]~...~ <<Ann>>`.
 type classHeader struct {
-	id      string
-	label   string // from `["..."]`
-	generic string // from `~...~`
+	id         string
+	label      string // from `["..."]`
+	generic    string // from `~...~`
+	annotation diagram.ClassAnnotation
 }
 
 // parseClassHeader splits `Foo["My Label"]~T~` (or any subset) into
@@ -169,6 +265,22 @@ func parseClassHeader(rest string) (classHeader, bool, error) {
 	if i := strings.IndexByte(rest, '{'); i >= 0 {
 		rest = strings.TrimSpace(rest[:i])
 		hasBody = true
+	}
+	// Inline annotation: `class Foo <<Interface>>`. Strip before
+	// label/generic so the brackets/tildes don't trip on `<<` chars.
+	var annotation diagram.ClassAnnotation
+	if i := strings.Index(rest, "<<"); i >= 0 {
+		j := strings.Index(rest, ">>")
+		if j <= i {
+			return classHeader{}, false, fmt.Errorf("class header %q: unmatched `<<`", rest)
+		}
+		annotation = parseAnnotation(strings.TrimSpace(rest[i+2 : j]))
+		rest = strings.TrimSpace(rest[:i] + rest[j+2:])
+		// Mermaid only supports one annotation per class; a second
+		// `<<...>>` would be silently swallowed into the ID.
+		if strings.Contains(rest, "<<") {
+			return classHeader{}, false, fmt.Errorf("class header %q: only one annotation is allowed", rest)
+		}
 	}
 	var label string
 	if i := strings.IndexByte(rest, '['); i >= 0 {
@@ -195,7 +307,7 @@ func parseClassHeader(rest string) (classHeader, bool, error) {
 		generic = rest[i+1 : j]
 		rest = strings.TrimSpace(rest[:i])
 	}
-	return classHeader{id: rest, label: label, generic: generic}, hasBody, nil
+	return classHeader{id: rest, label: label, generic: generic, annotation: annotation}, hasBody, nil
 }
 
 func parseMember(line string) diagram.ClassMember {
