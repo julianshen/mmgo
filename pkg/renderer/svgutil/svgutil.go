@@ -412,6 +412,18 @@ type Defs struct {
 	Markers []Marker `xml:"marker,omitempty"`
 }
 
+// Anchor renders an SVG `<a>` hyperlink. Children inside (rects,
+// paths, text) become clickable. Uses the SVG 2 unprefixed `href`
+// attribute, which all modern renderers accept; older xlink:href
+// is omitted to avoid pulling an extra namespace declaration onto
+// every Doc.
+type Anchor struct {
+	XMLName  xml.Name `xml:"a"`
+	Href     string   `xml:"href,attr,omitempty"`
+	Target   string   `xml:"target,attr,omitempty"`
+	Children []any    `xml:",any"`
+}
+
 type Group struct {
 	XMLName   xml.Name `xml:"g"`
 	Class     string   `xml:"class,attr,omitempty"`

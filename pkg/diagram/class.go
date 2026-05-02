@@ -142,6 +142,18 @@ type ClassStyleDef struct {
 	CSS     string
 }
 
+// ClassClickDef binds a click action to a class. Either URL or
+// Callback is set; the renderer emits a hyperlink for URL forms and
+// ignores Callback (no JS at static-render time, but the AST keeps
+// the metadata so downstream tooling can use it).
+type ClassClickDef struct {
+	ClassID  string
+	URL      string
+	Tooltip  string
+	Target   string
+	Callback string
+}
+
 type ClassDiagram struct {
 	Classes   []ClassDef
 	Relations []ClassRelation
@@ -160,6 +172,9 @@ type ClassDiagram struct {
 	Title    string
 	AccTitle string
 	AccDescr string
+	// Clicks are user-defined click actions parsed from `click`,
+	// `link`, and `callback` keywords.
+	Clicks []ClassClickDef
 }
 
 func (*ClassDiagram) Type() DiagramType { return Class }

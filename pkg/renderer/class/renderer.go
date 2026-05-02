@@ -223,6 +223,7 @@ func memberText(m diagram.ClassMember) string {
 }
 
 func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float64, th Theme) []any {
+	clicks := clicksByClass(d.Clicks)
 	var elems []any
 	for _, c := range d.Classes {
 		nl, ok := l.Nodes[c.ID]
@@ -236,11 +237,27 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 		x := cx - w/2
 		y := cy - h/2
 
+		// Most classes append directly to `elems`; only those with
+		// a URL click action get diverted to a per-class buffer
+		// that's later wrapped in `<a>`. `target` aliases whichever
+		// slice this class's children land in.
+		clickURL := ""
+		if cd, ok := clicks[c.ID]; ok {
+			clickURL = cd.URL
+		}
+		var buf *[]any
+		if clickURL != "" {
+			classElems := make([]any, 0, 8)
+			buf = &classElems
+		} else {
+			buf = &elems
+		}
+
 		rectStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.NodeFill, th.NodeStroke)
 		if override := classRectStyle(d, c); override != "" {
 			rectStyle = rectStyle + ";" + override
 		}
-		elems = append(elems, &rect{
+		*buf = append(*buf, &rect{
 			X: svgFloat(x), Y: svgFloat(y),
 			Width: svgFloat(w), Height: svgFloat(h),
 			Style: rectStyle,
@@ -248,7 +265,7 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 
 		curY := y + headerH/2
 		if c.Annotation != diagram.AnnotationNone {
-			elems = append(elems, &text{
+			*buf = append(*buf, &text{
 				X: svgFloat(cx), Y: svgFloat(y + 14),
 				Anchor: "middle", Dominant: "auto",
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-style:italic", th.AnnotationText, fontSize-2),
@@ -257,7 +274,7 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 			curY = y + headerH/2 + memberRowH/2
 		}
 
-		elems = append(elems, &text{
+		*buf = append(*buf, &text{
 			X: svgFloat(cx), Y: svgFloat(curY),
 			Anchor: "middle", Dominant: "central",
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.NodeText, fontSize),
@@ -271,13 +288,41 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 
 		fields, methods := splitMembers(c.Members)
 		if len(fields) > 0 {
-			elems, sectionY = appendMemberSection(elems, fields, x, w, sectionY, fontSize, th)
+			*buf, sectionY = appendMemberSection(*buf, fields, x, w, sectionY, fontSize, th)
 		}
 		if len(methods) > 0 {
-			elems, _ = appendMemberSection(elems, methods, x, w, sectionY, fontSize, th)
+			*buf, _ = appendMemberSection(*buf, methods, x, w, sectionY, fontSize, th)
+		}
+
+		// Wrap the diverted buffer in <a> when this class has a URL
+		// click; tooltip surfaces as a <title> inside the anchor.
+		// Non-clickable classes already appended to `elems` directly.
+		if clickURL != "" {
+			cd := clicks[c.ID]
+			a := &anchor{Href: cd.URL, Target: cd.Target}
+			if cd.Tooltip != "" {
+				a.Children = append(a.Children, &svgTitle{Content: cd.Tooltip})
+			}
+			a.Children = append(a.Children, *buf...)
+			elems = append(elems, a)
 		}
 	}
 	return elems
+}
+
+// clicksByClass indexes click defs by class id. If a class has
+// multiple click definitions in the source, last-seen wins — a
+// pragmatic choice; the AST keeps all entries so callers that care
+// about the multiplicity can still walk d.Clicks directly.
+func clicksByClass(clicks []diagram.ClassClickDef) map[string]diagram.ClassClickDef {
+	if len(clicks) == 0 {
+		return nil
+	}
+	out := make(map[string]diagram.ClassClickDef, len(clicks))
+	for _, c := range clicks {
+		out[c.ClassID] = c
+	}
+	return out
 }
 
 func appendMemberSection(elems []any, members []diagram.ClassMember, x, w, sectionY, fontSize float64, th Theme) ([]any, float64) {
