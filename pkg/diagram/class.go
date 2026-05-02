@@ -79,11 +79,13 @@ const (
 	RelationTypeRealization               // ..|>
 	RelationTypeLink                      // --
 	RelationTypeDashedLink                // ..
+	RelationTypeLollipop                  // ()-- (provided interface)
 )
 
 var relationTypeNames = []string{
 	"unknown", "inheritance", "composition", "aggregation",
 	"association", "dependency", "realization", "link", "dashed-link",
+	"lollipop",
 }
 
 func (r RelationType) String() string { return enumString(r, relationTypeNames) }

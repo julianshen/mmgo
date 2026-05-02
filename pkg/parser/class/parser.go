@@ -530,6 +530,7 @@ const (
 	glyphFilledDiamond             // `*` — composition
 	glyphHollowDiamond             // `o` — aggregation
 	glyphArrowhead                 // `<` or `>` — association/dependency head
+	glyphLollipop                  // `()` — provided-interface lollipop
 )
 
 // arrowMatch is the structured result of tokenizing a relation arrow.
@@ -639,9 +640,12 @@ func scanLeftGlyph(line string, lineStart int) (arrowGlyph, int) {
 	if lineStart == 0 {
 		return glyphNone, lineStart
 	}
-	// `<|` is two chars; check it before the single-char glyphs.
+	// `<|` and `()` are two chars; check them before the single-char glyphs.
 	if lineStart >= 2 && line[lineStart-2] == '<' && line[lineStart-1] == '|' {
 		return glyphTriangle, lineStart - 2
+	}
+	if lineStart >= 2 && line[lineStart-2] == '(' && line[lineStart-1] == ')' {
+		return glyphLollipop, lineStart - 2
 	}
 	switch line[lineStart-1] {
 	case '*':
@@ -666,6 +670,9 @@ func scanRightGlyph(line string, lineEnd int) (arrowGlyph, int) {
 	}
 	if lineEnd+1 < len(line) && line[lineEnd] == '|' && line[lineEnd+1] == '>' {
 		return glyphTriangle, lineEnd + 2
+	}
+	if lineEnd+1 < len(line) && line[lineEnd] == '(' && line[lineEnd+1] == ')' {
+		return glyphLollipop, lineEnd + 2
 	}
 	switch line[lineEnd] {
 	case '*':
@@ -709,6 +716,10 @@ func classifyArrow(m arrowMatch) (rt diagram.RelationType, dir diagram.RelationD
 				return diagram.RelationTypeDependency, diagram.RelationBidirectional, true
 			}
 			return diagram.RelationTypeAssociation, diagram.RelationBidirectional, true
+		case glyphLollipop:
+			// Lollipop on both ends would mean two-way provided
+			// interface — not part of Mermaid's grammar.
+			return 0, 0, false
 		}
 		return 0, 0, false
 	}
@@ -769,6 +780,13 @@ func glyphToRelation(g arrowGlyph, dashed bool) (diagram.RelationType, bool) {
 			return diagram.RelationTypeDependency, true
 		}
 		return diagram.RelationTypeAssociation, true
+	case glyphLollipop:
+		// Mermaid only documents the solid-line lollipop (`()--`).
+		// Reject the dashed form rather than guess at semantics.
+		if dashed {
+			return 0, false
+		}
+		return diagram.RelationTypeLollipop, true
 	}
 	return 0, false
 }

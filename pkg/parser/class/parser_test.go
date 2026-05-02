@@ -963,6 +963,49 @@ func TestParseChainedCSSClassError(t *testing.T) {
 	}
 }
 
+// Lollipop interfaces: `bar ()-- foo` puts the interface circle on
+// `bar`. Forward form has the `()` on the From side; the reverse
+// form `foo --() bar` is canonicalised by the Reverse flag.
+func TestParseLollipopForward(t *testing.T) {
+	d, err := Parse(strings.NewReader("classDiagram\n    bar ()-- foo"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Relations) != 1 {
+		t.Fatalf("want 1 relation, got %d", len(d.Relations))
+	}
+	r := d.Relations[0]
+	if r.RelationType != diagram.RelationTypeLollipop {
+		t.Errorf("type = %v, want lollipop", r.RelationType)
+	}
+	if r.From != "bar" || r.To != "foo" {
+		t.Errorf("From/To = %q/%q", r.From, r.To)
+	}
+	if r.Direction != diagram.RelationForward {
+		t.Errorf("direction = %v, want forward", r.Direction)
+	}
+}
+
+func TestParseLollipopReverse(t *testing.T) {
+	d, err := Parse(strings.NewReader("classDiagram\n    foo --() bar"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Relations) != 1 {
+		t.Fatalf("want 1 relation, got %d", len(d.Relations))
+	}
+	r := d.Relations[0]
+	if r.RelationType != diagram.RelationTypeLollipop {
+		t.Errorf("type = %v", r.RelationType)
+	}
+	if r.From != "foo" || r.To != "bar" {
+		t.Errorf("From/To = %q/%q", r.From, r.To)
+	}
+	if r.Direction != diagram.RelationReverse {
+		t.Errorf("direction = %v, want reverse", r.Direction)
+	}
+}
+
 func TestParseDirectionInvalid(t *testing.T) {
 	_, err := Parse(strings.NewReader("classDiagram\n    direction WAT"))
 	if err == nil {

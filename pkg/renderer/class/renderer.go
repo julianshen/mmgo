@@ -528,6 +528,7 @@ const (
 	glyphDiamondFilled            // composition
 	glyphDiamondHollow            // aggregation
 	glyphArrowhead                // association + dependency
+	glyphLollipop                 // provided-interface circle
 )
 
 // SVG marker / inline polygon shapes. Hoisted to package-level so the
@@ -573,6 +574,10 @@ func glyphForRelation(rt diagram.RelationType) (g glyphKind, atTo bool) {
 		return glyphDiamondHollow, false
 	case diagram.RelationTypeAssociation, diagram.RelationTypeDependency:
 		return glyphArrowhead, true
+	case diagram.RelationTypeLollipop:
+		// Canonical literal `bar ()-- foo` puts the circle on the
+		// LEFT (From end), so atTo=false is the canonical-forward.
+		return glyphLollipop, false
 	}
 	return glyphNoneKind, false
 }
@@ -614,6 +619,16 @@ var inlineGeoms = map[glyphKind]startGeom{
 	glyphArrowhead: {
 		children: []any{&polygon{Points: arrowheadPoints, Style: "fill:#333;stroke:#333;stroke-width:1"}},
 		refX:     20, refY: 10,
+	},
+	// Lollipop: a small hollow circle on a short stub. The circle's
+	// outer edge sits at refX (touching the class box); the stub
+	// extends from refX outward toward the line interior so the line
+	// terminates at the back of the lollipop.
+	glyphLollipop: {
+		children: []any{
+			&circle{CX: 14, CY: 10, R: 5, Style: "fill:white;stroke:#333;stroke-width:1.5"},
+		},
+		refX: 0, refY: 10,
 	},
 }
 
