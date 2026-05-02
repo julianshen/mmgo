@@ -830,6 +830,25 @@ func TestParseNoteAutoRegistersTarget(t *testing.T) {
 	}
 }
 
+// Mermaid allows only one inline annotation per class. A second
+// `<<…>>` would be silently absorbed into the ID; require an error.
+func TestParseClassHeaderMultipleAnnotationsError(t *testing.T) {
+	_, err := Parse(strings.NewReader("classDiagram\n    class Foo <<Interface>> <<Service>>"))
+	if err == nil {
+		t.Error("expected error for multiple inline annotations")
+	}
+}
+
+// `note for "X" "text"` (quoted target) is malformed; the parser
+// should reject it instead of silently keeping the wrong text.
+func TestParseNoteQuotedTargetError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`classDiagram
+    note for "Foo" "hello"`))
+	if err == nil {
+		t.Error("expected error for quoted note target")
+	}
+}
+
 func TestParseDirectionInvalid(t *testing.T) {
 	_, err := Parse(strings.NewReader("classDiagram\n    direction WAT"))
 	if err == nil {

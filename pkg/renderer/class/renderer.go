@@ -65,7 +65,7 @@ func Render(d *diagram.ClassDiagram, opts *Options) ([]byte, error) {
 	contentW := svgutil.Sanitize(l.Width) + 2*pad
 	contentH := svgutil.Sanitize(l.Height) + 2*pad
 
-	notes := layoutNotes(d, l, contentW, contentH, pad, fontSize, ruler)
+	notes := layoutNotes(d, contentW, pad, fontSize, ruler)
 	viewW, viewH := contentW, contentH
 	if len(notes) > 0 {
 		viewW = notes[len(notes)-1].x + notes[len(notes)-1].w + pad
@@ -277,15 +277,10 @@ type placedNote struct {
 }
 
 // layoutNotes sizes each note from its text and stacks the lot in a
-// column to the right of the class diagram. Class-anchored notes
-// keep their `For` so renderNotes can draw a connector to the
-// referenced class.
-//
-// The layout is intentionally simple: source order, single column,
-// no collision avoidance. It reads cleanly for typical 1–3 notes
-// per diagram and avoids wiring notes into the dagre graph (which
-// would distort class placement just to satisfy decoration).
-func layoutNotes(d *diagram.ClassDiagram, l *layout.Result, contentW, contentH, pad, fontSize float64, ruler *textmeasure.Ruler) []placedNote {
+// column to the right of the class diagram. Source order, single
+// column, no collision avoidance — keeps notes out of the dagre graph
+// so they can't distort class placement.
+func layoutNotes(d *diagram.ClassDiagram, contentW, pad, fontSize float64, ruler *textmeasure.Ruler) []placedNote {
 	if len(d.Notes) == 0 {
 		return nil
 	}
@@ -309,7 +304,6 @@ func layoutNotes(d *diagram.ClassDiagram, l *layout.Result, contentW, contentH, 
 		})
 		cursorY += h + noteGap
 	}
-	_ = contentH // contentH currently informational; reserved for future per-target placement
 	return out
 }
 
@@ -343,14 +337,15 @@ func renderNotes(notes []placedNote, l *layout.Result, pad, fontSize float64, th
 		if !ok {
 			continue
 		}
-		// Connect note's left-middle to the class's right-middle.
-		nx := p.x
-		ny := p.y + p.h/2
-		cx := target.X + pad + target.Width/2
-		cy := target.Y + pad
+		// Notes column sits to the right of the diagram, so the natural
+		// connector path is class right-middle → note left-middle.
+		classRightX := target.X + pad + target.Width/2
+		classMidY := target.Y + pad
 		elems = append(elems, &line{
-			X1: svgFloat(cx), Y1: svgFloat(cy + target.Height/2),
-			X2: svgFloat(nx), Y2: svgFloat(ny),
+			X1:    svgFloat(classRightX),
+			Y1:    svgFloat(classMidY),
+			X2:    svgFloat(p.x),
+			Y2:    svgFloat(p.y + p.h/2),
 			Style: connStyle,
 		})
 	}

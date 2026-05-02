@@ -120,6 +120,12 @@ func (p *parser) parseNote(line string) error {
 		if target == "" {
 			return fmt.Errorf("note %q: missing target class", line)
 		}
+		// Mermaid's grammar requires a bare identifier here. Reject
+		// quoted or whitespace-containing targets so the text doesn't
+		// silently absorb part of the body.
+		if strings.ContainsAny(target, "\"' \t") {
+			return fmt.Errorf("note %q: target class must be a bare identifier, got %q", line, target)
+		}
 		rest = r[q:]
 		p.ensureClass(target)
 	}
@@ -270,6 +276,11 @@ func parseClassHeader(rest string) (classHeader, bool, error) {
 		}
 		annotation = parseAnnotation(strings.TrimSpace(rest[i+2 : j]))
 		rest = strings.TrimSpace(rest[:i] + rest[j+2:])
+		// Mermaid only supports one annotation per class; a second
+		// `<<...>>` would be silently swallowed into the ID.
+		if strings.Contains(rest, "<<") {
+			return classHeader{}, false, fmt.Errorf("class header %q: only one annotation is allowed", rest)
+		}
 	}
 	var label string
 	if i := strings.IndexByte(rest, '['); i >= 0 {
