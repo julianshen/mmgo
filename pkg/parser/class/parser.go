@@ -84,6 +84,9 @@ func (p *parser) parseLine(line string) error {
 	if strings.HasPrefix(line, "callback ") {
 		return p.parseLinkOrCallback(line, true)
 	}
+	if rest, ok := strings.CutPrefix(line, "namespace "); ok {
+		return p.parseNamespace(rest)
+	}
 	if rest, ok := strings.CutPrefix(line, "class "); ok {
 		rest = strings.TrimSpace(rest)
 		hdr, hasBody, err := parseClassHeader(rest)
@@ -255,6 +258,56 @@ func (p *parser) parseCSSClassBinding(line string) error {
 		p.diagram.Classes[idx].CSSClasses = append(p.diagram.Classes[idx].CSSClasses, cssName)
 	}
 	return nil
+}
+
+// parseNamespace consumes a `namespace NAME { … }` block. The
+// classes declared inside register at the top level (so relations
+// across namespaces resolve normally) and their IDs are also
+// recorded on a ClassNamespace entry so the renderer can group them
+// visually.
+//
+// We delegate inner-line parsing back to parseLine — namespaces
+// nest the same syntax as the top-level diagram, just without
+// further `namespace` blocks (which are explicitly rejected to
+// avoid surprising recursion).
+func (p *parser) parseNamespace(rest string) error {
+	rest = strings.TrimSpace(rest)
+	rest = strings.TrimSuffix(rest, "{")
+	name := strings.TrimSpace(rest)
+	if name == "" {
+		return fmt.Errorf("namespace requires a name")
+	}
+	ns := diagram.ClassNamespace{Name: name}
+	classesBefore := len(p.diagram.Classes)
+	for p.scanner.Scan() {
+		p.lineNum++
+		line := strings.TrimSpace(parserutil.StripComment(p.scanner.Text()))
+		if line == "" {
+			continue
+		}
+		if line == "}" {
+			// Collect every class registered while we were inside
+			// the block. parseLine routes class declarations through
+			// declareClass / ensureClass which appends to
+			// p.diagram.Classes; we use the slice grew-from-here
+			// invariant to capture them in source order.
+			for i := classesBefore; i < len(p.diagram.Classes); i++ {
+				ns.ClassIDs = append(ns.ClassIDs, p.diagram.Classes[i].ID)
+			}
+			p.diagram.Namespaces = append(p.diagram.Namespaces, ns)
+			return nil
+		}
+		if strings.HasPrefix(line, "namespace ") {
+			return fmt.Errorf("namespace %q: nested namespaces are not supported", name)
+		}
+		if err := p.parseLine(line); err != nil {
+			return fmt.Errorf("namespace %q: %w", name, err)
+		}
+	}
+	if err := p.scanner.Err(); err != nil {
+		return fmt.Errorf("reading namespace %q: %w", name, err)
+	}
+	return fmt.Errorf("unclosed namespace %q", name)
 }
 
 // parseClick handles `click ID call func(args)` (Callback) and
