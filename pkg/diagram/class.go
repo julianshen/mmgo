@@ -75,18 +75,37 @@ var relationTypeNames = []string{
 
 func (r RelationType) String() string { return enumString(r, relationTypeNames) }
 
+// ClassRelation describes one edge between two classes.
+//
+// RelationType encodes the *kind* of relationship (inheritance, composition,
+// dependency, …) independently of how it was written in the source. The
+// Reverse and Bidirectional flags preserve the *direction* the source used
+// so the renderer can place glyphs on the correct end without losing
+// information:
+//
+//   - "Animal <|-- Dog"   → Inheritance, Reverse=false  (parent on left)
+//   - "Dog --|> Animal"   → Inheritance, Reverse=true   (parent on right)
+//   - "A <|--|> B"        → Inheritance, Bidirectional=true
+//
+// Two-way arrows (`<|--|>`, `*--*`, `o--o`, `<-->`, `<..>`, `<|..|>`) set
+// Bidirectional. A relation cannot be both Reverse and Bidirectional.
 type ClassRelation struct {
-	From          string
-	To            string
-	RelationType  RelationType
-	Label         string
+	From            string
+	To              string
+	RelationType    RelationType
+	Label           string
 	FromCardinality string
 	ToCardinality   string
+	Reverse         bool
+	Bidirectional   bool
 }
 
 type ClassDiagram struct {
 	Classes   []ClassDef
 	Relations []ClassRelation
+	// Direction is the layout flow. DirectionUnknown means "use the
+	// renderer's default" (currently top-to-bottom).
+	Direction Direction
 }
 
 func (*ClassDiagram) Type() DiagramType { return Class }

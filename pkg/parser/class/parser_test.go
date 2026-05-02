@@ -272,6 +272,147 @@ func TestParseBareClassDeclaration(t *testing.T) {
 	}
 }
 
+// Reverse-direction arrows: Mermaid accepts the relation glyph on either
+// end. Internally we keep RelationType independent of source direction and
+// expose the placement via Reverse so the renderer can decide which end
+// gets the glyph.
+func TestParseReverseRelations(t *testing.T) {
+	cases := []struct {
+		src     string
+		want    diagram.RelationType
+		reverse bool
+	}{
+		{"Dog --|> Animal", diagram.RelationTypeInheritance, true},
+		{"Animal <|-- Dog", diagram.RelationTypeInheritance, false},
+		{"Engine --* Car", diagram.RelationTypeComposition, true},
+		{"Employee --o Department", diagram.RelationTypeAggregation, true},
+		{"Course <-- Student", diagram.RelationTypeAssociation, true},
+		{"Interface <.. Class", diagram.RelationTypeDependency, true},
+		{"Drawable <|.. Shape", diagram.RelationTypeRealization, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.src, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("classDiagram\n    " + tc.src))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(d.Relations) != 1 {
+				t.Fatalf("want 1 relation, got %d", len(d.Relations))
+			}
+			r := d.Relations[0]
+			if r.RelationType != tc.want {
+				t.Errorf("type = %v, want %v", r.RelationType, tc.want)
+			}
+			if r.Reverse != tc.reverse {
+				t.Errorf("reverse = %v, want %v", r.Reverse, tc.reverse)
+			}
+			if r.Bidirectional {
+				t.Errorf("unexpected bidirectional=true on %q", tc.src)
+			}
+		})
+	}
+}
+
+// Two-way arrows: `<|--|>`, `*--*`, `o--o`, `<-->`, `<..>`, `<|..|>`.
+// They represent bidirectional/symmetric relationships and the renderer
+// draws a glyph on both ends.
+func TestParseBidirectionalRelations(t *testing.T) {
+	cases := []struct {
+		src  string
+		want diagram.RelationType
+	}{
+		{"A <|--|> B", diagram.RelationTypeInheritance},
+		{"A *--* B", diagram.RelationTypeComposition},
+		{"A o--o B", diagram.RelationTypeAggregation},
+		{"A <--> B", diagram.RelationTypeAssociation},
+		{"A <..> B", diagram.RelationTypeDependency},
+		{"A <|..|> B", diagram.RelationTypeRealization},
+	}
+	for _, tc := range cases {
+		t.Run(tc.src, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("classDiagram\n    " + tc.src))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(d.Relations) != 1 {
+				t.Fatalf("want 1 relation, got %d", len(d.Relations))
+			}
+			r := d.Relations[0]
+			if r.RelationType != tc.want {
+				t.Errorf("type = %v, want %v", r.RelationType, tc.want)
+			}
+			if !r.Bidirectional {
+				t.Errorf("Bidirectional should be true")
+			}
+			// Reverse is meaningless when Bidirectional is set.
+			if r.Reverse {
+				t.Errorf("Reverse must be false when Bidirectional is set")
+			}
+		})
+	}
+}
+
+// Reverse arrows must coexist with cardinality and label syntax.
+func TestParseReverseWithLabelAndCardinality(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    Order "0..*" <-- "1" Customer : placed by`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Relations) != 1 {
+		t.Fatalf("want 1 relation, got %d", len(d.Relations))
+	}
+	r := d.Relations[0]
+	if r.RelationType != diagram.RelationTypeAssociation {
+		t.Errorf("type = %v", r.RelationType)
+	}
+	if !r.Reverse {
+		t.Errorf("reverse should be true")
+	}
+	if r.From != "Order" || r.To != "Customer" {
+		t.Errorf("From/To = %q/%q", r.From, r.To)
+	}
+	if r.FromCardinality != "0..*" || r.ToCardinality != "1" {
+		t.Errorf("cardinality = %q/%q", r.FromCardinality, r.ToCardinality)
+	}
+	if r.Label != "placed by" {
+		t.Errorf("label = %q", r.Label)
+	}
+}
+
+func TestParseDirection(t *testing.T) {
+	cases := []struct {
+		src  string
+		want diagram.Direction
+	}{
+		{"direction TB", diagram.DirectionTB},
+		{"direction BT", diagram.DirectionBT},
+		{"direction LR", diagram.DirectionLR},
+		{"direction RL", diagram.DirectionRL},
+	}
+	for _, tc := range cases {
+		t.Run(tc.src, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("classDiagram\n    " + tc.src + "\n    class A"))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if d.Direction != tc.want {
+				t.Errorf("direction = %v, want %v", d.Direction, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseDirectionDefault(t *testing.T) {
+	d, err := Parse(strings.NewReader("classDiagram\n    class A"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Direction != diagram.DirectionUnknown {
+		t.Errorf("direction = %v, want unknown (default)", d.Direction)
+	}
+}
+
 func TestParseVisibilityMarkers(t *testing.T) {
 	input := `classDiagram
     class Foo {
