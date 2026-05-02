@@ -478,6 +478,153 @@ func TestParseBidirectionalWithCardinality(t *testing.T) {
 	}
 }
 
+func TestParseGenericClass(t *testing.T) {
+	cases := []struct {
+		src         string
+		wantID      string
+		wantGeneric string
+	}{
+		{"class List~T~", "List", "T"},
+		{"class Map~K, V~", "Map", "K, V"},
+		{"class Wrapper~List~int~~", "Wrapper", "List~int~"},
+		{"class List~T~ {\n        +get(i) T\n    }", "List", "T"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.wantID+"_"+tc.wantGeneric, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("classDiagram\n    " + tc.src))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(d.Classes) != 1 {
+				t.Fatalf("want 1 class, got %d", len(d.Classes))
+			}
+			c := d.Classes[0]
+			if c.ID != tc.wantID {
+				t.Errorf("ID = %q, want %q", c.ID, tc.wantID)
+			}
+			if c.Generic != tc.wantGeneric {
+				t.Errorf("Generic = %q, want %q", c.Generic, tc.wantGeneric)
+			}
+		})
+	}
+}
+
+// Generics on the class header must not leak into relation lookups —
+// `List~T~ <|-- ArrayList` references the bare ID "List".
+func TestParseGenericInRelation(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class List~T~
+    class ArrayList~T~
+    List <|-- ArrayList`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Classes) != 2 {
+		t.Fatalf("want 2 classes, got %d", len(d.Classes))
+	}
+	if len(d.Relations) != 1 {
+		t.Fatalf("want 1 relation, got %d", len(d.Relations))
+	}
+	r := d.Relations[0]
+	if r.From != "List" || r.To != "ArrayList" {
+		t.Errorf("From/To = %q/%q", r.From, r.To)
+	}
+}
+
+func TestParseStaticMember(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class C {
+        +pi$ double
+        +log()$ void
+    }`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	members := d.Classes[0].Members
+	if len(members) != 2 {
+		t.Fatalf("want 2 members, got %d", len(members))
+	}
+	for i, m := range members {
+		if !m.IsStatic {
+			t.Errorf("member[%d] IsStatic = false", i)
+		}
+		if m.IsAbstract {
+			t.Errorf("member[%d] IsAbstract = true (unexpected)", i)
+		}
+	}
+	// The `$` marker must not leak into the rendered name/return type.
+	if strings.Contains(members[0].Name, "$") {
+		t.Errorf("member[0].Name still contains $: %q", members[0].Name)
+	}
+	if members[1].ReturnType == "" || strings.Contains(members[1].ReturnType, "$") {
+		t.Errorf("member[1] ReturnType=%q, expected `void`", members[1].ReturnType)
+	}
+}
+
+func TestParseAbstractMember(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class Shape {
+        +draw()* void
+        +area()*
+    }`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	members := d.Classes[0].Members
+	if len(members) != 2 {
+		t.Fatalf("want 2 members, got %d", len(members))
+	}
+	for i, m := range members {
+		if !m.IsAbstract {
+			t.Errorf("member[%d] IsAbstract = false", i)
+		}
+		if m.IsStatic {
+			t.Errorf("member[%d] IsStatic = true (unexpected)", i)
+		}
+		if strings.Contains(m.Name, "*") {
+			t.Errorf("member[%d].Name still contains *: %q", i, m.Name)
+		}
+	}
+}
+
+func TestParseCustomLabel(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class Animal["A friendly animal"]
+    class Dog["A man's best friend"] {
+        +bark()
+    }`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Classes) != 2 {
+		t.Fatalf("want 2 classes, got %d", len(d.Classes))
+	}
+	if d.Classes[0].ID != "Animal" || d.Classes[0].Label != "A friendly animal" {
+		t.Errorf("class[0]: ID=%q Label=%q", d.Classes[0].ID, d.Classes[0].Label)
+	}
+	if d.Classes[1].ID != "Dog" || d.Classes[1].Label != "A man's best friend" {
+		t.Errorf("class[1]: ID=%q Label=%q", d.Classes[1].ID, d.Classes[1].Label)
+	}
+	if len(d.Classes[1].Members) != 1 {
+		t.Errorf("class[1] members lost: %v", d.Classes[1].Members)
+	}
+}
+
+// Custom label on a class also-used in a relation: relation must
+// resolve to the bare ID, not the labeled form.
+func TestParseCustomLabelWithRelation(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class Animal["Animal label"]
+    class Dog
+    Animal <|-- Dog`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Relations[0].From != "Animal" || d.Relations[0].To != "Dog" {
+		t.Errorf("relation = %+v", d.Relations[0])
+	}
+}
+
 func TestParseDirectionInvalid(t *testing.T) {
 	_, err := Parse(strings.NewReader("classDiagram\n    direction WAT"))
 	if err == nil {

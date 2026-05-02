@@ -54,11 +54,11 @@ type parser struct {
 func (p *parser) parseLine(line string) error {
 	if rest, ok := strings.CutPrefix(line, "class "); ok {
 		rest = strings.TrimSpace(rest)
-		if braceIdx := strings.IndexByte(rest, '{'); braceIdx >= 0 {
-			name := strings.TrimSpace(rest[:braceIdx])
-			return p.parseClassBody(name)
+		hdr, hasBody := parseClassHeader(rest)
+		p.declareClass(hdr.id, hdr.label, hdr.generic)
+		if hasBody {
+			return p.parseClassBody(hdr.id)
 		}
-		p.ensureClass(rest)
 		return nil
 	}
 	if rest, ok := strings.CutPrefix(line, "direction "); ok {
@@ -106,12 +106,67 @@ func (p *parser) parseClassBody(name string) error {
 	return fmt.Errorf("unclosed class body for %q", name)
 }
 
-func (p *parser) ensureClass(id string) {
-	if _, ok := p.classIdx[id]; ok {
-		return
+// ensureClass registers `id` if not already present. Idempotent; used
+// when a relation references a class before any explicit declaration.
+func (p *parser) ensureClass(id string) int {
+	if idx, ok := p.classIdx[id]; ok {
+		return idx
 	}
 	p.classIdx[id] = len(p.diagram.Classes)
 	p.diagram.Classes = append(p.diagram.Classes, diagram.ClassDef{ID: id, Label: id})
+	return p.classIdx[id]
+}
+
+// declareClass registers a class with explicit metadata. Non-empty
+// label and generic override what ensureClass set, so a relation
+// auto-registering a class first and a later `class Foo["…"]~T~`
+// declaration still wins.
+func (p *parser) declareClass(id, label, generic string) {
+	idx := p.ensureClass(id)
+	if label != "" {
+		p.diagram.Classes[idx].Label = label
+	}
+	if generic != "" {
+		p.diagram.Classes[idx].Generic = generic
+	}
+}
+
+// classHeader is the parsed result of `class NAME[...]~...~`.
+type classHeader struct {
+	id      string
+	label   string // from `["..."]`
+	generic string // from `~...~`
+}
+
+// parseClassHeader splits `Foo["My Label"]~T~` (or any subset) into
+// id / label / generic and reports whether a `{` follows. Body content
+// is left for parseClassBody to consume from the scanner.
+func parseClassHeader(rest string) (classHeader, bool) {
+	hasBody := false
+	if i := strings.IndexByte(rest, '{'); i >= 0 {
+		rest = strings.TrimSpace(rest[:i])
+		hasBody = true
+	}
+	var label string
+	if i := strings.IndexByte(rest, '['); i >= 0 {
+		if j := strings.LastIndexByte(rest, ']'); j > i {
+			inside := rest[i+1 : j]
+			if len(inside) >= 2 && inside[0] == '"' && inside[len(inside)-1] == '"' {
+				label = inside[1 : len(inside)-1]
+				rest = strings.TrimSpace(rest[:i])
+			}
+		}
+	}
+	var generic string
+	if i := strings.IndexByte(rest, '~'); i >= 0 {
+		// Use the LAST `~` so nested generics like `Wrapper~List~int~~`
+		// give Generic="List~int~" rather than "List".
+		if j := strings.LastIndexByte(rest, '~'); j > i {
+			generic = rest[i+1 : j]
+			rest = strings.TrimSpace(rest[:i])
+		}
+	}
+	return classHeader{id: rest, label: label, generic: generic}, hasBody
 }
 
 func parseMember(line string) diagram.ClassMember {
@@ -142,7 +197,9 @@ func parseMember(line string) diagram.ClassMember {
 			m.Args = strings.TrimSpace(line[idx+1 : closeIdx])
 			// Allow either `foo() bar` or `foo(): bar`; mermaid accepts both.
 			tail := strings.TrimSpace(line[closeIdx+1:])
-			m.ReturnType = strings.TrimSpace(strings.TrimPrefix(tail, ":"))
+			tail = strings.TrimPrefix(tail, ":")
+			tail, m.IsStatic, m.IsAbstract = extractMemberModifiers(tail)
+			m.ReturnType = strings.TrimSpace(tail)
 		} else {
 			m.Name = strings.TrimSpace(line)
 		}
@@ -151,9 +208,34 @@ func parseMember(line string) diagram.ClassMember {
 		// `name: String` (TypeScript) are valid mermaid; splitting on
 		// whitespace inverts the former, splitting on `:` mangles the
 		// latter (`-template: String` → `-String : template:`).
-		m.Name = strings.TrimSpace(line)
+		var stripped string
+		stripped, m.IsStatic, m.IsAbstract = extractMemberModifiers(line)
+		m.Name = strings.TrimSpace(stripped)
 	}
 	return m
+}
+
+// extractMemberModifiers strips trailing-or-embedded `$` (static) and
+// `*` (abstract) markers from a member text. The Mermaid grammar puts
+// the marker either right after the member's name (`pi$ double`) or
+// after its type (`name double$`); both reduce to "remove the rune".
+// Identifier text never contains either character, so we drop all
+// occurrences and report which kind we saw.
+func extractMemberModifiers(s string) (cleaned string, isStatic, isAbstract bool) {
+	if strings.ContainsRune(s, '$') {
+		isStatic = true
+		s = strings.ReplaceAll(s, "$", "")
+	}
+	if strings.ContainsRune(s, '*') {
+		isAbstract = true
+		s = strings.ReplaceAll(s, "*", "")
+	}
+	// Collapse the double-space that "name$ double" → "name  double"
+	// produces after marker removal.
+	for strings.Contains(s, "  ") {
+		s = strings.ReplaceAll(s, "  ", " ")
+	}
+	return s, isStatic, isAbstract
 }
 
 // matchCloseParen returns the index of the `)` that pairs with the `(`
