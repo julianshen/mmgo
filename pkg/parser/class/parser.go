@@ -79,10 +79,10 @@ func (p *parser) parseLine(line string) error {
 		return p.parseClick(line)
 	}
 	if strings.HasPrefix(line, "link ") {
-		return p.parseLinkOrCallback(line, "link")
+		return p.parseLinkOrCallback(line, false)
 	}
 	if strings.HasPrefix(line, "callback ") {
-		return p.parseLinkOrCallback(line, "callback")
+		return p.parseLinkOrCallback(line, true)
 	}
 	if rest, ok := strings.CutPrefix(line, "class "); ok {
 		rest = strings.TrimSpace(rest)
@@ -257,31 +257,35 @@ func (p *parser) parseCSSClassBinding(line string) error {
 	return nil
 }
 
-// parseClick handles `click ID call func(args) "tooltip"` (Callback)
-// and `click ID href "url" "tooltip" "target"` (URL). The two forms
-// share a keyword so they're disambiguated by the `call` / `href`
-// subkeyword. Bare `click ID "url" …` is treated as the href form
-// for compatibility.
+// parseClick handles `click ID call func(args)` (Callback) and
+// `click ID href "url" "tooltip" "target"` (URL). The two forms
+// share a keyword and are disambiguated by the `call` / `href`
+// subkeyword. Bare `click ID "url" …` is treated as href for
+// compatibility with mermaid-cli's loose matching.
 func (p *parser) parseClick(line string) error {
 	rest := strings.TrimSpace(line[len("click "):])
-	fields := strings.Fields(rest)
-	if len(fields) < 2 {
-		return fmt.Errorf("click requires class id and URL or callback")
+	classID, afterID, err := splitClickHead(rest, "click")
+	if err != nil {
+		return err
 	}
-	classID := fields[0]
-	p.ensureClass(classID)
+	if err := p.requireClass(classID, "click"); err != nil {
+		return err
+	}
 	cd := diagram.ClassClickDef{ClassID: classID}
-	afterID := strings.TrimSpace(rest[len(classID):])
 	switch {
-	case strings.HasPrefix(afterID, "call "):
-		cd.Callback = strings.TrimSpace(afterID[len("call "):])
+	case afterID == "call" || strings.HasPrefix(afterID, "call "):
+		callback := strings.TrimSpace(strings.TrimPrefix(afterID, "call"))
+		if callback == "" {
+			return fmt.Errorf("click %s: missing callback after `call`", classID)
+		}
+		cd.Callback = callback
 	case afterID == "href" || strings.HasPrefix(afterID, "href "):
-		argSrc := strings.TrimSpace(afterID[len("href"):])
-		if err := fillClickArgs(&cd, argSrc); err != nil {
+		argSrc := strings.TrimSpace(strings.TrimPrefix(afterID, "href"))
+		if err := fillClickURLArgs(&cd, argSrc); err != nil {
 			return fmt.Errorf("click %s: %w", classID, err)
 		}
 	default:
-		if err := fillClickArgs(&cd, afterID); err != nil {
+		if err := fillClickURLArgs(&cd, afterID); err != nil {
 			return fmt.Errorf("click %s: %w", classID, err)
 		}
 	}
@@ -292,38 +296,75 @@ func (p *parser) parseClick(line string) error {
 // parseLinkOrCallback handles the `link` / `callback` aliases.
 // `link ID "url" "tooltip"` ⇔ `click ID href "url" "tooltip"`.
 // `callback ID "func" "tooltip"` ⇔ `click ID call func` plus tooltip.
-func (p *parser) parseLinkOrCallback(line, kw string) error {
-	rest := strings.TrimSpace(line[len(kw)+1:])
-	fields := strings.Fields(rest)
-	if len(fields) < 2 {
-		return fmt.Errorf("%s requires class id and target", kw)
+// isCallback distinguishes the two without restringing the keyword.
+func (p *parser) parseLinkOrCallback(line string, isCallback bool) error {
+	kw := "link"
+	if isCallback {
+		kw = "callback"
 	}
-	classID := fields[0]
-	p.ensureClass(classID)
-	argSrc := strings.TrimSpace(rest[len(classID):])
-	parts := parserutil.SplitClickArgs(argSrc, 3)
-	if len(parts) == 0 {
-		return fmt.Errorf("%s %s: missing target", kw, classID)
+	rest := strings.TrimSpace(line[len(kw)+1:])
+	classID, argSrc, err := splitClickHead(rest, kw)
+	if err != nil {
+		return err
+	}
+	if err := p.requireClass(classID, kw); err != nil {
+		return err
 	}
 	cd := diagram.ClassClickDef{ClassID: classID}
-	if kw == "callback" {
+	if isCallback {
+		parts, perr := parserutil.SplitClickArgs(argSrc, 3)
+		if perr != nil {
+			return fmt.Errorf("%s %s: %w", kw, classID, perr)
+		}
+		if len(parts) == 0 || parts[0] == "" {
+			return fmt.Errorf("%s %s: missing callback", kw, classID)
+		}
 		cd.Callback = parts[0]
-	} else {
-		cd.URL = parts[0]
-	}
-	if len(parts) >= 2 {
-		cd.Tooltip = parts[1]
-	}
-	if len(parts) >= 3 {
-		cd.Target = parts[2]
+		if len(parts) >= 2 {
+			cd.Tooltip = parts[1]
+		}
+		if len(parts) >= 3 {
+			cd.Target = parts[2]
+		}
+	} else if err := fillClickURLArgs(&cd, argSrc); err != nil {
+		return fmt.Errorf("%s %s: %w", kw, classID, err)
 	}
 	p.diagram.Clicks = append(p.diagram.Clicks, cd)
 	return nil
 }
 
-func fillClickArgs(cd *diagram.ClassClickDef, src string) error {
-	parts := parserutil.SplitClickArgs(src, 3)
-	if len(parts) == 0 {
+// splitClickHead splits "ClassID rest…" into id + rest. Single
+// SplitClickArgs scan covers both the length check and the id
+// extraction, replacing the prior strings.Fields-then-rescan pattern.
+func splitClickHead(rest, kw string) (id, after string, err error) {
+	parts, perr := parserutil.SplitClickArgs(rest, 2)
+	if perr != nil {
+		return "", "", fmt.Errorf("%s: %w", kw, perr)
+	}
+	if len(parts) < 2 {
+		return "", "", fmt.Errorf("%s requires class id and target", kw)
+	}
+	id = parts[0]
+	return id, strings.TrimSpace(rest[len(id):]), nil
+}
+
+// requireClass surfaces an error when a click/link/callback names a
+// class that hasn't been declared. Auto-registering would silently
+// accept typos (e.g. `click Fooo …` would create a phantom Fooo).
+// Mirrors flowchart's strict lookup behavior.
+func (p *parser) requireClass(id, kw string) error {
+	if _, ok := p.classIdx[id]; !ok {
+		return fmt.Errorf("%s references undefined class %q", kw, id)
+	}
+	return nil
+}
+
+func fillClickURLArgs(cd *diagram.ClassClickDef, src string) error {
+	parts, err := parserutil.SplitClickArgs(src, 3)
+	if err != nil {
+		return err
+	}
+	if len(parts) == 0 || parts[0] == "" {
 		return fmt.Errorf("missing URL")
 	}
 	cd.URL = parts[0]

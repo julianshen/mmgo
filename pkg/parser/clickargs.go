@@ -1,16 +1,22 @@
 package parser
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // SplitClickArgs splits a click-action's tail (everything after the
 // keyword and node id) into up to `max` whitespace-separated parts,
 // respecting double-quoted runs so a tooltip like `"Open the docs"`
 // is captured as a single part.
 //
+// An unterminated `"` returns an error so a malformed line surfaces
+// instead of being silently captured into a misshapen URL/tooltip.
+//
 // Used by the `click`, `link`, and `callback` keyword parsers across
 // flowchart, class, and any future diagram type that needs the same
 // argument shape.
-func SplitClickArgs(s string, max int) []string {
+func SplitClickArgs(s string, max int) ([]string, error) {
 	var parts []string
 	i := 0
 	for i < len(s) && len(parts) < max {
@@ -24,8 +30,7 @@ func SplitClickArgs(s string, max int) []string {
 			i++
 			end := strings.IndexByte(s[i:], '"')
 			if end < 0 {
-				parts = append(parts, s[i:])
-				break
+				return nil, fmt.Errorf("unterminated `\"` in args")
 			}
 			parts = append(parts, s[i:i+end])
 			i = i + end + 1
@@ -39,5 +44,5 @@ func SplitClickArgs(s string, max int) []string {
 			i = i + end
 		}
 	}
-	return parts
+	return parts, nil
 }

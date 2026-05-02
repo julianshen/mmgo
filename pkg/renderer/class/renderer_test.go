@@ -723,6 +723,26 @@ func TestRenderClickHrefWrapsAnchor(t *testing.T) {
 	}
 }
 
+// When the same class has multiple click defs, the last one wins
+// (consistent with `clicksByClass`'s map-overwrite semantics).
+func TestRenderClickLastDefinitionWins(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{{ID: "Foo", Label: "Foo"}},
+		Clicks: []diagram.ClassClickDef{
+			{ClassID: "Foo", URL: "https://first.example"},
+			{ClassID: "Foo", URL: "https://second.example", Tooltip: "winner"},
+		},
+	}
+	out, _ := Render(d, nil)
+	raw := string(out)
+	if !strings.Contains(raw, `href="https://second.example"`) {
+		t.Error("last URL should win")
+	}
+	if strings.Contains(raw, `href="https://first.example"`) {
+		t.Error("earlier URL should be replaced")
+	}
+}
+
 // Callback-only clicks (no URL) don't get wrapped — there's nothing
 // for a static SVG renderer to do with the JS reference.
 func TestRenderCallbackOnlyDoesNotWrapAnchor(t *testing.T) {

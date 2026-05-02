@@ -470,7 +470,15 @@ func (p *parser) parseClick(line string) error {
 	return nil
 }
 
-func parseClickArgs(s string) []string { return parserutil.SplitClickArgs(s, 3) }
+// parseClickArgs is flowchart's prior-shape wrapper around the
+// shared splitter. The error case is collapsed to an empty result
+// to preserve the legacy "silently keep the bad part" behavior of
+// flowchart's click parser; surfacing the error here would change
+// flowchart's contract independently of this PR.
+func parseClickArgs(s string) []string {
+	parts, _ := parserutil.SplitClickArgs(s, 3)
+	return parts
+}
 
 func (p *parser) parseLinkStyle(line string) error {
 	rest := line[len("linkStyle "):]

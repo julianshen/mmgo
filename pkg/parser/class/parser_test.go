@@ -1067,6 +1067,124 @@ func TestParseCallback(t *testing.T) {
 	}
 }
 
+// `click`/`link`/`callback` on an undeclared class is an error.
+// Auto-registering would silently spawn a phantom class on a typo;
+// surface the error so the user sees it.
+func TestParseClickUndefinedClassError(t *testing.T) {
+	for _, src := range []string{
+		`classDiagram
+    click Fooo href "https://example.com"`,
+		`classDiagram
+    link Bar "https://example.com"`,
+		`classDiagram
+    callback Baz "openDetails"`,
+	} {
+		t.Run(strings.SplitN(src, "\n", 2)[1], func(t *testing.T) {
+			_, err := Parse(strings.NewReader(src))
+			if err == nil {
+				t.Errorf("expected error for click on undefined class")
+			}
+		})
+	}
+}
+
+// `click Foo call ` with empty callback / `click Foo href` with no
+// URL must error rather than silently storing empty values.
+// All three positional args (URL, tooltip, target) populate the
+// ClickDef. Pinned at parser level so a regression that drops
+// parts[2] doesn't only surface in the renderer test.
+func TestParseClickHrefAllArgs(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class Foo
+    click Foo href "https://example.com" "Open docs" "_blank"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := d.Clicks[0]
+	if c.URL != "https://example.com" || c.Tooltip != "Open docs" || c.Target != "_blank" {
+		t.Errorf("click = %+v", c)
+	}
+}
+
+// `link ID "url" "tooltip" "target"` parses all three positional
+// args, including Target.
+func TestParseLinkAliasWithTarget(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class Foo
+    link Foo "https://example.com" "tip" "_self"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := d.Clicks[0]
+	if c.Target != "_self" {
+		t.Errorf("Target = %q", c.Target)
+	}
+}
+
+// Bare `click ID "url"` (no `href` subkeyword) is the documented
+// compatibility form; falls through to the URL branch.
+func TestParseClickBareURL(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class Foo
+    click Foo "https://example.com" "tip"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := d.Clicks[0]
+	if c.URL != "https://example.com" || c.Tooltip != "tip" {
+		t.Errorf("click = %+v", c)
+	}
+}
+
+// `callback Foo "func" "tooltip"` populates Tooltip alongside Callback.
+func TestParseCallbackWithTooltip(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class Foo
+    callback Foo "openDetails" "Click for more"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := d.Clicks[0]
+	if c.Callback != "openDetails" || c.Tooltip != "Click for more" {
+		t.Errorf("click = %+v", c)
+	}
+}
+
+// Unterminated `"` in a click line must surface as an error rather
+// than silently capturing the rest of the line into the URL.
+func TestParseClickUnterminatedQuoteError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`classDiagram
+    class Foo
+    click Foo href "https://example.com`))
+	if err == nil {
+		t.Error("expected error for unterminated quote")
+	}
+}
+
+func TestParseClickEmptyArgumentsError(t *testing.T) {
+	for _, src := range []string{
+		`classDiagram
+    class Foo
+    click Foo call`,
+		`classDiagram
+    class Foo
+    click Foo href`,
+		`classDiagram
+    class Foo
+    callback Foo`,
+		`classDiagram
+    class Foo
+    link Foo`,
+	} {
+		t.Run(strings.SplitN(src, "\n", 3)[2], func(t *testing.T) {
+			_, err := Parse(strings.NewReader(src))
+			if err == nil {
+				t.Errorf("expected error for empty click arguments")
+			}
+		})
+	}
+}
+
 func TestParseDirectionInvalid(t *testing.T) {
 	_, err := Parse(strings.NewReader("classDiagram\n    direction WAT"))
 	if err == nil {
