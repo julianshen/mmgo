@@ -12,7 +12,9 @@ import (
 
 func Parse(r io.Reader) (*diagram.ClassDiagram, error) {
 	p := &parser{
-		diagram:  &diagram.ClassDiagram{},
+		diagram: &diagram.ClassDiagram{
+			CSSClasses: make(map[string]string),
+		},
 		classIdx: make(map[string]int),
 	}
 	p.scanner = bufio.NewScanner(r)
@@ -52,6 +54,27 @@ type parser struct {
 }
 
 func (p *parser) parseLine(line string) error {
+	if v, ok := parserutil.MatchKeywordValue(line, "title"); ok {
+		p.diagram.Title = v
+		return nil
+	}
+	if v, ok := parserutil.MatchKeywordValue(line, "accTitle"); ok {
+		p.diagram.AccTitle = v
+		return nil
+	}
+	if v, ok := parserutil.MatchKeywordValue(line, "accDescr"); ok {
+		p.diagram.AccDescr = v
+		return nil
+	}
+	if strings.HasPrefix(line, "classDef ") {
+		return p.parseClassDef(line)
+	}
+	if strings.HasPrefix(line, "style ") {
+		return p.parseStyleRule(line)
+	}
+	if strings.HasPrefix(line, "cssClass ") {
+		return p.parseCSSClassBinding(line)
+	}
 	if rest, ok := strings.CutPrefix(line, "class "); ok {
 		rest = strings.TrimSpace(rest)
 		hdr, hasBody, err := parseClassHeader(rest)
@@ -61,9 +84,12 @@ func (p *parser) parseLine(line string) error {
 		if err := p.declareClass(hdr.id, hdr.label, hdr.generic); err != nil {
 			return err
 		}
+		idx := p.classIdx[hdr.id]
 		if hdr.annotation != diagram.AnnotationNone {
-			idx := p.classIdx[hdr.id]
 			p.diagram.Classes[idx].Annotation = hdr.annotation
+		}
+		if hdr.cssClass != "" {
+			p.diagram.Classes[idx].CSSClasses = append(p.diagram.Classes[idx].CSSClasses, hdr.cssClass)
 		}
 		if hasBody {
 			return p.parseClassBody(hdr.id)
@@ -165,6 +191,63 @@ func parseBareAnnotation(line string) (string, diagram.ClassAnnotation, bool) {
 	return id, ann, true
 }
 
+// parseClassDef stores `classDef NAME CSS` in CSSClasses with the CSS
+// normalized (commas → semicolons) so renderers can drop it directly
+// into a `style="…"` attribute.
+func (p *parser) parseClassDef(line string) error {
+	rest := line[len("classDef "):]
+	parts := strings.SplitN(rest, " ", 2)
+	if len(parts) < 2 {
+		return fmt.Errorf("classDef requires a name and CSS")
+	}
+	p.diagram.CSSClasses[parts[0]] = parserutil.NormalizeCSS(strings.TrimSpace(parts[1]))
+	return nil
+}
+
+// parseStyleRule stores `style ID CSS` as an inline override on the
+// named class. Multiple style lines for the same class accumulate in
+// source order; the renderer applies them after classDef references.
+//
+// `style ID …` references an actual class by ID, so we ensure the
+// class exists. classDef, by contrast, defines a free-standing CSS
+// class name and never auto-registers a diagram class.
+func (p *parser) parseStyleRule(line string) error {
+	rest := line[len("style "):]
+	parts := strings.SplitN(rest, " ", 2)
+	if len(parts) < 2 {
+		return fmt.Errorf("style requires an ID and CSS")
+	}
+	id := strings.TrimSpace(parts[0])
+	p.ensureClass(id)
+	p.diagram.Styles = append(p.diagram.Styles, diagram.ClassStyleDef{
+		ClassID: id,
+		CSS:     parserutil.NormalizeCSS(strings.TrimSpace(parts[1])),
+	})
+	return nil
+}
+
+// parseCSSClassBinding parses `cssClass "id1,id2" className`. The
+// quoted-id-list form is the canonical Mermaid syntax; we accept the
+// unquoted form too since both appear in the wild.
+func (p *parser) parseCSSClassBinding(line string) error {
+	rest := strings.TrimSpace(line[len("cssClass "):])
+	parts := strings.SplitN(rest, " ", 2)
+	if len(parts) < 2 {
+		return fmt.Errorf("cssClass requires id list and class name")
+	}
+	idList := parserutil.Unquote(strings.TrimSpace(parts[0]))
+	cssName := strings.TrimSpace(parts[1])
+	for _, id := range strings.Split(idList, ",") {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		idx := p.ensureClass(id)
+		p.diagram.Classes[idx].CSSClasses = append(p.diagram.Classes[idx].CSSClasses, cssName)
+	}
+	return nil
+}
+
 // parseSingleLineMember matches `ClassName : memberText` and returns
 // the class id and the member text (without the colon). The colon
 // must be surrounded by whitespace so a field type containing `:`
@@ -244,12 +327,13 @@ func (p *parser) declareClass(id, label, generic string) error {
 	return nil
 }
 
-// classHeader is the parsed result of `class NAME[...]~...~ <<Ann>>`.
+// classHeader is the parsed result of `class NAME[...]~...~ <<Ann>>:::cssClass`.
 type classHeader struct {
 	id         string
 	label      string // from `["..."]`
 	generic    string // from `~...~`
 	annotation diagram.ClassAnnotation
+	cssClass   string // from `:::name` shorthand
 }
 
 // parseClassHeader splits `Foo["My Label"]~T~` (or any subset) into
@@ -265,6 +349,20 @@ func parseClassHeader(rest string) (classHeader, bool, error) {
 	if i := strings.IndexByte(rest, '{'); i >= 0 {
 		rest = strings.TrimSpace(rest[:i])
 		hasBody = true
+	}
+	// `:::cssClass` shorthand attaches a named CSS class. The marker
+	// is always at the very end of the header (after any annotation /
+	// label / generic) so we strip it before the rest of the parsing.
+	// Mermaid only allows a single class name here; chained
+	// `class Foo:::a:::b` is rejected so the second name doesn't get
+	// silently absorbed into the ID.
+	var cssClass string
+	if i := strings.Index(rest, ":::"); i >= 0 {
+		cssClass = strings.TrimSpace(rest[i+3:])
+		rest = strings.TrimSpace(rest[:i])
+		if strings.Contains(cssClass, ":::") {
+			return classHeader{}, false, fmt.Errorf("class header: only one `:::` cssClass shorthand is allowed, got %q", cssClass)
+		}
 	}
 	// Inline annotation: `class Foo <<Interface>>`. Strip before
 	// label/generic so the brackets/tildes don't trip on `<<` chars.
@@ -307,7 +405,7 @@ func parseClassHeader(rest string) (classHeader, bool, error) {
 		generic = rest[i+1 : j]
 		rest = strings.TrimSpace(rest[:i])
 	}
-	return classHeader{id: rest, label: label, generic: generic, annotation: annotation}, hasBody, nil
+	return classHeader{id: rest, label: label, generic: generic, annotation: annotation, cssClass: cssClass}, hasBody, nil
 }
 
 func parseMember(line string) diagram.ClassMember {

@@ -849,6 +849,120 @@ func TestParseNoteQuotedTargetError(t *testing.T) {
 	}
 }
 
+func TestParseTitleAndAccessibility(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    title: Vehicle Hierarchy
+    accTitle: Vehicle class diagram
+    accDescr: Shows the parent-child relationship between Vehicle and Car
+    class Vehicle
+    class Car`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Title != "Vehicle Hierarchy" {
+		t.Errorf("Title = %q", d.Title)
+	}
+	if d.AccTitle != "Vehicle class diagram" {
+		t.Errorf("AccTitle = %q", d.AccTitle)
+	}
+	if d.AccDescr != "Shows the parent-child relationship between Vehicle and Car" {
+		t.Errorf("AccDescr = %q", d.AccDescr)
+	}
+}
+
+// classDef NAME CSS adds an entry to the user-defined class table.
+// Style for the named entries is normalized to CSS (commas → ;).
+func TestParseClassDef(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    classDef important fill:#f96,stroke:#333
+    classDef faded fill:#eee`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := d.CSSClasses["important"]; got != "fill:#f96;stroke:#333" {
+		t.Errorf("important = %q", got)
+	}
+	if got := d.CSSClasses["faded"]; got != "fill:#eee" {
+		t.Errorf("faded = %q", got)
+	}
+}
+
+// `style ClassID CSS` adds an inline override; multiple style lines
+// stack in source order.
+func TestParseStyle(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    class Foo
+    style Foo fill:#f96,stroke:#333`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Styles) != 1 {
+		t.Fatalf("want 1 style, got %d", len(d.Styles))
+	}
+	if d.Styles[0].ClassID != "Foo" || d.Styles[0].CSS != "fill:#f96;stroke:#333" {
+		t.Errorf("style = %+v", d.Styles[0])
+	}
+}
+
+// cssClass binds a named CSS class to one or more class IDs (the
+// `"id1,id2"` form). The bound names land on each ClassDef's
+// CSSClasses slice in source order.
+func TestParseCSSClassBinding(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    classDef important fill:#f96
+    class Foo
+    class Bar
+    cssClass "Foo,Bar" important`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, id := range []string{"Foo", "Bar"} {
+		idx := -1
+		for i, c := range d.Classes {
+			if c.ID == id {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			t.Fatalf("%s not found", id)
+		}
+		if got := d.Classes[idx].CSSClasses; len(got) != 1 || got[0] != "important" {
+			t.Errorf("%s.CSSClasses = %v", id, got)
+		}
+	}
+}
+
+// `:::className` shorthand on a class declaration line attaches the
+// named CSS class to that class.
+func TestParseCSSClassShorthand(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    classDef important fill:#f96
+    class Foo:::important`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Classes) != 1 {
+		t.Fatalf("want 1 class, got %d", len(d.Classes))
+	}
+	if got := d.Classes[0].CSSClasses; len(got) != 1 || got[0] != "important" {
+		t.Errorf("CSSClasses = %v", got)
+	}
+	if d.Classes[0].ID != "Foo" {
+		t.Errorf("ID = %q (shorthand should not leak into ID)", d.Classes[0].ID)
+	}
+}
+
+// Mermaid only allows one `:::` cssClass shorthand per class header.
+// A chained form should error so the second name doesn't silently
+// vanish into the ID.
+func TestParseChainedCSSClassError(t *testing.T) {
+	_, err := Parse(strings.NewReader("classDiagram\n    class Foo:::a:::b"))
+	if err == nil {
+		t.Error("expected error for chained `:::` shorthand")
+	}
+}
+
 func TestParseDirectionInvalid(t *testing.T) {
 	_, err := Parse(strings.NewReader("classDiagram\n    direction WAT"))
 	if err == nil {

@@ -75,6 +75,19 @@ func Render(d *diagram.ClassDiagram, opts *Options) ([]byte, error) {
 	}
 
 	var children []any
+	// Accessibility metadata comes first per SVG 1.1 §5.4: screen
+	// readers announce the document name from <title> and any longer
+	// description from <desc>. accTitle / accDescr are mermaid's
+	// dedicated accessibility keywords; `title:` falls back to a
+	// general document title.
+	if d.AccTitle != "" {
+		children = append(children, &svgTitle{Content: d.AccTitle})
+	} else if d.Title != "" {
+		children = append(children, &svgTitle{Content: d.Title})
+	}
+	if d.AccDescr != "" {
+		children = append(children, &svgDesc{Content: d.AccDescr})
+	}
 	if defs := buildDefs(d); defs != nil {
 		children = append(children, defs)
 	}
@@ -157,6 +170,26 @@ func splitMembers(members []diagram.ClassMember) (fields, methods []diagram.Clas
 	return
 }
 
+// classRectStyle returns the merged CSS overrides for a class —
+// classDef declarations referenced via CSSClasses first, then any
+// `style ID …` rules in source order. Later declarations win because
+// they're appended to the style string verbatim and SVG honors
+// later-declared values.
+func classRectStyle(d *diagram.ClassDiagram, c diagram.ClassDef) string {
+	var parts []string
+	for _, name := range c.CSSClasses {
+		if css := d.CSSClasses[name]; css != "" {
+			parts = append(parts, css)
+		}
+	}
+	for _, s := range d.Styles {
+		if s.ClassID == c.ID {
+			parts = append(parts, s.CSS)
+		}
+	}
+	return strings.Join(parts, ";")
+}
+
 // headerText is the rendered class header — the label (custom or
 // defaulted to the ID) optionally followed by `<Generic>`. Mermaid
 // renders generics with angle brackets, mirroring TypeScript / Java.
@@ -203,10 +236,14 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 		x := cx - w/2
 		y := cy - h/2
 
+		rectStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.NodeFill, th.NodeStroke)
+		if override := classRectStyle(d, c); override != "" {
+			rectStyle = rectStyle + ";" + override
+		}
 		elems = append(elems, &rect{
 			X: svgFloat(x), Y: svgFloat(y),
 			Width: svgFloat(w), Height: svgFloat(h),
-			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.NodeFill, th.NodeStroke),
+			Style: rectStyle,
 		})
 
 		curY := y + headerH/2
