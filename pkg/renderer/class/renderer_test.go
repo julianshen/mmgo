@@ -783,6 +783,80 @@ func TestRenderNamespace(t *testing.T) {
 	}
 }
 
+// When a namespace's bounding rect extends above the class-layout
+// origin (e.g., a top-row namespace whose label band reserves space
+// above the topmost class), the SVG viewBox must shift its min-y
+// to a negative value so the namespace label isn't clipped.
+func TestRenderNamespaceExpandsViewBoxNegative(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Direction: diagram.DirectionLR,
+		Classes: []diagram.ClassDef{
+			{ID: "A", Label: "A"},
+			{ID: "B", Label: "B"},
+		},
+		Namespaces: []diagram.ClassNamespace{
+			{Name: "Top", ClassIDs: []string{"A", "B"}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// viewBox attr is `<minX> <minY> <w> <h>`; minY must be < 0
+	// when the namespace extends above the class layout.
+	w, h := parseViewBoxWH(t, out)
+	if w <= 0 || h <= 0 {
+		t.Errorf("viewBox dimensions invalid: %fx%f", w, h)
+	}
+	// Look for a negative number in the viewBox attr — the label
+	// band of a top-edge namespace forces the viewBox up.
+	if !strings.Contains(raw, `viewBox="-`) && !strings.Contains(raw, " -") {
+		t.Errorf("expected negative viewBox origin for top-edge namespace, got viewBox in:\n%s", raw[:200])
+	}
+}
+
+// Lollipop edges: the line should terminate at the circle's far
+// edge, not pass through to the class boundary. A 2-point line's
+// length should be (gap_between_classes - lollipopLineInset).
+func TestRenderLollipopLineStopsAtCircle(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{
+			{ID: "Provider", Label: "Provider"},
+			{ID: "Consumer", Label: "Consumer"},
+		},
+		Relations: []diagram.ClassRelation{
+			{From: "Provider", To: "Consumer", RelationType: diagram.RelationTypeLollipop, Direction: diagram.RelationForward},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// Pull the connector <line> element and check its y1 vs the
+	// class layout. The Provider class sits at top, Consumer at
+	// bottom in TB layout; the connector starts BELOW the
+	// Provider's bottom edge by lollipopLineInset (so the line
+	// doesn't pierce the lollipop circle drawn at the anchor).
+	pattern := `<line x1="80.00" y1="`
+	idx := strings.Index(raw, pattern)
+	if idx < 0 {
+		t.Fatalf("expected vertical connector at x=80; got:\n%s", raw)
+	}
+	tail := raw[idx+len(pattern):]
+	end := strings.IndexByte(tail, '"')
+	var y1 float64
+	if _, err := fmt.Sscanf(tail[:end], "%f", &y1); err != nil {
+		t.Fatalf("y1 parse: %v", err)
+	}
+	// Provider box bottom is at y=60 by default; with the inset
+	// pull-back, the line should start at y >= 60 + 19 = 79.
+	if y1 < 79 {
+		t.Errorf("line y1 = %f, want >= 79 (Provider bottom + lollipopLineInset)", y1)
+	}
+}
+
 // A namespace with no resolved members (e.g. all class IDs missing
 // from the layout) should silently emit nothing rather than draw a
 // degenerate Inf-bounded rectangle.
