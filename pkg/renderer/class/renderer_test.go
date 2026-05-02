@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -287,35 +288,52 @@ func TestRenderDeterministic(t *testing.T) {
 	}
 }
 
-// Reverse arrows must render the relation glyph at the To end (instead
-// of the canonical-forward From end) and skip the `marker-end` SVG
-// reference, since the glyph is inline-placed at the opposite end.
-func TestRenderReverseInheritance(t *testing.T) {
-	d := &diagram.ClassDiagram{
-		Classes: []diagram.ClassDef{
-			{ID: "Dog", Label: "Dog"},
-			{ID: "Animal", Label: "Animal"},
-		},
-		Relations: []diagram.ClassRelation{
-			// Dog --|> Animal: triangle (parent end) sits at Animal (To).
-			{From: "Dog", To: "Animal", RelationType: diagram.RelationTypeInheritance, Reverse: true},
-		},
+// Reverse arrows render the relation glyph at the To end (not the
+// canonical-forward From end) and skip the `marker-end` SVG reference
+// since the glyph is inline-placed instead. This pins the glyph's
+// polygon points so a fill/orientation regression can't pass.
+func TestRenderReverseRelations(t *testing.T) {
+	cases := []struct {
+		name      string
+		rt        diagram.RelationType
+		wantPoly  string // unique polygon-points substring
+	}{
+		{"inheritance", diagram.RelationTypeInheritance, `points="20,0 0,10 20,20"`},
+		{"composition", diagram.RelationTypeComposition, `fill:#333;stroke:#333;stroke-width:1`},
+		{"aggregation", diagram.RelationTypeAggregation, `fill:white;stroke:#333;stroke-width:1"`},
+		{"realization", diagram.RelationTypeRealization, `fill:white;stroke:#333;stroke-width:1.5`},
+		{"association", diagram.RelationTypeAssociation, `points="0,0 20,10 0,20"`},
+		{"dependency", diagram.RelationTypeDependency, `points="0,0 20,10 0,20"`},
 	}
-	out, err := Render(d, nil)
-	if err != nil {
-		t.Fatalf("Render: %v", err)
-	}
-	raw := string(out)
-	if !strings.Contains(raw, `points="20,0 0,10 20,20"`) {
-		t.Error("hollow triangle glyph missing for reverse inheritance")
-	}
-	if strings.Contains(raw, `marker-end="url(#`) {
-		t.Error("reverse edges should not use SVG marker-end (inline-placed instead)")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &diagram.ClassDiagram{
+				Classes: []diagram.ClassDef{
+					{ID: "A", Label: "A"}, {ID: "B", Label: "B"},
+				},
+				Relations: []diagram.ClassRelation{
+					{From: "A", To: "B", RelationType: tc.rt, Direction: diagram.RelationReverse},
+				},
+			}
+			out, err := Render(d, nil)
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			raw := string(out)
+			if !strings.Contains(raw, tc.wantPoly) {
+				t.Errorf("missing %q in output", tc.wantPoly)
+			}
+			if strings.Contains(raw, `marker-end="url(#`) {
+				t.Error("reverse edges must not use SVG marker-end")
+			}
+		})
 	}
 }
 
-// Bidirectional arrows draw the same glyph at BOTH ends; both placements
-// are inline (no marker-end).
+// Bidirectional arrows draw the same glyph at BOTH ends with the
+// arrowhead polygon present twice and the two transforms anchored
+// at distinct coordinates (otherwise both glyphs would overlap on
+// the same endpoint, which is a realistic regression to catch).
 func TestRenderBidirectionalAssociation(t *testing.T) {
 	d := &diagram.ClassDiagram{
 		Classes: []diagram.ClassDef{
@@ -323,7 +341,7 @@ func TestRenderBidirectionalAssociation(t *testing.T) {
 			{ID: "B", Label: "B"},
 		},
 		Relations: []diagram.ClassRelation{
-			{From: "A", To: "B", RelationType: diagram.RelationTypeAssociation, Bidirectional: true},
+			{From: "A", To: "B", RelationType: diagram.RelationTypeAssociation, Direction: diagram.RelationBidirectional},
 		},
 	}
 	out, err := Render(d, nil)
@@ -331,13 +349,31 @@ func TestRenderBidirectionalAssociation(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	// Two inline glyph groups → two `<g transform="translate(` occurrences.
-	if got := strings.Count(raw, `<g transform="translate(`); got != 2 {
-		t.Errorf("expected 2 inline glyph groups for bidirectional arrow, got %d", got)
+	if got := strings.Count(raw, `points="0,0 20,10 0,20"`); got != 2 {
+		t.Errorf("expected arrowhead polygon twice, got %d", got)
 	}
 	if strings.Contains(raw, `marker-end="url(#`) {
-		t.Error("bidirectional edges should not use SVG marker-end")
+		t.Error("bidirectional edges must not use SVG marker-end")
 	}
+	transforms := transformOffsets(t, raw)
+	if len(transforms) != 2 {
+		t.Fatalf("expected 2 inline glyph transforms, got %d", len(transforms))
+	}
+	if transforms[0] == transforms[1] {
+		t.Errorf("both glyphs anchored at same point %v — they should sit at opposite ends", transforms[0])
+	}
+}
+
+var translateRe = regexp.MustCompile(`<g transform="translate\(([-\d.]+),([-\d.]+)\)`)
+
+func transformOffsets(t *testing.T, raw string) [][2]string {
+	t.Helper()
+	matches := translateRe.FindAllStringSubmatch(raw, -1)
+	out := make([][2]string, 0, len(matches))
+	for _, m := range matches {
+		out = append(out, [2]string{m[1], m[2]})
+	}
+	return out
 }
 
 // Direction selects the layout RankDir. The visible signal is the

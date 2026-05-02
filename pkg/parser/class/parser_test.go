@@ -273,22 +273,22 @@ func TestParseBareClassDeclaration(t *testing.T) {
 }
 
 // Reverse-direction arrows: Mermaid accepts the relation glyph on either
-// end. Internally we keep RelationType independent of source direction and
-// expose the placement via Reverse so the renderer can decide which end
-// gets the glyph.
+// end. Internally we keep RelationType independent of source direction
+// and expose the placement via Direction so the renderer can decide
+// which end gets the glyph.
 func TestParseReverseRelations(t *testing.T) {
 	cases := []struct {
 		src     string
 		want    diagram.RelationType
-		reverse bool
+		wantDir diagram.RelationDirection
 	}{
-		{"Dog --|> Animal", diagram.RelationTypeInheritance, true},
-		{"Animal <|-- Dog", diagram.RelationTypeInheritance, false},
-		{"Engine --* Car", diagram.RelationTypeComposition, true},
-		{"Employee --o Department", diagram.RelationTypeAggregation, true},
-		{"Course <-- Student", diagram.RelationTypeAssociation, true},
-		{"Interface <.. Class", diagram.RelationTypeDependency, true},
-		{"Drawable <|.. Shape", diagram.RelationTypeRealization, true},
+		{"Dog --|> Animal", diagram.RelationTypeInheritance, diagram.RelationReverse},
+		{"Animal <|-- Dog", diagram.RelationTypeInheritance, diagram.RelationForward},
+		{"Engine --* Car", diagram.RelationTypeComposition, diagram.RelationReverse},
+		{"Employee --o Department", diagram.RelationTypeAggregation, diagram.RelationReverse},
+		{"Course <-- Student", diagram.RelationTypeAssociation, diagram.RelationReverse},
+		{"Interface <.. Class", diagram.RelationTypeDependency, diagram.RelationReverse},
+		{"Drawable <|.. Shape", diagram.RelationTypeRealization, diagram.RelationReverse},
 	}
 	for _, tc := range cases {
 		t.Run(tc.src, func(t *testing.T) {
@@ -303,11 +303,8 @@ func TestParseReverseRelations(t *testing.T) {
 			if r.RelationType != tc.want {
 				t.Errorf("type = %v, want %v", r.RelationType, tc.want)
 			}
-			if r.Reverse != tc.reverse {
-				t.Errorf("reverse = %v, want %v", r.Reverse, tc.reverse)
-			}
-			if r.Bidirectional {
-				t.Errorf("unexpected bidirectional=true on %q", tc.src)
+			if r.Direction != tc.wantDir {
+				t.Errorf("direction = %v, want %v", r.Direction, tc.wantDir)
 			}
 		})
 	}
@@ -341,12 +338,8 @@ func TestParseBidirectionalRelations(t *testing.T) {
 			if r.RelationType != tc.want {
 				t.Errorf("type = %v, want %v", r.RelationType, tc.want)
 			}
-			if !r.Bidirectional {
-				t.Errorf("Bidirectional should be true")
-			}
-			// Reverse is meaningless when Bidirectional is set.
-			if r.Reverse {
-				t.Errorf("Reverse must be false when Bidirectional is set")
+			if r.Direction != diagram.RelationBidirectional {
+				t.Errorf("direction = %v, want bidirectional", r.Direction)
 			}
 		})
 	}
@@ -366,8 +359,8 @@ func TestParseReverseWithLabelAndCardinality(t *testing.T) {
 	if r.RelationType != diagram.RelationTypeAssociation {
 		t.Errorf("type = %v", r.RelationType)
 	}
-	if !r.Reverse {
-		t.Errorf("reverse should be true")
+	if r.Direction != diagram.RelationReverse {
+		t.Errorf("direction = %v, want reverse", r.Direction)
 	}
 	if r.From != "Order" || r.To != "Customer" {
 		t.Errorf("From/To = %q/%q", r.From, r.To)
@@ -377,6 +370,118 @@ func TestParseReverseWithLabelAndCardinality(t *testing.T) {
 	}
 	if r.Label != "placed by" {
 		t.Errorf("label = %q", r.Label)
+	}
+}
+
+// Mixed glyphs (e.g. `<|--*`, `*--o`) can't be resolved to a single
+// relation kind. Once an arrow is recognised, Mermaid's grammar
+// requires the glyph kinds to agree; mismatches must surface as a
+// parse error rather than silently dropping the line.
+func TestParseMixedGlyphsError(t *testing.T) {
+	for _, src := range []string{
+		"A <|--* B",
+		"A *--o B",
+		"A <|--> B",
+	} {
+		t.Run(src, func(t *testing.T) {
+			_, err := Parse(strings.NewReader("classDiagram\n    " + src))
+			if err == nil {
+				t.Errorf("expected parse error for mismatched arrow %q", src)
+			}
+		})
+	}
+}
+
+// Empty endpoints (`--> Dog`, `Animal <|--`) are ambiguous; surface
+// the error rather than silently dropping.
+func TestParseRelationMissingEndpointError(t *testing.T) {
+	for _, src := range []string{
+		"--> Dog",
+		"Animal <|--",
+	} {
+		t.Run(src, func(t *testing.T) {
+			_, err := Parse(strings.NewReader("classDiagram\n    " + src))
+			if err == nil {
+				t.Errorf("expected parse error for %q", src)
+			}
+		})
+	}
+}
+
+// Whitespace is not part of the arrow grammar; Mermaid accepts
+// `Animal<|--Dog` exactly the same as `Animal <|-- Dog`.
+func TestParseArrowNoWhitespace(t *testing.T) {
+	d, err := Parse(strings.NewReader("classDiagram\n    Animal<|--Dog"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Relations) != 1 {
+		t.Fatalf("want 1 relation, got %d", len(d.Relations))
+	}
+	r := d.Relations[0]
+	if r.From != "Animal" || r.To != "Dog" {
+		t.Errorf("From/To = %q/%q", r.From, r.To)
+	}
+	if r.RelationType != diagram.RelationTypeInheritance || r.Direction != diagram.RelationForward {
+		t.Errorf("type=%v dir=%v", r.RelationType, r.Direction)
+	}
+}
+
+// Multi-dash / multi-dot runs (`A --- B`, `A .... B`) are accepted
+// by mermaid-cli for style-only emphasis; they still classify as
+// the same Link / DashedLink relations.
+func TestParseMultiDashRuns(t *testing.T) {
+	cases := []struct {
+		src  string
+		want diagram.RelationType
+	}{
+		{"A --- B", diagram.RelationTypeLink},
+		{"A ---- B", diagram.RelationTypeLink},
+		{"A ... B", diagram.RelationTypeDashedLink},
+		{"A .... B", diagram.RelationTypeDashedLink},
+	}
+	for _, tc := range cases {
+		t.Run(tc.src, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("classDiagram\n    " + tc.src))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(d.Relations) != 1 {
+				t.Fatalf("want 1 relation, got %d", len(d.Relations))
+			}
+			if d.Relations[0].RelationType != tc.want {
+				t.Errorf("type = %v, want %v", d.Relations[0].RelationType, tc.want)
+			}
+		})
+	}
+}
+
+// Bidirectional arrows must coexist with cardinality + label syntax.
+func TestParseBidirectionalWithCardinality(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    A "1" <--> "*" B : knows`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Relations) != 1 {
+		t.Fatalf("want 1 relation, got %d", len(d.Relations))
+	}
+	r := d.Relations[0]
+	if r.Direction != diagram.RelationBidirectional {
+		t.Errorf("direction = %v, want bidirectional", r.Direction)
+	}
+	if r.FromCardinality != "1" || r.ToCardinality != "*" {
+		t.Errorf("cardinality = %q/%q", r.FromCardinality, r.ToCardinality)
+	}
+	if r.Label != "knows" {
+		t.Errorf("label = %q", r.Label)
+	}
+}
+
+func TestParseDirectionInvalid(t *testing.T) {
+	_, err := Parse(strings.NewReader("classDiagram\n    direction WAT"))
+	if err == nil {
+		t.Fatal("expected error for unknown direction")
 	}
 }
 

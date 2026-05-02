@@ -293,14 +293,11 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 			pts[last] = layout.Point{X: x, Y: y}
 		}
 
-		// Decide which glyph (if any) lands at each end of the edge.
-		// Forward asymmetric edges keep the canonical placement (SVG
-		// marker-end for arrowhead/realization-head, inline-at-start
-		// for triangle/diamond) so existing renderer output is byte-
-		// identical. Reverse/Bidirectional edges always inline-place
-		// glyphs because SVG marker-end can't address the start.
+		// Forward asymmetric edges use SVG marker-end for the To-end
+		// glyph; reverse/bidirectional edges inline-place because
+		// marker-end can't address the start.
 		atFrom, atTo := edgeGlyphs(rel)
-		canUseEndMarker := !rel.Reverse && !rel.Bidirectional
+		canUseEndMarker := rel.Direction == diagram.RelationForward
 		endRef := ""
 		if canUseEndMarker && atTo != glyphNoneKind {
 			if m, ok := endMarkerForGlyph(atTo); ok {
@@ -373,32 +370,34 @@ func relationIsDashed(rt diagram.RelationType) bool {
 type glyphKind int8
 
 const (
-	glyphNoneKind          glyphKind = iota
-	glyphTriangleHollow              // inheritance + realization heads
-	glyphTriangleSolidLine           // same hollow triangle, drawn for solid-line variants (inheritance) — kept distinct so future styling tweaks are localized
-	glyphDiamondFilled               // composition
-	glyphDiamondHollow               // aggregation
-	glyphArrowhead                   // association + dependency
+	glyphNoneKind       glyphKind = iota
+	glyphTriangleHollow           // inheritance + realization heads
+	glyphDiamondFilled            // composition
+	glyphDiamondHollow            // aggregation
+	glyphArrowhead                // association + dependency
 )
 
-// edgeGlyphs returns the glyph (if any) to draw at the From end and at
-// the To end of `rel`. It encodes Reverse (swap ends) and Bidirectional
-// (mirror at both ends) on top of the per-RelationType base glyph.
-//
-// "Primary side" (start vs end) follows Mermaid's canonical literal:
-//   - inheritance / composition / aggregation → glyph at start (From)
-//   - realization / association / dependency  → glyph at end (To)
-//
-// Reverse swaps that side. Bidirectional places the glyph at both sides.
+// SVG marker / inline polygon shapes. Hoisted to package-level so the
+// arrowhead `0,0 20,10 0,20` and triangle `20,0 0,10 20,20` each have
+// one source of truth across `inlineGeoms` and `endMarkersByGlyph`.
+const (
+	arrowheadPoints = "0,0 20,10 0,20"
+	trianglePoints  = "20,0 0,10 20,20"
+	diamondPoints   = "0,10 10,0 20,10 10,20"
+)
+
+// edgeGlyphs returns the glyph (if any) to draw at each end of rel.
+// Reverse swaps the canonical side; Bidirectional mirrors the glyph
+// onto both ends.
 func edgeGlyphs(rel diagram.ClassRelation) (atFrom, atTo glyphKind) {
 	g, primaryAtTo := glyphForRelation(rel.RelationType)
 	if g == glyphNoneKind {
 		return glyphNoneKind, glyphNoneKind
 	}
-	if rel.Bidirectional {
+	switch rel.Direction {
+	case diagram.RelationBidirectional:
 		return g, g
-	}
-	if rel.Reverse {
+	case diagram.RelationReverse:
 		primaryAtTo = !primaryAtTo
 	}
 	if primaryAtTo {
@@ -443,68 +442,58 @@ type startGeom struct {
 	refX, refY float64
 }
 
-// inlineGeoms holds the shape for each glyph when drawn inline (used at
-// the canonical-forward start, and at either end for reverse /
-// bidirectional edges where SVG `marker-end` cannot be used).
-//
-// Anchoring: refX=0 pins the glyph's "inner" vertex (the side that
-// touches the class box) at the edge's endpoint; the rest of the glyph
-// flares outward toward the line's interior. Triangle tip and diamond
-// inner vertex sit at local (0, 10) → coincide with the anchor.
+// inlineGeoms holds the shape for each glyph when drawn inline. refX=0
+// pins the glyph's inner vertex (the side that touches the class box)
+// at the edge endpoint; the rest of the glyph flares into the gap.
 var inlineGeoms = map[glyphKind]startGeom{
 	glyphTriangleHollow: {
-		children: []any{&polygon{Points: "20,0 0,10 20,20", Style: "fill:white;stroke:#333;stroke-width:1.5"}},
+		children: []any{&polygon{Points: trianglePoints, Style: "fill:white;stroke:#333;stroke-width:1.5"}},
 		refX:     0, refY: 10,
 	},
 	glyphDiamondFilled: {
-		children: []any{&polygon{Points: "0,10 10,0 20,10 10,20", Style: "fill:#333;stroke:#333;stroke-width:1"}},
+		children: []any{&polygon{Points: diamondPoints, Style: "fill:#333;stroke:#333;stroke-width:1"}},
 		refX:     0, refY: 10,
 	},
 	glyphDiamondHollow: {
-		children: []any{&polygon{Points: "0,10 10,0 20,10 10,20", Style: "fill:white;stroke:#333;stroke-width:1"}},
+		children: []any{&polygon{Points: diamondPoints, Style: "fill:white;stroke:#333;stroke-width:1"}},
 		refX:     0, refY: 10,
 	},
 	glyphArrowhead: {
-		children: []any{&polygon{Points: "0,0 20,10 0,20", Style: "fill:#333;stroke:#333;stroke-width:1"}},
+		children: []any{&polygon{Points: arrowheadPoints, Style: "fill:#333;stroke:#333;stroke-width:1"}},
 		refX:     20, refY: 10,
 	},
 }
 
-// endMarkersByGlyph mirrors `inlineGeoms` for the canonical-forward path
-// where the glyph sits at the To end and is rendered via SVG `<marker>`
-// + `marker-end`. Keeping this in the forward path preserves byte-
-// identical output for existing diagrams.
+// endMarkersByGlyph is the SVG `<marker>` form of the same glyph table,
+// used on the canonical-forward path via `marker-end`. The arrowhead
+// marker is shared by Association (solid line) and Dependency (dashed
+// line) — the dash pattern is set on the path, not the marker.
 var endMarkersByGlyph = map[glyphKind]marker{
 	glyphArrowhead: {
-		// One marker geometry serves both Association (solid line)
-		// and Dependency (dashed line). The line type is set on the
-		// path itself; the head is identical. Marker id was historically
-		// `cls-association`; we keep that spelling so existing golden
-		// SVGs that reference it remain valid.
 		ID: "cls-association", ViewBox: "0 0 20 20",
 		RefX: 18, RefY: 10, Width: 12, Height: 12, Orient: "auto",
-		Children: []any{&polygon{Points: "0,0 20,10 0,20", Style: "fill:#333;stroke:#333;stroke-width:1"}},
+		Children: []any{&polygon{Points: arrowheadPoints, Style: "fill:#333;stroke:#333;stroke-width:1"}},
 	},
 	glyphTriangleHollow: {
 		ID: "cls-realization", ViewBox: "0 0 20 20",
 		RefX: 18, RefY: 10, Width: 12, Height: 12, Orient: "auto",
-		Children: []any{&polygon{Points: "0,0 20,10 0,20", Style: "fill:white;stroke:#333;stroke-width:1.5"}},
+		Children: []any{&polygon{Points: arrowheadPoints, Style: "fill:white;stroke:#333;stroke-width:1.5"}},
 	},
 }
 
 func buildDefs(d *diagram.ClassDiagram) *defs {
 	needed := make(map[glyphKind]bool)
 	for _, r := range d.Relations {
-		if r.Reverse || r.Bidirectional {
-			continue // these inline-place; no <marker> def needed
+		if r.Direction != diagram.RelationForward {
+			continue // reverse / bidirectional inline-place; no <marker> def needed
 		}
-		atFrom, atTo := edgeGlyphs(r)
-		_ = atFrom
-		if atTo == glyphNoneKind {
+		// Only forward edges with a glyph on the To end use marker-end.
+		g, atTo := glyphForRelation(r.RelationType)
+		if !atTo {
 			continue
 		}
-		if _, ok := endMarkersByGlyph[atTo]; ok {
-			needed[atTo] = true
+		if _, ok := endMarkersByGlyph[g]; ok {
+			needed[g] = true
 		}
 	}
 	if len(needed) == 0 {

@@ -75,20 +75,28 @@ var relationTypeNames = []string{
 
 func (r RelationType) String() string { return enumString(r, relationTypeNames) }
 
-// ClassRelation describes one edge between two classes.
-//
-// RelationType encodes the *kind* of relationship (inheritance, composition,
-// dependency, …) independently of how it was written in the source. The
-// Reverse and Bidirectional flags preserve the *direction* the source used
-// so the renderer can place glyphs on the correct end without losing
-// information:
-//
-//   - "Animal <|-- Dog"   → Inheritance, Reverse=false  (parent on left)
-//   - "Dog --|> Animal"   → Inheritance, Reverse=true   (parent on right)
-//   - "A <|--|> B"        → Inheritance, Bidirectional=true
-//
-// Two-way arrows (`<|--|>`, `*--*`, `o--o`, `<-->`, `<..>`, `<|..|>`) set
-// Bidirectional. A relation cannot be both Reverse and Bidirectional.
+// RelationDirection captures whether the source wrote the arrow in
+// canonical direction, reversed, or as a two-way (bidirectional) form.
+// Encoded as a single enum so the illegal combination "reverse +
+// bidirectional" is unrepresentable.
+type RelationDirection int8
+
+const (
+	// RelationForward matches Mermaid's canonical literal — `<|--`,
+	// `*--`, `o--`, `-->`, `..>`, `..|>`, `--`, `..`.
+	RelationForward RelationDirection = iota
+	// RelationReverse mirrors the canonical literal — `--|>`, `--*`,
+	// `--o`, `<--`, `<..`, `<|..`. The relation kind is unchanged;
+	// only the glyph-bearing end swaps.
+	RelationReverse
+	// RelationBidirectional is the two-way form — `<|--|>`, `*--*`,
+	// `o--o`, `<-->`, `<..>`, `<|..|>`. Same glyph at both ends.
+	RelationBidirectional
+)
+
+// ClassRelation describes one edge between two classes. RelationType
+// encodes the kind of relationship; Direction encodes how the arrow
+// was written so the renderer can place glyphs on the correct end(s).
 type ClassRelation struct {
 	From            string
 	To              string
@@ -96,8 +104,7 @@ type ClassRelation struct {
 	Label           string
 	FromCardinality string
 	ToCardinality   string
-	Reverse         bool
-	Bidirectional   bool
+	Direction       RelationDirection
 }
 
 type ClassDiagram struct {

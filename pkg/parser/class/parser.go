@@ -62,23 +62,21 @@ func (p *parser) parseLine(line string) error {
 		return nil
 	}
 	if rest, ok := strings.CutPrefix(line, "direction "); ok {
-		switch strings.TrimSpace(rest) {
-		case "TB":
-			p.diagram.Direction = diagram.DirectionTB
-		case "BT":
-			p.diagram.Direction = diagram.DirectionBT
-		case "LR":
-			p.diagram.Direction = diagram.DirectionLR
-		case "RL":
-			p.diagram.Direction = diagram.DirectionRL
+		dir, err := parserutil.ParseDirection(strings.TrimSpace(rest))
+		if err != nil {
+			return err
 		}
+		p.diagram.Direction = dir
 		return nil
 	}
-	if rel, ok := parseRelation(line); ok {
+	rel, hasArrow, err := parseRelation(line)
+	if err != nil {
+		return err
+	}
+	if hasArrow {
 		p.ensureClass(rel.From)
 		p.ensureClass(rel.To)
 		p.diagram.Relations = append(p.diagram.Relations, rel)
-		return nil
 	}
 	return nil
 }
@@ -214,14 +212,19 @@ type arrowMatch struct {
 	dashed   bool // true for `..` line, false for `--`
 }
 
-func parseRelation(line string) (diagram.ClassRelation, bool) {
+// parseRelation returns (relation, hasArrow, error). Once the line is
+// recognised as an arrow (tokenizeArrow matched), a downstream failure
+// — unsupported glyph pair, missing endpoint — surfaces as an error
+// rather than a silent drop, since the user clearly intended to write
+// a relation.
+func parseRelation(line string) (diagram.ClassRelation, bool, error) {
 	m, ok := tokenizeArrow(line)
 	if !ok {
-		return diagram.ClassRelation{}, false
+		return diagram.ClassRelation{}, false, nil
 	}
-	rt, reverse, bidir, ok := classifyArrow(m)
+	rt, dir, ok := classifyArrow(m)
 	if !ok {
-		return diagram.ClassRelation{}, false
+		return diagram.ClassRelation{}, false, fmt.Errorf("unsupported relation arrow in %q", line)
 	}
 
 	leftRaw := strings.TrimSpace(line[:m.startIdx])
@@ -230,7 +233,7 @@ func parseRelation(line string) (diagram.ClassRelation, bool) {
 	from, fromCard := extractCardinality(leftRaw)
 	to, label, toCard := extractRightSide(rightRaw)
 	if from == "" || to == "" {
-		return diagram.ClassRelation{}, false
+		return diagram.ClassRelation{}, false, fmt.Errorf("relation %q is missing an endpoint", line)
 	}
 
 	return diagram.ClassRelation{
@@ -240,9 +243,8 @@ func parseRelation(line string) (diagram.ClassRelation, bool) {
 		Label:           label,
 		FromCardinality: fromCard,
 		ToCardinality:   toCard,
-		Reverse:         reverse,
-		Bidirectional:   bidir,
-	}, true
+		Direction:       dir,
+	}, true, nil
 }
 
 // tokenizeArrow finds the relation arrow inside a line by locating the
@@ -252,23 +254,20 @@ func parseRelation(line string) (diagram.ClassRelation, bool) {
 //
 // We deliberately do not anchor to whitespace — `Animal<|--Dog` (no
 // spaces, as some users write) tokenizes the same as `Animal <|-- Dog`.
+//
+// Cardinality literals like "0..*" contain arrow-shaped chars; we track
+// whether we're inside a `"…"` run as we scan and skip arrow-detection
+// on those positions.
 func tokenizeArrow(line string) (arrowMatch, bool) {
-	// Compute "in-string" mask first so cardinality literals like
-	// "0..*" don't get tokenized as a dashed arrow.
-	inStr := make([]bool, len(line))
-	open := false
-	for i := 0; i < len(line); i++ {
-		if line[i] == '"' {
-			open = !open
-			continue
-		}
-		inStr[i] = open
-	}
-
 	bestLen := 0
 	var best arrowMatch
+	inString := false
 	for i := 0; i < len(line)-1; i++ {
-		if inStr[i] || inStr[i+1] {
+		if line[i] == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
 			continue
 		}
 		c := line[i]
@@ -357,52 +356,58 @@ func isIdentChar(c byte) bool {
 		(c >= '0' && c <= '9') || c == '_'
 }
 
-// classifyArrow maps a glyph pair + line style to a RelationType plus
-// the Reverse / Bidirectional flags. Unsupported glyph combinations
-// (e.g., a triangle on one end and a diamond on the other) are rejected.
-func classifyArrow(m arrowMatch) (rt diagram.RelationType, reverse, bidir bool, ok bool) {
+// classifyArrow maps a glyph pair + line style to a RelationType and
+// RelationDirection. Unsupported glyph combinations (e.g., a triangle
+// on one end and a diamond on the other) are rejected with ok=false.
+func classifyArrow(m arrowMatch) (rt diagram.RelationType, dir diagram.RelationDirection, ok bool) {
 	// Both ends carry a glyph → bidirectional. Glyphs must agree on kind.
 	if m.left != glyphNone && m.right != glyphNone {
 		if m.left != m.right {
-			return 0, false, false, false
+			return 0, 0, false
 		}
 		switch m.left {
 		case glyphTriangle:
 			if m.dashed {
-				return diagram.RelationTypeRealization, false, true, true
+				return diagram.RelationTypeRealization, diagram.RelationBidirectional, true
 			}
-			return diagram.RelationTypeInheritance, false, true, true
+			return diagram.RelationTypeInheritance, diagram.RelationBidirectional, true
 		case glyphFilledDiamond:
-			return diagram.RelationTypeComposition, false, true, true
+			return diagram.RelationTypeComposition, diagram.RelationBidirectional, true
 		case glyphHollowDiamond:
-			return diagram.RelationTypeAggregation, false, true, true
+			return diagram.RelationTypeAggregation, diagram.RelationBidirectional, true
 		case glyphArrowhead:
 			if m.dashed {
-				return diagram.RelationTypeDependency, false, true, true
+				return diagram.RelationTypeDependency, diagram.RelationBidirectional, true
 			}
-			return diagram.RelationTypeAssociation, false, true, true
+			return diagram.RelationTypeAssociation, diagram.RelationBidirectional, true
 		}
-		return 0, false, false, false
+		return 0, 0, false
 	}
 
 	// Single-end glyph: forward is whichever side matches Mermaid's
-	// canonical literal for that (glyph, line) pair. Notably, the
-	// canonical side is not consistent across types — `<|--` (inheritance)
-	// has the triangle on the LEFT, but `..|>` (realization) has it on
-	// the RIGHT. canonicalRightSide encodes that table.
+	// canonical literal. The canonical side is not consistent across
+	// types — `<|--` (inheritance) puts the triangle on the LEFT, but
+	// `..|>` (realization) puts it on the RIGHT. canonicalRightSide
+	// encodes that small table.
 	if m.left != glyphNone {
 		rt, ok = glyphToRelation(m.left, m.dashed)
-		return rt, canonicalRightSide(m.left, m.dashed), false, ok
+		if canonicalRightSide(m.left, m.dashed) {
+			return rt, diagram.RelationReverse, ok
+		}
+		return rt, diagram.RelationForward, ok
 	}
 	if m.right != glyphNone {
 		rt, ok = glyphToRelation(m.right, m.dashed)
-		return rt, !canonicalRightSide(m.right, m.dashed), false, ok
+		if canonicalRightSide(m.right, m.dashed) {
+			return rt, diagram.RelationForward, ok
+		}
+		return rt, diagram.RelationReverse, ok
 	}
 	// No glyph at either end: plain link / dashed link.
 	if m.dashed {
-		return diagram.RelationTypeDashedLink, false, false, true
+		return diagram.RelationTypeDashedLink, diagram.RelationForward, true
 	}
-	return diagram.RelationTypeLink, false, false, true
+	return diagram.RelationTypeLink, diagram.RelationForward, true
 }
 
 // canonicalRightSide returns true when Mermaid's canonical literal for
