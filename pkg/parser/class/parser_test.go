@@ -1185,6 +1185,126 @@ func TestParseClickEmptyArgumentsError(t *testing.T) {
 	}
 }
 
+// `namespace NAME { … }` groups its inner classes under a named
+// scope. The classes themselves are flat in d.Classes (so relations
+// can reference them by ID); the grouping is recorded in
+// d.Namespaces.
+func TestParseNamespace(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    namespace Cars {
+        class Vehicle
+        class Sedan
+    }
+    class Animal`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Classes) != 3 {
+		t.Errorf("want 3 classes (Vehicle, Sedan, Animal), got %d", len(d.Classes))
+	}
+	if len(d.Namespaces) != 1 {
+		t.Fatalf("want 1 namespace, got %d", len(d.Namespaces))
+	}
+	ns := d.Namespaces[0]
+	if ns.Name != "Cars" {
+		t.Errorf("Name = %q", ns.Name)
+	}
+	if len(ns.ClassIDs) != 2 || ns.ClassIDs[0] != "Vehicle" || ns.ClassIDs[1] != "Sedan" {
+		t.Errorf("ClassIDs = %v", ns.ClassIDs)
+	}
+}
+
+// Class-body declarations inside a namespace must work the same as
+// at top level — `class Foo { +bar() }`.
+func TestParseNamespaceWithClassBody(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    namespace Mod {
+        class A {
+            +foo() void
+        }
+    }`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Classes) != 1 {
+		t.Fatalf("want 1 class, got %d", len(d.Classes))
+	}
+	if len(d.Classes[0].Members) != 1 {
+		t.Errorf("members = %v", d.Classes[0].Members)
+	}
+	if d.Namespaces[0].ClassIDs[0] != "A" {
+		t.Errorf("namespace member = %q", d.Namespaces[0].ClassIDs[0])
+	}
+}
+
+// Relations can cross namespace boundaries and still resolve. The
+// referenced classes auto-register at the top level (not inside any
+// namespace) just as they did before namespaces existed.
+func TestParseNamespaceCrossingRelation(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    namespace First {
+        class A
+    }
+    namespace Second {
+        class B
+    }
+    A --> B`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Namespaces) != 2 {
+		t.Fatalf("want 2 namespaces, got %d", len(d.Namespaces))
+	}
+	if len(d.Relations) != 1 || d.Relations[0].From != "A" || d.Relations[0].To != "B" {
+		t.Errorf("relation = %+v", d.Relations)
+	}
+}
+
+// A relation INSIDE a namespace whose endpoints aren't declared
+// elsewhere puts both auto-registered classes into that namespace.
+// This pins the documented behavior so a future refactor can't
+// silently drop forward-referenced classes from their namespace.
+func TestParseNamespaceRelationAutoRegisters(t *testing.T) {
+	d, err := Parse(strings.NewReader(`classDiagram
+    namespace Mod {
+        Foo --> Bar
+    }`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Namespaces) != 1 {
+		t.Fatalf("want 1 namespace, got %d", len(d.Namespaces))
+	}
+	got := d.Namespaces[0].ClassIDs
+	want := []string{"Foo", "Bar"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("ClassIDs = %v, want %v", got, want)
+	}
+}
+
+// `namespace<TAB>Name` should parse the same as `namespace Name`.
+// Otherwise a tab-indented file slips past the keyword detection.
+func TestParseNamespaceTabKeyword(t *testing.T) {
+	d, err := Parse(strings.NewReader("classDiagram\n    namespace\tMod {\n        class A\n    }"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Namespaces) != 1 || d.Namespaces[0].Name != "Mod" {
+		t.Errorf("namespaces = %+v", d.Namespaces)
+	}
+}
+
+// An unclosed namespace block is an error rather than silently
+// consuming the rest of the file.
+func TestParseNamespaceUnclosedError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`classDiagram
+    namespace Foo {
+        class A`))
+	if err == nil {
+		t.Error("expected error for unclosed namespace block")
+	}
+}
+
 func TestParseDirectionInvalid(t *testing.T) {
 	_, err := Parse(strings.NewReader("classDiagram\n    direction WAT"))
 	if err == nil {

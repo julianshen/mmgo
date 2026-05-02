@@ -758,6 +758,47 @@ func TestRenderCallbackOnlyDoesNotWrapAnchor(t *testing.T) {
 	}
 }
 
+// Namespaces render as a labelled bounding rectangle with a dashed
+// border. The label sits in the top-left band.
+func TestRenderNamespace(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{
+			{ID: "A", Label: "A"},
+			{ID: "B", Label: "B"},
+		},
+		Namespaces: []diagram.ClassNamespace{
+			{Name: "Cars", ClassIDs: []string{"A", "B"}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">Cars<") {
+		t.Error("namespace label missing")
+	}
+	if !strings.Contains(raw, "stroke-dasharray:4,3") {
+		t.Error("namespace dashed border missing")
+	}
+}
+
+// A namespace with no resolved members (e.g. all class IDs missing
+// from the layout) should silently emit nothing rather than draw a
+// degenerate Inf-bounded rectangle.
+func TestRenderNamespaceWithNoMembersIsSkipped(t *testing.T) {
+	d := &diagram.ClassDiagram{
+		Classes: []diagram.ClassDef{{ID: "A", Label: "A"}},
+		Namespaces: []diagram.ClassNamespace{
+			{Name: "Empty", ClassIDs: []string{"NotInDiagram"}},
+		},
+	}
+	out, _ := Render(d, nil)
+	if strings.Contains(string(out), ">Empty<") {
+		t.Errorf("empty namespace should not render label")
+	}
+}
+
 func assertValidSVG(t *testing.T, svgBytes []byte) {
 	t.Helper()
 	body := svgBytes
@@ -866,6 +907,9 @@ func TestDefaultThemeStable(t *testing.T) {
 		NoteFill:       "#fff5ad",
 		NoteStroke:     "#aaaa33",
 		NoteText:       "#333",
+		NamespaceFill:   "#f7f7ff",
+		NamespaceStroke: "#9370DB",
+		NamespaceText:   "#555",
 	}
 	if got != want {
 		t.Errorf("DefaultTheme drifted:\n got  %+v\n want %+v", got, want)

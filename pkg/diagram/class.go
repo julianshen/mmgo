@@ -122,6 +122,15 @@ type ClassRelation struct {
 	Direction       RelationDirection
 }
 
+// ClassNamespace groups a set of classes under a named scope. The
+// renderer draws a labelled bounding rectangle around the listed
+// classes, mirroring Mermaid's `namespace Name { class A; class B }`
+// syntax. ClassIDs preserves source order.
+type ClassNamespace struct {
+	Name     string
+	ClassIDs []string
+}
+
 // ClassNote is a free-floating annotation on the diagram. When For
 // names a class ID, the renderer anchors the note next to that class
 // with a thin connector. When For is empty, the note is general and
@@ -155,9 +164,10 @@ type ClassClickDef struct {
 }
 
 type ClassDiagram struct {
-	Classes   []ClassDef
-	Relations []ClassRelation
-	Notes     []ClassNote
+	Classes    []ClassDef
+	Relations  []ClassRelation
+	Notes      []ClassNote
+	Namespaces []ClassNamespace
 	// CSSClasses maps a user-defined class name (from `classDef foo …`)
 	// to its semicolon-separated CSS declarations. Renderers look up
 	// names referenced from ClassDef.CSSClasses against this map.

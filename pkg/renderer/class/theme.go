@@ -15,6 +15,9 @@ type Theme struct {
 	NoteFill       string // sticky-note background (yellow by default)
 	NoteStroke     string
 	NoteText       string
+	NamespaceFill   string // namespace bounding-rect background
+	NamespaceStroke string
+	NamespaceText   string
 }
 
 // DefaultTheme returns the Mermaid-classic class-diagram palette
@@ -32,6 +35,9 @@ func DefaultTheme() Theme {
 		NoteFill:       "#fff5ad",
 		NoteStroke:     "#aaaa33",
 		NoteText:       "#333",
+		NamespaceFill:   "#f7f7ff",
+		NamespaceStroke: "#9370DB",
+		NamespaceText:   "#555",
 	}
 }
 
@@ -69,6 +75,15 @@ func resolveTheme(opts *Options) Theme {
 	}
 	if opts.Theme.NoteText != "" {
 		th.NoteText = opts.Theme.NoteText
+	}
+	if opts.Theme.NamespaceFill != "" {
+		th.NamespaceFill = opts.Theme.NamespaceFill
+	}
+	if opts.Theme.NamespaceStroke != "" {
+		th.NamespaceStroke = opts.Theme.NamespaceStroke
+	}
+	if opts.Theme.NamespaceText != "" {
+		th.NamespaceText = opts.Theme.NamespaceText
 	}
 	return th
 }

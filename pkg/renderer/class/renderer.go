@@ -96,6 +96,9 @@ func Render(d *diagram.ClassDiagram, opts *Options) ([]byte, error) {
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
+	// Namespace rects render *behind* classes/edges so the borders
+	// frame the group without occluding member content.
+	children = append(children, renderNamespaces(d, l, pad, fontSize, ruler, th)...)
 	children = append(children, renderEdges(d, l, pad, fontSize, th, ruler)...)
 	children = append(children, renderClasses(d, l, pad, fontSize, th)...)
 	children = append(children, renderNotes(notes, l, pad, fontSize, th)...)
@@ -348,6 +351,69 @@ func appendMemberSection(elems []any, members []diagram.ClassMember, x, w, secti
 		})
 	}
 	return elems, sectionY + classPadY + float64(len(members))*memberRowH
+}
+
+// renderNamespaces draws a labelled bounding rectangle around each
+// namespace's classes. Layout doesn't cluster namespace members,
+// so the rect is a post-pass enclosure of whatever positions dagre
+// chose. For diagrams where members are scattered the rect stretches
+// wide; this is a known limitation of decoration-only namespaces.
+func renderNamespaces(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler, th Theme) []any {
+	if len(d.Namespaces) == 0 {
+		return nil
+	}
+	const (
+		nsPadX     = 12.0
+		nsPadY     = 10.0
+		nsLabelH   = 22.0
+		nsCornerR  = 6.0
+	)
+	style := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5;stroke-dasharray:4,3", th.NamespaceFill, th.NamespaceStroke)
+	textStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.NamespaceText, fontSize-1)
+	var elems []any
+	for _, ns := range d.Namespaces {
+		bb := svgutil.NewInfiniteBBox()
+		for _, id := range ns.ClassIDs {
+			n, ok := l.Nodes[id]
+			if !ok {
+				continue
+			}
+			bb.Expand(n.X+pad, n.Y+pad, n.Width, n.Height)
+		}
+		if bb.Empty() {
+			continue
+		}
+		// Reserve nsLabelH at the top for the namespace name so the
+		// label band sits above the framed area, not on top of a
+		// member class.
+		x := bb.MinX - nsPadX
+		y := bb.MinY - nsPadY - nsLabelH
+		w := (bb.MaxX - bb.MinX) + 2*nsPadX
+		h := (bb.MaxY - bb.MinY) + 2*nsPadY + nsLabelH
+		labelW, _ := ruler.Measure(ns.Name, fontSize-1)
+		// If the label is wider than the bbox-plus-padding, grow the
+		// rect symmetrically so it stays roughly centred over its
+		// members instead of stretching only to the right.
+		if minLabel := labelW + 2*nsPadX; w < minLabel {
+			x -= (minLabel - w) / 2
+			w = minLabel
+		}
+		elems = append(elems,
+			&rect{
+				X: svgFloat(x), Y: svgFloat(y),
+				Width: svgFloat(w), Height: svgFloat(h),
+				RX: svgFloat(nsCornerR), RY: svgFloat(nsCornerR),
+				Style: style,
+			},
+			&text{
+				X: svgFloat(x + nsPadX), Y: svgFloat(y + nsLabelH/2 + nsPadY/2),
+				Anchor: "start", Dominant: "central",
+				Style:   textStyle,
+				Content: ns.Name,
+			},
+		)
+	}
+	return elems
 }
 
 // placedNote is a sized + positioned ClassNote ready to emit.

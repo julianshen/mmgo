@@ -84,6 +84,9 @@ func (p *parser) parseLine(line string) error {
 	if strings.HasPrefix(line, "callback ") {
 		return p.parseLinkOrCallback(line, true)
 	}
+	if rest, ok := cutNamespaceKeyword(line); ok {
+		return p.parseNamespace(rest)
+	}
 	if rest, ok := strings.CutPrefix(line, "class "); ok {
 		rest = strings.TrimSpace(rest)
 		hdr, hasBody, err := parseClassHeader(rest)
@@ -255,6 +258,70 @@ func (p *parser) parseCSSClassBinding(line string) error {
 		p.diagram.Classes[idx].CSSClasses = append(p.diagram.Classes[idx].CSSClasses, cssName)
 	}
 	return nil
+}
+
+// cutNamespaceKeyword recognises the `namespace` keyword followed by
+// a space OR tab and returns the trailing argument. Both whitespace
+// forms are common in real diagrams; using strings.CutPrefix with a
+// single-space literal would let `namespace\t…` slip past.
+func cutNamespaceKeyword(line string) (string, bool) {
+	const kw = "namespace"
+	if !strings.HasPrefix(line, kw) || len(line) <= len(kw) {
+		return "", false
+	}
+	switch line[len(kw)] {
+	case ' ', '\t':
+		return strings.TrimSpace(line[len(kw)+1:]), true
+	}
+	return "", false
+}
+
+// parseNamespace consumes a `namespace NAME { … }` block. Inner
+// content is dispatched back to parseLine so the same syntax (class
+// declarations, relations, members) is accepted as at top level.
+// Classes declared inside still register flat in p.diagram.Classes,
+// so cross-namespace relations resolve normally; their IDs are also
+// recorded on a ClassNamespace entry for the renderer.
+//
+// Nested `namespace` blocks are rejected — Mermaid doesn't support
+// them and the recursive case would surprise.
+func (p *parser) parseNamespace(rest string) error {
+	rest = strings.TrimSpace(rest)
+	rest = strings.TrimSuffix(rest, "{")
+	name := strings.TrimSpace(rest)
+	if name == "" {
+		return fmt.Errorf("namespace requires a name")
+	}
+	ns := diagram.ClassNamespace{Name: name}
+	classesBefore := len(p.diagram.Classes)
+	for p.scanner.Scan() {
+		p.lineNum++
+		line := strings.TrimSpace(parserutil.StripComment(p.scanner.Text()))
+		if line == "" {
+			continue
+		}
+		if line == "}" {
+			// Anything appended to p.diagram.Classes while we were
+			// inside the block belongs to this namespace, including
+			// classes auto-registered by relations (`A --> B` inside
+			// a namespace puts both A and B in the namespace).
+			for i := classesBefore; i < len(p.diagram.Classes); i++ {
+				ns.ClassIDs = append(ns.ClassIDs, p.diagram.Classes[i].ID)
+			}
+			p.diagram.Namespaces = append(p.diagram.Namespaces, ns)
+			return nil
+		}
+		if _, isNamespace := cutNamespaceKeyword(line); isNamespace {
+			return fmt.Errorf("namespace %q: nested namespaces are not supported", name)
+		}
+		if err := p.parseLine(line); err != nil {
+			return fmt.Errorf("namespace %q: %w", name, err)
+		}
+	}
+	if err := p.scanner.Err(); err != nil {
+		return fmt.Errorf("reading namespace %q: %w", name, err)
+	}
+	return fmt.Errorf("unclosed namespace %q", name)
 }
 
 // parseClick handles `click ID call func(args)` (Callback) and
