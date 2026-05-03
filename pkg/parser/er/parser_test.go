@@ -172,6 +172,156 @@ func TestParseAttributeQuotedComment(t *testing.T) {
 	}
 }
 
+func TestParseTitleAndAccessibility(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    title: Order schema
+    accTitle: ER schema for orders
+    accDescr: Customers, orders, line items
+    CUSTOMER ||--o{ ORDER : places`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Title != "Order schema" {
+		t.Errorf("Title = %q", d.Title)
+	}
+	if d.AccTitle != "ER schema for orders" {
+		t.Errorf("AccTitle = %q", d.AccTitle)
+	}
+	if d.AccDescr != "Customers, orders, line items" {
+		t.Errorf("AccDescr = %q", d.AccDescr)
+	}
+}
+
+func TestParseClassDefAndStyle(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    classDef important fill:#f96,stroke:#333
+    CUSTOMER {
+        int id PK
+    }
+    style CUSTOMER fill:#abc`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := d.CSSClasses["important"]; got != "fill:#f96;stroke:#333" {
+		t.Errorf("classDef = %q", got)
+	}
+	if len(d.Styles) != 1 || d.Styles[0].EntityID != "CUSTOMER" || d.Styles[0].CSS != "fill:#abc" {
+		t.Errorf("Styles = %+v", d.Styles)
+	}
+}
+
+func TestParseCSSClassBinding(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    classDef hot fill:#f00
+    CUSTOMER
+    ORDER
+    class CUSTOMER,ORDER hot`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, name := range []string{"CUSTOMER", "ORDER"} {
+		var found *diagram.EREntity
+		for i := range d.Entities {
+			if d.Entities[i].Name == name {
+				found = &d.Entities[i]
+			}
+		}
+		if found == nil {
+			t.Fatalf("%s missing", name)
+		}
+		if len(found.CSSClasses) != 1 || found.CSSClasses[0] != "hot" {
+			t.Errorf("%s.CSSClasses = %v", name, found.CSSClasses)
+		}
+	}
+}
+
+func TestParseCSSClassBindingUndefinedEntityError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    classDef hot fill:#f00
+    class GHOST hot`))
+	if err == nil {
+		t.Error("expected error for class binding to undeclared entity")
+	}
+}
+
+// `:::` shorthand on a bare entity name OR before a relationship's
+// arrow attaches a CSS class to that entity.
+func TestParseCSSClassShorthand(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    classDef hot fill:#f00
+    CUSTOMER:::hot ||--o{ ORDER : places`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var customer *diagram.EREntity
+	for i := range d.Entities {
+		if d.Entities[i].Name == "CUSTOMER" {
+			customer = &d.Entities[i]
+		}
+	}
+	if customer == nil {
+		t.Fatal("CUSTOMER missing")
+	}
+	if len(customer.CSSClasses) != 1 || customer.CSSClasses[0] != "hot" {
+		t.Errorf("CSSClasses = %v", customer.CSSClasses)
+	}
+}
+
+func TestParseClickHref(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    CUSTOMER
+    click CUSTOMER href "https://example.com" "Open"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Clicks) != 1 {
+		t.Fatalf("want 1 click, got %d", len(d.Clicks))
+	}
+	c := d.Clicks[0]
+	if c.EntityID != "CUSTOMER" || c.URL != "https://example.com" || c.Tooltip != "Open" {
+		t.Errorf("click = %+v", c)
+	}
+}
+
+func TestParseLinkAndCallback(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    A
+    B
+    link A "https://example.com" "tip"
+    callback B "openDetails"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Clicks) != 2 {
+		t.Fatalf("want 2 clicks, got %d", len(d.Clicks))
+	}
+	if d.Clicks[0].URL != "https://example.com" || d.Clicks[1].Callback != "openDetails" {
+		t.Errorf("clicks = %+v", d.Clicks)
+	}
+}
+
+func TestParseClickUndeclaredEntityError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    click GHOST href "https://example.com"`))
+	if err == nil {
+		t.Error("expected error for click on undeclared entity")
+	}
+}
+
+// A bare entity name on its own line (without an entity body or
+// relationship) is a valid Mermaid declaration.
+func TestParseBareEntityName(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    CUSTOMER
+    ORDER`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Entities) != 2 {
+		t.Errorf("want 2 entities, got %d", len(d.Entities))
+	}
+}
+
 func TestParseHeaderRequired(t *testing.T) {
 	_, err := Parse(strings.NewReader("CUSTOMER ||--o{ ORDER : places"))
 	if err == nil {

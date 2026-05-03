@@ -64,6 +64,14 @@ func Render(d *diagram.ERDiagram, opts *Options) ([]byte, error) {
 	viewH := sanitize(l.Height) + 2*pad
 
 	var children []any
+	if d.AccTitle != "" {
+		children = append(children, &svgTitle{Content: d.AccTitle})
+	} else if d.Title != "" {
+		children = append(children, &svgTitle{Content: d.Title})
+	}
+	if d.AccDescr != "" {
+		children = append(children, &svgDesc{Content: d.AccDescr})
+	}
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
@@ -156,6 +164,8 @@ func nameCellText(a diagram.ERAttribute) string {
 }
 
 func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64, th Theme, ruler *textmeasure.Ruler) []any {
+	clicks := erClicksByID(d.Clicks)
+	styles := erStylesByID(d.Styles)
 	var elems []any
 	for _, e := range d.Entities {
 		nl, ok := l.Nodes[e.Name]
@@ -169,65 +179,117 @@ func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float6
 		x := cx - w/2
 		y := cy - h/2
 
-		elems = append(elems, &rect{
+		// Divert to a per-entity buffer when an `<a>` wrap is needed.
+		click, hasClick := clicks[e.Name]
+		var entityBuf []any
+		buf := &elems
+		if hasClick && click.URL != "" {
+			entityBuf = make([]any, 0, 8)
+			buf = &entityBuf
+		}
+
+		rectStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.EntityFill, th.EntityStroke)
+		if override := erRectStyle(d, e, styles); override != "" {
+			rectStyle = rectStyle + ";" + override
+		}
+		*buf = append(*buf, &rect{
 			X: svgFloat(x), Y: svgFloat(y),
 			Width: svgFloat(w), Height: svgFloat(h),
-			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.EntityFill, th.EntityStroke),
+			Style: rectStyle,
 		})
-		elems = append(elems, &text{
+		*buf = append(*buf, &text{
 			X: svgFloat(cx), Y: svgFloat(y + headerH/2),
 			Anchor: "middle", Dominant: "central",
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.EntityText, fontSize),
 			Content: e.Name,
 		})
 
-		if len(e.Attributes) == 0 {
-			continue
-		}
+		if len(e.Attributes) > 0 {
+			dividerStyle := fmt.Sprintf("stroke:%s;stroke-width:1", th.EntityStroke)
+			typeColW, _ := attrColumnWidths(e.Attributes, ruler, fontSize-1)
+			colDividerX := x + entityPadX + typeColW + attrCellGap/2
+			nameCellX := x + entityPadX + typeColW + attrCellGap
+			attrTextStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EntityText, fontSize-1)
+			headerSepY := y + headerH
 
-		dividerStyle := fmt.Sprintf("stroke:%s;stroke-width:1", th.EntityStroke)
-		typeColW, _ := attrColumnWidths(e.Attributes, ruler, fontSize-1)
-		colDividerX := x + entityPadX + typeColW + attrCellGap/2
-		nameCellX := x + entityPadX + typeColW + attrCellGap
-		attrTextStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EntityText, fontSize-1)
-		headerSepY := y + headerH
-
-		// Horizontal dividers above each row. The i=0 line is also the
-		// header/attribute separator; the entity's outer rect closes
-		// off the bottom, so no trailing bottom line is needed.
-		for i := range e.Attributes {
-			rowTop := headerSepY + float64(i)*attrRowH
-			elems = append(elems, &line{
-				X1: svgFloat(x), Y1: svgFloat(rowTop),
-				X2: svgFloat(x + w), Y2: svgFloat(rowTop),
+			for i := range e.Attributes {
+				rowTop := headerSepY + float64(i)*attrRowH
+				*buf = append(*buf, &line{
+					X1: svgFloat(x), Y1: svgFloat(rowTop),
+					X2: svgFloat(x + w), Y2: svgFloat(rowTop),
+					Style: dividerStyle,
+				})
+			}
+			attrSectionH := float64(len(e.Attributes)) * attrRowH
+			*buf = append(*buf, &line{
+				X1: svgFloat(colDividerX), Y1: svgFloat(headerSepY),
+				X2: svgFloat(colDividerX), Y2: svgFloat(headerSepY + attrSectionH),
 				Style: dividerStyle,
 			})
-		}
-		// Vertical divider between the type and name columns.
-		attrSectionH := float64(len(e.Attributes)) * attrRowH
-		elems = append(elems, &line{
-			X1: svgFloat(colDividerX), Y1: svgFloat(headerSepY),
-			X2: svgFloat(colDividerX), Y2: svgFloat(headerSepY + attrSectionH),
-			Style: dividerStyle,
-		})
 
-		for i, a := range e.Attributes {
-			rowMid := headerSepY + float64(i)*attrRowH + attrRowH/2
-			elems = append(elems, &text{
-				X: svgFloat(x + entityPadX), Y: svgFloat(rowMid),
-				Anchor: "start", Dominant: "central",
-				Style:   attrTextStyle,
-				Content: a.Type,
-			})
-			elems = append(elems, &text{
-				X: svgFloat(nameCellX), Y: svgFloat(rowMid),
-				Anchor: "start", Dominant: "central",
-				Style:   attrTextStyle,
-				Content: nameCellText(a),
-			})
+			for i, a := range e.Attributes {
+				rowMid := headerSepY + float64(i)*attrRowH + attrRowH/2
+				*buf = append(*buf, &text{
+					X: svgFloat(x + entityPadX), Y: svgFloat(rowMid),
+					Anchor: "start", Dominant: "central",
+					Style:   attrTextStyle,
+					Content: a.Type,
+				})
+				*buf = append(*buf, &text{
+					X: svgFloat(nameCellX), Y: svgFloat(rowMid),
+					Anchor: "start", Dominant: "central",
+					Style:   attrTextStyle,
+					Content: nameCellText(a),
+				})
+			}
+		}
+
+		if hasClick && click.URL != "" {
+			a := &anchor{Href: click.URL, Target: click.Target}
+			if click.Tooltip != "" {
+				a.Children = append(a.Children, &svgTitle{Content: click.Tooltip})
+			}
+			a.Children = append(a.Children, entityBuf...)
+			elems = append(elems, a)
 		}
 	}
 	return elems
+}
+
+// erRectStyle merges classDef references and `style ID …` rules
+// for an entity into a single CSS string. Same shape as the
+// class/state diagram helpers.
+func erRectStyle(d *diagram.ERDiagram, e diagram.EREntity, stylesByID map[string][]string) string {
+	var parts []string
+	for _, name := range e.CSSClasses {
+		if css := d.CSSClasses[name]; css != "" {
+			parts = append(parts, css)
+		}
+	}
+	parts = append(parts, stylesByID[e.Name]...)
+	return strings.Join(parts, ";")
+}
+
+func erClicksByID(clicks []diagram.ERClickDef) map[string]diagram.ERClickDef {
+	if len(clicks) == 0 {
+		return nil
+	}
+	out := make(map[string]diagram.ERClickDef, len(clicks))
+	for _, c := range clicks {
+		out[c.EntityID] = c
+	}
+	return out
+}
+
+func erStylesByID(styles []diagram.ERStyleDef) map[string][]string {
+	if len(styles) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(styles))
+	for _, s := range styles {
+		out[s.EntityID] = append(out[s.EntityID], s.CSS)
+	}
+	return out
 }
 
 func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64, th Theme, ruler *textmeasure.Ruler) []any {

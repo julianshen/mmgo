@@ -264,6 +264,81 @@ func TestRenderDirection(t *testing.T) {
 	}
 }
 
+func TestRenderAccessibilityMetadata(t *testing.T) {
+	d := &diagram.ERDiagram{
+		Title:    "general",
+		AccTitle: "explicit acc",
+		AccDescr: "long description",
+		Entities: []diagram.EREntity{{Name: "A"}},
+	}
+	out, _ := Render(d, nil)
+	raw := string(out)
+	if !strings.Contains(raw, "<title>explicit acc</title>") {
+		t.Error("AccTitle should be the <title>")
+	}
+	if !strings.Contains(raw, "<desc>long description</desc>") {
+		t.Error("AccDescr should be the <desc>")
+	}
+}
+
+func TestRenderClassDefStyling(t *testing.T) {
+	d := &diagram.ERDiagram{
+		Entities: []diagram.EREntity{
+			{Name: "A", CSSClasses: []string{"hot"}},
+		},
+		CSSClasses: map[string]string{
+			"hot": "fill:#ff0000;stroke:#990000",
+		},
+	}
+	out, _ := Render(d, nil)
+	if !strings.Contains(string(out), "fill:#ff0000;stroke:#990000") {
+		t.Errorf("classDef CSS missing from output:\n%s", out)
+	}
+}
+
+func TestRenderStyleRule(t *testing.T) {
+	d := &diagram.ERDiagram{
+		Entities: []diagram.EREntity{{Name: "A"}},
+		Styles:   []diagram.ERStyleDef{{EntityID: "A", CSS: "fill:#abcdef"}},
+	}
+	out, _ := Render(d, nil)
+	if !strings.Contains(string(out), "fill:#abcdef") {
+		t.Error("style override missing")
+	}
+}
+
+func TestRenderClickHrefWrapsAnchor(t *testing.T) {
+	d := &diagram.ERDiagram{
+		Entities: []diagram.EREntity{{Name: "A"}},
+		Clicks: []diagram.ERClickDef{{
+			EntityID: "A", URL: "https://example.com",
+			Tooltip: "Open", Target: "_blank",
+		}},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, `<a href="https://example.com" target="_blank">`) {
+		t.Errorf("anchor missing/malformed:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<title>Open</title>") {
+		t.Error("tooltip <title> missing inside anchor")
+	}
+}
+
+func TestRenderCallbackOnlyDoesNotWrapAnchor(t *testing.T) {
+	d := &diagram.ERDiagram{
+		Entities: []diagram.EREntity{{Name: "A"}},
+		Clicks:   []diagram.ERClickDef{{EntityID: "A", Callback: "openDetails"}},
+	}
+	out, _ := Render(d, nil)
+	if strings.Contains(string(out), "<a ") {
+		t.Error("callback-only click should not produce <a>")
+	}
+}
+
 func TestRenderDeterministic(t *testing.T) {
 	d := &diagram.ERDiagram{
 		Entities: []diagram.EREntity{

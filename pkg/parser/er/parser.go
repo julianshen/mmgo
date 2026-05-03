@@ -12,7 +12,9 @@ import (
 
 func Parse(r io.Reader) (*diagram.ERDiagram, error) {
 	p := &parser{
-		diagram:   &diagram.ERDiagram{},
+		diagram: &diagram.ERDiagram{
+			CSSClasses: make(map[string]string),
+		},
 		entityIdx: make(map[string]int),
 	}
 	p.scanner = bufio.NewScanner(r)
@@ -52,6 +54,20 @@ type parser struct {
 }
 
 func (p *parser) parseLine(line string) error {
+	// Keyword-prefixed lines first (Mermaid convention: keywords
+	// take precedence over bare-name matchers).
+	if v, ok := parserutil.MatchKeywordValue(line, "title"); ok {
+		p.diagram.Title = v
+		return nil
+	}
+	if v, ok := parserutil.MatchKeywordValue(line, "accTitle"); ok {
+		p.diagram.AccTitle = v
+		return nil
+	}
+	if v, ok := parserutil.MatchKeywordValue(line, "accDescr"); ok {
+		p.diagram.AccDescr = v
+		return nil
+	}
 	if rest, ok := strings.CutPrefix(line, "direction "); ok {
 		dir, err := parserutil.ParseDirection(strings.TrimSpace(rest))
 		if err != nil {
@@ -60,16 +76,235 @@ func (p *parser) parseLine(line string) error {
 		p.diagram.Direction = dir
 		return nil
 	}
+	if strings.HasPrefix(line, "classDef ") {
+		return p.parseClassDef(line)
+	}
+	if strings.HasPrefix(line, "style ") {
+		return p.parseStyleRule(line)
+	}
+	if strings.HasPrefix(line, "click ") {
+		return p.parseClick(line)
+	}
+	if strings.HasPrefix(line, "link ") {
+		return p.parseLinkOrCallback(line, false)
+	}
+	if strings.HasPrefix(line, "callback ") {
+		return p.parseLinkOrCallback(line, true)
+	}
+	if strings.HasPrefix(line, "class ") {
+		return p.parseClassBinding(line[len("class "):])
+	}
 	// Relationships first — their cardinality markers can contain `{`.
 	if rel, ok := parseRelationship(line); ok {
-		p.ensureEntity(rel.From)
-		p.ensureEntity(rel.To)
+		// Allow `:::cssClass` shorthand on either entity name.
+		fromID, fromCSS := splitCSSShorthand(rel.From)
+		toID, toCSS := splitCSSShorthand(rel.To)
+		rel.From, rel.To = fromID, toID
+		p.ensureEntity(fromID)
+		p.ensureEntity(toID)
+		if fromCSS != "" {
+			idx := p.entityIdx[fromID]
+			p.diagram.Entities[idx].CSSClasses = append(p.diagram.Entities[idx].CSSClasses, fromCSS)
+		}
+		if toCSS != "" {
+			idx := p.entityIdx[toID]
+			p.diagram.Entities[idx].CSSClasses = append(p.diagram.Entities[idx].CSSClasses, toCSS)
+		}
 		p.diagram.Relationships = append(p.diagram.Relationships, rel)
 		return nil
 	}
 	if strings.HasSuffix(strings.TrimSpace(line), "{") {
 		name := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line), "{"))
-		return p.parseEntityBody(name)
+		// Strip `:::cssClass` from the entity declaration line.
+		id, cssClass := splitCSSShorthand(name)
+		idx := p.ensureEntityIdx(id)
+		if cssClass != "" {
+			p.diagram.Entities[idx].CSSClasses = append(p.diagram.Entities[idx].CSSClasses, cssClass)
+		}
+		return p.parseEntityBody(id)
+	}
+	// Bare entity name on its own line (with optional `:::cssClass`).
+	if id, cssClass, ok := parseBareEntity(line); ok {
+		idx := p.ensureEntityIdx(id)
+		if cssClass != "" {
+			p.diagram.Entities[idx].CSSClasses = append(p.diagram.Entities[idx].CSSClasses, cssClass)
+		}
+		return nil
+	}
+	return nil
+}
+
+// parseBareEntity matches a single-token entity declaration with
+// optional `:::cssClass` shorthand. Returns ok=false for tokens that
+// don't look like identifiers — leaves keywords / unrecognised lines
+// for higher-priority matchers to handle.
+func parseBareEntity(line string) (id, cssClass string, ok bool) {
+	if strings.ContainsAny(line, " \t") {
+		// Bare entity is a single token; spaces mean it's some
+		// other kind of line we couldn't parse above.
+		return "", "", false
+	}
+	id, cssClass = splitCSSShorthand(line)
+	if id == "" {
+		return "", "", false
+	}
+	return id, cssClass, true
+}
+
+// splitCSSShorthand extracts the trailing `:::name` shorthand from
+// an entity reference (`CUSTOMER:::hot` → ("CUSTOMER", "hot")).
+// Returns the original string and "" when no shorthand is present.
+func splitCSSShorthand(s string) (id, cssClass string) {
+	if i := strings.Index(s, ":::"); i >= 0 {
+		return strings.TrimSpace(s[:i]), strings.TrimSpace(s[i+3:])
+	}
+	return s, ""
+}
+
+func (p *parser) parseClassDef(line string) error {
+	name, css, err := parserutil.ParseClassDefLine(line[len("classDef "):])
+	if err != nil {
+		return err
+	}
+	p.diagram.CSSClasses[name] = css
+	return nil
+}
+
+func (p *parser) parseStyleRule(line string) error {
+	rest := line[len("style "):]
+	parts := strings.SplitN(rest, " ", 2)
+	if len(parts) < 2 {
+		return fmt.Errorf("style requires an ID and CSS")
+	}
+	p.diagram.Styles = append(p.diagram.Styles, diagram.ERStyleDef{
+		EntityID: strings.TrimSpace(parts[0]),
+		CSS:      parserutil.NormalizeCSS(strings.TrimSpace(parts[1])),
+	})
+	return nil
+}
+
+func (p *parser) parseClassBinding(rest string) error {
+	parts := strings.SplitN(rest, " ", 2)
+	if len(parts) < 2 {
+		return fmt.Errorf("class requires entity ids and class name")
+	}
+	cssName := strings.TrimSpace(parts[1])
+	for _, id := range strings.Split(parts[0], ",") {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		idx, ok := p.entityIdx[id]
+		if !ok {
+			return fmt.Errorf("class binding references undefined entity %q", id)
+		}
+		p.diagram.Entities[idx].CSSClasses = append(p.diagram.Entities[idx].CSSClasses, cssName)
+	}
+	return nil
+}
+
+// parseClick handles `click ID call func()` and `click ID href "url"
+// "tooltip" "target"`. Bare `click ID "url" …` falls through as href.
+func (p *parser) parseClick(line string) error {
+	rest := strings.TrimSpace(line[len("click "):])
+	id, afterID, err := splitClickHead(rest, "click")
+	if err != nil {
+		return err
+	}
+	if err := p.requireEntity(id, "click"); err != nil {
+		return err
+	}
+	cd := diagram.ERClickDef{EntityID: id}
+	switch {
+	case afterID == "call" || strings.HasPrefix(afterID, "call "):
+		callback := strings.TrimSpace(strings.TrimPrefix(afterID, "call"))
+		if callback == "" {
+			return fmt.Errorf("click %s: missing callback after `call`", id)
+		}
+		cd.Callback = callback
+	case afterID == "href" || strings.HasPrefix(afterID, "href "):
+		argSrc := strings.TrimSpace(strings.TrimPrefix(afterID, "href"))
+		if err := fillClickURLArgs(&cd, argSrc); err != nil {
+			return fmt.Errorf("click %s: %w", id, err)
+		}
+	default:
+		if err := fillClickURLArgs(&cd, afterID); err != nil {
+			return fmt.Errorf("click %s: %w", id, err)
+		}
+	}
+	p.diagram.Clicks = append(p.diagram.Clicks, cd)
+	return nil
+}
+
+func (p *parser) parseLinkOrCallback(line string, isCallback bool) error {
+	kw := "link"
+	if isCallback {
+		kw = "callback"
+	}
+	rest := strings.TrimSpace(line[len(kw)+1:])
+	id, argSrc, err := splitClickHead(rest, kw)
+	if err != nil {
+		return err
+	}
+	if err := p.requireEntity(id, kw); err != nil {
+		return err
+	}
+	cd := diagram.ERClickDef{EntityID: id}
+	if isCallback {
+		parts, perr := parserutil.SplitClickArgs(argSrc, 3)
+		if perr != nil {
+			return fmt.Errorf("%s %s: %w", kw, id, perr)
+		}
+		if len(parts) == 0 || parts[0] == "" {
+			return fmt.Errorf("%s %s: missing callback", kw, id)
+		}
+		cd.Callback = parts[0]
+		if len(parts) >= 2 {
+			cd.Tooltip = parts[1]
+		}
+		if len(parts) >= 3 {
+			cd.Target = parts[2]
+		}
+	} else if err := fillClickURLArgs(&cd, argSrc); err != nil {
+		return fmt.Errorf("%s %s: %w", kw, id, err)
+	}
+	p.diagram.Clicks = append(p.diagram.Clicks, cd)
+	return nil
+}
+
+func splitClickHead(rest, kw string) (id, after string, err error) {
+	parts, perr := parserutil.SplitClickArgs(rest, 2)
+	if perr != nil {
+		return "", "", fmt.Errorf("%s: %w", kw, perr)
+	}
+	if len(parts) < 2 {
+		return "", "", fmt.Errorf("%s requires entity id and target", kw)
+	}
+	id = parts[0]
+	return id, strings.TrimSpace(rest[len(id):]), nil
+}
+
+func (p *parser) requireEntity(id, kw string) error {
+	if _, ok := p.entityIdx[id]; !ok {
+		return fmt.Errorf("%s references undefined entity %q", kw, id)
+	}
+	return nil
+}
+
+func fillClickURLArgs(cd *diagram.ERClickDef, src string) error {
+	parts, err := parserutil.SplitClickArgs(src, 3)
+	if err != nil {
+		return err
+	}
+	if len(parts) == 0 || parts[0] == "" {
+		return fmt.Errorf("missing URL")
+	}
+	cd.URL = parts[0]
+	if len(parts) >= 2 {
+		cd.Tooltip = parts[1]
+	}
+	if len(parts) >= 3 {
+		cd.Target = parts[2]
 	}
 	return nil
 }
@@ -96,11 +331,16 @@ func (p *parser) parseEntityBody(name string) error {
 }
 
 func (p *parser) ensureEntity(name string) {
-	if _, ok := p.entityIdx[name]; ok {
-		return
+	p.ensureEntityIdx(name)
+}
+
+func (p *parser) ensureEntityIdx(name string) int {
+	if idx, ok := p.entityIdx[name]; ok {
+		return idx
 	}
 	p.entityIdx[name] = len(p.diagram.Entities)
 	p.diagram.Entities = append(p.diagram.Entities, diagram.EREntity{Name: name})
+	return p.entityIdx[name]
 }
 
 // parseAttribute reads an attribute line of the form
