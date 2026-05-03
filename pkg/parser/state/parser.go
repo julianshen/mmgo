@@ -68,13 +68,55 @@ func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
 	if rest, ok := strings.CutPrefix(line, "state "); ok {
 		return p.parseStateDecl(strings.TrimSpace(rest), target)
 	}
+	if rest, ok := strings.CutPrefix(line, "direction "); ok {
+		dir, err := parserutil.ParseDirection(strings.TrimSpace(rest))
+		if err != nil {
+			return err
+		}
+		p.diagram.Direction = dir
+		return nil
+	}
 	if t, ok := parseTransition(line); ok {
 		upsertState(target, t.From)
 		upsertState(target, t.To)
 		p.diagram.Transitions = append(p.diagram.Transitions, t)
 		return nil
 	}
+	if id, desc, ok := parseStateDescription(line); ok {
+		s := upsertState(target, id)
+		if s != nil {
+			s.Description = desc
+		}
+		return nil
+	}
 	return nil
+}
+
+// parseStateDescription matches `id : description text` outside of
+// any arrow-bearing transition. The state ID must be a bare token
+// with no whitespace; the description spans the rest of the line.
+func parseStateDescription(line string) (id, desc string, ok bool) {
+	colon := strings.Index(line, " : ")
+	if colon < 0 {
+		// Allow `id: text` without surrounding spaces too.
+		colon = strings.Index(line, ":")
+		if colon < 0 {
+			return "", "", false
+		}
+		// Reject if the colon is part of an arrow-style label that
+		// somehow slipped past parseTransition (defensive — the
+		// caller ordering already excludes arrows).
+		id = strings.TrimSpace(line[:colon])
+		if id == "" || strings.ContainsAny(id, " \t") {
+			return "", "", false
+		}
+		return id, strings.TrimSpace(line[colon+1:]), true
+	}
+	id = strings.TrimSpace(line[:colon])
+	if id == "" || strings.ContainsAny(id, " \t") {
+		return "", "", false
+	}
+	return id, strings.TrimSpace(line[colon+3:]), true
 }
 
 func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef) error {
@@ -153,7 +195,10 @@ func parseTransition(line string) (diagram.StateTransition, bool) {
 	label := ""
 	if colonIdx := strings.Index(rest, ":"); colonIdx >= 0 {
 		to = strings.TrimSpace(rest[:colonIdx])
-		label = strings.TrimSpace(rest[colonIdx+1:])
+		// Mermaid uses literal `\n` as a line-break in transition
+		// labels (so `A --> B : foo\nbar` shows two stacked lines).
+		// Convert to a real newline so renderers can split directly.
+		label = strings.ReplaceAll(strings.TrimSpace(rest[colonIdx+1:]), `\n`, "\n")
 	}
 	if from == "" || to == "" {
 		return diagram.StateTransition{}, false

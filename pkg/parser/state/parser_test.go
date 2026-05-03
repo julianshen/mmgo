@@ -317,6 +317,83 @@ func TestParseBareStateDecl(t *testing.T) {
 	}
 }
 
+// `id : description` outside of a transition assigns the description
+// to that state. The state is auto-registered if not already present.
+func TestParseStateDescription(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    s1 : This is a description
+    s2 : Another one`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.States) != 2 {
+		t.Fatalf("want 2 states, got %d", len(d.States))
+	}
+	if d.States[0].ID != "s1" || d.States[0].Description != "This is a description" {
+		t.Errorf("s1 = %+v", d.States[0])
+	}
+	if d.States[1].Description != "Another one" {
+		t.Errorf("s2 = %+v", d.States[1])
+	}
+}
+
+// Description shorthand can repeat; the latest description wins.
+func TestParseStateDescriptionUpdate(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    s1 : first
+    s1 : second`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.States[0].Description != "second" {
+		t.Errorf("description = %q, want %q", d.States[0].Description, "second")
+	}
+}
+
+func TestParseDirection(t *testing.T) {
+	cases := []struct {
+		src  string
+		want diagram.Direction
+	}{
+		{"direction TB", diagram.DirectionTB},
+		{"direction TD", diagram.DirectionTB}, // alias
+		{"direction BT", diagram.DirectionBT},
+		{"direction LR", diagram.DirectionLR},
+		{"direction RL", diagram.DirectionRL},
+	}
+	for _, tc := range cases {
+		t.Run(tc.src, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("stateDiagram-v2\n    " + tc.src + "\n    [*] --> S"))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if d.Direction != tc.want {
+				t.Errorf("direction = %v, want %v", d.Direction, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseDirectionInvalid(t *testing.T) {
+	_, err := Parse(strings.NewReader("stateDiagram-v2\n    direction WAT"))
+	if err == nil {
+		t.Error("expected error for unknown direction")
+	}
+}
+
+// Transition labels with literal `\n` get the real newline so
+// renderers can split on it directly.
+func TestParseMultiLineTransitionLabel(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    A --> B : line1\nline2`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Transitions[0].Label != "line1\nline2" {
+		t.Errorf("label = %q, want with embedded newline", d.Transitions[0].Label)
+	}
+}
+
 func TestParseAutoRegistersStates(t *testing.T) {
 	input := `stateDiagram-v2
     A --> B`
