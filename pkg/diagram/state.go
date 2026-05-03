@@ -21,7 +21,16 @@ type StateDef struct {
 	// state title in a separate compartment.
 	Description string
 	Kind        StateKind
-	Children    []StateDef
+	// Children holds the inner states for a composite state with
+	// a single (default) region. For composite states split by
+	// `--` separators into parallel regions, see Regions instead;
+	// when Regions is non-empty, Children is the concatenated
+	// view across all regions in source order.
+	Children []StateDef
+	// Regions holds the parallel regions of a composite state.
+	// Empty for non-composite or single-region composites. Each
+	// entry is the slice of states that belong to that region.
+	Regions [][]StateDef
 	// CSSClasses are user-defined CSS class names attached via
 	// `class S1,S2 foo` or the inline `S1:::foo` shorthand.
 	CSSClasses []string

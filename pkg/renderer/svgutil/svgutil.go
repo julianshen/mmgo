@@ -413,6 +413,31 @@ type Defs struct {
 	Markers []Marker `xml:"marker,omitempty"`
 }
 
+// GroupBoxPadX / GroupBoxPadY / GroupBoxLabelH are the shared
+// metrics for "labelled bounding rectangle around a group of nodes"
+// — used by class-diagram namespaces and state-diagram composite
+// states. Per-renderer corner radius stays a local choice.
+const (
+	GroupBoxPadX   = 12.0
+	GroupBoxPadY   = 10.0
+	GroupBoxLabelH = 22.0
+)
+
+// BBoxOver returns the bounding box of the named layout nodes,
+// translated by `pad`. Missing IDs are skipped. Returns
+// `Empty()==true` when no IDs resolved.
+func BBoxOver(ids []string, nodes map[string]layout.NodeLayout, pad float64) BBox {
+	bb := NewInfiniteBBox()
+	for _, id := range ids {
+		n, ok := nodes[id]
+		if !ok {
+			continue
+		}
+		bb.Expand(n.X+pad, n.Y+pad, n.Width, n.Height)
+	}
+	return bb
+}
+
 // Note rendering metrics shared across renderers that draw
 // sticky-note rectangles (class, state, and any future diagram type
 // with notes). Per-renderer code applies these uniformly so notes

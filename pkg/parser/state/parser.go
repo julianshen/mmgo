@@ -433,7 +433,7 @@ func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef) error {
 		if cssClass != "" {
 			s.CSSClasses = append(s.CSSClasses, cssClass)
 		}
-		return p.parseCompositeBody(&s.Children)
+		return p.parseCompositeBody(s)
 	}
 	parts := strings.Fields(rest)
 	if len(parts) >= 2 && strings.HasPrefix(parts[1], "<<") && strings.HasSuffix(parts[1], ">>") {
@@ -474,7 +474,15 @@ func (p *parser) parseAliasDecl(rest string, target *[]diagram.StateDef) error {
 	return nil
 }
 
-func (p *parser) parseCompositeBody(target *[]diagram.StateDef) error {
+// parseCompositeBody reads inner-state lines until the matching `}`.
+// `--` lines split the body into parallel regions; the parent's
+// Regions slice records each region's children, while Children
+// continues to hold the concatenated union (so existing consumers
+// that only walk Children keep working).
+func (p *parser) parseCompositeBody(parent *diagram.StateDef) error {
+	target := &parent.Children
+	regionStart := 0
+	hasSeparator := false
 	for p.scanner.Scan() {
 		p.lineNum++
 		line := strings.TrimSpace(parserutil.StripComment(p.scanner.Text()))
@@ -482,7 +490,20 @@ func (p *parser) parseCompositeBody(target *[]diagram.StateDef) error {
 			continue
 		}
 		if line == "}" {
+			if hasSeparator {
+				// Capture the trailing region (everything after the
+				// last `--`), then we're done.
+				region := append([]diagram.StateDef(nil), (*target)[regionStart:]...)
+				parent.Regions = append(parent.Regions, region)
+			}
 			return nil
+		}
+		if line == "--" {
+			region := append([]diagram.StateDef(nil), (*target)[regionStart:]...)
+			parent.Regions = append(parent.Regions, region)
+			regionStart = len(*target)
+			hasSeparator = true
+			continue
 		}
 		if err := p.parseLine(line, target); err != nil {
 			return err

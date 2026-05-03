@@ -17,6 +17,9 @@ type Theme struct {
 	NoteFill      string // sticky-note background (yellow by default)
 	NoteStroke    string
 	NoteText      string
+	CompositeFill   string // composite-state container background
+	CompositeStroke string
+	CompositeText   string
 }
 
 // DefaultTheme returns the Mermaid-classic state-diagram palette.
@@ -34,6 +37,9 @@ func DefaultTheme() Theme {
 		NoteFill:      "#fff5ad",
 		NoteStroke:    "#aaaa33",
 		NoteText:      "#333",
+		CompositeFill:   "#f7f7ff",
+		CompositeStroke: "#9370DB",
+		CompositeText:   "#555",
 	}
 }
 
@@ -77,6 +83,15 @@ func resolveTheme(opts *Options) Theme {
 	}
 	if opts.Theme.NoteText != "" {
 		th.NoteText = opts.Theme.NoteText
+	}
+	if opts.Theme.CompositeFill != "" {
+		th.CompositeFill = opts.Theme.CompositeFill
+	}
+	if opts.Theme.CompositeStroke != "" {
+		th.CompositeStroke = opts.Theme.CompositeStroke
+	}
+	if opts.Theme.CompositeText != "" {
+		th.CompositeText = opts.Theme.CompositeText
 	}
 	return th
 }
