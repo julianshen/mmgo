@@ -172,7 +172,7 @@ func (p *parser) parseNote(line string) error {
 		return fmt.Errorf("note %q: text must be quoted", line)
 	}
 	p.diagram.Notes = append(p.diagram.Notes, diagram.ClassNote{
-		Text: strings.ReplaceAll(text, `\n`, "\n"),
+		Text: parserutil.ExpandLineBreaks(text),
 		For:  target,
 	})
 	return nil

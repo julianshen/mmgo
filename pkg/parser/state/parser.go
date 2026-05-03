@@ -68,13 +68,45 @@ func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
 	if rest, ok := strings.CutPrefix(line, "state "); ok {
 		return p.parseStateDecl(strings.TrimSpace(rest), target)
 	}
+	if rest, ok := strings.CutPrefix(line, "direction "); ok {
+		dir, err := parserutil.ParseDirection(strings.TrimSpace(rest))
+		if err != nil {
+			return err
+		}
+		p.diagram.Direction = dir
+		return nil
+	}
 	if t, ok := parseTransition(line); ok {
 		upsertState(target, t.From)
 		upsertState(target, t.To)
 		p.diagram.Transitions = append(p.diagram.Transitions, t)
 		return nil
 	}
+	if id, desc, ok := parseStateDescription(line); ok {
+		s := upsertState(target, id)
+		if s != nil {
+			s.Description = desc
+		}
+		return nil
+	}
 	return nil
+}
+
+// parseStateDescription matches `id : description text` outside of
+// any arrow-bearing transition. Mermaid's grammar requires whitespace
+// around the colon, so we only accept that form — same convention as
+// the class parser uses for single-line members. A bare `id:text`
+// is rejected (it's typically a typo or a misparsed transition).
+func parseStateDescription(line string) (id, desc string, ok bool) {
+	colon := strings.Index(line, " : ")
+	if colon < 0 {
+		return "", "", false
+	}
+	id = strings.TrimSpace(line[:colon])
+	if id == "" || strings.ContainsAny(id, " \t") {
+		return "", "", false
+	}
+	return id, strings.TrimSpace(line[colon+3:]), true
 }
 
 func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef) error {
@@ -153,7 +185,8 @@ func parseTransition(line string) (diagram.StateTransition, bool) {
 	label := ""
 	if colonIdx := strings.Index(rest, ":"); colonIdx >= 0 {
 		to = strings.TrimSpace(rest[:colonIdx])
-		label = strings.TrimSpace(rest[colonIdx+1:])
+		// Mermaid uses literal `\n` as a line-break in transition labels.
+		label = parserutil.ExpandLineBreaks(strings.TrimSpace(rest[colonIdx+1:]))
 	}
 	if from == "" || to == "" {
 		return diagram.StateTransition{}, false

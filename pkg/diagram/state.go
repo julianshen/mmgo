@@ -14,10 +14,14 @@ var stateKindNames = []string{"normal", "fork", "join", "choice"}
 func (s StateKind) String() string { return enumString(s, stateKindNames) }
 
 type StateDef struct {
-	ID       string
-	Label    string
-	Kind     StateKind
-	Children []StateDef
+	ID    string
+	Label string
+	// Description is optional secondary text parsed from
+	// `id : description` syntax. Renderers may show it below the
+	// state title in a separate compartment.
+	Description string
+	Kind        StateKind
+	Children    []StateDef
 }
 
 type StateTransition struct {
@@ -29,6 +33,9 @@ type StateTransition struct {
 type StateDiagram struct {
 	States      []StateDef
 	Transitions []StateTransition
+	// Direction is the layout flow. DirectionUnknown means "use the
+	// renderer's default" (currently top-to-bottom).
+	Direction Direction
 }
 
 func (*StateDiagram) Type() DiagramType { return State }
