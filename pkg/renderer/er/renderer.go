@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
@@ -57,7 +58,7 @@ func Render(d *diagram.ERDiagram, opts *Options) ([]byte, error) {
 		g.SetEdge(r.From, r.To, graph.EdgeAttrs{Label: r.Label})
 	}
 
-	l := layout.Layout(g, layout.Options{RankDir: layout.RankDirTB})
+	l := layout.Layout(g, layout.Options{RankDir: svgutil.RankDirFor(d.Direction)})
 	pad := defaultPadding
 	viewW := sanitize(l.Width) + 2*pad
 	viewH := sanitize(l.Height) + 2*pad
@@ -137,13 +138,21 @@ func attrColumnWidths(attrs []diagram.ERAttribute, ruler *textmeasure.Ruler, fon
 	return typeColW, nameColW
 }
 
-// nameCellText is what shows in the name column. The key marker
-// (PK/FK/UK) trails the name, mirroring mmdc's row layout.
+// nameCellText is what shows in the name column. Each key marker
+// (PK/FK/UK) trails the name in source order, comma-separated when
+// the attribute carries multiple constraints (e.g. `id PK, FK`).
 func nameCellText(a diagram.ERAttribute) string {
-	if a.Key != diagram.ERKeyNone {
+	if len(a.Keys) == 0 {
+		if a.Key == diagram.ERKeyNone {
+			return a.Name
+		}
 		return a.Name + " " + a.Key.String()
 	}
-	return a.Name
+	parts := make([]string, len(a.Keys))
+	for i, k := range a.Keys {
+		parts[i] = k.String()
+	}
+	return a.Name + " " + strings.Join(parts, ",")
 }
 
 func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64, th Theme, ruler *textmeasure.Ruler) []any {
