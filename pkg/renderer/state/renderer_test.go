@@ -341,6 +341,65 @@ func TestRenderStateNoteMultiline(t *testing.T) {
 	}
 }
 
+// A composite state renders as a labelled rounded rect that
+// contains its child states' bbox.
+func TestRenderCompositeStateBox(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "Active", Label: "Active", Children: []diagram.StateDef{
+				{ID: "Running", Label: "Running"},
+				{ID: "Paused", Label: "Paused"},
+			}},
+		},
+		Transitions: []diagram.StateTransition{
+			{From: "Running", To: "Paused"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// Composite label and fill present.
+	if !strings.Contains(raw, ">Active<") {
+		t.Error("composite label missing")
+	}
+	if !strings.Contains(raw, DefaultTheme().CompositeFill) {
+		t.Error("composite fill colour missing")
+	}
+	// Child labels still rendered.
+	for _, want := range []string{">Running<", ">Paused<"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}
+
+// A composite state with `Regions` (concurrent) gets a dashed
+// divider between region bboxes.
+func TestRenderCompositeRegionDivider(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "P", Label: "P",
+				Children: []diagram.StateDef{
+					{ID: "A", Label: "A"}, {ID: "B", Label: "B"},
+				},
+				Regions: [][]diagram.StateDef{
+					{{ID: "A", Label: "A"}},
+					{{ID: "B", Label: "B"}},
+				}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "stroke-dasharray:5,4") {
+		t.Errorf("multi-region composite should have a dashed divider:\n%s", raw)
+	}
+}
+
 func TestRenderAccessibilityMetadata(t *testing.T) {
 	d := &diagram.StateDiagram{
 		Title:    "general",
@@ -612,6 +671,9 @@ func TestDefaultThemeStable(t *testing.T) {
 		NoteFill:      "#fff5ad",
 		NoteStroke:    "#aaaa33",
 		NoteText:      "#333",
+		CompositeFill:   "#f7f7ff",
+		CompositeStroke: "#9370DB",
+		CompositeText:   "#555",
 	}
 	if got != want {
 		t.Errorf("DefaultTheme drifted:\n got  %+v\n want %+v", got, want)

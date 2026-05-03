@@ -712,6 +712,88 @@ func TestParseClickUndeclaredStateError(t *testing.T) {
 	}
 }
 
+// `--` inside a composite state body splits the body into parallel
+// regions. Each region's states land in their own slice.
+func TestParseConcurrentRegions(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Active {
+        Running --> Paused
+        Paused --> Running
+        --
+        Healthy --> Sick
+        Sick --> Healthy
+    }`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.States) != 1 {
+		t.Fatalf("want 1 top-level state, got %d", len(d.States))
+	}
+	active := d.States[0]
+	if active.ID != "Active" {
+		t.Fatalf("ID = %q", active.ID)
+	}
+	if len(active.Regions) != 2 {
+		t.Fatalf("want 2 regions, got %d", len(active.Regions))
+	}
+	// First region: Running, Paused.
+	r1 := active.Regions[0]
+	if len(r1) != 2 || r1[0].ID != "Running" || r1[1].ID != "Paused" {
+		t.Errorf("region[0] = %+v", r1)
+	}
+	// Second region: Healthy, Sick.
+	r2 := active.Regions[1]
+	if len(r2) != 2 || r2[0].ID != "Healthy" || r2[1].ID != "Sick" {
+		t.Errorf("region[1] = %+v", r2)
+	}
+	// Children is the concatenated union across regions.
+	if len(active.Children) != 4 {
+		t.Errorf("Children union = %d, want 4", len(active.Children))
+	}
+}
+
+// A composite without `--` populates only Children, not Regions.
+func TestParseSingleRegionCompositeUnchanged(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Active {
+        Running --> Paused
+    }`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	active := &d.States[0]
+	if len(active.Regions) != 0 {
+		t.Errorf("Regions should be empty for single-region composite, got %d", len(active.Regions))
+	}
+	if len(active.Children) != 2 {
+		t.Errorf("Children = %d, want 2", len(active.Children))
+	}
+}
+
+// Three regions separated by two `--` dividers.
+func TestParseThreeRegions(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state P {
+        state A
+        --
+        state B
+        --
+        state C
+    }`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	p := d.States[0]
+	if len(p.Regions) != 3 {
+		t.Fatalf("want 3 regions, got %d", len(p.Regions))
+	}
+	for i, want := range []string{"A", "B", "C"} {
+		if len(p.Regions[i]) != 1 || p.Regions[i][0].ID != want {
+			t.Errorf("region[%d] = %+v, want id=%s", i, p.Regions[i], want)
+		}
+	}
+}
+
 func TestParseAutoRegistersStates(t *testing.T) {
 	input := `stateDiagram-v2
     A --> B`
