@@ -22,6 +22,9 @@ type StateDef struct {
 	Description string
 	Kind        StateKind
 	Children    []StateDef
+	// CSSClasses are user-defined CSS class names attached via
+	// `class S1,S2 foo` or the inline `S1:::foo` shorthand.
+	CSSClasses []string
 }
 
 type StateTransition struct {
@@ -51,13 +54,42 @@ type StateNote struct {
 	Target string // state ID the note attaches to
 }
 
+// StateStyleDef is a per-state inline style override parsed from
+// `style ID fill:#f9f,stroke:#333`.
+type StateStyleDef struct {
+	StateID string
+	CSS     string
+}
+
+// StateClickDef binds a click action to a state. Either URL or
+// Callback is set; the renderer emits a hyperlink for URL forms and
+// keeps Callback as metadata for downstream tooling.
+type StateClickDef struct {
+	StateID  string
+	URL      string
+	Tooltip  string
+	Target   string
+	Callback string
+}
+
 type StateDiagram struct {
 	States      []StateDef
 	Transitions []StateTransition
 	Notes       []StateNote
+	// CSSClasses maps a user-defined class name (from `classDef foo …`)
+	// to its semicolon-separated CSS declarations.
+	CSSClasses map[string]string
+	// Styles are per-state inline overrides from `style ID …` lines.
+	Styles []StateStyleDef
+	// Clicks are click / link / callback bindings.
+	Clicks []StateClickDef
 	// Direction is the layout flow. DirectionUnknown means "use the
 	// renderer's default" (currently top-to-bottom).
 	Direction Direction
+	// Title and accessibility metadata.
+	Title    string
+	AccTitle string
+	AccDescr string
 }
 
 func (*StateDiagram) Type() DiagramType { return State }

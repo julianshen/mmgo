@@ -12,7 +12,9 @@ import (
 
 func Parse(r io.Reader) (*diagram.StateDiagram, error) {
 	p := &parser{
-		diagram: &diagram.StateDiagram{},
+		diagram: &diagram.StateDiagram{
+			CSSClasses: make(map[string]string),
+		},
 	}
 	p.scanner = bufio.NewScanner(r)
 	p.scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
@@ -65,6 +67,33 @@ func upsertState(target *[]diagram.StateDef, id string) *diagram.StateDef {
 }
 
 func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
+	if v, ok := parserutil.MatchKeywordValue(line, "title"); ok {
+		p.diagram.Title = v
+		return nil
+	}
+	if v, ok := parserutil.MatchKeywordValue(line, "accTitle"); ok {
+		p.diagram.AccTitle = v
+		return nil
+	}
+	if v, ok := parserutil.MatchKeywordValue(line, "accDescr"); ok {
+		p.diagram.AccDescr = v
+		return nil
+	}
+	if strings.HasPrefix(line, "classDef ") {
+		return p.parseClassDef(line)
+	}
+	if strings.HasPrefix(line, "style ") {
+		return p.parseStyleRule(line)
+	}
+	if strings.HasPrefix(line, "click ") {
+		return p.parseClick(line)
+	}
+	if strings.HasPrefix(line, "link ") {
+		return p.parseLinkOrCallback(line, false)
+	}
+	if strings.HasPrefix(line, "callback ") {
+		return p.parseLinkOrCallback(line, true)
+	}
 	if rest, ok := strings.CutPrefix(line, "state "); ok {
 		return p.parseStateDecl(strings.TrimSpace(rest), target)
 	}
@@ -79,6 +108,14 @@ func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
 		p.diagram.Direction = dir
 		return nil
 	}
+	// `class IDs name` binds a previously-defined classDef to states.
+	// Must be checked AFTER `state ` (the `state ` prefix takes
+	// precedence over the bare `class ` prefix on lines like
+	// `state foo` — the keywords don't actually overlap, but we
+	// keep the order explicit to mirror Mermaid's parser).
+	if rest, ok := strings.CutPrefix(line, "class "); ok {
+		return p.parseClassBinding(rest, target)
+	}
 	if t, ok := parseTransition(line); ok {
 		upsertState(target, t.From)
 		upsertState(target, t.To)
@@ -91,6 +128,195 @@ func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
 			s.Description = desc
 		}
 		return nil
+	}
+	return nil
+}
+
+// parseClassDef stores `classDef NAME CSS` in CSSClasses with the
+// CSS normalized (commas → semicolons) so renderers drop it directly
+// into a `style="…"` attribute.
+func (p *parser) parseClassDef(line string) error {
+	rest := line[len("classDef "):]
+	parts := strings.SplitN(rest, " ", 2)
+	if len(parts) < 2 {
+		return fmt.Errorf("classDef requires a name and CSS")
+	}
+	p.diagram.CSSClasses[parts[0]] = parserutil.NormalizeCSS(strings.TrimSpace(parts[1]))
+	return nil
+}
+
+// parseStyleRule stores `style ID CSS` as an inline override on
+// the named state.
+func (p *parser) parseStyleRule(line string) error {
+	rest := line[len("style "):]
+	parts := strings.SplitN(rest, " ", 2)
+	if len(parts) < 2 {
+		return fmt.Errorf("style requires an ID and CSS")
+	}
+	id := strings.TrimSpace(parts[0])
+	p.diagram.Styles = append(p.diagram.Styles, diagram.StateStyleDef{
+		StateID: id,
+		CSS:     parserutil.NormalizeCSS(strings.TrimSpace(parts[1])),
+	})
+	return nil
+}
+
+// parseClassBinding handles `class id1,id2 className`. The state IDs
+// must already exist (Mermaid behavior); we look them up across all
+// composite levels.
+func (p *parser) parseClassBinding(rest string, target *[]diagram.StateDef) error {
+	parts := strings.SplitN(rest, " ", 2)
+	if len(parts) < 2 {
+		return fmt.Errorf("class requires state ids and class name")
+	}
+	cssName := strings.TrimSpace(parts[1])
+	for _, id := range strings.Split(parts[0], ",") {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		s := findStateByID(target, id)
+		if s == nil {
+			// Fall back to recursive search across composite states
+			// so `class Foo bar` works even when Foo lives inside
+			// a composite. If still missing, register at top level.
+			s = findStateRecursive(p.diagram.States, id)
+			if s == nil {
+				s = upsertState(target, id)
+			}
+		}
+		if s != nil {
+			s.CSSClasses = append(s.CSSClasses, cssName)
+		}
+	}
+	return nil
+}
+
+func findStateByID(states *[]diagram.StateDef, id string) *diagram.StateDef {
+	for i := range *states {
+		if (*states)[i].ID == id {
+			return &(*states)[i]
+		}
+	}
+	return nil
+}
+
+func findStateRecursive(states []diagram.StateDef, id string) *diagram.StateDef {
+	for i := range states {
+		if states[i].ID == id {
+			return &states[i]
+		}
+		if found := findStateRecursive(states[i].Children, id); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// parseClick handles `click ID call func()` and `click ID href "url"
+// "tooltip" "target"`. Bare `click ID "url" …` is treated as href
+// for compatibility with mermaid-cli.
+func (p *parser) parseClick(line string) error {
+	rest := strings.TrimSpace(line[len("click "):])
+	stateID, afterID, err := splitClickHead(rest, "click")
+	if err != nil {
+		return err
+	}
+	if err := p.requireState(stateID, "click"); err != nil {
+		return err
+	}
+	cd := diagram.StateClickDef{StateID: stateID}
+	switch {
+	case afterID == "call" || strings.HasPrefix(afterID, "call "):
+		callback := strings.TrimSpace(strings.TrimPrefix(afterID, "call"))
+		if callback == "" {
+			return fmt.Errorf("click %s: missing callback after `call`", stateID)
+		}
+		cd.Callback = callback
+	case afterID == "href" || strings.HasPrefix(afterID, "href "):
+		argSrc := strings.TrimSpace(strings.TrimPrefix(afterID, "href"))
+		if err := fillClickURLArgs(&cd, argSrc); err != nil {
+			return fmt.Errorf("click %s: %w", stateID, err)
+		}
+	default:
+		if err := fillClickURLArgs(&cd, afterID); err != nil {
+			return fmt.Errorf("click %s: %w", stateID, err)
+		}
+	}
+	p.diagram.Clicks = append(p.diagram.Clicks, cd)
+	return nil
+}
+
+// parseLinkOrCallback handles the `link` / `callback` aliases.
+func (p *parser) parseLinkOrCallback(line string, isCallback bool) error {
+	kw := "link"
+	if isCallback {
+		kw = "callback"
+	}
+	rest := strings.TrimSpace(line[len(kw)+1:])
+	stateID, argSrc, err := splitClickHead(rest, kw)
+	if err != nil {
+		return err
+	}
+	if err := p.requireState(stateID, kw); err != nil {
+		return err
+	}
+	cd := diagram.StateClickDef{StateID: stateID}
+	if isCallback {
+		parts, perr := parserutil.SplitClickArgs(argSrc, 3)
+		if perr != nil {
+			return fmt.Errorf("%s %s: %w", kw, stateID, perr)
+		}
+		if len(parts) == 0 || parts[0] == "" {
+			return fmt.Errorf("%s %s: missing callback", kw, stateID)
+		}
+		cd.Callback = parts[0]
+		if len(parts) >= 2 {
+			cd.Tooltip = parts[1]
+		}
+		if len(parts) >= 3 {
+			cd.Target = parts[2]
+		}
+	} else if err := fillClickURLArgs(&cd, argSrc); err != nil {
+		return fmt.Errorf("%s %s: %w", kw, stateID, err)
+	}
+	p.diagram.Clicks = append(p.diagram.Clicks, cd)
+	return nil
+}
+
+func splitClickHead(rest, kw string) (id, after string, err error) {
+	parts, perr := parserutil.SplitClickArgs(rest, 2)
+	if perr != nil {
+		return "", "", fmt.Errorf("%s: %w", kw, perr)
+	}
+	if len(parts) < 2 {
+		return "", "", fmt.Errorf("%s requires state id and target", kw)
+	}
+	id = parts[0]
+	return id, strings.TrimSpace(rest[len(id):]), nil
+}
+
+func (p *parser) requireState(id, kw string) error {
+	if findStateRecursive(p.diagram.States, id) == nil {
+		return fmt.Errorf("%s references undefined state %q", kw, id)
+	}
+	return nil
+}
+
+func fillClickURLArgs(cd *diagram.StateClickDef, src string) error {
+	parts, err := parserutil.SplitClickArgs(src, 3)
+	if err != nil {
+		return err
+	}
+	if len(parts) == 0 || parts[0] == "" {
+		return fmt.Errorf("missing URL")
+	}
+	cd.URL = parts[0]
+	if len(parts) >= 2 {
+		cd.Tooltip = parts[1]
+	}
+	if len(parts) >= 3 {
+		cd.Target = parts[2]
 	}
 	return nil
 }
@@ -183,11 +409,29 @@ func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef) error {
 	if strings.HasPrefix(rest, "\"") {
 		return p.parseAliasDecl(rest, target)
 	}
+	// `:::cssClass` shorthand attaches a named CSS class to the
+	// state. The marker sits at the end of the identifier; strip
+	// it before any further parsing.
+	cssClass := ""
+	if i := strings.Index(rest, ":::"); i >= 0 {
+		cssClass = strings.TrimSpace(rest[i+3:])
+		// Stop at the first whitespace / brace so `state Foo:::hot {`
+		// peels the class name correctly.
+		if j := strings.IndexAny(cssClass, " \t{"); j >= 0 {
+			cssClass = strings.TrimSpace(cssClass[:j])
+		}
+		// Reattach what came after to drive the rest of parsing.
+		tail := rest[i+3+len(cssClass):]
+		rest = strings.TrimSpace(rest[:i] + " " + strings.TrimSpace(tail))
+	}
 	if braceIdx := strings.IndexByte(rest, '{'); braceIdx >= 0 {
 		name := strings.TrimSpace(rest[:braceIdx])
 		s := upsertState(target, name)
 		if s == nil {
 			return fmt.Errorf("invalid composite state name %q", name)
+		}
+		if cssClass != "" {
+			s.CSSClasses = append(s.CSSClasses, cssClass)
 		}
 		return p.parseCompositeBody(&s.Children)
 	}
@@ -198,11 +442,17 @@ func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef) error {
 		s := upsertState(target, id)
 		if s != nil {
 			s.Kind = parseStateKind(annotation)
+			if cssClass != "" {
+				s.CSSClasses = append(s.CSSClasses, cssClass)
+			}
 		}
 		return nil
 	}
 	if len(parts) >= 1 {
-		upsertState(target, parts[0])
+		s := upsertState(target, parts[0])
+		if s != nil && cssClass != "" {
+			s.CSSClasses = append(s.CSSClasses, cssClass)
+		}
 	}
 	return nil
 }

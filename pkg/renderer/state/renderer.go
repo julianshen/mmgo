@@ -110,6 +110,15 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	viewH := viewMaxY - viewMinY
 
 	var children []any
+	// Accessibility metadata first (SVG 1.1 §5.4 convention).
+	if d.AccTitle != "" {
+		children = append(children, &svgTitle{Content: d.AccTitle})
+	} else if d.Title != "" {
+		children = append(children, &svgTitle{Content: d.Title})
+	}
+	if d.AccDescr != "" {
+		children = append(children, &svgDesc{Content: d.AccDescr})
+	}
 	children = append(children, &defs{Markers: []marker{buildArrowMarker(th)}})
 	children = append(children, &rect{
 		X: svgFloat(viewMinX), Y: svgFloat(viewMinY),
@@ -118,7 +127,7 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	})
 
 	children = append(children, renderEdges(d, l, pad, fontSize, ruler, th)...)
-	children = append(children, renderNodes(allStates, l, pad, fontSize, th)...)
+	children = append(children, renderNodes(d, allStates, l, pad, fontSize, th)...)
 	children = append(children, renderStateNotes(notes, l, pad, fontSize, th)...)
 
 	svg := svgDoc{
@@ -267,6 +276,37 @@ func collectAllStates(states []diagram.StateDef) []diagram.StateDef {
 	return all
 }
 
+// stateRectStyle returns the merged CSS overrides for a state —
+// classDef references first (in source order), then `style ID …`
+// rules, joined with `;` so later values override earlier per CSS
+// cascade.
+func stateRectStyle(d *diagram.StateDiagram, s diagram.StateDef) string {
+	var parts []string
+	for _, name := range s.CSSClasses {
+		if css := d.CSSClasses[name]; css != "" {
+			parts = append(parts, css)
+		}
+	}
+	for _, sd := range d.Styles {
+		if sd.StateID == s.ID {
+			parts = append(parts, sd.CSS)
+		}
+	}
+	return strings.Join(parts, ";")
+}
+
+// stateClicksByID indexes click defs by state id; last-seen wins.
+func stateClicksByID(clicks []diagram.StateClickDef) map[string]diagram.StateClickDef {
+	if len(clicks) == 0 {
+		return nil
+	}
+	out := make(map[string]diagram.StateClickDef, len(clicks))
+	for _, c := range clicks {
+		out[c.StateID] = c
+	}
+	return out
+}
+
 // titleBandHeight is the vertical band reserved for the state's
 // title row inside its rounded rect. Shared between sizing and
 // rendering so the description divider lands on the same y as
@@ -311,7 +351,8 @@ func stateNodeSize(s diagram.StateDef, ruler *textmeasure.Ruler, fontSize float6
 	return w, h
 }
 
-func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize float64, th Theme) []any {
+func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.Result, pad, fontSize float64, th Theme) []any {
+	clicks := stateClicksByID(d.Clicks)
 	var elems []any
 	for _, s := range states {
 		nl, ok := l.Nodes[s.ID]
@@ -321,9 +362,24 @@ func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize floa
 		cx := nl.X + pad
 		cy := nl.Y + pad
 
+		// Most states append directly to elems; states with a URL
+		// click action divert to a per-state buffer that's wrapped
+		// in <a> at the end so a click anywhere inside activates
+		// the link.
+		clickURL := ""
+		if cd, ok := clicks[s.ID]; ok {
+			clickURL = cd.URL
+		}
+		var stateBuf []any
+		buf := &elems
+		if clickURL != "" {
+			stateBuf = make([]any, 0, 4)
+			buf = &stateBuf
+		}
+
 		switch s.Kind {
 		case diagram.StateKindFork, diagram.StateKindJoin:
-			elems = append(elems, &rect{
+			*buf = append(*buf, &rect{
 				X: svgFloat(cx - forkBarW/2), Y: svgFloat(cy - forkBarH/2),
 				Width: svgFloat(forkBarW), Height: svgFloat(forkBarH),
 				Style: fmt.Sprintf("fill:%s;stroke:none", th.PseudoMark),
@@ -334,7 +390,7 @@ func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize floa
 				cx+choiceSize/2, cy,
 				cx, cy+choiceSize/2,
 				cx-choiceSize/2, cy)
-			elems = append(elems, &polygon{
+			*buf = append(*buf, &polygon{
 				Points: pts,
 				Style:  fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.StateFill, th.ChoiceFill),
 			})
@@ -343,21 +399,25 @@ func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize floa
 			h := nl.Height
 			x := cx - w/2
 			y := cy - h/2
-			elems = append(elems, &rect{
+			rectStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.StateFill, th.StateStroke)
+			if override := stateRectStyle(d, s); override != "" {
+				rectStyle = rectStyle + ";" + override
+			}
+			*buf = append(*buf, &rect{
 				X: svgFloat(x), Y: svgFloat(y),
 				Width: svgFloat(w), Height: svgFloat(h),
 				RX: 8, RY: 8,
-				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.StateFill, th.StateStroke),
+				Style: rectStyle,
 			})
 			if s.Description != "" {
 				titleH := titleBandHeight(fontSize)
-				elems = append(elems, &text{
+				*buf = append(*buf, &text{
 					X: svgFloat(cx), Y: svgFloat(y + titleH/2),
 					Anchor: "middle", Dominant: "central",
 					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize),
 					Content: s.Label,
 				})
-				elems = append(elems, &line{
+				*buf = append(*buf, &line{
 					X1: svgFloat(x), Y1: svgFloat(y + titleH),
 					X2: svgFloat(x + w), Y2: svgFloat(y + titleH),
 					Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.StateStroke),
@@ -366,7 +426,7 @@ func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize floa
 				lineH := descLineHeight(fontSize)
 				for i, ln := range descLines {
 					ly := y + titleH + statePadY/2 + float64(i)*lineH + lineH/2
-					elems = append(elems, &text{
+					*buf = append(*buf, &text{
 						X: svgFloat(cx), Y: svgFloat(ly),
 						Anchor: "middle", Dominant: "central",
 						Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize-1),
@@ -374,13 +434,23 @@ func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize floa
 					})
 				}
 			} else {
-				elems = append(elems, &text{
+				*buf = append(*buf, &text{
 					X: svgFloat(cx), Y: svgFloat(cy),
 					Anchor: "middle", Dominant: "central",
 					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize),
 					Content: s.Label,
 				})
 			}
+		}
+
+		if clickURL != "" {
+			cd := clicks[s.ID]
+			a := &anchor{Href: cd.URL, Target: cd.Target}
+			if cd.Tooltip != "" {
+				a.Children = append(a.Children, &svgTitle{Content: cd.Tooltip})
+			}
+			a.Children = append(a.Children, stateBuf...)
+			elems = append(elems, a)
 		}
 	}
 
