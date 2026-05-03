@@ -277,21 +277,18 @@ func collectAllStates(states []diagram.StateDef) []diagram.StateDef {
 }
 
 // stateRectStyle returns the merged CSS overrides for a state —
-// classDef references first (in source order), then `style ID …`
-// rules, joined with `;` so later values override earlier per CSS
-// cascade.
-func stateRectStyle(d *diagram.StateDiagram, s diagram.StateDef) string {
+// classDef references first (source order), then any `style ID …`
+// rules, joined with `;` so later values win per CSS cascade.
+// stylesByID is a pre-built index over d.Styles so this runs O(1)
+// per state instead of O(states * style-rules).
+func stateRectStyle(d *diagram.StateDiagram, s diagram.StateDef, stylesByID map[string][]string) string {
 	var parts []string
 	for _, name := range s.CSSClasses {
 		if css := d.CSSClasses[name]; css != "" {
 			parts = append(parts, css)
 		}
 	}
-	for _, sd := range d.Styles {
-		if sd.StateID == s.ID {
-			parts = append(parts, sd.CSS)
-		}
-	}
+	parts = append(parts, stylesByID[s.ID]...)
 	return strings.Join(parts, ";")
 }
 
@@ -303,6 +300,19 @@ func stateClicksByID(clicks []diagram.StateClickDef) map[string]diagram.StateCli
 	out := make(map[string]diagram.StateClickDef, len(clicks))
 	for _, c := range clicks {
 		out[c.StateID] = c
+	}
+	return out
+}
+
+// stateStylesByID indexes per-state style declarations so
+// stateRectStyle is O(1) per state.
+func stateStylesByID(styles []diagram.StateStyleDef) map[string][]string {
+	if len(styles) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(styles))
+	for _, sd := range styles {
+		out[sd.StateID] = append(out[sd.StateID], sd.CSS)
 	}
 	return out
 }
@@ -353,6 +363,7 @@ func stateNodeSize(s diagram.StateDef, ruler *textmeasure.Ruler, fontSize float6
 
 func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.Result, pad, fontSize float64, th Theme) []any {
 	clicks := stateClicksByID(d.Clicks)
+	styles := stateStylesByID(d.Styles)
 	var elems []any
 	for _, s := range states {
 		nl, ok := l.Nodes[s.ID]
@@ -366,13 +377,10 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 		// click action divert to a per-state buffer that's wrapped
 		// in <a> at the end so a click anywhere inside activates
 		// the link.
-		clickURL := ""
-		if cd, ok := clicks[s.ID]; ok {
-			clickURL = cd.URL
-		}
+		click, hasClick := clicks[s.ID]
 		var stateBuf []any
 		buf := &elems
-		if clickURL != "" {
+		if hasClick && click.URL != "" {
 			stateBuf = make([]any, 0, 4)
 			buf = &stateBuf
 		}
@@ -400,7 +408,7 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 			x := cx - w/2
 			y := cy - h/2
 			rectStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.StateFill, th.StateStroke)
-			if override := stateRectStyle(d, s); override != "" {
+			if override := stateRectStyle(d, s, styles); override != "" {
 				rectStyle = rectStyle + ";" + override
 			}
 			*buf = append(*buf, &rect{
@@ -443,11 +451,10 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 			}
 		}
 
-		if clickURL != "" {
-			cd := clicks[s.ID]
-			a := &anchor{Href: cd.URL, Target: cd.Target}
-			if cd.Tooltip != "" {
-				a.Children = append(a.Children, &svgTitle{Content: cd.Tooltip})
+		if hasClick && click.URL != "" {
+			a := &anchor{Href: click.URL, Target: click.Target}
+			if click.Tooltip != "" {
+				a.Children = append(a.Children, &svgTitle{Content: click.Tooltip})
 			}
 			a.Children = append(a.Children, stateBuf...)
 			elems = append(elems, a)

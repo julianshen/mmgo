@@ -590,6 +590,39 @@ func TestParseLinkAndCallback(t *testing.T) {
 	}
 }
 
+// `class id className` referencing an undeclared state errors
+// instead of silently spawning a phantom state — matches the
+// strictness of click/link/callback and of the class-diagram parser.
+func TestParseClassBindingUndefinedStateError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`stateDiagram-v2
+    classDef hot fill:#f00
+    class Ghost hot`))
+	if err == nil {
+		t.Error("expected error for class binding to undeclared state")
+	}
+}
+
+// `:::` shorthand combined with `<<fork>>` should set BOTH the CSS
+// class and the special-state Kind.
+func TestParseCSSShorthandWithSpecialKind(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    classDef hot fill:#f00
+    state foo:::hot <<fork>>`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.States) != 1 {
+		t.Fatalf("want 1 state, got %d", len(d.States))
+	}
+	s := d.States[0]
+	if s.Kind != diagram.StateKindFork {
+		t.Errorf("Kind = %v, want fork", s.Kind)
+	}
+	if len(s.CSSClasses) != 1 || s.CSSClasses[0] != "hot" {
+		t.Errorf("CSSClasses = %v", s.CSSClasses)
+	}
+}
+
 // Click on undeclared state errors instead of silently registering.
 func TestParseClickUndeclaredStateError(t *testing.T) {
 	_, err := Parse(strings.NewReader(`stateDiagram-v2

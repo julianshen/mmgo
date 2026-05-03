@@ -203,16 +203,12 @@ func parseBareAnnotation(line string) (string, diagram.ClassAnnotation, bool) {
 	return id, ann, true
 }
 
-// parseClassDef stores `classDef NAME CSS` in CSSClasses with the CSS
-// normalized (commas → semicolons) so renderers can drop it directly
-// into a `style="…"` attribute.
 func (p *parser) parseClassDef(line string) error {
-	rest := line[len("classDef "):]
-	parts := strings.SplitN(rest, " ", 2)
-	if len(parts) < 2 {
-		return fmt.Errorf("classDef requires a name and CSS")
+	name, css, err := parserutil.ParseClassDefLine(line[len("classDef "):])
+	if err != nil {
+		return err
 	}
-	p.diagram.CSSClasses[parts[0]] = parserutil.NormalizeCSS(strings.TrimSpace(parts[1]))
+	p.diagram.CSSClasses[name] = css
 	return nil
 }
 

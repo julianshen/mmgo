@@ -67,6 +67,9 @@ func upsertState(target *[]diagram.StateDef, id string) *diagram.StateDef {
 }
 
 func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
+	// Keyword-prefixed lines win over bare-id matchers (Mermaid
+	// convention): `title : foo` is the diagram title, never a
+	// state-with-description for a state named "title".
 	if v, ok := parserutil.MatchKeywordValue(line, "title"); ok {
 		p.diagram.Title = v
 		return nil
@@ -132,21 +135,15 @@ func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
 	return nil
 }
 
-// parseClassDef stores `classDef NAME CSS` in CSSClasses with the
-// CSS normalized (commas → semicolons) so renderers drop it directly
-// into a `style="…"` attribute.
 func (p *parser) parseClassDef(line string) error {
-	rest := line[len("classDef "):]
-	parts := strings.SplitN(rest, " ", 2)
-	if len(parts) < 2 {
-		return fmt.Errorf("classDef requires a name and CSS")
+	name, css, err := parserutil.ParseClassDefLine(line[len("classDef "):])
+	if err != nil {
+		return err
 	}
-	p.diagram.CSSClasses[parts[0]] = parserutil.NormalizeCSS(strings.TrimSpace(parts[1]))
+	p.diagram.CSSClasses[name] = css
 	return nil
 }
 
-// parseStyleRule stores `style ID CSS` as an inline override on
-// the named state.
 func (p *parser) parseStyleRule(line string) error {
 	rest := line[len("style "):]
 	parts := strings.SplitN(rest, " ", 2)
@@ -161,9 +158,12 @@ func (p *parser) parseStyleRule(line string) error {
 	return nil
 }
 
-// parseClassBinding handles `class id1,id2 className`. The state IDs
-// must already exist (Mermaid behavior); we look them up across all
-// composite levels.
+// parseClassBinding handles `class id1,id2 className`. State IDs
+// must already exist; an unknown ID errors rather than silently
+// creating a phantom state (a bare typo like `class Foo bar` when
+// `Foo` was meant should not produce an undeclared shadow). Lookup
+// is recursive so `class Foo bar` works when Foo lives inside a
+// composite.
 func (p *parser) parseClassBinding(rest string, target *[]diagram.StateDef) error {
 	parts := strings.SplitN(rest, " ", 2)
 	if len(parts) < 2 {
@@ -177,17 +177,12 @@ func (p *parser) parseClassBinding(rest string, target *[]diagram.StateDef) erro
 		}
 		s := findStateByID(target, id)
 		if s == nil {
-			// Fall back to recursive search across composite states
-			// so `class Foo bar` works even when Foo lives inside
-			// a composite. If still missing, register at top level.
 			s = findStateRecursive(p.diagram.States, id)
-			if s == nil {
-				s = upsertState(target, id)
-			}
 		}
-		if s != nil {
-			s.CSSClasses = append(s.CSSClasses, cssName)
+		if s == nil {
+			return fmt.Errorf("class binding references undefined state %q", id)
 		}
+		s.CSSClasses = append(s.CSSClasses, cssName)
 	}
 	return nil
 }
@@ -296,6 +291,11 @@ func splitClickHead(rest, kw string) (id, after string, err error) {
 	return id, strings.TrimSpace(rest[len(id):]), nil
 }
 
+// requireState reports an error when a click/link/callback names a
+// state that hasn't been declared anywhere in the diagram. Lookup is
+// global — Mermaid state-diagram clicks aren't composite-scoped, so
+// `click Foo` works whether Foo is at the top level or inside a
+// composite.
 func (p *parser) requireState(id, kw string) error {
 	if findStateRecursive(p.diagram.States, id) == nil {
 		return fmt.Errorf("%s references undefined state %q", kw, id)
