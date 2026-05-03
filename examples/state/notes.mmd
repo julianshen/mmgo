@@ -1,0 +1,11 @@
+stateDiagram-v2
+    state Online
+    state Offline
+    Online --> Offline : disconnect
+    Offline --> Online : reconnect
+
+    note left of Online : User is connected
+    note right of Offline
+        device unreachable
+        retry pending
+    end note

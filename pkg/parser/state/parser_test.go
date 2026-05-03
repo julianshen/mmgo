@@ -394,6 +394,89 @@ func TestParseMultiLineTransitionLabel(t *testing.T) {
 	}
 }
 
+// Single-line note: `note left of X : text` and `note right of X : text`.
+func TestParseSingleLineNote(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Foo
+    state Bar
+    note left of Foo : Foo is the start
+    note right of Bar : Bar terminates`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Notes) != 2 {
+		t.Fatalf("want 2 notes, got %d", len(d.Notes))
+	}
+	if d.Notes[0].Side != diagram.NoteSideLeft || d.Notes[0].Target != "Foo" || d.Notes[0].Text != "Foo is the start" {
+		t.Errorf("note[0] = %+v", d.Notes[0])
+	}
+	if d.Notes[1].Side != diagram.NoteSideRight || d.Notes[1].Target != "Bar" || d.Notes[1].Text != "Bar terminates" {
+		t.Errorf("note[1] = %+v", d.Notes[1])
+	}
+}
+
+// Multi-line block note: opens with `note left of X` (no colon),
+// each subsequent line is body text, ends with `end note`.
+// Resulting Text contains real newlines.
+func TestParseBlockNote(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Foo
+    note left of Foo
+        first line
+        second line
+    end note`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Notes) != 1 {
+		t.Fatalf("want 1 note, got %d", len(d.Notes))
+	}
+	n := d.Notes[0]
+	if n.Side != diagram.NoteSideLeft || n.Target != "Foo" {
+		t.Errorf("side/target = %v/%q", n.Side, n.Target)
+	}
+	if n.Text != "first line\nsecond line" {
+		t.Errorf("text = %q, want with embedded newline", n.Text)
+	}
+}
+
+// `\n` inside a single-line note text becomes a real newline.
+func TestParseNoteLineBreaks(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state X
+    note right of X : line1\nline2`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Notes[0].Text != "line1\nline2" {
+		t.Errorf("text = %q", d.Notes[0].Text)
+	}
+}
+
+// Note for an undeclared state auto-registers it.
+func TestParseNoteAutoRegistersTarget(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    note left of Ghost : phantom`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.States) != 1 || d.States[0].ID != "Ghost" {
+		t.Errorf("states = %+v", d.States)
+	}
+}
+
+// Unclosed block note errors rather than silently consuming the
+// rest of the file.
+func TestParseUnclosedBlockNoteError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Foo
+    note left of Foo
+        unfinished`))
+	if err == nil {
+		t.Error("expected error for unclosed note block")
+	}
+}
+
 func TestParseAutoRegistersStates(t *testing.T) {
 	input := `stateDiagram-v2
     A --> B`

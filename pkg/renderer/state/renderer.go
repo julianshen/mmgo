@@ -83,22 +83,47 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	l := layout.Layout(g, layout.Options{RankDir: svgutil.RankDirFor(d.Direction)})
 	pad := defaultPadding
 
-	viewW := sanitize(l.Width) + 2*pad
-	viewH := sanitize(l.Height) + 2*pad
+	contentW := sanitize(l.Width) + 2*pad
+	contentH := sanitize(l.Height) + 2*pad
+	notes := layoutStateNotes(d, l, pad, fontSize, ruler)
+
+	// Notes can extend outside the class layout's bounding box
+	// (left of leftmost state, etc.); expand the viewBox to include
+	// every note rect so labels and connector lines stay visible.
+	viewMinX, viewMinY := 0.0, 0.0
+	viewMaxX, viewMaxY := contentW, contentH
+	for _, p := range notes {
+		if p.x-pad < viewMinX {
+			viewMinX = p.x - pad
+		}
+		if p.y-pad < viewMinY {
+			viewMinY = p.y - pad
+		}
+		if right := p.x + p.w + pad; right > viewMaxX {
+			viewMaxX = right
+		}
+		if bottom := p.y + p.h + pad; bottom > viewMaxY {
+			viewMaxY = bottom
+		}
+	}
+	viewW := viewMaxX - viewMinX
+	viewH := viewMaxY - viewMinY
 
 	var children []any
 	children = append(children, &defs{Markers: []marker{buildArrowMarker(th)}})
 	children = append(children, &rect{
-		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
+		X: svgFloat(viewMinX), Y: svgFloat(viewMinY),
+		Width: svgFloat(viewW), Height: svgFloat(viewH),
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
 	children = append(children, renderEdges(d, l, pad, fontSize, ruler, th)...)
 	children = append(children, renderNodes(allStates, l, pad, fontSize, th)...)
+	children = append(children, renderStateNotes(notes, l, pad, fontSize, th)...)
 
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
-		ViewBox:  fmt.Sprintf("0 0 %.2f %.2f", viewW, viewH),
+		ViewBox:  fmt.Sprintf("%.2f %.2f %.2f %.2f", viewMinX, viewMinY, viewW, viewH),
 		Children: children,
 	}
 	svgBytes, err := xml.Marshal(svg)
@@ -107,6 +132,120 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	}
 	xmlDecl := []byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
 	return append(xmlDecl, svgBytes...), nil
+}
+
+const (
+	notePadX  = 10.0
+	notePadY  = 8.0
+	noteGap   = 16.0
+	noteLineH = 18.0
+)
+
+// placedStateNote is a sized + positioned StateNote ready to emit.
+type placedStateNote struct {
+	note    diagram.StateNote
+	lines   []string
+	x, y    float64
+	w, h    float64
+}
+
+// layoutStateNotes places each note relative to its target state.
+// `note left of S` sits to the left of S; `note right of S` to the
+// right. When multiple notes attach to the same state on the same
+// side, later ones stack outward (further from the state).
+func layoutStateNotes(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler) []placedStateNote {
+	if len(d.Notes) == 0 {
+		return nil
+	}
+	out := make([]placedStateNote, 0, len(d.Notes))
+	// Track per-(target, side) outward offset so stacked notes
+	// don't overlap.
+	offsets := make(map[string]float64)
+	for _, n := range d.Notes {
+		target, ok := l.Nodes[n.Target]
+		if !ok {
+			continue
+		}
+		lines := strings.Split(n.Text, "\n")
+		w := 0.0
+		for _, line := range lines {
+			lw, _ := ruler.Measure(line, fontSize-1)
+			if lw > w {
+				w = lw
+			}
+		}
+		w += 2 * notePadX
+		h := float64(len(lines))*noteLineH + 2*notePadY
+		key := n.Target + "|" + fmt.Sprint(n.Side)
+		off := offsets[key]
+		offsets[key] = off + w + noteGap
+		var x, y float64
+		switch n.Side {
+		case diagram.NoteSideLeft:
+			x = (target.X + pad) - target.Width/2 - noteGap - off - w
+		default:
+			// right-of (and unspecified, treated as right)
+			x = (target.X + pad) + target.Width/2 + noteGap + off
+		}
+		// Vertically centre on the target; clamp y to layout origin
+		// so note tops don't run above the diagram.
+		y = (target.Y + pad) - h/2
+		out = append(out, placedStateNote{note: n, lines: lines, x: x, y: y, w: w, h: h})
+	}
+	return out
+}
+
+// renderStateNotes emits a yellow rect + multi-line text per note,
+// plus a dashed connector from the target state's nearest edge to
+// the note's near edge.
+func renderStateNotes(notes []placedStateNote, l *layout.Result, pad, fontSize float64, th Theme) []any {
+	if len(notes) == 0 {
+		return nil
+	}
+	noteStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1", th.NoteFill, th.NoteStroke)
+	textStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", th.NoteText, fontSize-1)
+	connStyle := fmt.Sprintf("stroke:%s;stroke-width:1;stroke-dasharray:4,3;fill:none", th.NoteStroke)
+	var elems []any
+	for _, p := range notes {
+		elems = append(elems, &rect{
+			X: svgFloat(p.x), Y: svgFloat(p.y),
+			Width: svgFloat(p.w), Height: svgFloat(p.h),
+			Style: noteStyle,
+		})
+		for i, ln := range p.lines {
+			elems = append(elems, &text{
+				X:        svgFloat(p.x + notePadX),
+				Y:        svgFloat(p.y + notePadY + float64(i)*noteLineH + noteLineH/2),
+				Anchor:   "start",
+				Dominant: "central",
+				Style:    textStyle,
+				Content:  ln,
+			})
+		}
+		// Connector: from the target state's near edge (left or
+		// right midpoint) to the note's near edge midpoint.
+		target, ok := l.Nodes[p.note.Target]
+		if !ok {
+			continue
+		}
+		stateMidY := target.Y + pad
+		var stateX, noteX float64
+		if p.note.Side == diagram.NoteSideLeft {
+			stateX = (target.X + pad) - target.Width/2
+			noteX = p.x + p.w
+		} else {
+			stateX = (target.X + pad) + target.Width/2
+			noteX = p.x
+		}
+		elems = append(elems, &line{
+			X1:    svgFloat(stateX),
+			Y1:    svgFloat(stateMidY),
+			X2:    svgFloat(noteX),
+			Y2:    svgFloat(p.y + p.h/2),
+			Style: connStyle,
+		})
+	}
+	return elems
 }
 
 func sanitize(v float64) float64 {
