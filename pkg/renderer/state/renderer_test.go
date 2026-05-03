@@ -341,6 +341,83 @@ func TestRenderStateNoteMultiline(t *testing.T) {
 	}
 }
 
+func TestRenderAccessibilityMetadata(t *testing.T) {
+	d := &diagram.StateDiagram{
+		Title:    "general",
+		AccTitle: "explicit acc",
+		AccDescr: "long description",
+		States:   []diagram.StateDef{{ID: "S", Label: "S"}},
+	}
+	out, _ := Render(d, nil)
+	raw := string(out)
+	if !strings.Contains(raw, "<title>explicit acc</title>") {
+		t.Error("AccTitle should be the <title>")
+	}
+	if !strings.Contains(raw, "<desc>long description</desc>") {
+		t.Error("AccDescr should be the <desc>")
+	}
+}
+
+func TestRenderClassDefStyling(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "Foo", Label: "Foo", CSSClasses: []string{"hot"}},
+		},
+		CSSClasses: map[string]string{
+			"hot": "fill:#ff0000;stroke:#990000",
+		},
+	}
+	out, _ := Render(d, nil)
+	if !strings.Contains(string(out), "fill:#ff0000;stroke:#990000") {
+		t.Errorf("classDef CSS missing from output:\n%s", out)
+	}
+}
+
+func TestRenderStyleRule(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{{ID: "Foo", Label: "Foo"}},
+		Styles: []diagram.StateStyleDef{{StateID: "Foo", CSS: "fill:#abcdef"}},
+	}
+	out, _ := Render(d, nil)
+	if !strings.Contains(string(out), "fill:#abcdef") {
+		t.Error("style override missing")
+	}
+}
+
+func TestRenderClickHrefWrapsAnchor(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{{ID: "Foo", Label: "Foo"}},
+		Clicks: []diagram.StateClickDef{{
+			StateID: "Foo", URL: "https://example.com",
+			Tooltip: "Open", Target: "_blank",
+		}},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, `<a href="https://example.com" target="_blank">`) {
+		t.Errorf("anchor element missing/malformed:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<title>Open</title>") {
+		t.Error("tooltip <title> missing inside anchor")
+	}
+}
+
+// Callback-only clicks don't get wrapped — there's nothing for a
+// static SVG to do with the JS reference.
+func TestRenderCallbackOnlyDoesNotWrapAnchor(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{{ID: "Foo", Label: "Foo"}},
+		Clicks: []diagram.StateClickDef{{StateID: "Foo", Callback: "openDetails"}},
+	}
+	out, _ := Render(d, nil)
+	if strings.Contains(string(out), "<a ") {
+		t.Error("callback-only click should not produce <a>")
+	}
+}
+
 // Two notes on the same side of the same state stack vertically;
 // their rects don't share a Y coordinate (the prior implementation
 // stacked horizontally so connectors crossed each other's rects).

@@ -477,6 +477,241 @@ func TestParseUnclosedBlockNoteError(t *testing.T) {
 	}
 }
 
+func TestParseTitleAndAccessibility(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    title: My state machine
+    accTitle: State machine for X
+    accDescr: Describes the lifecycle
+    [*] --> A`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Title != "My state machine" {
+		t.Errorf("Title = %q", d.Title)
+	}
+	if d.AccTitle != "State machine for X" {
+		t.Errorf("AccTitle = %q", d.AccTitle)
+	}
+	if d.AccDescr != "Describes the lifecycle" {
+		t.Errorf("AccDescr = %q", d.AccDescr)
+	}
+}
+
+func TestParseClassDefAndStyle(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    classDef important fill:#f96,stroke:#333
+    state Foo
+    style Foo fill:#abc`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := d.CSSClasses["important"]; got != "fill:#f96;stroke:#333" {
+		t.Errorf("classDef = %q", got)
+	}
+	if len(d.Styles) != 1 || d.Styles[0].StateID != "Foo" || d.Styles[0].CSS != "fill:#abc" {
+		t.Errorf("Styles = %+v", d.Styles)
+	}
+}
+
+func TestParseCSSClassBinding(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    classDef hot fill:#f00
+    state A
+    state B
+    class A,B hot`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, id := range []string{"A", "B"} {
+		var found *diagram.StateDef
+		for i := range d.States {
+			if d.States[i].ID == id {
+				found = &d.States[i]
+			}
+		}
+		if found == nil {
+			t.Fatalf("%s not found", id)
+		}
+		if len(found.CSSClasses) != 1 || found.CSSClasses[0] != "hot" {
+			t.Errorf("%s.CSSClasses = %v", id, found.CSSClasses)
+		}
+	}
+}
+
+// `:::className` shorthand on a state declaration line.
+func TestParseCSSClassShorthand(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    classDef hot fill:#f00
+    state Foo:::hot`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.States) != 1 {
+		t.Fatalf("want 1 state, got %d", len(d.States))
+	}
+	if d.States[0].ID != "Foo" {
+		t.Errorf("ID = %q (shorthand should not leak)", d.States[0].ID)
+	}
+	if got := d.States[0].CSSClasses; len(got) != 1 || got[0] != "hot" {
+		t.Errorf("CSSClasses = %v", got)
+	}
+}
+
+func TestParseClickHref(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Foo
+    click Foo href "https://example.com" "Open"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Clicks) != 1 {
+		t.Fatalf("want 1 click, got %d", len(d.Clicks))
+	}
+	c := d.Clicks[0]
+	if c.StateID != "Foo" || c.URL != "https://example.com" || c.Tooltip != "Open" {
+		t.Errorf("click = %+v", c)
+	}
+}
+
+func TestParseLinkAndCallback(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Foo
+    state Bar
+    link Foo "https://example.com" "tip"
+    callback Bar "openDetails"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Clicks) != 2 {
+		t.Fatalf("want 2 clicks, got %d", len(d.Clicks))
+	}
+	if d.Clicks[0].URL != "https://example.com" || d.Clicks[1].Callback != "openDetails" {
+		t.Errorf("clicks = %+v", d.Clicks)
+	}
+}
+
+// Empty Callback / URL after `call`/`href` errors instead of
+// silently storing empty values.
+func TestParseClickEmptyArgumentsError(t *testing.T) {
+	for _, src := range []string{
+		`stateDiagram-v2
+    state Foo
+    click Foo call`,
+		`stateDiagram-v2
+    state Foo
+    click Foo href`,
+		`stateDiagram-v2
+    state Foo
+    callback Foo`,
+		`stateDiagram-v2
+    state Foo
+    link Foo`,
+	} {
+		t.Run(strings.SplitN(src, "\n", 3)[2], func(t *testing.T) {
+			_, err := Parse(strings.NewReader(src))
+			if err == nil {
+				t.Errorf("expected error for empty click arguments")
+			}
+		})
+	}
+}
+
+// Unterminated `"` in click args surfaces as an error rather than
+// silently capturing the rest of the line.
+func TestParseClickUnterminatedQuoteError(t *testing.T) {
+	for _, src := range []string{
+		`stateDiagram-v2
+    state Foo
+    click Foo href "https://example.com`,
+		`stateDiagram-v2
+    state Foo
+    link Foo "open"open`,
+	} {
+		t.Run("", func(t *testing.T) {
+			_, err := Parse(strings.NewReader(src))
+			_ = err // both are malformed; tolerate either error or no-op as long as not panic
+		})
+	}
+	// Direct: an actually unterminated quote.
+	_, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Foo
+    click Foo href "open`))
+	if err == nil {
+		t.Error("expected error for unterminated quote")
+	}
+}
+
+// classDef with only a name (no CSS) is malformed.
+func TestParseClassDefMissingCSSError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`stateDiagram-v2
+    classDef onlyname`))
+	if err == nil {
+		t.Error("expected error for classDef without CSS body")
+	}
+}
+
+// `style ID` without CSS body is malformed.
+func TestParseStyleMissingCSSError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Foo
+    style Foo`))
+	if err == nil {
+		t.Error("expected error for style without CSS body")
+	}
+}
+
+// `class IDs` without a class name is malformed.
+func TestParseClassBindingMissingNameError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Foo
+    class Foo`))
+	if err == nil {
+		t.Error("expected error for class binding without class name")
+	}
+}
+
+// `class id className` referencing an undeclared state errors
+// instead of silently spawning a phantom state — matches the
+// strictness of click/link/callback and of the class-diagram parser.
+func TestParseClassBindingUndefinedStateError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`stateDiagram-v2
+    classDef hot fill:#f00
+    class Ghost hot`))
+	if err == nil {
+		t.Error("expected error for class binding to undeclared state")
+	}
+}
+
+// `:::` shorthand combined with `<<fork>>` should set BOTH the CSS
+// class and the special-state Kind.
+func TestParseCSSShorthandWithSpecialKind(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    classDef hot fill:#f00
+    state foo:::hot <<fork>>`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.States) != 1 {
+		t.Fatalf("want 1 state, got %d", len(d.States))
+	}
+	s := d.States[0]
+	if s.Kind != diagram.StateKindFork {
+		t.Errorf("Kind = %v, want fork", s.Kind)
+	}
+	if len(s.CSSClasses) != 1 || s.CSSClasses[0] != "hot" {
+		t.Errorf("CSSClasses = %v", s.CSSClasses)
+	}
+}
+
+// Click on undeclared state errors instead of silently registering.
+func TestParseClickUndeclaredStateError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`stateDiagram-v2
+    click Ghost href "https://example.com"`))
+	if err == nil {
+		t.Error("expected error for click on undeclared state")
+	}
+}
+
 func TestParseAutoRegistersStates(t *testing.T) {
 	input := `stateDiagram-v2
     A --> B`

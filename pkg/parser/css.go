@@ -1,6 +1,21 @@
 package parser
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
+
+// ParseClassDefLine parses `classDef NAME css-decls` and returns the
+// name and the CSS with commas normalized to semicolons. Used by
+// every diagram type that supports the classDef keyword. The caller
+// supplies the rest of the line WITHOUT the `classDef ` prefix.
+func ParseClassDefLine(rest string) (name, css string, err error) {
+	parts := strings.SplitN(rest, " ", 2)
+	if len(parts) < 2 {
+		return "", "", fmt.Errorf("classDef requires a name and CSS")
+	}
+	return parts[0], NormalizeCSS(strings.TrimSpace(parts[1])), nil
+}
 
 // NormalizeCSS converts Mermaid's comma-separated CSS-declaration syntax
 // (`fill:#fff,stroke:#000`) into the semicolon-separated form CSS
