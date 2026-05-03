@@ -14,9 +14,13 @@ var erKeyNames = []string{"", "PK", "FK", "UK"}
 func (k ERAttributeKey) String() string { return enumString(k, erKeyNames) }
 
 type ERAttribute struct {
-	Type    string
-	Name    string
+	Type string
+	Name string
+	// Key mirrors Keys[0] when Keys is non-empty; ERKeyNone when
+	// the attribute has no constraints. Multi-key consumers should
+	// walk Keys directly.
 	Key     ERAttributeKey
+	Keys    []ERAttributeKey
 	Comment string
 }
 
@@ -50,6 +54,9 @@ type ERRelationship struct {
 type ERDiagram struct {
 	Entities      []EREntity
 	Relationships []ERRelationship
+	// Direction is the layout flow. DirectionUnknown means "use
+	// the renderer's default" (currently top-to-bottom).
+	Direction Direction
 }
 
 func (*ERDiagram) Type() DiagramType { return ER }

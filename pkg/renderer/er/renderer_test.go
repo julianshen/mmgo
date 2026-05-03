@@ -3,6 +3,7 @@ package er
 import (
 	"bytes"
 	"encoding/xml"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -193,6 +194,74 @@ func TestRenderMultipleEntities(t *testing.T) {
 		t.Error("entity names missing")
 	}
 	assertValidSVG(t, out)
+}
+
+// Multi-key attributes (PK, FK) display all keys comma-separated
+// in the name cell.
+func TestRenderMultiKeyAttribute(t *testing.T) {
+	d := &diagram.ERDiagram{
+		Entities: []diagram.EREntity{
+			{Name: "ORDER", Attributes: []diagram.ERAttribute{
+				{Type: "int", Name: "id", Key: diagram.ERKeyPK,
+					Keys: []diagram.ERAttributeKey{diagram.ERKeyPK, diagram.ERKeyFK}},
+			}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), ">id PK,FK<") {
+		t.Errorf("expected `id PK,FK` in output:\n%s", out)
+	}
+}
+
+// Direction LR lays the same diagram out wider than its TB form.
+// (TB vs LR aren't compared against absolute aspect because small
+// 2-entity diagrams have entity-width-dominated layouts; the
+// relative comparison between the two directions is the
+// behavioural signal.)
+func TestRenderDirection(t *testing.T) {
+	build := func(dir diagram.Direction) *diagram.ERDiagram {
+		return &diagram.ERDiagram{
+			Direction: dir,
+			Entities: []diagram.EREntity{
+				{Name: "A"}, {Name: "B"}, {Name: "C"},
+			},
+			Relationships: []diagram.ERRelationship{
+				{From: "A", To: "B", FromCard: diagram.ERCardExactlyOne, ToCard: diagram.ERCardZeroOrMore},
+				{From: "B", To: "C", FromCard: diagram.ERCardExactlyOne, ToCard: diagram.ERCardZeroOrMore},
+			},
+		}
+	}
+	wh := func(t *testing.T, dir diagram.Direction) (w, h float64) {
+		t.Helper()
+		out, _ := Render(build(dir), nil)
+		body := out
+		if i := bytes.Index(body, []byte("<svg")); i >= 0 {
+			body = body[i:]
+		}
+		var doc struct {
+			XMLName xml.Name `xml:"svg"`
+			ViewBox string   `xml:"viewBox,attr"`
+		}
+		if err := xml.Unmarshal(body, &doc); err != nil {
+			t.Fatalf("svg parse: %v", err)
+		}
+		var minX, minY float64
+		if _, err := fmt.Sscanf(doc.ViewBox, "%f %f %f %f", &minX, &minY, &w, &h); err != nil {
+			t.Fatalf("viewBox parse: %v", err)
+		}
+		return w, h
+	}
+	tbW, tbH := wh(t, diagram.DirectionTB)
+	lrW, lrH := wh(t, diagram.DirectionLR)
+	if !(lrW > tbW) {
+		t.Errorf("LR width %f should exceed TB width %f", lrW, tbW)
+	}
+	if !(tbH > lrH) {
+		t.Errorf("TB height %f should exceed LR height %f", tbH, lrH)
+	}
 }
 
 func TestRenderDeterministic(t *testing.T) {

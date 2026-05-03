@@ -52,6 +52,14 @@ type parser struct {
 }
 
 func (p *parser) parseLine(line string) error {
+	if rest, ok := strings.CutPrefix(line, "direction "); ok {
+		dir, err := parserutil.ParseDirection(strings.TrimSpace(rest))
+		if err != nil {
+			return err
+		}
+		p.diagram.Direction = dir
+		return nil
+	}
 	// Relationships first — their cardinality markers can contain `{`.
 	if rel, ok := parseRelationship(line); ok {
 		p.ensureEntity(rel.From)
@@ -95,80 +103,159 @@ func (p *parser) ensureEntity(name string) {
 	p.diagram.Entities = append(p.diagram.Entities, diagram.EREntity{Name: name})
 }
 
+// parseAttribute reads an attribute line of the form
+//
+//	type name [key[, key…]] ["comment text"]
+//
+// `*name` is a Mermaid shorthand for marking the attribute as
+// PRIMARY KEY; the asterisk is stripped and ERKeyPK is added to
+// Keys. Comma-separated constraints (PK, FK, UK) land in Keys in
+// source order. Duplicate keys are deduplicated so `*id PK, FK`
+// yields [PK FK], not [PK PK FK]. A trailing quoted run is the
+// comment; the surrounding double quotes are stripped.
 func parseAttribute(line string) diagram.ERAttribute {
-	parts := strings.Fields(line)
 	attr := diagram.ERAttribute{}
-	if len(parts) >= 1 {
-		attr.Type = parts[0]
+	if i := strings.Index(line, `"`); i >= 0 {
+		if j := strings.LastIndex(line, `"`); j > i {
+			attr.Comment = line[i+1 : j]
+			line = strings.TrimSpace(line[:i])
+		}
 	}
+	parts := strings.Fields(line)
+	if len(parts) == 0 {
+		return attr
+	}
+	attr.Type = parts[0]
 	if len(parts) >= 2 {
-		attr.Name = parts[1]
+		name := parts[1]
+		if strings.HasPrefix(name, "*") {
+			name = strings.TrimPrefix(name, "*")
+			attr.Keys = appendUniqueKey(attr.Keys, diagram.ERKeyPK)
+		}
+		attr.Name = name
 	}
 	if len(parts) >= 3 {
-		switch strings.ToUpper(parts[2]) {
-		case "PK":
-			attr.Key = diagram.ERKeyPK
-		case "FK":
-			attr.Key = diagram.ERKeyFK
-		case "UK":
-			attr.Key = diagram.ERKeyUK
-		}
-		if attr.Key == diagram.ERKeyNone {
-			attr.Comment = strings.Join(parts[2:], " ")
+		raw := strings.Join(parts[2:], " ")
+		for _, k := range strings.Split(raw, ",") {
+			if key, ok := parseERKey(k); ok {
+				attr.Keys = appendUniqueKey(attr.Keys, key)
+			}
 		}
 	}
-	if len(parts) >= 4 && attr.Key != diagram.ERKeyNone {
-		attr.Comment = strings.Join(parts[3:], " ")
+	if len(attr.Keys) > 0 {
+		attr.Key = attr.Keys[0]
 	}
 	return attr
 }
 
-// Relationship arrows: cardinality markers around -- or ..
-// Format: ENTITY1 <left-card>--<right-card> ENTITY2 : "label"
-// Cardinality markers: || (exactly-one), |o/o| (zero-or-one),
-// }|/|{ (one-or-more), }o/o{ (zero-or-more)
-var cardPairs = []struct {
-	left  string
-	right string
-	lCard diagram.ERCardinality
-	rCard diagram.ERCardinality
-}{
-	{"||--||", "", diagram.ERCardExactlyOne, diagram.ERCardExactlyOne},
-	{"||--o{", "", diagram.ERCardExactlyOne, diagram.ERCardZeroOrMore},
-	{"||--|{", "", diagram.ERCardExactlyOne, diagram.ERCardOneOrMore},
-	{"||--o|", "", diagram.ERCardExactlyOne, diagram.ERCardZeroOrOne},
-	{"}o--||", "", diagram.ERCardZeroOrMore, diagram.ERCardExactlyOne},
-	{"}|--||", "", diagram.ERCardOneOrMore, diagram.ERCardExactlyOne},
-	{"o|--||", "", diagram.ERCardZeroOrOne, diagram.ERCardExactlyOne},
-	{"}o--o{", "", diagram.ERCardZeroOrMore, diagram.ERCardZeroOrMore},
-	{"}|--|{", "", diagram.ERCardOneOrMore, diagram.ERCardOneOrMore},
-	{"||..||", "", diagram.ERCardExactlyOne, diagram.ERCardExactlyOne},
-	{"||..o{", "", diagram.ERCardExactlyOne, diagram.ERCardZeroOrMore},
-	{"||..|{", "", diagram.ERCardExactlyOne, diagram.ERCardOneOrMore},
-	{"}o..||", "", diagram.ERCardZeroOrMore, diagram.ERCardExactlyOne},
-	{"}|..||", "", diagram.ERCardOneOrMore, diagram.ERCardExactlyOne},
-	{"}|..|{", "", diagram.ERCardOneOrMore, diagram.ERCardOneOrMore},
+// parseERKey converts a textual key constraint (PK / FK / UK) into
+// its enum value. Whitespace and case are tolerated; unknown tokens
+// return ok=false so the caller can ignore them.
+func parseERKey(s string) (diagram.ERAttributeKey, bool) {
+	switch strings.ToUpper(strings.TrimSpace(s)) {
+	case "PK":
+		return diagram.ERKeyPK, true
+	case "FK":
+		return diagram.ERKeyFK, true
+	case "UK":
+		return diagram.ERKeyUK, true
+	}
+	return diagram.ERKeyNone, false
 }
 
-func parseRelationship(line string) (diagram.ERRelationship, bool) {
-	for _, cp := range cardPairs {
-		idx := strings.Index(line, cp.left)
-		if idx < 0 {
-			continue
+// appendUniqueKey appends k to keys unless it's already present.
+// Used to dedupe the `*name PK` case (asterisk + explicit PK both
+// add ERKeyPK).
+func appendUniqueKey(keys []diagram.ERAttributeKey, k diagram.ERAttributeKey) []diagram.ERAttributeKey {
+	for _, existing := range keys {
+		if existing == k {
+			return keys
 		}
-		from := strings.TrimSpace(line[:idx])
-		rest := strings.TrimSpace(line[idx+len(cp.left):])
-		to, label := splitRelLabel(rest)
-		if from == "" || to == "" {
-			continue
-		}
-		return diagram.ERRelationship{
-			From: from, To: to,
-			FromCard: cp.lCard, ToCard: cp.rCard,
-			Label: label,
-		}, true
 	}
-	return diagram.ERRelationship{}, false
+	return append(keys, k)
+}
+
+// parseRelationship recognises the cardinality arrow as
+// `[leftGlyph][line][rightGlyph]` where each glyph is exactly two
+// chars from the set {||, |o, o|, }|, |{, }o, o{} and the line is
+// either `--` (identifying) or `..` (non-identifying). This covers
+// the full 4×4×2 = 32 combinations without enumerating each pair.
+func parseRelationship(line string) (diagram.ERRelationship, bool) {
+	span, leftGlyph, rightGlyph, ok := findCardinalityArrow(line)
+	if !ok {
+		return diagram.ERRelationship{}, false
+	}
+	from := strings.TrimSpace(line[:span.start])
+	rest := strings.TrimSpace(line[span.end:])
+	to, label := splitRelLabel(rest)
+	if from == "" || to == "" {
+		return diagram.ERRelationship{}, false
+	}
+	return diagram.ERRelationship{
+		From: from, To: to,
+		FromCard: glyphToCard(leftGlyph),
+		ToCard:   glyphToCard(rightGlyph),
+		Label:    label,
+	}, true
+}
+
+type arrowSpan struct {
+	start, end int
+}
+
+// findCardinalityArrow scans for the leftmost 6-char cardinality
+// arrow of the form `<2-char-glyph><2-char-line><2-char-glyph>`.
+// All valid arrows are exactly 6 chars, so leftmost = unique match
+// per relationship line.
+func findCardinalityArrow(line string) (arrowSpan, string, string, bool) {
+	for i := 0; i+6 <= len(line); i++ {
+		left := line[i : i+2]
+		mid := line[i+2 : i+4]
+		right := line[i+4 : i+6]
+		if !isLeftGlyph(left) || !isLine(mid) || !isRightGlyph(right) {
+			continue
+		}
+		return arrowSpan{start: i, end: i + 6}, left, right, true
+	}
+	return arrowSpan{}, "", "", false
+}
+
+func isLine(s string) bool { return s == "--" || s == ".." }
+
+// The `{`/`}` bracket's open side always faces the relationship
+// line — so `}|--||` is valid but `|{--||` is not. That asymmetry
+// is the only difference between the left and right glyph sets.
+func isLeftGlyph(s string) bool {
+	switch s {
+	case "||", "|o", "o|", "}|", "}o":
+		return true
+	}
+	return false
+}
+
+func isRightGlyph(s string) bool {
+	switch s {
+	case "||", "|o", "o|", "|{", "o{":
+		return true
+	}
+	return false
+}
+
+// glyphToCard maps a 2-char cardinality glyph to its enum value.
+// Side doesn't influence the mapping — the bracket-open-side rule
+// above guarantees each glyph is unambiguous.
+func glyphToCard(g string) diagram.ERCardinality {
+	switch g {
+	case "||":
+		return diagram.ERCardExactlyOne
+	case "|o", "o|":
+		return diagram.ERCardZeroOrOne
+	case "}o", "o{":
+		return diagram.ERCardZeroOrMore
+	case "}|", "|{":
+		return diagram.ERCardOneOrMore
+	}
+	return diagram.ERCardUnknown
 }
 
 func splitRelLabel(s string) (to, label string) {
