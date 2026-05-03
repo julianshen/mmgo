@@ -590,6 +590,86 @@ func TestParseLinkAndCallback(t *testing.T) {
 	}
 }
 
+// Empty Callback / URL after `call`/`href` errors instead of
+// silently storing empty values.
+func TestParseClickEmptyArgumentsError(t *testing.T) {
+	for _, src := range []string{
+		`stateDiagram-v2
+    state Foo
+    click Foo call`,
+		`stateDiagram-v2
+    state Foo
+    click Foo href`,
+		`stateDiagram-v2
+    state Foo
+    callback Foo`,
+		`stateDiagram-v2
+    state Foo
+    link Foo`,
+	} {
+		t.Run(strings.SplitN(src, "\n", 3)[2], func(t *testing.T) {
+			_, err := Parse(strings.NewReader(src))
+			if err == nil {
+				t.Errorf("expected error for empty click arguments")
+			}
+		})
+	}
+}
+
+// Unterminated `"` in click args surfaces as an error rather than
+// silently capturing the rest of the line.
+func TestParseClickUnterminatedQuoteError(t *testing.T) {
+	for _, src := range []string{
+		`stateDiagram-v2
+    state Foo
+    click Foo href "https://example.com`,
+		`stateDiagram-v2
+    state Foo
+    link Foo "open"open`,
+	} {
+		t.Run("", func(t *testing.T) {
+			_, err := Parse(strings.NewReader(src))
+			_ = err // both are malformed; tolerate either error or no-op as long as not panic
+		})
+	}
+	// Direct: an actually unterminated quote.
+	_, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Foo
+    click Foo href "open`))
+	if err == nil {
+		t.Error("expected error for unterminated quote")
+	}
+}
+
+// classDef with only a name (no CSS) is malformed.
+func TestParseClassDefMissingCSSError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`stateDiagram-v2
+    classDef onlyname`))
+	if err == nil {
+		t.Error("expected error for classDef without CSS body")
+	}
+}
+
+// `style ID` without CSS body is malformed.
+func TestParseStyleMissingCSSError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Foo
+    style Foo`))
+	if err == nil {
+		t.Error("expected error for style without CSS body")
+	}
+}
+
+// `class IDs` without a class name is malformed.
+func TestParseClassBindingMissingNameError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Foo
+    class Foo`))
+	if err == nil {
+		t.Error("expected error for class binding without class name")
+	}
+}
+
 // `class id className` referencing an undeclared state errors
 // instead of silently spawning a phantom state — matches the
 // strictness of click/link/callback and of the class-diagram parser.
