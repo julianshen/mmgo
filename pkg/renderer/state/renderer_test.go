@@ -3,6 +3,7 @@ package state
 import (
 	"bytes"
 	"encoding/xml"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -160,6 +161,117 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 	}
 	if doc.ViewBox == "" {
 		t.Error("viewBox missing")
+	}
+}
+
+// A state with Description renders as a two-compartment box: a
+// title row, a horizontal divider, and the description below.
+func TestRenderStateDescription(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "s1", Label: "s1", Description: "Idle phase"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">s1<") {
+		t.Error("title missing")
+	}
+	if !strings.Contains(raw, ">Idle phase<") {
+		t.Error("description missing")
+	}
+	// Divider line stroke = state stroke; counted separately from
+	// any other lines.
+	if strings.Count(raw, fmt.Sprintf("stroke:%s;stroke-width:1\"", DefaultTheme().StateStroke)) < 1 {
+		t.Errorf("expected at least one divider line stroked with %s", DefaultTheme().StateStroke)
+	}
+}
+
+// Multi-line description lines (split on \n in the parser) emit
+// one <text> element per line.
+func TestRenderMultilineDescription(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "s", Label: "s", Description: "alpha\nbeta\ngamma"},
+		},
+	}
+	out, _ := Render(d, nil)
+	raw := string(out)
+	for _, line := range []string{">alpha<", ">beta<", ">gamma<"} {
+		if !strings.Contains(raw, line) {
+			t.Errorf("missing %q in output", line)
+		}
+	}
+}
+
+// Multi-line transition labels emit one <text> per line.
+func TestRenderMultilineTransitionLabel(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "A", Label: "A"},
+			{ID: "B", Label: "B"},
+		},
+		Transitions: []diagram.StateTransition{
+			{From: "A", To: "B", Label: "click\nrelease"},
+		},
+	}
+	out, _ := Render(d, nil)
+	raw := string(out)
+	for _, want := range []string{">click<", ">release<"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("missing %q in transition label output", want)
+		}
+	}
+}
+
+// Direction selects layout RankDir. LR puts states side-by-side
+// (wider than tall); TB stacks them (taller than wide).
+func TestRenderDirection(t *testing.T) {
+	cases := []struct {
+		dir       diagram.Direction
+		widerThan bool
+	}{
+		{diagram.DirectionTB, false},
+		{diagram.DirectionLR, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.dir.String(), func(t *testing.T) {
+			d := &diagram.StateDiagram{
+				Direction: tc.dir,
+				States: []diagram.StateDef{
+					{ID: "A", Label: "A"},
+					{ID: "B", Label: "B"},
+				},
+				Transitions: []diagram.StateTransition{
+					{From: "A", To: "B"},
+				},
+			}
+			out, _ := Render(d, nil)
+			body := out
+			if i := bytes.Index(body, []byte("<svg")); i >= 0 {
+				body = body[i:]
+			}
+			var doc struct {
+				XMLName xml.Name `xml:"svg"`
+				ViewBox string   `xml:"viewBox,attr"`
+			}
+			if err := xml.Unmarshal(body, &doc); err != nil {
+				t.Fatalf("invalid SVG: %v", err)
+			}
+			var minX, minY, w, h float64
+			if _, err := fmt.Sscanf(doc.ViewBox, "%f %f %f %f", &minX, &minY, &w, &h); err != nil {
+				t.Fatalf("viewBox parse: %v", err)
+			}
+			if tc.widerThan && !(w > h) {
+				t.Errorf("%s viewBox should be wider than tall: %fx%f", tc.dir, w, h)
+			}
+			if !tc.widerThan && !(h > w) {
+				t.Errorf("%s viewBox should be taller than wide: %fx%f", tc.dir, w, h)
+			}
+		})
 	}
 }
 

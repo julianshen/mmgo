@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
@@ -79,7 +80,7 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 		g.SetEdge(from, to, graph.EdgeAttrs{Label: t.Label})
 	}
 
-	l := layout.Layout(g, layout.Options{RankDir: layout.RankDirTB})
+	l := layout.Layout(g, layout.Options{RankDir: rankDirFor(d.Direction)})
 	pad := defaultPadding
 
 	viewW := sanitize(l.Width) + 2*pad
@@ -106,6 +107,18 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	}
 	xmlDecl := []byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
 	return append(xmlDecl, svgBytes...), nil
+}
+
+func rankDirFor(d diagram.Direction) layout.RankDir {
+	switch d {
+	case diagram.DirectionBT:
+		return layout.RankDirBT
+	case diagram.DirectionLR:
+		return layout.RankDirLR
+	case diagram.DirectionRL:
+		return layout.RankDirRL
+	}
+	return layout.RankDirTB
 }
 
 func sanitize(v float64) float64 {
@@ -136,6 +149,20 @@ func stateNodeSize(s diagram.StateDef, ruler *textmeasure.Ruler, fontSize float6
 	tw, th := ruler.Measure(s.Label, fontSize)
 	w = tw + 2*statePadX
 	h = th + 2*statePadY
+	if s.Description != "" {
+		// Description rows live in a second compartment under the
+		// title, separated by a divider. Each line of the
+		// description widens the box if it's longer than the title
+		// and adds one row to the height.
+		descLines := strings.Split(s.Description, "\n")
+		for _, line := range descLines {
+			lw, _ := ruler.Measure(line, fontSize-1)
+			if lw+2*statePadX > w {
+				w = lw + 2*statePadX
+			}
+		}
+		h += statePadY + float64(len(descLines))*(fontSize+2)
+	}
 	if w < minStateW {
 		w = minStateW
 	}
@@ -183,12 +210,38 @@ func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize floa
 				RX: 8, RY: 8,
 				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.StateFill, th.StateStroke),
 			})
-			elems = append(elems, &text{
-				X: svgFloat(cx), Y: svgFloat(cy),
-				Anchor: "middle", Dominant: "central",
-				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize),
-				Content: s.Label,
-			})
+			if s.Description != "" {
+				titleH := fontSize + 2*statePadY
+				elems = append(elems, &text{
+					X: svgFloat(cx), Y: svgFloat(y + titleH/2),
+					Anchor: "middle", Dominant: "central",
+					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize),
+					Content: s.Label,
+				})
+				elems = append(elems, &line{
+					X1: svgFloat(x), Y1: svgFloat(y + titleH),
+					X2: svgFloat(x + w), Y2: svgFloat(y + titleH),
+					Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.StateStroke),
+				})
+				descLines := strings.Split(s.Description, "\n")
+				lineH := fontSize + 2
+				for i, ln := range descLines {
+					ly := y + titleH + statePadY/2 + float64(i)*lineH + lineH/2
+					elems = append(elems, &text{
+						X: svgFloat(cx), Y: svgFloat(ly),
+						Anchor: "middle", Dominant: "central",
+						Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize-1),
+						Content: ln,
+					})
+				}
+			} else {
+				elems = append(elems, &text{
+					X: svgFloat(cx), Y: svgFloat(cy),
+					Anchor: "middle", Dominant: "central",
+					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize),
+					Content: s.Label,
+				})
+			}
 		}
 	}
 
@@ -303,14 +356,28 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 			if t.Label != "" {
 				base := layout.Point{X: el.LabelPos.X + pad, Y: el.LabelPos.Y + pad}
 				p := labelPosition(pts, base)
-				labelW, labelH := ruler.Measure(t.Label, fontSize-1)
-				elems = append(elems, svgutil.LabelChip(p.X, p.Y, labelW, labelH, 3, th.LabelBackdrop, 0))
-				elems = append(elems, &text{
-					X: svgFloat(p.X), Y: svgFloat(p.Y),
-					Anchor: "middle", Dominant: "central",
-					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, fontSize-1),
-					Content: t.Label,
-				})
+				lines := strings.Split(t.Label, "\n")
+				// Chip width is the widest line; height grows per line.
+				lineH := fontSize + 2
+				maxW := 0.0
+				for _, ln := range lines {
+					lw, _ := ruler.Measure(ln, fontSize-1)
+					if lw > maxW {
+						maxW = lw
+					}
+				}
+				totalH := float64(len(lines)) * lineH
+				elems = append(elems, svgutil.LabelChip(p.X, p.Y, maxW, totalH, 3, th.LabelBackdrop, 0))
+				// Vertically centre the multi-line block on p.Y.
+				topY := p.Y - totalH/2 + lineH/2
+				for i, ln := range lines {
+					elems = append(elems, &text{
+						X: svgFloat(p.X), Y: svgFloat(topY + float64(i)*lineH),
+						Anchor: "middle", Dominant: "central",
+						Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, fontSize-1),
+						Content: ln,
+					})
+				}
 			}
 		}
 	}
