@@ -68,7 +68,7 @@ current state without relying on chat history.
 | Status | Step | PR | Coverage | Notes |
 |--------|------|----|----|---|
 | ✅ | 20. Class diagram | #35, #36, #139–#145 | ~95% / ~95% | Full Mermaid surface: reverse / two-way arrows, `direction`, generics `~T~`, custom labels `["…"]`, static `$` / abstract `*` modifiers, single-line members, inline + bare-line annotations, notes, classDef / style / cssClass / `:::`, accTitle / accDescr / title, lollipop interfaces `()--`, click / link / callback events with SVG `<a>` wrap, `namespace { … }` blocks |
-| ✅ | 21. State diagram | #38, #39 | 91.7% / 91.0% | Composite states, [*] pseudo-states, fork/join/choice, dagre renderer |
+| ✅ | 21. State diagram | #38, #39, #148–#151 | ~95% / ~95% | Full Mermaid surface: `id : description` shorthand, `direction` keyword, multi-line transition labels, notes (`note left/right of`, `end note` block), classDef / style / cssClass / `:::` styling, accTitle / accDescr / title, click / link / callback events with SVG `<a>` wrap, concurrent regions (`--` separator), composite-state bounding boxes |
 | ✅ | 22. ER diagram | #40 | 91.2% / 88.2% | Entity attributes with PK/FK/UK, 15 cardinality arrows, dagre renderer |
 | ⏳ | 23. Gantt chart | — | | |
 | ⏳ | 24. Mindmap | — |
