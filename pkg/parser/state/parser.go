@@ -68,6 +68,9 @@ func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
 	if rest, ok := strings.CutPrefix(line, "state "); ok {
 		return p.parseStateDecl(strings.TrimSpace(rest), target)
 	}
+	if strings.HasPrefix(line, "note ") {
+		return p.parseNote(line, target)
+	}
 	if rest, ok := strings.CutPrefix(line, "direction "); ok {
 		dir, err := parserutil.ParseDirection(strings.TrimSpace(rest))
 		if err != nil {
@@ -90,6 +93,73 @@ func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
 		return nil
 	}
 	return nil
+}
+
+// parseNote handles the four note forms Mermaid v2 supports:
+//
+//   - `note left of S : text`     (single-line)
+//   - `note right of S : text`    (single-line)
+//   - `note left of S\n…\nend note`  (block form)
+//   - `note right of S\n…\nend note` (block form)
+//
+// The single-line form's text inherits `\n` → real-newline expansion;
+// the block form joins its body lines with real newlines.
+func (p *parser) parseNote(line string, target *[]diagram.StateDef) error {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "note"))
+	var side diagram.NoteSide
+	switch {
+	case strings.HasPrefix(rest, "left of "):
+		side = diagram.NoteSideLeft
+		rest = rest[len("left of "):]
+	case strings.HasPrefix(rest, "right of "):
+		side = diagram.NoteSideRight
+		rest = rest[len("right of "):]
+	default:
+		return fmt.Errorf("note must use `left of <state>` or `right of <state>`; got %q", line)
+	}
+	stateID := rest
+	text := ""
+	if i := strings.Index(rest, " : "); i >= 0 {
+		// Single-line form.
+		stateID = strings.TrimSpace(rest[:i])
+		text = parserutil.ExpandLineBreaks(strings.TrimSpace(rest[i+3:]))
+	} else {
+		// Block form: scan until `end note`.
+		stateID = strings.TrimSpace(stateID)
+		body, err := p.scanBlockNote()
+		if err != nil {
+			return err
+		}
+		text = body
+	}
+	if stateID == "" {
+		return fmt.Errorf("note: missing target state id")
+	}
+	upsertState(target, stateID)
+	p.diagram.Notes = append(p.diagram.Notes, diagram.StateNote{
+		Text: text, Side: side, Target: stateID,
+	})
+	return nil
+}
+
+// scanBlockNote reads body lines until it sees `end note` and joins
+// them with real newlines. Blank lines are preserved as paragraph
+// separators (Mermaid renders them as visible gaps); comment-only
+// lines are dropped via StripComment.
+func (p *parser) scanBlockNote() (string, error) {
+	var lines []string
+	for p.scanner.Scan() {
+		p.lineNum++
+		raw := strings.TrimSpace(parserutil.StripComment(p.scanner.Text()))
+		if raw == "end note" {
+			return strings.Join(lines, "\n"), nil
+		}
+		lines = append(lines, raw)
+	}
+	if err := p.scanner.Err(); err != nil {
+		return "", fmt.Errorf("reading note body: %w", err)
+	}
+	return "", fmt.Errorf("unclosed note block")
 }
 
 // parseStateDescription matches `id : description text` outside of

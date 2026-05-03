@@ -13,7 +13,10 @@ type Theme struct {
 	EdgeStroke   string
 	EdgeText     string
 	LabelBackdrop string // backdrop behind edge labels
-	Background   string
+	Background    string
+	NoteFill      string // sticky-note background (yellow by default)
+	NoteStroke    string
+	NoteText      string
 }
 
 // DefaultTheme returns the Mermaid-classic state-diagram palette.
@@ -28,6 +31,9 @@ func DefaultTheme() Theme {
 		EdgeText:      "#333",
 		LabelBackdrop: "#fff",
 		Background:    "#fff",
+		NoteFill:      "#fff5ad",
+		NoteStroke:    "#aaaa33",
+		NoteText:      "#333",
 	}
 }
 
@@ -62,6 +68,15 @@ func resolveTheme(opts *Options) Theme {
 	}
 	if opts.Theme.Background != "" {
 		th.Background = opts.Theme.Background
+	}
+	if opts.Theme.NoteFill != "" {
+		th.NoteFill = opts.Theme.NoteFill
+	}
+	if opts.Theme.NoteStroke != "" {
+		th.NoteStroke = opts.Theme.NoteStroke
+	}
+	if opts.Theme.NoteText != "" {
+		th.NoteText = opts.Theme.NoteText
 	}
 	return th
 }

@@ -297,6 +297,121 @@ func TestRenderDirection(t *testing.T) {
 	}
 }
 
+// `note left of S` produces a yellow rect to the left of S with a
+// dashed connector.
+func TestRenderStateNoteLeft(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "S", Label: "S"},
+		},
+		Notes: []diagram.StateNote{
+			{Target: "S", Side: diagram.NoteSideLeft, Text: "S is here"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">S is here<") {
+		t.Error("note text missing")
+	}
+	if !strings.Contains(raw, DefaultTheme().NoteFill) {
+		t.Error("note fill color missing")
+	}
+	if !strings.Contains(raw, "stroke-dasharray:4,3") {
+		t.Error("dashed connector missing")
+	}
+}
+
+// Multiline note text emits one <text> element per line.
+func TestRenderStateNoteMultiline(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{{ID: "S", Label: "S"}},
+		Notes: []diagram.StateNote{
+			{Target: "S", Side: diagram.NoteSideRight, Text: "alpha\nbeta\ngamma"},
+		},
+	}
+	out, _ := Render(d, nil)
+	raw := string(out)
+	for _, line := range []string{">alpha<", ">beta<", ">gamma<"} {
+		if !strings.Contains(raw, line) {
+			t.Errorf("missing %q in note output", line)
+		}
+	}
+}
+
+// Two notes on the same side of the same state stack vertically;
+// their rects don't share a Y coordinate (the prior implementation
+// stacked horizontally so connectors crossed each other's rects).
+func TestRenderStateNotesStackVertically(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{{ID: "S", Label: "S"}},
+		Notes: []diagram.StateNote{
+			{Target: "S", Side: diagram.NoteSideLeft, Text: "first"},
+			{Target: "S", Side: diagram.NoteSideLeft, Text: "second"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	idx1 := strings.Index(raw, ">first<")
+	idx2 := strings.Index(raw, ">second<")
+	if idx1 < 0 || idx2 < 0 {
+		t.Fatalf("missing note text(s) in output")
+	}
+	// Pull the y attribute from each note's <text>.
+	yOf := func(textIdx int) float64 {
+		open := strings.LastIndex(raw[:textIdx], "<text")
+		var x, y float64
+		if _, err := fmt.Sscanf(raw[open:], `<text x="%f" y="%f"`, &x, &y); err != nil {
+			t.Fatalf("text geom parse: %v", err)
+		}
+		return y
+	}
+	y1 := yOf(idx1)
+	y2 := yOf(idx2)
+	if y1 == y2 {
+		t.Errorf("stacked same-side notes should have distinct y coords; both at y=%f", y1)
+	}
+	if y2 <= y1 {
+		t.Errorf("second note should sit BELOW the first; y1=%f y2=%f", y1, y2)
+	}
+}
+
+// A note for a state at the left edge of the diagram pushes the
+// viewBox min-x negative so the note rect isn't clipped.
+func TestRenderStateNoteExpandsViewBoxNegative(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{{ID: "S", Label: "S"}},
+		Notes: []diagram.StateNote{
+			{Target: "S", Side: diagram.NoteSideLeft, Text: "to the left"},
+		},
+	}
+	out, _ := Render(d, nil)
+	raw := string(out)
+	body := raw
+	if i := bytes.Index([]byte(raw), []byte("<svg")); i >= 0 {
+		body = raw[i:]
+	}
+	var doc struct {
+		XMLName xml.Name `xml:"svg"`
+		ViewBox string   `xml:"viewBox,attr"`
+	}
+	if err := xml.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("svg parse: %v", err)
+	}
+	var minX, minY, w, h float64
+	if _, err := fmt.Sscanf(doc.ViewBox, "%f %f %f %f", &minX, &minY, &w, &h); err != nil {
+		t.Fatalf("viewBox parse: %v", err)
+	}
+	if minX >= 0 {
+		t.Errorf("expected negative viewBox minX with a left-of note, got %f (full %q)", minX, doc.ViewBox)
+	}
+}
+
 func TestLabelPosition(t *testing.T) {
 	// A horizontal edge going +X produces perpendicular offset +Y;
 	// vertical -Y edge offsets -X; and so on. Base point is the
@@ -417,6 +532,9 @@ func TestDefaultThemeStable(t *testing.T) {
 		EdgeText:      "#333",
 		LabelBackdrop: "#fff",
 		Background:    "#fff",
+		NoteFill:      "#fff5ad",
+		NoteStroke:    "#aaaa33",
+		NoteText:      "#333",
 	}
 	if got != want {
 		t.Errorf("DefaultTheme drifted:\n got  %+v\n want %+v", got, want)

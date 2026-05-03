@@ -28,10 +28,6 @@ const (
 	classPadY          = 10.0
 	headerH            = 30.0
 	minClassW          = 120.0
-	notePadX           = 10.0
-	notePadY           = 8.0
-	noteGap            = 16.0
-	noteLineH          = 18.0
 )
 
 type Options struct {
@@ -477,7 +473,7 @@ func layoutNotes(d *diagram.ClassDiagram, contentW, pad, fontSize float64, ruler
 		return nil
 	}
 	out := make([]placedNote, 0, len(d.Notes))
-	colX := contentW + noteGap
+	colX := contentW + svgutil.NoteGap
 	cursorY := pad
 	for _, n := range d.Notes {
 		lines := strings.Split(n.Text, "\n")
@@ -488,13 +484,13 @@ func layoutNotes(d *diagram.ClassDiagram, contentW, pad, fontSize float64, ruler
 				w = lw
 			}
 		}
-		w += 2 * notePadX
-		h := float64(len(lines))*noteLineH + 2*notePadY
+		w += 2 * svgutil.NotePadX
+		h := float64(len(lines))*svgutil.NoteLineH + 2*svgutil.NotePadY
 		out = append(out, placedNote{
 			note: n, lines: lines,
 			x: colX, y: cursorY, w: w, h: h,
 		})
-		cursorY += h + noteGap
+		cursorY += h + svgutil.NoteGap
 	}
 	return out
 }
@@ -514,8 +510,8 @@ func renderNotes(notes []placedNote, l *layout.Result, pad, fontSize float64, th
 		})
 		for i, ln := range p.lines {
 			elems = append(elems, &text{
-				X:        svgFloat(p.x + notePadX),
-				Y:        svgFloat(p.y + notePadY + float64(i)*noteLineH + noteLineH/2),
+				X:        svgFloat(p.x + svgutil.NotePadX),
+				Y:        svgFloat(p.y + svgutil.NotePadY + float64(i)*svgutil.NoteLineH + svgutil.NoteLineH/2),
 				Anchor:   "start",
 				Dominant: "central",
 				Style:    textStyle,
