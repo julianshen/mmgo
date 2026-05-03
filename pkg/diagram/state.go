@@ -16,9 +16,9 @@ func (s StateKind) String() string { return enumString(s, stateKindNames) }
 type StateDef struct {
 	ID    string
 	Label string
-	// Description is the optional secondary text shown below the
-	// state title, parsed from `id : description` syntax. Renders
-	// as a second compartment under a divider line.
+	// Description is optional secondary text parsed from
+	// `id : description` syntax. Renderers may show it below the
+	// state title in a separate compartment.
 	Description string
 	Kind        StateKind
 	Children    []StateDef

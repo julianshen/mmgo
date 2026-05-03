@@ -65,7 +65,7 @@ func Render(d *diagram.ClassDiagram, opts *Options) ([]byte, error) {
 		g.SetEdge(r.From, r.To, graph.EdgeAttrs{Label: r.Label})
 	}
 
-	l := layout.Layout(g, layout.Options{RankDir: rankDirFor(d.Direction)})
+	l := layout.Layout(g, layout.Options{RankDir: svgutil.RankDirFor(d.Direction)})
 	pad := defaultPadding
 
 	contentW := svgutil.Sanitize(l.Width) + 2*pad
@@ -148,18 +148,6 @@ func Render(d *diagram.ClassDiagram, opts *Options) ([]byte, error) {
 	}
 	xmlDecl := []byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
 	return append(xmlDecl, svgBytes...), nil
-}
-
-func rankDirFor(d diagram.Direction) layout.RankDir {
-	switch d {
-	case diagram.DirectionBT:
-		return layout.RankDirBT
-	case diagram.DirectionLR:
-		return layout.RankDirLR
-	case diagram.DirectionRL:
-		return layout.RankDirRL
-	}
-	return layout.RankDirTB
 }
 
 func classNodeSize(c diagram.ClassDef, ruler *textmeasure.Ruler, fontSize float64) (w, h float64) {

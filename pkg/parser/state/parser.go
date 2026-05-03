@@ -93,24 +93,14 @@ func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
 }
 
 // parseStateDescription matches `id : description text` outside of
-// any arrow-bearing transition. The state ID must be a bare token
-// with no whitespace; the description spans the rest of the line.
+// any arrow-bearing transition. Mermaid's grammar requires whitespace
+// around the colon, so we only accept that form — same convention as
+// the class parser uses for single-line members. A bare `id:text`
+// is rejected (it's typically a typo or a misparsed transition).
 func parseStateDescription(line string) (id, desc string, ok bool) {
 	colon := strings.Index(line, " : ")
 	if colon < 0 {
-		// Allow `id: text` without surrounding spaces too.
-		colon = strings.Index(line, ":")
-		if colon < 0 {
-			return "", "", false
-		}
-		// Reject if the colon is part of an arrow-style label that
-		// somehow slipped past parseTransition (defensive — the
-		// caller ordering already excludes arrows).
-		id = strings.TrimSpace(line[:colon])
-		if id == "" || strings.ContainsAny(id, " \t") {
-			return "", "", false
-		}
-		return id, strings.TrimSpace(line[colon+1:]), true
+		return "", "", false
 	}
 	id = strings.TrimSpace(line[:colon])
 	if id == "" || strings.ContainsAny(id, " \t") {
@@ -195,10 +185,8 @@ func parseTransition(line string) (diagram.StateTransition, bool) {
 	label := ""
 	if colonIdx := strings.Index(rest, ":"); colonIdx >= 0 {
 		to = strings.TrimSpace(rest[:colonIdx])
-		// Mermaid uses literal `\n` as a line-break in transition
-		// labels (so `A --> B : foo\nbar` shows two stacked lines).
-		// Convert to a real newline so renderers can split directly.
-		label = strings.ReplaceAll(strings.TrimSpace(rest[colonIdx+1:]), `\n`, "\n")
+		// Mermaid uses literal `\n` as a line-break in transition labels.
+		label = parserutil.ExpandLineBreaks(strings.TrimSpace(rest[colonIdx+1:]))
 	}
 	if from == "" || to == "" {
 		return diagram.StateTransition{}, false

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 )
 
@@ -410,6 +411,21 @@ type Path struct {
 type Defs struct {
 	XMLName xml.Name `xml:"defs"`
 	Markers []Marker `xml:"marker,omitempty"`
+}
+
+// RankDirFor maps a diagram.Direction to the layout package's
+// RankDir. DirectionUnknown (and any unrecognised value) defaults
+// to top-to-bottom — the convention every diagram type follows.
+func RankDirFor(d diagram.Direction) layout.RankDir {
+	switch d {
+	case diagram.DirectionBT:
+		return layout.RankDirBT
+	case diagram.DirectionLR:
+		return layout.RankDirLR
+	case diagram.DirectionRL:
+		return layout.RankDirRL
+	}
+	return layout.RankDirTB
 }
 
 // BBox accumulates an axis-aligned bounding box of arbitrary

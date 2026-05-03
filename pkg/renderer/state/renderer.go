@@ -80,7 +80,7 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 		g.SetEdge(from, to, graph.EdgeAttrs{Label: t.Label})
 	}
 
-	l := layout.Layout(g, layout.Options{RankDir: rankDirFor(d.Direction)})
+	l := layout.Layout(g, layout.Options{RankDir: svgutil.RankDirFor(d.Direction)})
 	pad := defaultPadding
 
 	viewW := sanitize(l.Width) + 2*pad
@@ -109,18 +109,6 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	return append(xmlDecl, svgBytes...), nil
 }
 
-func rankDirFor(d diagram.Direction) layout.RankDir {
-	switch d {
-	case diagram.DirectionBT:
-		return layout.RankDirBT
-	case diagram.DirectionLR:
-		return layout.RankDirLR
-	case diagram.DirectionRL:
-		return layout.RankDirRL
-	}
-	return layout.RankDirTB
-}
-
 func sanitize(v float64) float64 {
 	if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
 		return 0
@@ -139,6 +127,21 @@ func collectAllStates(states []diagram.StateDef) []diagram.StateDef {
 	return all
 }
 
+// titleBandHeight is the vertical band reserved for the state's
+// title row inside its rounded rect. Shared between sizing and
+// rendering so the description divider lands on the same y as
+// stateNodeSize accounted for.
+func titleBandHeight(fontSize float64) float64 {
+	return fontSize + 2*statePadY
+}
+
+// descLineHeight is the per-line height of the description
+// compartment. Shared between sizing and rendering for the same
+// reason as titleBandHeight.
+func descLineHeight(fontSize float64) float64 {
+	return fontSize + 2
+}
+
 func stateNodeSize(s diagram.StateDef, ruler *textmeasure.Ruler, fontSize float64) (w, h float64) {
 	switch s.Kind {
 	case diagram.StateKindFork, diagram.StateKindJoin:
@@ -146,14 +149,10 @@ func stateNodeSize(s diagram.StateDef, ruler *textmeasure.Ruler, fontSize float6
 	case diagram.StateKindChoice:
 		return choiceSize, choiceSize
 	}
-	tw, th := ruler.Measure(s.Label, fontSize)
+	tw, _ := ruler.Measure(s.Label, fontSize)
 	w = tw + 2*statePadX
-	h = th + 2*statePadY
+	h = titleBandHeight(fontSize)
 	if s.Description != "" {
-		// Description rows live in a second compartment under the
-		// title, separated by a divider. Each line of the
-		// description widens the box if it's longer than the title
-		// and adds one row to the height.
 		descLines := strings.Split(s.Description, "\n")
 		for _, line := range descLines {
 			lw, _ := ruler.Measure(line, fontSize-1)
@@ -161,7 +160,7 @@ func stateNodeSize(s diagram.StateDef, ruler *textmeasure.Ruler, fontSize float6
 				w = lw + 2*statePadX
 			}
 		}
-		h += statePadY + float64(len(descLines))*(fontSize+2)
+		h += statePadY + float64(len(descLines))*descLineHeight(fontSize)
 	}
 	if w < minStateW {
 		w = minStateW
@@ -211,7 +210,7 @@ func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize floa
 				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.StateFill, th.StateStroke),
 			})
 			if s.Description != "" {
-				titleH := fontSize + 2*statePadY
+				titleH := titleBandHeight(fontSize)
 				elems = append(elems, &text{
 					X: svgFloat(cx), Y: svgFloat(y + titleH/2),
 					Anchor: "middle", Dominant: "central",
@@ -224,7 +223,7 @@ func renderNodes(states []diagram.StateDef, l *layout.Result, pad, fontSize floa
 					Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.StateStroke),
 				})
 				descLines := strings.Split(s.Description, "\n")
-				lineH := fontSize + 2
+				lineH := descLineHeight(fontSize)
 				for i, ln := range descLines {
 					ly := y + titleH + statePadY/2 + float64(i)*lineH + lineH/2
 					elems = append(elems, &text{

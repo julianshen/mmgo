@@ -183,10 +183,32 @@ func TestRenderStateDescription(t *testing.T) {
 	if !strings.Contains(raw, ">Idle phase<") {
 		t.Error("description missing")
 	}
-	// Divider line stroke = state stroke; counted separately from
-	// any other lines.
-	if strings.Count(raw, fmt.Sprintf("stroke:%s;stroke-width:1\"", DefaultTheme().StateStroke)) < 1 {
-		t.Errorf("expected at least one divider line stroked with %s", DefaultTheme().StateStroke)
+	// Divider line: a horizontal `<line>` with matching y1/y2 at
+	// the bottom of the title band, stroked with the state stroke.
+	// Geometric check is more discriminating than counting strokes
+	// (rect borders use 1.5; an accidental width-1 line elsewhere
+	// would otherwise pass the looser check).
+	dividerStyle := fmt.Sprintf(`style="stroke:%s;stroke-width:1"`, DefaultTheme().StateStroke)
+	idx := strings.Index(raw, dividerStyle)
+	if idx < 0 {
+		t.Fatalf("divider stroke style %q missing from output", dividerStyle)
+	}
+	// Walk back to find the enclosing <line ...> open tag and
+	// verify y1==y2 (horizontal divider).
+	lineOpen := strings.LastIndex(raw[:idx], "<line")
+	if lineOpen < 0 {
+		t.Fatal("no <line> element wraps the divider style")
+	}
+	lineTag := raw[lineOpen:idx]
+	var x1, y1, x2, y2 float64
+	if _, err := fmt.Sscanf(lineTag, `<line x1="%f" y1="%f" x2="%f" y2="%f"`, &x1, &y1, &x2, &y2); err != nil {
+		t.Fatalf("divider geom parse %q: %v", lineTag, err)
+	}
+	if y1 != y2 {
+		t.Errorf("divider not horizontal: y1=%f y2=%f", y1, y2)
+	}
+	if x1 >= x2 {
+		t.Errorf("divider not left-to-right: x1=%f x2=%f", x1, x2)
 	}
 }
 
