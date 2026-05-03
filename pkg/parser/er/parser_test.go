@@ -95,6 +95,45 @@ func TestParseAttributeMultipleKeys(t *testing.T) {
 	}
 }
 
+// `*name PK` (asterisk shorthand combined with explicit PK) must
+// not double-record PK in Keys. Dedupe pins the contract.
+func TestParseAttributeAsteriskPlusPKDedupes(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    ORDER {
+        int *id PK, FK
+    }`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	a := d.Entities[0].Attributes[0]
+	if len(a.Keys) != 2 || a.Keys[0] != diagram.ERKeyPK || a.Keys[1] != diagram.ERKeyFK {
+		t.Errorf("Keys = %v, want [PK FK]", a.Keys)
+	}
+}
+
+// Direct unit test for the parseERKey helper, covering case and
+// whitespace tolerance plus the unknown-token branch.
+func TestParseERKey(t *testing.T) {
+	cases := []struct {
+		in     string
+		want   diagram.ERAttributeKey
+		wantOK bool
+	}{
+		{"PK", diagram.ERKeyPK, true},
+		{"pk", diagram.ERKeyPK, true},
+		{" FK ", diagram.ERKeyFK, true},
+		{"UK", diagram.ERKeyUK, true},
+		{"XX", diagram.ERKeyNone, false},
+		{"", diagram.ERKeyNone, false},
+	}
+	for _, tc := range cases {
+		got, ok := parseERKey(tc.in)
+		if got != tc.want || ok != tc.wantOK {
+			t.Errorf("parseERKey(%q) = (%v, %v), want (%v, %v)", tc.in, got, ok, tc.want, tc.wantOK)
+		}
+	}
+}
+
 // `*name` shorthand marks the attribute as primary key.
 func TestParseAttributeAsteriskPK(t *testing.T) {
 	d, err := Parse(strings.NewReader(`erDiagram

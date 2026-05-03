@@ -108,16 +108,13 @@ func (p *parser) ensureEntity(name string) {
 //	type name [key[, key…]] ["comment text"]
 //
 // `*name` is a Mermaid shorthand for marking the attribute as
-// PRIMARY KEY; the asterisk is stripped from Name and ERKeyPK is
-// added to Keys. Comma-separated key constraints (PK, FK, UK)
-// land in Keys in source order; Key is set to Keys[0] for back-
-// compat with single-key consumers. A trailing quoted run is the
-// comment; surrounding double quotes are stripped.
+// PRIMARY KEY; the asterisk is stripped and ERKeyPK is added to
+// Keys. Comma-separated constraints (PK, FK, UK) land in Keys in
+// source order. Duplicate keys are deduplicated so `*id PK, FK`
+// yields [PK FK], not [PK PK FK]. A trailing quoted run is the
+// comment; the surrounding double quotes are stripped.
 func parseAttribute(line string) diagram.ERAttribute {
 	attr := diagram.ERAttribute{}
-	// Pull off a quoted trailing comment first; this lets the rest
-	// of the line use simple whitespace splitting without worrying
-	// about embedded spaces inside the comment.
 	if i := strings.Index(line, `"`); i >= 0 {
 		if j := strings.LastIndex(line, `"`); j > i {
 			attr.Comment = line[i+1 : j]
@@ -131,26 +128,17 @@ func parseAttribute(line string) diagram.ERAttribute {
 	attr.Type = parts[0]
 	if len(parts) >= 2 {
 		name := parts[1]
-		// `*name` shorthand for PK.
 		if strings.HasPrefix(name, "*") {
 			name = strings.TrimPrefix(name, "*")
-			attr.Keys = append(attr.Keys, diagram.ERKeyPK)
+			attr.Keys = appendUniqueKey(attr.Keys, diagram.ERKeyPK)
 		}
 		attr.Name = name
 	}
-	// Remaining tokens are key constraints, possibly comma-separated
-	// (`PK, FK`). Join them to handle the comma-with-space form, then
-	// re-split on commas.
 	if len(parts) >= 3 {
 		raw := strings.Join(parts[2:], " ")
 		for _, k := range strings.Split(raw, ",") {
-			switch strings.ToUpper(strings.TrimSpace(k)) {
-			case "PK":
-				attr.Keys = append(attr.Keys, diagram.ERKeyPK)
-			case "FK":
-				attr.Keys = append(attr.Keys, diagram.ERKeyFK)
-			case "UK":
-				attr.Keys = append(attr.Keys, diagram.ERKeyUK)
+			if key, ok := parseERKey(k); ok {
+				attr.Keys = appendUniqueKey(attr.Keys, key)
 			}
 		}
 	}
@@ -158,6 +146,33 @@ func parseAttribute(line string) diagram.ERAttribute {
 		attr.Key = attr.Keys[0]
 	}
 	return attr
+}
+
+// parseERKey converts a textual key constraint (PK / FK / UK) into
+// its enum value. Whitespace and case are tolerated; unknown tokens
+// return ok=false so the caller can ignore them.
+func parseERKey(s string) (diagram.ERAttributeKey, bool) {
+	switch strings.ToUpper(strings.TrimSpace(s)) {
+	case "PK":
+		return diagram.ERKeyPK, true
+	case "FK":
+		return diagram.ERKeyFK, true
+	case "UK":
+		return diagram.ERKeyUK, true
+	}
+	return diagram.ERKeyNone, false
+}
+
+// appendUniqueKey appends k to keys unless it's already present.
+// Used to dedupe the `*name PK` case (asterisk + explicit PK both
+// add ERKeyPK).
+func appendUniqueKey(keys []diagram.ERAttributeKey, k diagram.ERAttributeKey) []diagram.ERAttributeKey {
+	for _, existing := range keys {
+		if existing == k {
+			return keys
+		}
+	}
+	return append(keys, k)
 }
 
 // parseRelationship recognises the cardinality arrow as
@@ -178,8 +193,8 @@ func parseRelationship(line string) (diagram.ERRelationship, bool) {
 	}
 	return diagram.ERRelationship{
 		From: from, To: to,
-		FromCard: glyphToCard(leftGlyph, true),
-		ToCard:   glyphToCard(rightGlyph, false),
+		FromCard: glyphToCard(leftGlyph),
+		ToCard:   glyphToCard(rightGlyph),
 		Label:    label,
 	}, true
 }
@@ -188,9 +203,10 @@ type arrowSpan struct {
 	start, end int
 }
 
-// findCardinalityArrow scans for the longest substring of the form
-// `<2-char-glyph><2-char-line><2-char-glyph>` (length 6) anywhere in
-// the line, where each glyph and the line conform to ER syntax.
+// findCardinalityArrow scans for the leftmost 6-char cardinality
+// arrow of the form `<2-char-glyph><2-char-line><2-char-glyph>`.
+// All valid arrows are exactly 6 chars, so leftmost = unique match
+// per relationship line.
 func findCardinalityArrow(line string) (arrowSpan, string, string, bool) {
 	for i := 0; i+6 <= len(line); i++ {
 		left := line[i : i+2]
@@ -206,8 +222,9 @@ func findCardinalityArrow(line string) (arrowSpan, string, string, bool) {
 
 func isLine(s string) bool { return s == "--" || s == ".." }
 
-// Left-side glyphs (mostly mirror the right side; keeping symmetric
-// helpers makes the call sites read clearly).
+// The `{`/`}` bracket's open side always faces the relationship
+// line — so `}|--||` is valid but `|{--||` is not. That asymmetry
+// is the only difference between the left and right glyph sets.
 func isLeftGlyph(s string) bool {
 	switch s {
 	case "||", "|o", "o|", "}|", "}o":
@@ -225,10 +242,9 @@ func isRightGlyph(s string) bool {
 }
 
 // glyphToCard maps a 2-char cardinality glyph to its enum value.
-// `leftSide` flips the interpretation of asymmetric glyphs (e.g.,
-// `}o` is zero-or-more on the left, `o{` is the same shape on the
-// right).
-func glyphToCard(g string, leftSide bool) diagram.ERCardinality {
+// Side doesn't influence the mapping — the bracket-open-side rule
+// above guarantees each glyph is unambiguous.
+func glyphToCard(g string) diagram.ERCardinality {
 	switch g {
 	case "||":
 		return diagram.ERCardExactlyOne
@@ -239,7 +255,6 @@ func glyphToCard(g string, leftSide bool) diagram.ERCardinality {
 	case "}|", "|{":
 		return diagram.ERCardOneOrMore
 	}
-	_ = leftSide
 	return diagram.ERCardUnknown
 }
 

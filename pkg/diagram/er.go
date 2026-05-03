@@ -14,14 +14,11 @@ var erKeyNames = []string{"", "PK", "FK", "UK"}
 func (k ERAttributeKey) String() string { return enumString(k, erKeyNames) }
 
 type ERAttribute struct {
-	Type    string
-	Name    string
-	// Key is the FIRST key constraint on this attribute, kept for
-	// backward-compatible single-key consumers. For multi-constraint
-	// attributes (e.g. `id int PK, FK`), Keys carries all of them in
-	// source order; Key equals Keys[0]. Single-key attributes have
-	// len(Keys) == 1; bare attributes have Keys == nil and Key ==
-	// ERKeyNone.
+	Type string
+	Name string
+	// Key mirrors Keys[0] when Keys is non-empty; ERKeyNone when
+	// the attribute has no constraints. Multi-key consumers should
+	// walk Keys directly.
 	Key     ERAttributeKey
 	Keys    []ERAttributeKey
 	Comment string
