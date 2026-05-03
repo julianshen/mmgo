@@ -413,6 +413,17 @@ type Defs struct {
 	Markers []Marker `xml:"marker,omitempty"`
 }
 
+// Note rendering metrics shared across renderers that draw
+// sticky-note rectangles (class, state, and any future diagram type
+// with notes). Per-renderer code applies these uniformly so notes
+// sized in one diagram type read consistently in another.
+const (
+	NotePadX  = 10.0
+	NotePadY  = 8.0
+	NoteGap   = 16.0
+	NoteLineH = 18.0
+)
+
 // RankDirFor maps a diagram.Direction to the layout package's
 // RankDir. DirectionUnknown (and any unrecognised value) defaults
 // to top-to-bottom — the convention every diagram type follows.

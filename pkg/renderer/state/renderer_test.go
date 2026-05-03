@@ -341,6 +341,46 @@ func TestRenderStateNoteMultiline(t *testing.T) {
 	}
 }
 
+// Two notes on the same side of the same state stack vertically;
+// their rects don't share a Y coordinate (the prior implementation
+// stacked horizontally so connectors crossed each other's rects).
+func TestRenderStateNotesStackVertically(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{{ID: "S", Label: "S"}},
+		Notes: []diagram.StateNote{
+			{Target: "S", Side: diagram.NoteSideLeft, Text: "first"},
+			{Target: "S", Side: diagram.NoteSideLeft, Text: "second"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	idx1 := strings.Index(raw, ">first<")
+	idx2 := strings.Index(raw, ">second<")
+	if idx1 < 0 || idx2 < 0 {
+		t.Fatalf("missing note text(s) in output")
+	}
+	// Pull the y attribute from each note's <text>.
+	yOf := func(textIdx int) float64 {
+		open := strings.LastIndex(raw[:textIdx], "<text")
+		var x, y float64
+		if _, err := fmt.Sscanf(raw[open:], `<text x="%f" y="%f"`, &x, &y); err != nil {
+			t.Fatalf("text geom parse: %v", err)
+		}
+		return y
+	}
+	y1 := yOf(idx1)
+	y2 := yOf(idx2)
+	if y1 == y2 {
+		t.Errorf("stacked same-side notes should have distinct y coords; both at y=%f", y1)
+	}
+	if y2 <= y1 {
+		t.Errorf("second note should sit BELOW the first; y1=%f y2=%f", y1, y2)
+	}
+}
+
 // A note for a state at the left edge of the diagram pushes the
 // viewBox min-x negative so the note rect isn't clipped.
 func TestRenderStateNoteExpandsViewBoxNegative(t *testing.T) {

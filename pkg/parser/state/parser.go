@@ -115,7 +115,7 @@ func (p *parser) parseNote(line string, target *[]diagram.StateDef) error {
 		side = diagram.NoteSideRight
 		rest = rest[len("right of "):]
 	default:
-		return fmt.Errorf("note must be `left of` or `right of`")
+		return fmt.Errorf("note must use `left of <state>` or `right of <state>`; got %q", line)
 	}
 	stateID := rest
 	text := ""
@@ -142,18 +142,15 @@ func (p *parser) parseNote(line string, target *[]diagram.StateDef) error {
 	return nil
 }
 
-// scanBlockNote reads body lines until it sees `end note` (trimmed)
-// and returns them joined by real newlines. Blank lines and comments
-// inside the block are preserved as separators / dropped, matching
-// the rest of the parser's whitespace policy.
+// scanBlockNote reads body lines until it sees `end note` and joins
+// them with real newlines. Blank lines are preserved as paragraph
+// separators (Mermaid renders them as visible gaps); comment-only
+// lines are dropped via StripComment.
 func (p *parser) scanBlockNote() (string, error) {
 	var lines []string
 	for p.scanner.Scan() {
 		p.lineNum++
 		raw := strings.TrimSpace(parserutil.StripComment(p.scanner.Text()))
-		if raw == "" {
-			continue
-		}
 		if raw == "end note" {
 			return strings.Join(lines, "\n"), nil
 		}
