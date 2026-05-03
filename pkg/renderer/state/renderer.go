@@ -66,17 +66,27 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 		w, h := stateNodeSize(s, ruler, fontSize)
 		g.SetNode(s.ID, graph.NodeAttrs{Label: s.Label, Width: w, Height: h})
 	}
+	// Composite states aren't in the dagre graph, but transitions
+	// can still reference them (`[*] --> Active`). Redirect such
+	// edges to a representative leaf descendant so dagre reserves
+	// space; without this the graph auto-creates a 0×0 phantom
+	// node that pulls a pseudo-state into the wrong area.
+	leafRep := compositeLeafRep(d.States)
 	for _, t := range d.Transitions {
 		from, to := t.From, t.To
 		if from == "[*]" {
 			startIdx++
 			from = fmt.Sprintf("%s%d__", pseudoStartPrefix, startIdx)
 			g.SetNode(from, graph.NodeAttrs{Width: pseudoNodeR * 2, Height: pseudoNodeR * 2})
+		} else if rep, ok := leafRep[from]; ok {
+			from = rep
 		}
 		if to == "[*]" {
 			startIdx++
 			to = fmt.Sprintf("%s%d__", pseudoEndPrefix, startIdx)
 			g.SetNode(to, graph.NodeAttrs{Width: pseudoNodeR * 2, Height: pseudoNodeR * 2})
+		} else if rep, ok := leafRep[to]; ok {
+			to = rep
 		}
 		g.SetEdge(from, to, graph.EdgeAttrs{Label: t.Label})
 	}
@@ -336,6 +346,41 @@ func stateStylesByID(styles []diagram.StateStyleDef) map[string][]string {
 	return out
 }
 
+// compositeLeafRep maps each composite state's ID to the ID of its
+// first leaf descendant. Used to redirect transitions that reference
+// composites so dagre still reserves layout space for them. Missing
+// composites (no leaves at all) aren't mapped — transitions to those
+// fall through to the existing auto-create-phantom-node behavior.
+func compositeLeafRep(states []diagram.StateDef) map[string]string {
+	out := make(map[string]string)
+	var walk func(states []diagram.StateDef)
+	walk = func(ss []diagram.StateDef) {
+		for _, s := range ss {
+			if len(s.Children) == 0 {
+				continue
+			}
+			if leaf := firstLeafID(s.Children); leaf != "" {
+				out[s.ID] = leaf
+			}
+			walk(s.Children)
+		}
+	}
+	walk(states)
+	return out
+}
+
+func firstLeafID(states []diagram.StateDef) string {
+	for _, s := range states {
+		if len(s.Children) == 0 {
+			return s.ID
+		}
+		if leaf := firstLeafID(s.Children); leaf != "" {
+			return leaf
+		}
+	}
+	return ""
+}
+
 // leafStatesOnly returns the states that don't have a composite
 // body. Composite states are rendered as labelled bounding boxes
 // around their children rather than as nodes in the dagre layout.
@@ -407,7 +452,7 @@ func layoutCompositeBoxes(states []diagram.StateDef, l *layout.Result, pad, font
 			out = append(out, placedComposite{
 				def: s, x: x, y: y, w: w, h: h, regions: regionBBoxes,
 			})
-			walk(s.Children) // recurse into nested composites
+			walk(s.Children)
 		}
 	}
 	walk(states)
@@ -415,9 +460,17 @@ func layoutCompositeBoxes(states []diagram.StateDef, l *layout.Result, pad, font
 }
 
 // childrenBBox accumulates the bbox of all leaf descendants of s.
+// Falls back to flattening Regions when Children is empty — defends
+// against AST callers that populated only Regions.
 func childrenBBox(s diagram.StateDef, l *layout.Result, pad float64) svgutil.BBox {
 	bb := svgutil.NewInfiniteBBox()
-	accumulateLeafBBox(s.Children, l, pad, &bb)
+	if len(s.Children) > 0 {
+		accumulateLeafBBox(s.Children, l, pad, &bb)
+	} else {
+		for _, region := range s.Regions {
+			accumulateLeafBBox(region, l, pad, &bb)
+		}
+	}
 	return bb
 }
 
@@ -460,15 +513,16 @@ func renderCompositeBoxes(composites []placedComposite, fontSize float64, th The
 				Content: p.def.Label,
 			},
 		)
-		// Multi-region: draw a dashed horizontal divider between
-		// adjacent region bboxes (sorted by their MinY). Best-effort:
-		// without cluster layout the regions can interleave, in
-		// which case the divider may pass through a child rect.
-		// Documented limitation; layout-side cluster support is a
-		// separate change.
+		// Multi-region divider, best-effort: regions can interleave
+		// without cluster-aware layout, in which case a divider would
+		// pass through a child rect — skip those pairs rather than
+		// draw misleadingly.
 		for i := 1; i < len(p.regions); i++ {
 			prev := p.regions[i-1]
 			curr := p.regions[i]
+			if prev.MaxY >= curr.MinY {
+				continue
+			}
 			y := (prev.MaxY + curr.MinY) / 2
 			elems = append(elems, &line{
 				X1: svgFloat(p.x + compositePadX), Y1: svgFloat(y),
