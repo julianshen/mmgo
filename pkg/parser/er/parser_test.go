@@ -308,6 +308,40 @@ func TestParseClickUndeclaredEntityError(t *testing.T) {
 	}
 }
 
+// Chained `:::` shorthand on an entity reference must error,
+// matching the class diagram's behavior.
+func TestParseChainedCSSShorthandError(t *testing.T) {
+	for _, src := range []string{
+		`erDiagram
+    classDef a fill:#f00
+    classDef b fill:#0f0
+    CUSTOMER:::a:::b`,
+		`erDiagram
+    classDef a fill:#f00
+    classDef b fill:#0f0
+    CUSTOMER:::a:::b ||--|| ORDER`,
+	} {
+		_, err := Parse(strings.NewReader(src))
+		if err == nil {
+			t.Errorf("expected error for chained `:::`")
+		}
+	}
+}
+
+// A relationship's left or right side that's *only* a `:::class`
+// reference (no entity name) must error, not silently register an
+// entity with empty name.
+func TestParseRelationshipEmptyEntityNameError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    :::hot ||--o{ ORDER`))
+	if err == nil {
+		t.Error("expected error for relationship with empty entity id")
+	}
+}
+
+// Add a direct test for parserutil.ExtractCSSClassShorthand to
+// pin its contract.
+
 // A bare entity name on its own line (without an entity body or
 // relationship) is a valid Mermaid declaration.
 func TestParseBareEntityName(t *testing.T) {

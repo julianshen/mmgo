@@ -96,27 +96,35 @@ func (p *parser) parseLine(line string) error {
 	}
 	// Relationships first — their cardinality markers can contain `{`.
 	if rel, ok := parseRelationship(line); ok {
-		// Allow `:::cssClass` shorthand on either entity name.
-		fromID, fromCSS := splitCSSShorthand(rel.From)
-		toID, toCSS := splitCSSShorthand(rel.To)
+		fromID, fromCSS, fromOK := parserutil.ExtractCSSClassShorthand(rel.From)
+		toID, toCSS, toOK := parserutil.ExtractCSSClassShorthand(rel.To)
+		if !fromOK || !toOK {
+			return fmt.Errorf("relationship: only one `:::` cssClass shorthand is allowed per entity reference")
+		}
+		if fromID == "" || toID == "" {
+			return fmt.Errorf("relationship: empty entity id (a `:::class` reference needs a name)")
+		}
 		rel.From, rel.To = fromID, toID
-		p.ensureEntity(fromID)
-		p.ensureEntity(toID)
+		fromIdx := p.ensureEntityIdx(fromID)
+		toIdx := p.ensureEntityIdx(toID)
 		if fromCSS != "" {
-			idx := p.entityIdx[fromID]
-			p.diagram.Entities[idx].CSSClasses = append(p.diagram.Entities[idx].CSSClasses, fromCSS)
+			p.diagram.Entities[fromIdx].CSSClasses = append(p.diagram.Entities[fromIdx].CSSClasses, fromCSS)
 		}
 		if toCSS != "" {
-			idx := p.entityIdx[toID]
-			p.diagram.Entities[idx].CSSClasses = append(p.diagram.Entities[idx].CSSClasses, toCSS)
+			p.diagram.Entities[toIdx].CSSClasses = append(p.diagram.Entities[toIdx].CSSClasses, toCSS)
 		}
 		p.diagram.Relationships = append(p.diagram.Relationships, rel)
 		return nil
 	}
 	if strings.HasSuffix(strings.TrimSpace(line), "{") {
 		name := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line), "{"))
-		// Strip `:::cssClass` from the entity declaration line.
-		id, cssClass := splitCSSShorthand(name)
+		id, cssClass, ok := parserutil.ExtractCSSClassShorthand(name)
+		if !ok {
+			return fmt.Errorf("entity %q: only one `:::` cssClass shorthand is allowed", name)
+		}
+		if id == "" {
+			return fmt.Errorf("entity declaration is missing a name")
+		}
 		idx := p.ensureEntityIdx(id)
 		if cssClass != "" {
 			p.diagram.Entities[idx].CSSClasses = append(p.diagram.Entities[idx].CSSClasses, cssClass)
@@ -124,7 +132,9 @@ func (p *parser) parseLine(line string) error {
 		return p.parseEntityBody(id)
 	}
 	// Bare entity name on its own line (with optional `:::cssClass`).
-	if id, cssClass, ok := parseBareEntity(line); ok {
+	if id, cssClass, ok, err := parseBareEntity(line); err != nil {
+		return err
+	} else if ok {
 		idx := p.ensureEntityIdx(id)
 		if cssClass != "" {
 			p.diagram.Entities[idx].CSSClasses = append(p.diagram.Entities[idx].CSSClasses, cssClass)
@@ -134,31 +144,22 @@ func (p *parser) parseLine(line string) error {
 	return nil
 }
 
-// parseBareEntity matches a single-token entity declaration with
-// optional `:::cssClass` shorthand. Returns ok=false for tokens that
-// don't look like identifiers — leaves keywords / unrecognised lines
-// for higher-priority matchers to handle.
-func parseBareEntity(line string) (id, cssClass string, ok bool) {
+// parseBareEntity matches a single-token entity declaration with an
+// optional `:::cssClass` shorthand. Multi-token lines are not bare
+// entities (the higher-priority matchers above already handled
+// keywords and arrows); chained shorthand is rejected.
+func parseBareEntity(line string) (id, cssClass string, ok bool, err error) {
 	if strings.ContainsAny(line, " \t") {
-		// Bare entity is a single token; spaces mean it's some
-		// other kind of line we couldn't parse above.
-		return "", "", false
+		return "", "", false, nil
 	}
-	id, cssClass = splitCSSShorthand(line)
+	id, cssClass, valid := parserutil.ExtractCSSClassShorthand(line)
+	if !valid {
+		return "", "", false, fmt.Errorf("entity %q: only one `:::` cssClass shorthand is allowed", line)
+	}
 	if id == "" {
-		return "", "", false
+		return "", "", false, nil
 	}
-	return id, cssClass, true
-}
-
-// splitCSSShorthand extracts the trailing `:::name` shorthand from
-// an entity reference (`CUSTOMER:::hot` → ("CUSTOMER", "hot")).
-// Returns the original string and "" when no shorthand is present.
-func splitCSSShorthand(s string) (id, cssClass string) {
-	if i := strings.Index(s, ":::"); i >= 0 {
-		return strings.TrimSpace(s[:i]), strings.TrimSpace(s[i+3:])
-	}
-	return s, ""
+	return id, cssClass, true, nil
 }
 
 func (p *parser) parseClassDef(line string) error {

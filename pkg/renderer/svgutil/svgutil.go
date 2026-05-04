@@ -449,6 +449,37 @@ const (
 	NoteLineH = 18.0
 )
 
+// IndexByID builds a `map[id]item` over `items`, keyed by whatever
+// the `key` callback returns. Last-seen wins on duplicate keys.
+// Returns nil for an empty input so callers can range over a nil
+// map idempotently.
+func IndexByID[T any](items []T, key func(T) string) map[string]T {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make(map[string]T, len(items))
+	for _, it := range items {
+		out[key(it)] = it
+	}
+	return out
+}
+
+// GroupByID is the slice-valued analogue of IndexByID — returns
+// `map[id][]item` with all entries sharing a key kept together in
+// source order. Used for inline style stacks where multiple
+// `style ID …` lines accumulate per node.
+func GroupByID[T any](items []T, key func(T) string) map[string][]T {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make(map[string][]T, len(items))
+	for _, it := range items {
+		k := key(it)
+		out[k] = append(out[k], it)
+	}
+	return out
+}
+
 // RankDirFor maps a diagram.Direction to the layout package's
 // RankDir. DirectionUnknown (and any unrecognised value) defaults
 // to top-to-bottom — the convention every diagram type follows.

@@ -271,23 +271,21 @@ func erRectStyle(d *diagram.ERDiagram, e diagram.EREntity, stylesByID map[string
 }
 
 func erClicksByID(clicks []diagram.ERClickDef) map[string]diagram.ERClickDef {
-	if len(clicks) == 0 {
-		return nil
-	}
-	out := make(map[string]diagram.ERClickDef, len(clicks))
-	for _, c := range clicks {
-		out[c.EntityID] = c
-	}
-	return out
+	return svgutil.IndexByID(clicks, func(c diagram.ERClickDef) string { return c.EntityID })
 }
 
 func erStylesByID(styles []diagram.ERStyleDef) map[string][]string {
-	if len(styles) == 0 {
+	grouped := svgutil.GroupByID(styles, func(s diagram.ERStyleDef) string { return s.EntityID })
+	if grouped == nil {
 		return nil
 	}
-	out := make(map[string][]string, len(styles))
-	for _, s := range styles {
-		out[s.EntityID] = append(out[s.EntityID], s.CSS)
+	out := make(map[string][]string, len(grouped))
+	for id, defs := range grouped {
+		css := make([]string, len(defs))
+		for i, d := range defs {
+			css[i] = d.CSS
+		}
+		out[id] = css
 	}
 	return out
 }

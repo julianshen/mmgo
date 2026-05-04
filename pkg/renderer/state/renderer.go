@@ -323,25 +323,23 @@ func stateRectStyle(d *diagram.StateDiagram, s diagram.StateDef, stylesByID map[
 
 // stateClicksByID indexes click defs by state id; last-seen wins.
 func stateClicksByID(clicks []diagram.StateClickDef) map[string]diagram.StateClickDef {
-	if len(clicks) == 0 {
-		return nil
-	}
-	out := make(map[string]diagram.StateClickDef, len(clicks))
-	for _, c := range clicks {
-		out[c.StateID] = c
-	}
-	return out
+	return svgutil.IndexByID(clicks, func(c diagram.StateClickDef) string { return c.StateID })
 }
 
 // stateStylesByID indexes per-state style declarations so
 // stateRectStyle is O(1) per state.
 func stateStylesByID(styles []diagram.StateStyleDef) map[string][]string {
-	if len(styles) == 0 {
+	grouped := svgutil.GroupByID(styles, func(s diagram.StateStyleDef) string { return s.StateID })
+	if grouped == nil {
 		return nil
 	}
-	out := make(map[string][]string, len(styles))
-	for _, sd := range styles {
-		out[sd.StateID] = append(out[sd.StateID], sd.CSS)
+	out := make(map[string][]string, len(grouped))
+	for id, defs := range grouped {
+		css := make([]string, len(defs))
+		for i, d := range defs {
+			css[i] = d.CSS
+		}
+		out[id] = css
 	}
 	return out
 }

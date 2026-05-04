@@ -336,14 +336,7 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 // pragmatic choice; the AST keeps all entries so callers that care
 // about the multiplicity can still walk d.Clicks directly.
 func clicksByClass(clicks []diagram.ClassClickDef) map[string]diagram.ClassClickDef {
-	if len(clicks) == 0 {
-		return nil
-	}
-	out := make(map[string]diagram.ClassClickDef, len(clicks))
-	for _, c := range clicks {
-		out[c.ClassID] = c
-	}
-	return out
+	return svgutil.IndexByID(clicks, func(c diagram.ClassClickDef) string { return c.ClassID })
 }
 
 func appendMemberSection(elems []any, members []diagram.ClassMember, x, w, sectionY, fontSize float64, th Theme) ([]any, float64) {
