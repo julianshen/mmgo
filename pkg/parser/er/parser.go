@@ -118,24 +118,35 @@ func (p *parser) parseLine(line string) error {
 	}
 	if strings.HasSuffix(strings.TrimSpace(line), "{") {
 		name := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line), "{"))
-		id, cssClass, ok := parserutil.ExtractCSSClassShorthand(name)
+		head, cssClass, ok := parserutil.ExtractCSSClassShorthand(name)
 		if !ok {
 			return fmt.Errorf("entity %q: only one `:::` cssClass shorthand is allowed", name)
+		}
+		id, label, err := extractEntityAlias(head)
+		if err != nil {
+			return err
 		}
 		if id == "" {
 			return fmt.Errorf("entity declaration is missing a name")
 		}
 		idx := p.ensureEntityIdx(id)
+		if label != "" {
+			p.diagram.Entities[idx].Label = label
+		}
 		if cssClass != "" {
 			p.diagram.Entities[idx].CSSClasses = append(p.diagram.Entities[idx].CSSClasses, cssClass)
 		}
 		return p.parseEntityBody(id)
 	}
-	// Bare entity name on its own line (with optional `:::cssClass`).
-	if id, cssClass, ok, err := parseBareEntity(line); err != nil {
+	// Bare entity name on its own line (with optional alias and
+	// `:::cssClass`).
+	if id, label, cssClass, ok, err := parseBareEntity(line); err != nil {
 		return err
 	} else if ok {
 		idx := p.ensureEntityIdx(id)
+		if label != "" {
+			p.diagram.Entities[idx].Label = label
+		}
 		if cssClass != "" {
 			p.diagram.Entities[idx].CSSClasses = append(p.diagram.Entities[idx].CSSClasses, cssClass)
 		}
@@ -145,21 +156,70 @@ func (p *parser) parseLine(line string) error {
 }
 
 // parseBareEntity matches a single-token entity declaration with an
-// optional `:::cssClass` shorthand. Multi-token lines are not bare
-// entities (the higher-priority matchers above already handled
-// keywords and arrows); chained shorthand is rejected.
-func parseBareEntity(line string) (id, cssClass string, ok bool, err error) {
-	if strings.ContainsAny(line, " \t") {
-		return "", "", false, nil
+// optional `["Display Label"]` alias and `:::cssClass` shorthand.
+// The alias's quoted text may itself contain whitespace; only the
+// ID and bracket+shorthand structure must be a single token.
+//
+// Multi-token lines (where there's whitespace OUTSIDE any
+// `["..."]` alias) are not bare entities — those came from other
+// keyword paths or are unrecognised lines that earlier matchers
+// already handled.
+func parseBareEntity(line string) (id, label, cssClass string, ok bool, err error) {
+	// Replace anything inside `["..."]` with placeholder X's so the
+	// embedded whitespace doesn't disqualify the line.
+	stripped := stripBracketContents(line)
+	if strings.ContainsAny(stripped, " \t") {
+		return "", "", "", false, nil
 	}
-	id, cssClass, valid := parserutil.ExtractCSSClassShorthand(line)
+	rest, cssClass, valid := parserutil.ExtractCSSClassShorthand(line)
 	if !valid {
-		return "", "", false, fmt.Errorf("entity %q: only one `:::` cssClass shorthand is allowed", line)
+		return "", "", "", false, fmt.Errorf("entity %q: only one `:::` cssClass shorthand is allowed", line)
+	}
+	id, label, err = extractEntityAlias(rest)
+	if err != nil {
+		return "", "", "", false, err
 	}
 	if id == "" {
-		return "", "", false, nil
+		return "", "", "", false, nil
 	}
-	return id, cssClass, true, nil
+	return id, label, cssClass, true, nil
+}
+
+// stripBracketContents replaces every byte inside `[...]` with `_`
+// so a multi-word alias like `ORDER["Customer Order"]` looks like
+// a single token to whitespace checks. Bracketless input is
+// returned unchanged.
+func stripBracketContents(s string) string {
+	open := strings.IndexByte(s, '[')
+	close := strings.LastIndexByte(s, ']')
+	if open < 0 || close <= open {
+		return s
+	}
+	b := []byte(s)
+	for i := open + 1; i < close; i++ {
+		b[i] = '_'
+	}
+	return string(b)
+}
+
+// extractEntityAlias splits `EntityID["Display Label"]` into the
+// bare ID and the alias text. Without brackets, returns the input
+// as-is and label="". Malformed `EntityID["unclosed` is an error.
+func extractEntityAlias(s string) (id, label string, err error) {
+	open := strings.IndexByte(s, '[')
+	if open < 0 {
+		return s, "", nil
+	}
+	closeIdx := strings.LastIndexByte(s, ']')
+	if closeIdx <= open {
+		return "", "", fmt.Errorf("entity alias %q: unclosed `[`", s)
+	}
+	inside := strings.TrimSpace(s[open+1 : closeIdx])
+	unq := parserutil.Unquote(inside)
+	if unq == inside {
+		return "", "", fmt.Errorf("entity alias %q: bracketed label must be quoted", s)
+	}
+	return strings.TrimSpace(s[:open]), unq, nil
 }
 
 func (p *parser) parseClassDef(line string) error {

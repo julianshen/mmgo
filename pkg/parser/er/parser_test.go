@@ -437,6 +437,53 @@ func TestParseDirectionInvalidValueError(t *testing.T) {
 	}
 }
 
+// `EntityID["Display Label"]` records the alias on Label while
+// keeping Name as the bare ID for relationship references.
+func TestParseEntityAlias(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    CUSTOMER["Customer Profile"] {
+        int id PK
+    }
+    ORDER["Customer Order"]
+    CUSTOMER ||--o{ ORDER : places`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Entities) != 2 {
+		t.Fatalf("want 2 entities, got %d", len(d.Entities))
+	}
+	for _, e := range d.Entities {
+		if e.Name == "CUSTOMER" && e.Label != "Customer Profile" {
+			t.Errorf("CUSTOMER label = %q", e.Label)
+		}
+		if e.Name == "ORDER" && e.Label != "Customer Order" {
+			t.Errorf("ORDER label = %q", e.Label)
+		}
+	}
+	// Relationship still references the bare names.
+	if d.Relationships[0].From != "CUSTOMER" || d.Relationships[0].To != "ORDER" {
+		t.Errorf("relationship = %+v", d.Relationships[0])
+	}
+}
+
+// `EntityID["..."]` combined with `:::cssClass` shorthand both
+// apply to the same entity.
+func TestParseEntityAliasWithCSSShorthand(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    classDef hot fill:#f00
+    CUSTOMER["Customer Profile"]:::hot`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	e := d.Entities[0]
+	if e.Name != "CUSTOMER" || e.Label != "Customer Profile" {
+		t.Errorf("got Name=%q Label=%q", e.Name, e.Label)
+	}
+	if len(e.CSSClasses) != 1 || e.CSSClasses[0] != "hot" {
+		t.Errorf("CSSClasses = %v", e.CSSClasses)
+	}
+}
+
 // Chained `:::` shorthand on an entity reference must error,
 // matching the class diagram's behavior.
 func TestParseChainedCSSShorthandError(t *testing.T) {

@@ -1,0 +1,23 @@
+erDiagram
+    title: Library schema with aliased names
+    accDescr: Books and the people who borrow them, using human-readable display labels
+
+    BOOK["Library Book"] {
+        int id PK
+        string isbn UK
+        string title
+    }
+    PATRON["Library Patron"] {
+        int id PK
+        string name
+        string email UK
+    }
+    LOAN["Active Loan"] {
+        int *id
+        int book_id PK, FK
+        int patron_id PK, FK
+        date due_date
+    }
+
+    PATRON ||--o{ LOAN : holds
+    BOOK ||--o{ LOAN : "checked out as"

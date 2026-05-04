@@ -25,7 +25,12 @@ type ERAttribute struct {
 }
 
 type EREntity struct {
-	Name       string
+	Name string
+	// Label is the optional display string parsed from
+	// `EntityID["Display Label"]`. Renderers use Label when
+	// non-empty, falling back to Name. Relations and bindings
+	// continue to reference the entity by Name (the bare ID).
+	Label      string
 	Attributes []ERAttribute
 	// CSSClasses are user-defined CSS class names attached via
 	// `class A,B foo` or the inline `A:::foo` shorthand.
