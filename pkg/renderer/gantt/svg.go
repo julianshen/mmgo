@@ -8,4 +8,5 @@ type (
 	rect     = svgutil.Rect
 	line     = svgutil.Line
 	text     = svgutil.Text
+	polygon  = svgutil.Polygon
 )

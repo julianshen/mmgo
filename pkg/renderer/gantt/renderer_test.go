@@ -278,6 +278,210 @@ func TestRenderVerticalGrid(t *testing.T) {
 	}
 }
 
+// `axisFormat` overrides the default ISO label, using d3-strftime
+// translated to a Go layout.
+func TestRenderAxisFormat(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &diagram.GanttDiagram{
+		AxisFormat: "%b %d",
+		Tasks: []diagram.GanttTask{
+			{Name: "A", Start: start, End: start.Add(2 * 24 * time.Hour)},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">Jan 01<") {
+		t.Errorf("expected axis label `Jan 01`, got:\n%s", raw)
+	}
+	if strings.Contains(raw, ">2024-01-01<") {
+		t.Errorf("default ISO label should be replaced by axisFormat")
+	}
+}
+
+// `tickInterval 1week` advances ticks by 7 calendar days from
+// minDate, regardless of the auto-interval that the chart span
+// would otherwise pick.
+func TestRenderTickIntervalWeek(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC) // Mon
+	d := &diagram.GanttDiagram{
+		TickInterval: "1week",
+		Tasks: []diagram.GanttTask{
+			{Name: "A", Start: start, End: start.Add(21 * 24 * time.Hour)},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{">2024-01-01<", ">2024-01-08<", ">2024-01-15<", ">2024-01-22<"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected weekly tick %q, missing from output", want)
+		}
+	}
+}
+
+// Milestone tasks render as a diamond (polygon) at the start
+// position rather than a rectangle, with the label outside.
+func TestRenderMilestone(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &diagram.GanttDiagram{
+		Tasks: []diagram.GanttTask{
+			{Name: "Anchor", Start: start, End: start.Add(5 * 24 * time.Hour)},
+			{Name: "Launch", Start: start.Add(5 * 24 * time.Hour), End: start.Add(5 * 24 * time.Hour),
+				Status: diagram.TaskStatusMilestone},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<polygon") {
+		t.Errorf("expected milestone polygon glyph, got:\n%s", raw)
+	}
+	if !strings.Contains(raw, ">Launch<") {
+		t.Errorf("milestone label missing")
+	}
+}
+
+// A `crit, milestone` task gets the crit stroke applied to the
+// diamond glyph, not just the rectangle path.
+func TestRenderCritMilestoneStroke(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &diagram.GanttDiagram{
+		Tasks: []diagram.GanttTask{
+			{Name: "Anchor", Start: start, End: start.Add(2 * 24 * time.Hour)},
+			{Name: "GA", Start: start.Add(2 * 24 * time.Hour), End: start.Add(2 * 24 * time.Hour),
+				Status: diagram.TaskStatusCrit | diagram.TaskStatusMilestone},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<polygon") {
+		t.Fatalf("expected milestone polygon")
+	}
+	if !strings.Contains(raw, "stroke:"+DefaultTheme().CritStroke) {
+		t.Errorf("expected crit stroke on milestone polygon, got:\n%s", raw)
+	}
+}
+
+// Crit tasks get a stroke outline on top of their fill.
+func TestRenderCritStroke(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &diagram.GanttDiagram{
+		Tasks: []diagram.GanttTask{
+			{Name: "Hot", Start: start, End: start.Add(2 * 24 * time.Hour),
+				Status: diagram.TaskStatusCrit},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "stroke:"+DefaultTheme().CritStroke) {
+		t.Errorf("expected crit stroke %q in:\n%s", DefaultTheme().CritStroke, raw)
+	}
+}
+
+// `todayMarker` draws a vertical rule when today's date sits in
+// the chart range; off / out-of-range diagrams omit it.
+func TestRenderTodayMarker(t *testing.T) {
+	now := time.Now().UTC().Truncate(24 * time.Hour)
+	in := &diagram.GanttDiagram{
+		TodayMarker: "stroke-width:2px",
+		Tasks: []diagram.GanttTask{
+			{Name: "Span", Start: now.AddDate(0, 0, -3), End: now.AddDate(0, 0, 3)},
+		},
+	}
+	rawIn, err := Render(in, nil)
+	if err != nil {
+		t.Fatalf("Render in-range: %v", err)
+	}
+	if !strings.Contains(string(rawIn), "stroke-width:2px") {
+		t.Errorf("expected today marker style in:\n%s", rawIn)
+	}
+
+	off := &diagram.GanttDiagram{
+		TodayMarker: "off",
+		Tasks: []diagram.GanttTask{
+			{Name: "Span", Start: now.AddDate(0, 0, -3), End: now.AddDate(0, 0, 3)},
+		},
+	}
+	rawOff, err := Render(off, nil)
+	if err != nil {
+		t.Fatalf("Render off: %v", err)
+	}
+	if strings.Contains(string(rawOff), "stroke-dasharray:4 2") {
+		t.Errorf("today marker should be suppressed when set to off")
+	}
+}
+
+// Axis-format helper round-trips the documented Mermaid token set.
+func TestD3StrftimeToGoLayout(t *testing.T) {
+	cases := map[string]string{
+		"%Y-%m-%d":  "2006-01-02",
+		"%b %d, %Y": "Jan 02, 2006",
+		"%H:%M:%S":  "15:04:05",
+		"%A %B":     "Monday January",
+		"%I:%M %p":  "03:04 PM",
+		"%j":        "002",
+		"100%%":     "100%",
+		"%Q":        "%Q", // unknown token survives verbatim
+	}
+	for in, want := range cases {
+		if got := d3StrftimeToGoLayout(in); got != want {
+			t.Errorf("%s → %q, want %q", in, got, want)
+		}
+	}
+}
+
+// `tickInterval 6hour` exercises the duration-based branch of
+// tickStep.advance (millisecond/second/minute/hour) rather than
+// the calendar AddDate branch.
+func TestRenderTickIntervalHourly(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &diagram.GanttDiagram{
+		AxisFormat:   "%H:%M",
+		TickInterval: "6hour",
+		Tasks: []diagram.GanttTask{
+			{Name: "Run", Start: start, End: start.Add(24 * time.Hour)},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{">00:00<", ">06:00<", ">12:00<", ">18:00<"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected hourly tick %q in output", want)
+		}
+	}
+}
+
+// Tick-interval parser covers every documented unit and rejects
+// malformed input.
+func TestParseTickInterval(t *testing.T) {
+	for _, ok := range []string{"1day", "2 weeks", "15minute", "1month", "1year"} {
+		if _, valid := parseTickInterval(ok); !valid {
+			t.Errorf("%q should parse", ok)
+		}
+	}
+	for _, bad := range []string{"", "1", "day", "0day", "-1d", "1fortnight"} {
+		if _, valid := parseTickInterval(bad); valid {
+			t.Errorf("%q should fail to parse", bad)
+		}
+	}
+}
+
 func assertValidSVG(t *testing.T, svgBytes []byte) {
 	t.Helper()
 	body := svgBytes

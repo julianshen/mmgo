@@ -3,6 +3,7 @@ package gantt
 import (
 	"encoding/xml"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
@@ -140,7 +141,10 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 		}
 	}
 
-	children = append(children, renderAxis(minDate, totalDays, chartX, axisY, chartW, rowH*float64(rows), fontSize, th)...)
+	children = append(children, renderAxis(d, minDate, maxDate, totalDays, chartX, axisY, chartW, rowH*float64(rows), fontSize, th)...)
+	if marker, ok := todayMarkerLine(d, minDate, maxDate, chartX, axisY+axisH, rowH*float64(rows), th); ok {
+		children = append(children, marker)
+	}
 
 	// Per-section label vertically centered across its bar rows.
 	for _, sp := range spans {
@@ -166,11 +170,51 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 		by := rowY(i) + barGap/2
 
 		color := th.taskColor(task.Status)
+
+		// Milestone tasks render as a diamond at the task's start
+		// rather than as a rectangle. The label always sits to the
+		// right of the glyph since its width is a small fixed
+		// constant regardless of the task's parsed duration.
+		if task.Status.Has(diagram.TaskStatusMilestone) {
+			cx, cy := bx, by+barH/2
+			half := barH / 2
+			// A `crit, milestone` task picks up the same emphasis
+			// stroke as crit bars do; the milestone branch returns
+			// early so we have to apply the stroke here too.
+			diamondStyle := fmt.Sprintf("fill:%s;stroke:none", color)
+			if task.Status.Has(diagram.TaskStatusCrit) {
+				diamondStyle = fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", color, th.CritStroke)
+			}
+			children = append(children, &polygon{
+				Points: fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
+					cx, cy-half,
+					cx+half, cy,
+					cx, cy+half,
+					cx-half, cy),
+				Style: diamondStyle,
+			})
+			children = append(children, &text{
+				X: svgFloat(cx + half + labelOutsideGap), Y: svgFloat(cy),
+				Anchor: "start", Dominant: "central",
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.OutsideBarText, fontSize-1),
+				Content: task.Name,
+			})
+			continue
+		}
+
+		// Crit tasks get a strong outline on top of the fill so a
+		// blocker stands out even when its bar sits next to other
+		// red bars. The fill priority already used the crit color;
+		// the stroke darkens that.
+		barStyle := fmt.Sprintf("fill:%s;stroke:none", color)
+		if task.Status.Has(diagram.TaskStatusCrit) {
+			barStyle = fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", color, th.CritStroke)
+		}
 		children = append(children, &rect{
 			X: svgFloat(bx), Y: svgFloat(by),
 			Width: svgFloat(barW), Height: svgFloat(barH),
 			RX: 3, RY: 3,
-			Style: fmt.Sprintf("fill:%s;stroke:none", color),
+			Style: barStyle,
 		})
 		if taskLabelW[i]+labelInsideSlack > barW {
 			children = append(children, &text{
@@ -237,7 +281,11 @@ func renderEmpty(d *diagram.GanttDiagram, th Theme) ([]byte, error) {
 // renderAxis draws the axis baseline, tick labels, and full-height
 // vertical grid lines at each tick so bars read against a timeline.
 // bodyH is the vertical extent of the task area below the axis.
-func renderAxis(minDate time.Time, totalDays float64, x, y, w, bodyH, fontSize float64, th Theme) []any {
+//
+// `axisFormat` (d3-strftime) and `tickInterval` (`<N><unit>`)
+// override the defaults; an empty/invalid spec falls back to ISO
+// labels and an auto-chosen interval based on chart span.
+func renderAxis(d *diagram.GanttDiagram, minDate, maxDate time.Time, totalDays, x, y, w, bodyH, fontSize float64, th Theme) []any {
 	var elems []any
 	elems = append(elems, &line{
 		X1: svgFloat(x), Y1: svgFloat(y + axisH),
@@ -245,27 +293,80 @@ func renderAxis(minDate time.Time, totalDays float64, x, y, w, bodyH, fontSize f
 		Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.AxisStroke),
 	})
 
-	interval := axisInterval(totalDays)
+	layout := "2006-01-02"
+	if d.AxisFormat != "" {
+		layout = d3StrftimeToGoLayout(d.AxisFormat)
+	}
 	gridStyle := fmt.Sprintf("stroke:%s;stroke-width:1", th.GridStroke)
+
+	if step, ok := parseTickInterval(d.TickInterval); ok {
+		// Calendar-aware stepping: walk the full date range with
+		// the user-requested cadence rather than the day-bucket
+		// auto-interval.
+		for tick := minDate; !tick.After(maxDate); tick = step.advance(tick) {
+			dx := x + tick.Sub(minDate).Hours()/24*dayWidth
+			elems = append(elems, axisTick(tick, dx, y, bodyH, fontSize, layout, gridStyle, th)...)
+		}
+		return elems
+	}
+
+	interval := axisInterval(totalDays)
 	for day := 0; float64(day) <= totalDays; day += interval {
 		dx := x + float64(day)*dayWidth
 		date := minDate.AddDate(0, 0, day)
-		// ISO-8601 (yyyy-mm-dd) matches mmdc's axis format and
-		// disambiguates year/century compared to "Jan 02".
-		label := date.Format("2006-01-02")
-		elems = append(elems, &text{
+		elems = append(elems, axisTick(date, dx, y, bodyH, fontSize, layout, gridStyle, th)...)
+	}
+	return elems
+}
+
+// axisTick is one tick label + its grid line, factored out so the
+// `tickInterval` and auto-interval branches above stay symmetric.
+func axisTick(date time.Time, dx, y, bodyH, fontSize float64, layout, gridStyle string, th Theme) []any {
+	return []any{
+		&text{
 			X: svgFloat(dx), Y: svgFloat(y + axisH - 6),
 			Anchor: "middle", Dominant: "auto",
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.AxisLabel, fontSize-2),
-			Content: label,
-		})
-		elems = append(elems, &line{
+			Content: date.Format(layout),
+		},
+		&line{
 			X1: svgFloat(dx), Y1: svgFloat(y + axisH),
 			X2: svgFloat(dx), Y2: svgFloat(y + axisH + bodyH),
 			Style: gridStyle,
-		})
+		},
 	}
-	return elems
+}
+
+// todayMarkerLine returns a vertical rule at the current day
+// position when (a) the diagram opted in via `todayMarker` (any
+// non-empty value other than `off`) AND (b) today's date sits
+// within the chart's date range. Style is parsed from the user's
+// directive value when it looks like a CSS string; otherwise a
+// red dashed line is used.
+func todayMarkerLine(d *diagram.GanttDiagram, minDate, maxDate time.Time, x, y, bodyH float64, th Theme) (*line, bool) {
+	if d.TodayMarker == "" || d.TodayMarker == "off" {
+		return nil, false
+	}
+	// Truncate `now` in the same location as the chart's dates so a
+	// chart parsed in a non-UTC timezone doesn't lose or shift the
+	// marker by a day across TZ boundaries.
+	now := time.Now().In(minDate.Location()).Truncate(24 * time.Hour)
+	if now.Before(minDate) || now.After(maxDate) {
+		return nil, false
+	}
+	dx := x + now.Sub(minDate).Hours()/24*dayWidth
+	style := "stroke:#d62728;stroke-width:2;stroke-dasharray:4 2"
+	if strings.Contains(d.TodayMarker, ":") {
+		// User supplied a CSS-ish snippet like
+		// `stroke-width:3px,stroke:red`; pass it through after
+		// normalising commas to semicolons.
+		style = strings.ReplaceAll(d.TodayMarker, ",", ";")
+	}
+	return &line{
+		X1: svgFloat(dx), Y1: svgFloat(y),
+		X2: svgFloat(dx), Y2: svgFloat(y + bodyH),
+		Style: style,
+	}, true
 }
 
 func axisInterval(totalDays float64) int {
