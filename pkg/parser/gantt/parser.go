@@ -50,12 +50,29 @@ func Parse(r io.Reader) (*diagram.GanttDiagram, error) {
 }
 
 // resolveForwardRefs runs after the line loop completes so that
-// `until id` references pointing at tasks declared LATER in the
-// source pick up the right anchor. (Mermaid's usual pattern is
-// `after` pointing backward and `until` pointing forward.)
+// `after id` / `until id` references pointing at tasks declared
+// LATER in the source pick up the right anchor. The first pass
+// fell back to `lastTaskEnd` when an id wasn't yet known; here we
+// recompute against the now-complete taskByID map.
+//
+// For `after`, we preserve the task's effective duration (parsed
+// in pass 1) and re-anchor: newEnd = newStart + (oldEnd - oldStart).
+// We use the small (oldEnd-oldStart) delta rather than (newStart-
+// oldStart) because oldStart can be the zero time when nothing was
+// resolved yet, and the gap between zero-time and real dates can
+// exceed time.Duration's ~290-year range.
+//
+// `until` is always recomputed since the map can only grow.
 func (p *parser) resolveForwardRefs() {
 	for i := range p.diagram.Tasks {
 		t := &p.diagram.Tasks[i]
+		if len(t.After) > 0 {
+			dur := t.End.Sub(t.Start)
+			t.Start = p.maxEndOf(t.After)
+			if len(t.Until) == 0 {
+				t.End = t.Start.Add(dur)
+			}
+		}
 		if len(t.Until) > 0 {
 			t.End = p.minStartOf(t.Until)
 		}
@@ -72,40 +89,40 @@ type parser struct {
 }
 
 func (p *parser) parseLine(line string) error {
-	if rest, ok := strings.CutPrefix(line, "title "); ok {
-		p.diagram.Title = strings.TrimSpace(rest)
+	if v, ok := parserutil.MatchKeywordValue(line, "title"); ok {
+		p.diagram.Title = v
 		return nil
 	}
-	if rest, ok := strings.CutPrefix(line, "dateFormat "); ok {
-		p.diagram.DateFormat = mermaidToGoFormat(strings.TrimSpace(rest))
+	if v, ok := parserutil.MatchKeywordValue(line, "dateFormat"); ok {
+		p.diagram.DateFormat = mermaidToGoFormat(v)
 		return nil
 	}
-	if rest, ok := strings.CutPrefix(line, "axisFormat "); ok {
-		p.diagram.AxisFormat = strings.TrimSpace(rest)
+	if v, ok := parserutil.MatchKeywordValue(line, "axisFormat"); ok {
+		p.diagram.AxisFormat = v
 		return nil
 	}
-	if rest, ok := strings.CutPrefix(line, "tickInterval "); ok {
-		p.diagram.TickInterval = strings.TrimSpace(rest)
+	if v, ok := parserutil.MatchKeywordValue(line, "tickInterval"); ok {
+		p.diagram.TickInterval = v
 		return nil
 	}
-	if rest, ok := strings.CutPrefix(line, "weekday "); ok {
-		p.diagram.Weekday = strings.TrimSpace(rest)
+	if v, ok := parserutil.MatchKeywordValue(line, "weekday"); ok {
+		p.diagram.Weekday = v
 		return nil
 	}
-	if rest, ok := strings.CutPrefix(line, "todayMarker "); ok {
-		p.diagram.TodayMarker = strings.TrimSpace(rest)
+	if v, ok := parserutil.MatchKeywordValue(line, "todayMarker"); ok {
+		p.diagram.TodayMarker = v
 		return nil
 	}
-	if rest, ok := strings.CutPrefix(line, "excludes "); ok {
-		p.diagram.Excludes = append(p.diagram.Excludes, splitSpaceOrCSV(strings.TrimSpace(rest))...)
+	if v, ok := parserutil.MatchKeywordValue(line, "excludes"); ok {
+		p.diagram.Excludes = append(p.diagram.Excludes, splitSpaceOrCSV(v)...)
 		return nil
 	}
-	if rest, ok := strings.CutPrefix(line, "includes "); ok {
-		p.diagram.Includes = append(p.diagram.Includes, splitSpaceOrCSV(strings.TrimSpace(rest))...)
+	if v, ok := parserutil.MatchKeywordValue(line, "includes"); ok {
+		p.diagram.Includes = append(p.diagram.Includes, splitSpaceOrCSV(v)...)
 		return nil
 	}
-	if rest, ok := strings.CutPrefix(line, "section "); ok {
-		p.curSection = strings.TrimSpace(rest)
+	if v, ok := parserutil.MatchKeywordValue(line, "section"); ok {
+		p.curSection = v
 		p.diagram.Sections = append(p.diagram.Sections, p.curSection)
 		return nil
 	}
@@ -239,8 +256,11 @@ func (p *parser) minStartOf(ids []string) time.Time {
 	return out
 }
 
+// splitCSV defers to the canonical SplitUnquotedCommas helper so
+// quoted commas inside task names are preserved, then trims each
+// item. Empty input → nil.
 func splitCSV(s string) []string {
-	parts := strings.Split(s, ",")
+	parts := parserutil.SplitUnquotedCommas(s)
 	for i := range parts {
 		parts[i] = strings.TrimSpace(parts[i])
 	}
@@ -321,7 +341,7 @@ func parseDuration(s string) (time.Duration, bool) {
 			continue
 		}
 		v, err := strconv.ParseFloat(n, 64)
-		if err != nil {
+		if err != nil || v < 0 {
 			continue
 		}
 		return time.Duration(v * float64(u.dur)), true

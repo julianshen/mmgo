@@ -44,9 +44,10 @@ func DefaultTheme() Theme {
 
 // taskColor maps a (possibly multi-flag) status bitmask to a fill
 // color using a fixed priority order: Crit > Active > Done > None.
-// Milestone is rendered as its own glyph by the renderer rather
-// than via fill, so it doesn't enter the priority lookup here.
-// Missing or empty entries fall back to the TaskStatusNone color.
+// Milestone does not enter the priority lookup — until PR2 adds a
+// dedicated diamond glyph, a milestone task picks up whichever
+// other flag it carries (commonly Crit). Missing or empty entries
+// fall back to the TaskStatusNone color.
 func (t Theme) taskColor(s diagram.TaskStatus) string {
 	for _, flag := range []diagram.TaskStatus{
 		diagram.TaskStatusCrit,

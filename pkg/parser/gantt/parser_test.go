@@ -227,6 +227,37 @@ func TestParseTaskAfterMultiple(t *testing.T) {
 	}
 }
 
+// Forward `after` references (predecessor declared later) are
+// resolved by the post-pass so the start anchors correctly.
+func TestParseTaskAfterForwardRef(t *testing.T) {
+	input := `gantt
+    dateFormat YYYY-MM-DD
+    Pre :pre, after launch, 2d
+    Launch :launch, 2024-01-10, 1d`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	wantStart := time.Date(2024, 1, 11, 0, 0, 0, 0, time.UTC) // launch end
+	if !d.Tasks[0].Start.Equal(wantStart) {
+		t.Errorf("pre start = %v, want %v", d.Tasks[0].Start, wantStart)
+	}
+	wantEnd := wantStart.AddDate(0, 0, 2)
+	if !d.Tasks[0].End.Equal(wantEnd) {
+		t.Errorf("pre end = %v, want %v", d.Tasks[0].End, wantEnd)
+	}
+}
+
+// Negative-magnitude durations are rejected so a typo like `-1d`
+// doesn't silently produce a backwards bar.
+func TestParseDurationRejectsNegative(t *testing.T) {
+	for _, in := range []string{"-1d", "-2.5h", "-100ms"} {
+		if _, ok := parseDuration(in); ok {
+			t.Errorf("parseDuration(%q): expected rejection", in)
+		}
+	}
+}
+
 // `until id1 id2 ...` ends the task at the earliest start of the
 // named successors.
 func TestParseTaskUntil(t *testing.T) {
