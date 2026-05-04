@@ -178,13 +178,20 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 		if task.Status.Has(diagram.TaskStatusMilestone) {
 			cx, cy := bx, by+barH/2
 			half := barH / 2
+			// A `crit, milestone` task picks up the same emphasis
+			// stroke as crit bars do; the milestone branch returns
+			// early so we have to apply the stroke here too.
+			diamondStyle := fmt.Sprintf("fill:%s;stroke:none", color)
+			if task.Status.Has(diagram.TaskStatusCrit) {
+				diamondStyle = fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", color, th.CritStroke)
+			}
 			children = append(children, &polygon{
 				Points: fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
 					cx, cy-half,
 					cx+half, cy,
 					cx, cy+half,
 					cx-half, cy),
-				Style: fmt.Sprintf("fill:%s;stroke:none", color),
+				Style: diamondStyle,
 			})
 			children = append(children, &text{
 				X: svgFloat(cx + half + labelOutsideGap), Y: svgFloat(cy),
@@ -340,7 +347,10 @@ func todayMarkerLine(d *diagram.GanttDiagram, minDate, maxDate time.Time, x, y, 
 	if d.TodayMarker == "" || d.TodayMarker == "off" {
 		return nil, false
 	}
-	now := time.Now().UTC().Truncate(24 * time.Hour)
+	// Truncate `now` in the same location as the chart's dates so a
+	// chart parsed in a non-UTC timezone doesn't lose or shift the
+	// marker by a day across TZ boundaries.
+	now := time.Now().In(minDate.Location()).Truncate(24 * time.Hour)
 	if now.Before(minDate) || now.After(maxDate) {
 		return nil, false
 	}

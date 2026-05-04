@@ -348,6 +348,30 @@ func TestRenderMilestone(t *testing.T) {
 	}
 }
 
+// A `crit, milestone` task gets the crit stroke applied to the
+// diamond glyph, not just the rectangle path.
+func TestRenderCritMilestoneStroke(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &diagram.GanttDiagram{
+		Tasks: []diagram.GanttTask{
+			{Name: "Anchor", Start: start, End: start.Add(2 * 24 * time.Hour)},
+			{Name: "GA", Start: start.Add(2 * 24 * time.Hour), End: start.Add(2 * 24 * time.Hour),
+				Status: diagram.TaskStatusCrit | diagram.TaskStatusMilestone},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<polygon") {
+		t.Fatalf("expected milestone polygon")
+	}
+	if !strings.Contains(raw, "stroke:"+DefaultTheme().CritStroke) {
+		t.Errorf("expected crit stroke on milestone polygon, got:\n%s", raw)
+	}
+}
+
 // Crit tasks get a stroke outline on top of their fill.
 func TestRenderCritStroke(t *testing.T) {
 	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
