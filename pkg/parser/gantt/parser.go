@@ -93,6 +93,14 @@ func (p *parser) parseLine(line string) error {
 		p.diagram.Title = v
 		return nil
 	}
+	if v, ok := parserutil.MatchKeywordValue(line, "accTitle"); ok {
+		p.diagram.AccTitle = v
+		return nil
+	}
+	if v, ok := parserutil.MatchKeywordValue(line, "accDescr"); ok {
+		p.diagram.AccDescr = v
+		return nil
+	}
 	if v, ok := parserutil.MatchKeywordValue(line, "dateFormat"); ok {
 		p.diagram.DateFormat = mermaidToGoFormat(v)
 		return nil
@@ -126,7 +134,103 @@ func (p *parser) parseLine(line string) error {
 		p.diagram.Sections = append(p.diagram.Sections, p.curSection)
 		return nil
 	}
+	if strings.HasPrefix(line, "click ") {
+		return p.parseClick(line)
+	}
+	if strings.HasPrefix(line, "vert ") {
+		return p.parseVert(line)
+	}
 	return p.parseTask(line)
+}
+
+// parseClick handles `click TASKID href "url" ["tooltip"] ["target"]`
+// and `click TASKID call func(args) ["tooltip"]`. The TASKID must
+// match a task declared earlier in the source.
+func (p *parser) parseClick(line string) error {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "click"))
+	parts, err := parserutil.SplitClickArgs(rest, 2)
+	if err != nil {
+		return fmt.Errorf("click: %w", err)
+	}
+	if len(parts) < 2 {
+		return fmt.Errorf("click requires task id and target")
+	}
+	id := parts[0]
+	if _, ok := p.taskByID[id]; !ok {
+		return fmt.Errorf("click references undefined task %q", id)
+	}
+	afterID := strings.TrimSpace(rest[len(id):])
+	cd := diagram.GanttClickDef{TaskID: id}
+	switch {
+	case afterID == "call" || strings.HasPrefix(afterID, "call "):
+		callback := strings.TrimSpace(strings.TrimPrefix(afterID, "call"))
+		if callback == "" {
+			return fmt.Errorf("click %s: missing callback after `call`", id)
+		}
+		cd.Callback = callback
+	case afterID == "href" || strings.HasPrefix(afterID, "href "):
+		argSrc := strings.TrimSpace(strings.TrimPrefix(afterID, "href"))
+		if err := fillClickURLArgs(&cd, argSrc); err != nil {
+			return fmt.Errorf("click %s: %w", id, err)
+		}
+	default:
+		if err := fillClickURLArgs(&cd, afterID); err != nil {
+			return fmt.Errorf("click %s: %w", id, err)
+		}
+	}
+	p.diagram.Clicks = append(p.diagram.Clicks, cd)
+	return nil
+}
+
+func fillClickURLArgs(cd *diagram.GanttClickDef, src string) error {
+	parts, err := parserutil.SplitClickArgs(src, 3)
+	if err != nil {
+		return err
+	}
+	if len(parts) == 0 || parts[0] == "" {
+		return fmt.Errorf("missing URL")
+	}
+	cd.URL = parts[0]
+	if len(parts) >= 2 {
+		cd.Tooltip = parts[1]
+	}
+	if len(parts) >= 3 {
+		cd.Target = parts[2]
+	}
+	return nil
+}
+
+// parseVert handles `vert <date>` and `vert <id>, <date> [, "label"]`.
+// The label form attaches optional text drawn at the rule's top.
+func (p *parser) parseVert(line string) error {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "vert"))
+	if rest == "" {
+		return fmt.Errorf("vert requires a date")
+	}
+	parts := splitCSV(rest)
+	v := diagram.GanttVert{}
+	switch len(parts) {
+	case 1:
+		t, err := time.Parse(p.diagram.DateFormat, parts[0])
+		if err != nil {
+			return fmt.Errorf("vert: invalid date %q: %w", parts[0], err)
+		}
+		v.Date = t
+	case 2, 3:
+		v.ID = parts[0]
+		t, err := time.Parse(p.diagram.DateFormat, parts[1])
+		if err != nil {
+			return fmt.Errorf("vert %s: invalid date %q: %w", v.ID, parts[1], err)
+		}
+		v.Date = t
+		if len(parts) == 3 {
+			v.Label = parserutil.Unquote(parts[2])
+		}
+	default:
+		return fmt.Errorf("vert: expected `date` or `id, date [, label]`")
+	}
+	p.diagram.Verts = append(p.diagram.Verts, v)
+	return nil
 }
 
 func (p *parser) parseTask(line string) error {

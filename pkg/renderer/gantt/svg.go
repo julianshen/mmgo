@@ -9,4 +9,7 @@ type (
 	line     = svgutil.Line
 	text     = svgutil.Text
 	polygon  = svgutil.Polygon
+	anchor   = svgutil.Anchor
+	title    = svgutil.Title
+	desc     = svgutil.Desc
 )

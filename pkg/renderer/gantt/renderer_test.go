@@ -499,3 +499,80 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 		t.Error("viewBox missing")
 	}
 }
+
+// AccTitle and AccDescr surface as <title>/<desc> SVG children
+// at the top of the document.
+func TestRenderAccessibility(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &diagram.GanttDiagram{
+		AccTitle: "Q1 plan",
+		AccDescr: "Roadmap for Q1",
+		Tasks: []diagram.GanttTask{
+			{Name: "A", Start: start, End: start.Add(2 * 24 * time.Hour)},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<title>Q1 plan</title>") {
+		t.Errorf("expected <title>Q1 plan</title> in:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<desc>Roadmap for Q1</desc>") {
+		t.Errorf("expected <desc>Roadmap for Q1</desc> in:\n%s", raw)
+	}
+}
+
+// A task with a `click ... href` registers an <a href=...> wrap
+// around the bar geometry.
+func TestRenderClickHrefWrap(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &diagram.GanttDiagram{
+		Tasks: []diagram.GanttTask{
+			{ID: "a1", Name: "Design", Start: start, End: start.Add(3 * 24 * time.Hour)},
+		},
+		Clicks: []diagram.GanttClickDef{
+			{TaskID: "a1", URL: "https://example.com", Tooltip: "doc", Target: "_blank"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, `href="https://example.com"`) {
+		t.Errorf("expected anchor href in:\n%s", raw)
+	}
+	if !strings.Contains(raw, `target="_blank"`) {
+		t.Errorf("expected target attribute in:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<title>doc</title>") {
+		t.Errorf("expected tooltip <title> in:\n%s", raw)
+	}
+}
+
+// `vert` markers render as dashed full-height rules with optional
+// labels at the top of the chart body.
+func TestRenderVertLine(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &diagram.GanttDiagram{
+		Tasks: []diagram.GanttTask{
+			{Name: "A", Start: start, End: start.Add(10 * 24 * time.Hour)},
+		},
+		Verts: []diagram.GanttVert{
+			{Date: start.Add(5 * 24 * time.Hour), Label: "Freeze"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "stroke-dasharray:6 3") {
+		t.Errorf("expected dashed vert line in:\n%s", raw)
+	}
+	if !strings.Contains(raw, ">Freeze<") {
+		t.Errorf("expected vert label in:\n%s", raw)
+	}
+}
