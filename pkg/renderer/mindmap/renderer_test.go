@@ -333,3 +333,28 @@ func TestRenderEmptyDiagramBounds(t *testing.T) {
 		t.Error("empty diagram should have 100x100 viewBox")
 	}
 }
+
+// AccTitle/AccDescr emit as <title>/<desc> SVG children.
+func TestRenderAccessibilityFields(t *testing.T) {
+	d := &diagram.MindmapDiagram{
+		AccTitle: "Mind Map",
+		AccDescr: "Top-level concepts",
+		Root: &diagram.MindmapNode{
+			ID: "root", Text: "Root", Shape: diagram.MindmapShapeDefault,
+			Children: []*diagram.MindmapNode{
+				{ID: "a", Text: "A"},
+			},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<title>Mind Map</title>") {
+		t.Errorf("expected <title>Mind Map</title> in:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<desc>Top-level concepts</desc>") {
+		t.Errorf("expected <desc>Top-level concepts</desc> in:\n%s", raw)
+	}
+}

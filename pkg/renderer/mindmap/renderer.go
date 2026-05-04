@@ -97,6 +97,12 @@ func Render(d *diagram.MindmapDiagram, opts *Options) ([]byte, error) {
 	offY := -bounds.minY + pad
 
 	var children []any
+	if d.AccTitle != "" {
+		children = append(children, &svgutil.Title{Content: d.AccTitle})
+	}
+	if d.AccDescr != "" {
+		children = append(children, &svgutil.Desc{Content: d.AccDescr})
+	}
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgutil.Float(viewW), Height: svgutil.Float(viewH),
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),

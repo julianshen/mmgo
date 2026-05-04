@@ -257,3 +257,78 @@ func TestParseMissingHeader(t *testing.T) {
 		t.Fatal("expected error for empty input")
 	}
 }
+
+// accTitle / accDescr lines populate the matching AST fields and
+// don't pollute the node tree.
+func TestParseAccessibility(t *testing.T) {
+	d, err := Parse(strings.NewReader(`mindmap
+accTitle: Mind Map
+accDescr: Top-level concepts
+Root
+    A
+    B`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.AccTitle != "Mind Map" {
+		t.Errorf("accTitle = %q", d.AccTitle)
+	}
+	if d.AccDescr != "Top-level concepts" {
+		t.Errorf("accDescr = %q", d.AccDescr)
+	}
+	if d.Root == nil || d.Root.Text != "Root" || len(d.Root.Children) != 2 {
+		t.Errorf("tree corrupted by accessibility lines: %+v", d.Root)
+	}
+}
+
+// Backtick-wrapped labels have the backticks stripped so the
+// contents (markdown) reach the renderer cleanly.
+func TestParseBacktickMarkdown(t *testing.T) {
+	d, err := Parse(strings.NewReader("mindmap\n    Root[`**Bold** title`]"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Root.Text != "**Bold** title" {
+		t.Errorf("text = %q, want stripped backticks", d.Root.Text)
+	}
+}
+
+// Literal `\n` inside a label becomes a real newline so the
+// renderer can split it into multiple lines.
+func TestParseLabelNewline(t *testing.T) {
+	d, err := Parse(strings.NewReader(`mindmap
+    Root[Line one\nLine two]`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Root.Text != "Line one\nLine two" {
+		t.Errorf("text = %q", d.Root.Text)
+	}
+}
+
+// Historical `!text!` bang form parses to MindmapShapeBang in
+// addition to the canonical `))text((`.
+func TestParseBangFallback(t *testing.T) {
+	d, err := Parse(strings.NewReader("mindmap\n    !Hot!"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Root.Shape != diagram.MindmapShapeBang {
+		t.Errorf("shape = %v, want bang", d.Root.Shape)
+	}
+	if d.Root.Text != "Hot" {
+		t.Errorf("text = %q", d.Root.Text)
+	}
+}
+
+// A second top-level entry is rejected — Mermaid mindmaps allow
+// only one root.
+func TestParseMultiRootError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`mindmap
+Root1
+    A
+Root2`))
+	if err == nil {
+		t.Error("expected error for second root")
+	}
+}
