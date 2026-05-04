@@ -4,14 +4,14 @@ Dashboard view of progress against [implementation-plan.md](implementation-plan.
 Updated at each step boundary and committed to git, so any client can read
 current state without relying on chat history.
 
-**Last updated:** 2026-05-05 (post ER parity work — PRs #153–#155)
+**Last updated:** 2026-05-05 (post Gantt parity work — PRs #157–#159)
 
 ## Overall
 
 - **Current milestone:** v0.4.0 complete; working toward v0.5.0 (Gantt, mindmap, others)
 - **Current phase:** Phase 6 in progress
-- **Completed:** 23 of 25 steps
-- **Next:** Step 23 — Gantt chart
+- **Completed:** 24 of 25 steps
+- **Next:** Step 24 — Mindmap
 
 ## Phase 0: Project Scaffold
 
@@ -70,7 +70,7 @@ current state without relying on chat history.
 | ✅ | 20. Class diagram | #35, #36, #139–#145 | ~95% / ~95% | Full Mermaid surface: reverse / two-way arrows, `direction`, generics `~T~`, custom labels `["…"]`, static `$` / abstract `*` modifiers, single-line members, inline + bare-line annotations, notes, classDef / style / cssClass / `:::`, accTitle / accDescr / title, lollipop interfaces `()--`, click / link / callback events with SVG `<a>` wrap, `namespace { … }` blocks |
 | ✅ | 21. State diagram | #38, #39, #148–#151 | ~95% / ~95% | Full Mermaid surface: `id : description` shorthand, `direction` keyword, multi-line transition labels, notes (`note left/right of`, `end note` block), classDef / style / cssClass / `:::` styling, accTitle / accDescr / title, click / link / callback events with SVG `<a>` wrap, concurrent regions (`--` separator), composite-state bounding boxes |
 | ✅ | 22. ER diagram | #40, #153–#155 | ~95% / ~95% | Full Mermaid surface: entity attributes with PK/FK/UK + multi-key (`PK, FK`) and `*name` markers, full cardinality matrix (4×4×2), `direction` keyword, quoted attribute comments, title / accTitle / accDescr, classDef / style / cssClass / `:::` shorthand, click / link / callback events with SVG `<a>` wrap, aliased entity names (`EntityID["Display Label"]`) |
-| ⏳ | 23. Gantt chart | — | | |
+| ✅ | 23. Gantt chart | #157, #158, #159 | ~94% / ~89% | Full Mermaid surface: tag-list status flags (`done` / `active` / `crit` / `milestone` combinable), `after id1 id2 ...` and `until id1 id2 ...` dependencies (forward + backward), full duration unit set (ms / s / m / h / d / w / M / y) with decimals, complete Moment.js `dateFormat` token set, d3-strftime `axisFormat`, calendar-aware `tickInterval`, `weekday` / `excludes` / `includes` / `todayMarker` directives, milestone diamond glyphs, crit stroke emphasis, today-marker rule, `vert` marker lines, `accTitle` / `accDescr`, click / href / call events with SVG `<a>` wrap |
 | ⏳ | 24. Mindmap | — |
 | ⏳ | 25+. Remaining types (GitGraph, Timeline, Sankey, XY, C4, Quadrant, Kanban, Block) | — |
 
