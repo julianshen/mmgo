@@ -1,0 +1,27 @@
+erDiagram
+    title: Order schema
+    accDescr: Customer places orders consisting of line items
+
+    classDef important fill:#ffe066,stroke:#f59f00
+    classDef faded fill:#f1f3f5,stroke:#adb5bd
+
+    CUSTOMER:::important {
+        int id PK
+        string name
+        string email UK
+    }
+    ORDER {
+        int *id
+        int customer_id PK, FK
+        string status
+    }
+    LINE_ITEM:::faded {
+        int order_id FK
+        int sku PK
+        int qty
+    }
+
+    CUSTOMER ||--o{ ORDER : places
+    ORDER ||--|{ LINE_ITEM : contains
+
+    style ORDER fill:#a5d8ff

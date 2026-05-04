@@ -542,20 +542,14 @@ func parseClassHeader(rest string) (classHeader, bool, error) {
 		rest = strings.TrimSpace(rest[:i])
 		hasBody = true
 	}
-	// `:::cssClass` shorthand attaches a named CSS class. The marker
-	// is always at the very end of the header (after any annotation /
-	// label / generic) so we strip it before the rest of the parsing.
-	// Mermaid only allows a single class name here; chained
-	// `class Foo:::a:::b` is rejected so the second name doesn't get
-	// silently absorbed into the ID.
-	var cssClass string
-	if i := strings.Index(rest, ":::"); i >= 0 {
-		cssClass = strings.TrimSpace(rest[i+3:])
-		rest = strings.TrimSpace(rest[:i])
-		if strings.Contains(cssClass, ":::") {
-			return classHeader{}, false, fmt.Errorf("class header: only one `:::` cssClass shorthand is allowed, got %q", cssClass)
-		}
+	// `:::cssClass` shorthand attaches a named CSS class. Stripped
+	// before the rest of header parsing so the class name doesn't
+	// confuse the label/generic/annotation matchers.
+	id, cssClass, ok := parserutil.ExtractCSSClassShorthand(rest)
+	if !ok {
+		return classHeader{}, false, fmt.Errorf("class header: only one `:::` cssClass shorthand is allowed")
 	}
+	rest = id
 	// Inline annotation: `class Foo <<Interface>>`. Strip before
 	// label/generic so the brackets/tildes don't trip on `<<` chars.
 	var annotation diagram.ClassAnnotation

@@ -172,6 +172,319 @@ func TestParseAttributeQuotedComment(t *testing.T) {
 	}
 }
 
+func TestParseTitleAndAccessibility(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    title: Order schema
+    accTitle: ER schema for orders
+    accDescr: Customers, orders, line items
+    CUSTOMER ||--o{ ORDER : places`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Title != "Order schema" {
+		t.Errorf("Title = %q", d.Title)
+	}
+	if d.AccTitle != "ER schema for orders" {
+		t.Errorf("AccTitle = %q", d.AccTitle)
+	}
+	if d.AccDescr != "Customers, orders, line items" {
+		t.Errorf("AccDescr = %q", d.AccDescr)
+	}
+}
+
+func TestParseClassDefAndStyle(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    classDef important fill:#f96,stroke:#333
+    CUSTOMER {
+        int id PK
+    }
+    style CUSTOMER fill:#abc`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := d.CSSClasses["important"]; got != "fill:#f96;stroke:#333" {
+		t.Errorf("classDef = %q", got)
+	}
+	if len(d.Styles) != 1 || d.Styles[0].EntityID != "CUSTOMER" || d.Styles[0].CSS != "fill:#abc" {
+		t.Errorf("Styles = %+v", d.Styles)
+	}
+}
+
+func TestParseCSSClassBinding(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    classDef hot fill:#f00
+    CUSTOMER
+    ORDER
+    class CUSTOMER,ORDER hot`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, name := range []string{"CUSTOMER", "ORDER"} {
+		var found *diagram.EREntity
+		for i := range d.Entities {
+			if d.Entities[i].Name == name {
+				found = &d.Entities[i]
+			}
+		}
+		if found == nil {
+			t.Fatalf("%s missing", name)
+		}
+		if len(found.CSSClasses) != 1 || found.CSSClasses[0] != "hot" {
+			t.Errorf("%s.CSSClasses = %v", name, found.CSSClasses)
+		}
+	}
+}
+
+func TestParseCSSClassBindingUndefinedEntityError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    classDef hot fill:#f00
+    class GHOST hot`))
+	if err == nil {
+		t.Error("expected error for class binding to undeclared entity")
+	}
+}
+
+// `:::` shorthand on a bare entity name OR before a relationship's
+// arrow attaches a CSS class to that entity.
+func TestParseCSSClassShorthand(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    classDef hot fill:#f00
+    CUSTOMER:::hot ||--o{ ORDER : places`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var customer *diagram.EREntity
+	for i := range d.Entities {
+		if d.Entities[i].Name == "CUSTOMER" {
+			customer = &d.Entities[i]
+		}
+	}
+	if customer == nil {
+		t.Fatal("CUSTOMER missing")
+	}
+	if len(customer.CSSClasses) != 1 || customer.CSSClasses[0] != "hot" {
+		t.Errorf("CSSClasses = %v", customer.CSSClasses)
+	}
+}
+
+func TestParseClickHref(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    CUSTOMER
+    click CUSTOMER href "https://example.com" "Open"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Clicks) != 1 {
+		t.Fatalf("want 1 click, got %d", len(d.Clicks))
+	}
+	c := d.Clicks[0]
+	if c.EntityID != "CUSTOMER" || c.URL != "https://example.com" || c.Tooltip != "Open" {
+		t.Errorf("click = %+v", c)
+	}
+}
+
+func TestParseLinkAndCallback(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    A
+    B
+    link A "https://example.com" "tip"
+    callback B "openDetails"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Clicks) != 2 {
+		t.Fatalf("want 2 clicks, got %d", len(d.Clicks))
+	}
+	if d.Clicks[0].URL != "https://example.com" || d.Clicks[1].Callback != "openDetails" {
+		t.Errorf("clicks = %+v", d.Clicks)
+	}
+}
+
+func TestParseClickUndeclaredEntityError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    click GHOST href "https://example.com"`))
+	if err == nil {
+		t.Error("expected error for click on undeclared entity")
+	}
+}
+
+// Empty arguments after `call` / `href` and on `link` / `callback`
+// must error rather than silently storing empty values.
+func TestParseClickEmptyArgumentsError(t *testing.T) {
+	for _, src := range []string{
+		`erDiagram
+    CUSTOMER
+    click CUSTOMER call`,
+		`erDiagram
+    CUSTOMER
+    click CUSTOMER href`,
+		`erDiagram
+    CUSTOMER
+    callback CUSTOMER`,
+		`erDiagram
+    CUSTOMER
+    link CUSTOMER`,
+	} {
+		t.Run(strings.SplitN(src, "\n", 3)[2], func(t *testing.T) {
+			_, err := Parse(strings.NewReader(src))
+			if err == nil {
+				t.Errorf("expected error for empty click arguments")
+			}
+		})
+	}
+}
+
+// Unterminated `"` in click args must surface as an error.
+func TestParseClickUnterminatedQuoteError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    CUSTOMER
+    click CUSTOMER href "https://example.com`))
+	if err == nil {
+		t.Error("expected error for unterminated quote")
+	}
+}
+
+// Bare `click ID "url"` (no `href` subkeyword) parses as href form.
+func TestParseClickBareURL(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    CUSTOMER
+    click CUSTOMER "https://example.com" "tip"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := d.Clicks[0]
+	if c.URL != "https://example.com" || c.Tooltip != "tip" {
+		t.Errorf("click = %+v", c)
+	}
+}
+
+// All three positional URL args populate the ClickDef.
+func TestParseClickHrefAllArgs(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    CUSTOMER
+    click CUSTOMER href "https://example.com" "Open" "_blank"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := d.Clicks[0]
+	if c.URL != "https://example.com" || c.Tooltip != "Open" || c.Target != "_blank" {
+		t.Errorf("click = %+v", c)
+	}
+}
+
+// `link` 3-arg target.
+func TestParseLinkAliasWithTarget(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    A
+    link A "https://example.com" "tip" "_self"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Clicks[0].Target != "_self" {
+		t.Errorf("Target = %q", d.Clicks[0].Target)
+	}
+}
+
+// `callback Foo "func" "tooltip"` populates Tooltip alongside Callback.
+func TestParseCallbackWithTooltip(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    A
+    callback A "openDetails" "Click for more"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := d.Clicks[0]
+	if c.Callback != "openDetails" || c.Tooltip != "Click for more" {
+		t.Errorf("click = %+v", c)
+	}
+}
+
+// classDef without CSS body errors.
+func TestParseClassDefMissingCSSError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    classDef onlyname`))
+	if err == nil {
+		t.Error("expected error for classDef without CSS body")
+	}
+}
+
+// `style ID` without CSS body errors.
+func TestParseStyleMissingCSSError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    A
+    style A`))
+	if err == nil {
+		t.Error("expected error for style without CSS body")
+	}
+}
+
+// `class IDs` without a class name errors.
+func TestParseClassBindingMissingNameError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    A
+    class A`))
+	if err == nil {
+		t.Error("expected error for class binding without class name")
+	}
+}
+
+// Direction WAT errors.
+func TestParseDirectionInvalidValueError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    direction WAT`))
+	if err == nil {
+		t.Error("expected error for unknown direction")
+	}
+}
+
+// Chained `:::` shorthand on an entity reference must error,
+// matching the class diagram's behavior.
+func TestParseChainedCSSShorthandError(t *testing.T) {
+	for _, src := range []string{
+		`erDiagram
+    classDef a fill:#f00
+    classDef b fill:#0f0
+    CUSTOMER:::a:::b`,
+		`erDiagram
+    classDef a fill:#f00
+    classDef b fill:#0f0
+    CUSTOMER:::a:::b ||--|| ORDER`,
+	} {
+		_, err := Parse(strings.NewReader(src))
+		if err == nil {
+			t.Errorf("expected error for chained `:::`")
+		}
+	}
+}
+
+// A relationship's left or right side that's *only* a `:::class`
+// reference (no entity name) must error, not silently register an
+// entity with empty name.
+func TestParseRelationshipEmptyEntityNameError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    :::hot ||--o{ ORDER`))
+	if err == nil {
+		t.Error("expected error for relationship with empty entity id")
+	}
+}
+
+// Add a direct test for parserutil.ExtractCSSClassShorthand to
+// pin its contract.
+
+// A bare entity name on its own line (without an entity body or
+// relationship) is a valid Mermaid declaration.
+func TestParseBareEntityName(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    CUSTOMER
+    ORDER`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Entities) != 2 {
+		t.Errorf("want 2 entities, got %d", len(d.Entities))
+	}
+}
+
 func TestParseHeaderRequired(t *testing.T) {
 	_, err := Parse(strings.NewReader("CUSTOMER ||--o{ ORDER : places"))
 	if err == nil {
