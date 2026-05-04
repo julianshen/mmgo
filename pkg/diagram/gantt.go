@@ -2,34 +2,80 @@ package diagram
 
 import "time"
 
+// TaskStatus is a bitmask. A single task can carry multiple status
+// flags (Mermaid permits combinations such as `crit, active` or
+// `crit, milestone`). The renderer maps the combined value to a
+// fill via Theme.taskColor, which uses a fixed priority order
+// (Crit > Active > Done > None) when more than one bit is set.
 type TaskStatus int8
 
 const (
-	TaskStatusNone   TaskStatus = iota
-	TaskStatusDone
-	TaskStatusActive
-	TaskStatusCrit
+	TaskStatusNone      TaskStatus = 0
+	TaskStatusDone      TaskStatus = 1 << 0
+	TaskStatusActive    TaskStatus = 1 << 1
+	TaskStatusCrit      TaskStatus = 1 << 2
+	TaskStatusMilestone TaskStatus = 1 << 3
 )
 
-var taskStatusNames = []string{"none", "done", "active", "crit"}
+// Has reports whether every bit in flag is set on s. Returns true
+// for TaskStatusNone since 0&0 == 0.
+func (s TaskStatus) Has(flag TaskStatus) bool { return s&flag == flag }
 
-func (s TaskStatus) String() string { return enumString(s, taskStatusNames) }
-
-type GanttTask struct {
-	ID       string
-	Name     string
-	Status   TaskStatus
-	Start    time.Time
-	End      time.Time
-	After    string
-	Section  string
+// String renders set flags as `crit|active|done|milestone` (in
+// declaration order) for diagnostics. None → "none".
+func (s TaskStatus) String() string {
+	if s == TaskStatusNone {
+		return "none"
+	}
+	var parts []string
+	if s.Has(TaskStatusDone) {
+		parts = append(parts, "done")
+	}
+	if s.Has(TaskStatusActive) {
+		parts = append(parts, "active")
+	}
+	if s.Has(TaskStatusCrit) {
+		parts = append(parts, "crit")
+	}
+	if s.Has(TaskStatusMilestone) {
+		parts = append(parts, "milestone")
+	}
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += "|"
+		}
+		out += p
+	}
+	return out
 }
 
+type GanttTask struct {
+	ID      string
+	Name    string
+	Status  TaskStatus
+	Start   time.Time
+	End     time.Time
+	After   []string
+	Until   []string
+	Section string
+}
+
+// GanttDiagram is the parsed representation of a Mermaid Gantt
+// chart. Calendar / axis directives are surfaced as raw strings;
+// the renderer converts them into Go layout strings or interval
+// definitions at render time.
 type GanttDiagram struct {
-	Title      string
-	DateFormat string
-	Sections   []string
-	Tasks      []GanttTask
+	Title        string
+	DateFormat   string
+	AxisFormat   string
+	TickInterval string
+	Weekday      string
+	Excludes     []string
+	Includes     []string
+	TodayMarker  string
+	Sections     []string
+	Tasks        []GanttTask
 }
 
 func (*GanttDiagram) Type() DiagramType { return Gantt }

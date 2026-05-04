@@ -42,11 +42,23 @@ func DefaultTheme() Theme {
 	}
 }
 
-// taskColor returns the fill color for s, falling back to the
-// TaskStatusNone entry when s is missing from the map.
+// taskColor maps a (possibly multi-flag) status bitmask to a fill
+// color using a fixed priority order: Crit > Active > Done > None.
+// Milestone is rendered as its own glyph by the renderer rather
+// than via fill, so it doesn't enter the priority lookup here.
+// Missing or empty entries fall back to the TaskStatusNone color.
 func (t Theme) taskColor(s diagram.TaskStatus) string {
-	if c, ok := t.TaskColors[s]; ok && c != "" {
-		return c
+	for _, flag := range []diagram.TaskStatus{
+		diagram.TaskStatusCrit,
+		diagram.TaskStatusActive,
+		diagram.TaskStatusDone,
+	} {
+		if !s.Has(flag) {
+			continue
+		}
+		if c, ok := t.TaskColors[flag]; ok && c != "" {
+			return c
+		}
 	}
 	return t.TaskColors[diagram.TaskStatusNone]
 }

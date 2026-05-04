@@ -103,8 +103,8 @@ func TestParseTaskAfter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if d.Tasks[1].After != "a1" {
-		t.Errorf("after = %q", d.Tasks[1].After)
+	if len(d.Tasks[1].After) != 1 || d.Tasks[1].After[0] != "a1" {
+		t.Errorf("after = %v", d.Tasks[1].After)
 	}
 	wantStart := time.Date(2024, 1, 11, 0, 0, 0, 0, time.UTC)
 	if !d.Tasks[1].Start.Equal(wantStart) {
@@ -158,9 +158,12 @@ func TestParseWeekDuration(t *testing.T) {
 	}
 }
 
-func TestParseIgnoresExcludes(t *testing.T) {
+// `excludes weekends` and friends now record the value on the AST
+// (PR1 promoted them out of no-op territory).
+func TestParseExcludesRecorded(t *testing.T) {
 	input := `gantt
     excludes weekends
+    excludes 2024-01-01, 2024-12-25
     title X`
 	d, err := Parse(strings.NewReader(input))
 	if err != nil {
@@ -168,5 +171,149 @@ func TestParseIgnoresExcludes(t *testing.T) {
 	}
 	if d.Title != "X" {
 		t.Errorf("title = %q", d.Title)
+	}
+	want := []string{"weekends", "2024-01-01", "2024-12-25"}
+	if len(d.Excludes) != 3 {
+		t.Fatalf("excludes = %v", d.Excludes)
+	}
+	for i, w := range want {
+		if d.Excludes[i] != w {
+			t.Errorf("excludes[%d] = %q, want %q", i, d.Excludes[i], w)
+		}
+	}
+}
+
+// A task may carry multiple status flags simultaneously
+// (`crit, active`, `crit, milestone`, etc.).
+func TestParseTaskTagList(t *testing.T) {
+	input := `gantt
+    dateFormat YYYY-MM-DD
+    Hot fix :crit, active, hf, 2024-01-01, 2d
+    Launch :milestone, ms, 2024-01-10, 0d`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !d.Tasks[0].Status.Has(diagram.TaskStatusCrit) ||
+		!d.Tasks[0].Status.Has(diagram.TaskStatusActive) {
+		t.Errorf("hot fix status = %v", d.Tasks[0].Status)
+	}
+	if d.Tasks[0].ID != "hf" {
+		t.Errorf("hot fix id = %q", d.Tasks[0].ID)
+	}
+	if !d.Tasks[1].Status.Has(diagram.TaskStatusMilestone) {
+		t.Errorf("launch status = %v", d.Tasks[1].Status)
+	}
+}
+
+// `after` accepts a space-separated list; the start date becomes
+// the latest end among the named predecessors.
+func TestParseTaskAfterMultiple(t *testing.T) {
+	input := `gantt
+    dateFormat YYYY-MM-DD
+    A :a1, 2024-01-01, 3d
+    B :b1, 2024-01-05, 2d
+    C : after a1 b1, 1d`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := d.Tasks[2].After; len(got) != 2 || got[0] != "a1" || got[1] != "b1" {
+		t.Errorf("after = %v", got)
+	}
+	wantStart := time.Date(2024, 1, 7, 0, 0, 0, 0, time.UTC) // b1's end
+	if !d.Tasks[2].Start.Equal(wantStart) {
+		t.Errorf("start = %v, want %v", d.Tasks[2].Start, wantStart)
+	}
+}
+
+// `until id1 id2 ...` ends the task at the earliest start of the
+// named successors.
+func TestParseTaskUntil(t *testing.T) {
+	input := `gantt
+    dateFormat YYYY-MM-DD
+    Pre :pre, 2024-01-01, until launch
+    Launch :launch, 2024-01-10, 1d`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Tasks[0].Until) != 1 || d.Tasks[0].Until[0] != "launch" {
+		t.Errorf("until = %v", d.Tasks[0].Until)
+	}
+	wantEnd := time.Date(2024, 1, 10, 0, 0, 0, 0, time.UTC)
+	if !d.Tasks[0].End.Equal(wantEnd) {
+		t.Errorf("pre end = %v, want %v", d.Tasks[0].End, wantEnd)
+	}
+}
+
+// Expanded duration units: ms, s, m, h, d, w, M, y; decimals OK.
+func TestParseDurationUnits(t *testing.T) {
+	cases := map[string]time.Duration{
+		"500ms": 500 * time.Millisecond,
+		"30s":   30 * time.Second,
+		"5m":    5 * time.Minute,
+		"2h":    2 * time.Hour,
+		"1.5d":  36 * time.Hour,
+		"2w":    14 * 24 * time.Hour,
+		"1M":    30 * 24 * time.Hour,
+		"1y":    365 * 24 * time.Hour,
+	}
+	for in, want := range cases {
+		got, ok := parseDuration(in)
+		if !ok {
+			t.Errorf("%s: not parsed", in)
+			continue
+		}
+		if got != want {
+			t.Errorf("%s: got %v, want %v", in, got, want)
+		}
+	}
+}
+
+// Axis-side directives now reach the AST instead of being silently
+// dropped, so renderers can honour them.
+func TestParseAxisDirectives(t *testing.T) {
+	input := `gantt
+    dateFormat YYYY-MM-DD
+    axisFormat %Y/%m/%d
+    tickInterval 1week
+    weekday monday
+    todayMarker stroke-width:3px
+    includes 2024-01-06`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.AxisFormat != "%Y/%m/%d" {
+		t.Errorf("axisFormat = %q", d.AxisFormat)
+	}
+	if d.TickInterval != "1week" {
+		t.Errorf("tickInterval = %q", d.TickInterval)
+	}
+	if d.Weekday != "monday" {
+		t.Errorf("weekday = %q", d.Weekday)
+	}
+	if d.TodayMarker != "stroke-width:3px" {
+		t.Errorf("todayMarker = %q", d.TodayMarker)
+	}
+	if len(d.Includes) != 1 || d.Includes[0] != "2024-01-06" {
+		t.Errorf("includes = %v", d.Includes)
+	}
+}
+
+// mermaidToGoFormat covers the broader Moment.js token set.
+func TestMermaidToGoFormatExtended(t *testing.T) {
+	cases := map[string]string{
+		"YYYY-MM-DD HH:mm:ss": "2006-01-02 15:04:05",
+		"D MMM YYYY":          "2 Jan 2006",
+		"DD MMMM YY":          "02 January 06",
+		"hh:mm A":             "03:04 PM",
+		"HH:mm:ss.SSS":        "15:04:05.000",
+	}
+	for in, want := range cases {
+		if got := mermaidToGoFormat(in); got != want {
+			t.Errorf("%s → %s, want %s", in, got, want)
+		}
 	}
 }
