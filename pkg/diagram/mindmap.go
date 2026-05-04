@@ -26,7 +26,9 @@ type MindmapNode struct {
 }
 
 type MindmapDiagram struct {
-	Root *MindmapNode
+	Root     *MindmapNode
+	AccTitle string
+	AccDescr string
 }
 
 func (*MindmapDiagram) Type() DiagramType { return Mindmap }

@@ -17,6 +17,7 @@ var shapePatterns = []struct {
 	{"((", "))", diagram.MindmapShapeCircle},
 	{"{{", "}}", diagram.MindmapShapeHexagon},
 	{"))", "((", diagram.MindmapShapeBang},
+	{"!", "!", diagram.MindmapShapeBang}, // historical bang form
 	{"(-", "-)", diagram.MindmapShapeCloud},
 	{"(", ")", diagram.MindmapShapeRound},
 	{"[", "]", diagram.MindmapShapeSquare},
@@ -58,6 +59,15 @@ func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 			continue
 		}
 
+		if v, ok := parserutil.MatchKeywordValue(trimmed, "accTitle"); ok {
+			d.AccTitle = v
+			continue
+		}
+		if v, ok := parserutil.MatchKeywordValue(trimmed, "accDescr"); ok {
+			d.AccDescr = v
+			continue
+		}
+
 		if strings.HasPrefix(trimmed, iconPrefix) {
 			if lastNode != nil {
 				icon := parseIconDecoration(trimmed)
@@ -79,6 +89,10 @@ func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 
 		indent := parserutil.IndentWidth(raw)
 		id, text, shape := parseNodeContent(trimmed)
+		text = expandLabel(text)
+		if id == text {
+			id = text
+		}
 		node := &diagram.MindmapNode{ID: id, Text: text, Shape: shape}
 		lastNode = node
 
@@ -88,6 +102,12 @@ func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 			continue
 		}
 
+		// A second top-level (indent <= the root's indent) line is a
+		// second root. Mermaid mindmaps can have only one root; flag
+		// the violation rather than silently dropping the node.
+		if indent <= stack[0].level {
+			return nil, fmt.Errorf("line %d: mindmap supports a single root; %q would create a second one", lineNum, trimmed)
+		}
 		for len(stack) > 1 && stack[len(stack)-1].level >= indent {
 			stack = stack[:len(stack)-1]
 		}
@@ -104,6 +124,20 @@ func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 	return d, nil
 }
 
+// expandLabel applies the spec-mandated label transforms: a label
+// wrapped in matching backticks (`` `**bold**` ``) has the
+// backticks stripped (the contents already render as markdown via
+// the renderer's tspan emitter), and the literal two-character
+// `\n` sequence becomes a real newline so multi-line labels work.
+// Plain labels pass through unchanged.
+func expandLabel(s string) string {
+	s = parserutil.ExpandLineBreaks(s)
+	if len(s) >= 2 && s[0] == '`' && s[len(s)-1] == '`' {
+		s = s[1 : len(s)-1]
+	}
+	return s
+}
+
 func parseIconDecoration(s string) string {
 	inner := s[len(iconPrefix):]
 	closeIdx := strings.Index(inner, ")")
@@ -114,7 +148,10 @@ func parseIconDecoration(s string) string {
 }
 
 func parseNodeContent(s string) (id, text string, shape diagram.MindmapNodeShape) {
-	delimChars := "([){"
+	// `!` enables the historical bang form `!text!`; the canonical
+	// `))text((` form is also routed via this scan because it
+	// starts with `)`.
+	delimChars := "([){!"
 	firstDelim := -1
 	for i, ch := range s {
 		if strings.ContainsRune(delimChars, ch) {
