@@ -13,6 +13,7 @@ type Theme struct {
 	AxisStroke     string
 	AxisLabel      string
 	GridStroke     string
+	CritStroke     string   // outline drawn on top of crit bars
 	SectionBands   []string // alternating row tints; len==0 disables banding
 	InsideBarText  string
 	OutsideBarText string
@@ -35,6 +36,7 @@ func DefaultTheme() Theme {
 		AxisStroke:     "#999",
 		AxisLabel:      "#333",
 		GridStroke:     "#d0d0d0",
+		CritStroke:     "#9c2724",
 		SectionBands:   []string{"#eaeaff", "#ffffff", "#fffbe6"},
 		InsideBarText:  "white",
 		OutsideBarText: "#333",
@@ -90,6 +92,9 @@ func resolveTheme(opts *Options) Theme {
 	}
 	if opts.Theme.GridStroke != "" {
 		th.GridStroke = opts.Theme.GridStroke
+	}
+	if opts.Theme.CritStroke != "" {
+		th.CritStroke = opts.Theme.CritStroke
 	}
 	if len(opts.Theme.SectionBands) > 0 {
 		th.SectionBands = opts.Theme.SectionBands
