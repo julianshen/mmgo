@@ -4,7 +4,7 @@ Dashboard view of progress against [implementation-plan.md](implementation-plan.
 Updated at each step boundary and committed to git, so any client can read
 current state without relying on chat history.
 
-**Last updated:** 2026-04-17 (post Step 22 merge)
+**Last updated:** 2026-05-05 (post ER parity work — PRs #153–#155)
 
 ## Overall
 
@@ -69,7 +69,7 @@ current state without relying on chat history.
 |--------|------|----|----|---|
 | ✅ | 20. Class diagram | #35, #36, #139–#145 | ~95% / ~95% | Full Mermaid surface: reverse / two-way arrows, `direction`, generics `~T~`, custom labels `["…"]`, static `$` / abstract `*` modifiers, single-line members, inline + bare-line annotations, notes, classDef / style / cssClass / `:::`, accTitle / accDescr / title, lollipop interfaces `()--`, click / link / callback events with SVG `<a>` wrap, `namespace { … }` blocks |
 | ✅ | 21. State diagram | #38, #39, #148–#151 | ~95% / ~95% | Full Mermaid surface: `id : description` shorthand, `direction` keyword, multi-line transition labels, notes (`note left/right of`, `end note` block), classDef / style / cssClass / `:::` styling, accTitle / accDescr / title, click / link / callback events with SVG `<a>` wrap, concurrent regions (`--` separator), composite-state bounding boxes |
-| ✅ | 22. ER diagram | #40 | 91.2% / 88.2% | Entity attributes with PK/FK/UK, 15 cardinality arrows, dagre renderer |
+| ✅ | 22. ER diagram | #40, #153–#155 | ~95% / ~95% | Full Mermaid surface: entity attributes with PK/FK/UK + multi-key (`PK, FK`) and `*name` markers, full cardinality matrix (4×4×2), `direction` keyword, quoted attribute comments, title / accTitle / accDescr, classDef / style / cssClass / `:::` shorthand, click / link / callback events with SVG `<a>` wrap, aliased entity names (`EntityID["Display Label"]`) |
 | ⏳ | 23. Gantt chart | — | | |
 | ⏳ | 24. Mindmap | — |
 | ⏳ | 25+. Remaining types (GitGraph, Timeline, Sankey, XY, C4, Quadrant, Kanban, Block) | — |
