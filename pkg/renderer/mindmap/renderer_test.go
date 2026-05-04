@@ -358,3 +358,52 @@ func TestRenderAccessibilityFields(t *testing.T) {
 		t.Errorf("expected <desc>Top-level concepts</desc> in:\n%s", raw)
 	}
 }
+
+// Multi-line labels emit one <text> element per line, stacked
+// vertically inside the node, and the node's bounding height
+// expands to accommodate every line.
+func TestRenderMultiLineLabel(t *testing.T) {
+	d := &diagram.MindmapDiagram{
+		Root: &diagram.MindmapNode{
+			Text: "Line one\nLine two\nLine three",
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{">Line one<", ">Line two<", ">Line three<"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected %q in:\n%s", want, raw)
+		}
+	}
+	// Three lines must produce three <text> elements with the
+	// same class context — count occurrences of `>Line ` to
+	// confirm none collapsed into a single element.
+	if got := strings.Count(raw, ">Line "); got != 3 {
+		t.Errorf("expected 3 line emissions, got %d", got)
+	}
+}
+
+// An icon decoration on a node renders as a muted italic caption
+// inside the node, rather than being silently dropped.
+func TestRenderIconCaption(t *testing.T) {
+	d := &diagram.MindmapDiagram{
+		Root: &diagram.MindmapNode{
+			Text: "Library",
+			Icon: "fa fa-book",
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">fa fa-book<") {
+		t.Errorf("expected icon class string emitted in:\n%s", raw)
+	}
+	if !strings.Contains(raw, "font-style:italic") {
+		t.Errorf("expected italic styling on icon caption")
+	}
+}

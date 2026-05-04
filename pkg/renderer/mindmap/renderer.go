@@ -20,6 +20,7 @@ const (
 	minNodeH        = 35.0
 	levelSpacing    = 120.0
 	boldWidthFactor = 1.1
+	iconRowH        = 14.0
 )
 
 type Options struct {
@@ -29,15 +30,21 @@ type Options struct {
 }
 
 type layoutNode struct {
-	node      *diagram.MindmapNode
-	x, y      float64
-	width     float64
-	height    float64
-	depth     int
-	section   int
-	leafCount int
-	segments  []textSegment
-	children  []*layoutNode
+	node       *diagram.MindmapNode
+	x, y       float64
+	width      float64
+	height     float64
+	depth      int
+	section    int
+	leafCount  int
+	// segments holds every line's parsed markdown segments in
+	// document order. lineHeights holds the per-line vertical
+	// extent so the renderer can stack multi-line labels without
+	// re-measuring. For single-line labels both have length 1
+	// and the existing single-tspan fast path still applies.
+	segments    [][]textSegment
+	lineHeights []float64
+	children    []*layoutNode
 }
 
 type svgText struct {
@@ -140,36 +147,58 @@ func buildTree(n *diagram.MindmapNode, ruler *textmeasure.Ruler, fontSize float6
 		return nil
 	}
 	visited[n] = true
-	segments := parseMarkdown(n.Text)
-	plainText := stripMarkdownFromSegments(segments)
-	tw, textH := ruler.Measure(plainText, fontSize)
-
-	hasBold := false
-	for _, seg := range segments {
-		if seg.bold {
-			hasBold = true
-			break
+	// Split on real newlines (the parser converted `\n` → '\n' for
+	// us) and parse each line's markdown independently so a label
+	// like "**Bold** title\nSubtitle" gets two stacked text rows.
+	lines := strings.Split(n.Text, "\n")
+	segments := make([][]textSegment, len(lines))
+	lineHeights := make([]float64, len(lines))
+	maxLineW := 0.0
+	totalH := 0.0
+	for i, line := range lines {
+		segs := parseMarkdown(line)
+		segments[i] = segs
+		plain := stripMarkdownFromSegments(segs)
+		tw, lh := ruler.Measure(plain, fontSize)
+		hasBold := false
+		for _, seg := range segs {
+			if seg.bold {
+				hasBold = true
+				break
+			}
 		}
-	}
-	if hasBold {
-		tw = tw * boldWidthFactor
+		if hasBold {
+			tw = tw * boldWidthFactor
+		}
+		if tw > maxLineW {
+			maxLineW = tw
+		}
+		lineHeights[i] = lh
+		totalH += lh
 	}
 
-	w := tw + 2*nodePadX
-	h := textH + 2*nodePadY
+	w := maxLineW + 2*nodePadX
+	h := totalH + 2*nodePadY
 	if w < minNodeW {
 		w = minNodeW
 	}
 	if h < minNodeH {
 		h = minNodeH
 	}
+	// Reserve a small slot at the top of the node for the icon
+	// caption when one is present. Phase B renders the icon as a
+	// muted text glyph; Phase C may promote to a real font glyph.
+	if n.Icon != "" {
+		h += iconRowH
+	}
 
 	ln := &layoutNode{
-		node:     n,
-		width:    w,
-		height:   h,
-		depth:    depth,
-		segments: segments,
+		node:        n,
+		width:       w,
+		height:      h,
+		depth:       depth,
+		segments:    segments,
+		lineHeights: lineHeights,
 	}
 	leafCount := 0
 	for _, child := range n.Children {
@@ -391,41 +420,66 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 	}
 
 	textStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", textCol, fontSize)
-	// Fast path: when the whole label is a single plain segment
-	// (no bold/italic), emit plain chardata instead of a <tspan>.
-	// The tdewolff/canvas PNG rasterizer doesn't render text whose
-	// content sits inside <tspan> children, so wrapping plain labels
-	// in tspan silently drops every mindmap label from the PNG.
-	if len(n.segments) == 1 && !n.segments[0].bold && !n.segments[0].italic {
-		children = append(children, &text{
-			X:        0,
-			Y:        0,
-			Anchor:   "middle",
-			Dominant: "central",
-			Style:    textStyle,
-			Content:  n.segments[0].text,
-		})
-		return children
-	}
-	var tspans []any
-	for _, seg := range n.segments {
-		segStyle := textStyle
-		if seg.bold {
-			segStyle += ";font-weight:bold"
-		}
-		if seg.italic {
-			segStyle += ";font-style:italic"
-		}
-		tspans = append(tspans, &svgTspan{Style: segStyle, Content: seg.text})
-	}
-	children = append(children, &svgText{
-		X:        0,
-		Y:        0,
-		Anchor:   "middle",
-		Dominant: "central",
-		Style:    textStyle,
-		Children: tspans,
-	})
 
+	// Optional icon caption sits above the label rows. Until the
+	// project ships a Font Awesome / Material Design glyph table,
+	// the renderer prints the raw class string in a muted italic
+	// at the top of the node. This at least surfaces what was
+	// declared rather than silently dropping the icon.
+	textTopOffset := 0.0
+	if n.node.Icon != "" {
+		iconStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx;font-style:italic;opacity:0.7", textCol, fontSize-2)
+		children = append(children, &text{
+			X: 0, Y: svgutil.Float(-h/2 + iconRowH/2 + 2),
+			Anchor: "middle", Dominant: "central",
+			Style:   iconStyle,
+			Content: n.node.Icon,
+		})
+		textTopOffset = iconRowH / 2
+	}
+
+	// Center the stacked label rows in the available space below
+	// any icon caption. lineCenters holds each row's y coordinate
+	// using the node's center as the origin.
+	totalH := 0.0
+	for _, lh := range n.lineHeights {
+		totalH += lh
+	}
+	startY := textTopOffset - totalH/2
+	for i, segs := range n.segments {
+		lh := n.lineHeights[i]
+		ly := startY + lh/2
+		// Fast path: a single plain segment on this line gets
+		// chardata so the tdewolff/canvas PNG rasterizer (which
+		// drops text whose content lives in <tspan> children)
+		// still draws the label.
+		if len(segs) == 1 && !segs[0].bold && !segs[0].italic {
+			children = append(children, &text{
+				X: 0, Y: svgutil.Float(ly),
+				Anchor: "middle", Dominant: "central",
+				Style:   textStyle,
+				Content: segs[0].text,
+			})
+		} else {
+			var tspans []any
+			for _, seg := range segs {
+				segStyle := textStyle
+				if seg.bold {
+					segStyle += ";font-weight:bold"
+				}
+				if seg.italic {
+					segStyle += ";font-style:italic"
+				}
+				tspans = append(tspans, &svgTspan{Style: segStyle, Content: seg.text})
+			}
+			children = append(children, &svgText{
+				X: 0, Y: svgutil.Float(ly),
+				Anchor: "middle", Dominant: "central",
+				Style:    textStyle,
+				Children: tspans,
+			})
+		}
+		startY += lh
+	}
 	return children
 }
