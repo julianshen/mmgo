@@ -90,9 +90,6 @@ func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 		indent := parserutil.IndentWidth(raw)
 		id, text, shape := parseNodeContent(trimmed)
 		text = expandLabel(text)
-		if id == text {
-			id = text
-		}
 		node := &diagram.MindmapNode{ID: id, Text: text, Shape: shape}
 		lastNode = node
 
