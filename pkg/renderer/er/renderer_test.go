@@ -264,6 +264,27 @@ func TestRenderDirection(t *testing.T) {
 	}
 }
 
+// Aliased entity renders Label in the title cell while keeping
+// Name as the relationship-reference identity.
+func TestRenderEntityAlias(t *testing.T) {
+	d := &diagram.ERDiagram{
+		Entities: []diagram.EREntity{
+			{Name: "CUSTOMER", Label: "Customer Profile"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">Customer Profile<") {
+		t.Errorf("alias label missing")
+	}
+	if strings.Contains(raw, ">CUSTOMER<") {
+		t.Errorf("bare name should not appear when Label is set")
+	}
+}
+
 func TestRenderAccessibilityMetadata(t *testing.T) {
 	d := &diagram.ERDiagram{
 		Title:    "general",

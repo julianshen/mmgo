@@ -111,8 +111,17 @@ func startMarkerGroup(c diagram.ERCardinality, start, next layout.Point) *group 
 	return svgutil.InlineMarkerAt(start.X, start.Y, next.X, next.Y, refX, refY, children)
 }
 
+// entityTitle is the text that appears in the entity's header row.
+// Falls back to Name when Label is empty.
+func entityTitle(e diagram.EREntity) string {
+	if e.Label != "" {
+		return e.Label
+	}
+	return e.Name
+}
+
 func entitySize(e diagram.EREntity, ruler *textmeasure.Ruler, fontSize float64) (w, h float64) {
-	tw, _ := ruler.Measure(e.Name, fontSize)
+	tw, _ := ruler.Measure(entityTitle(e), fontSize)
 	w = tw + 2*entityPadX
 	h = headerH
 	if len(e.Attributes) > 0 {
@@ -201,7 +210,7 @@ func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float6
 			X: svgFloat(cx), Y: svgFloat(y + headerH/2),
 			Anchor: "middle", Dominant: "central",
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.EntityText, fontSize),
-			Content: e.Name,
+			Content: entityTitle(e),
 		})
 
 		if len(e.Attributes) > 0 {

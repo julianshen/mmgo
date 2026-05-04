@@ -101,12 +101,26 @@ func (p *parser) parseLine(line string) error {
 		if !fromOK || !toOK {
 			return fmt.Errorf("relationship: only one `:::` cssClass shorthand is allowed per entity reference")
 		}
+		fromID, fromLabel, err := parserutil.ExtractBracketLabel(fromID)
+		if err != nil {
+			return fmt.Errorf("relationship: %w", err)
+		}
+		toID, toLabel, err := parserutil.ExtractBracketLabel(toID)
+		if err != nil {
+			return fmt.Errorf("relationship: %w", err)
+		}
 		if fromID == "" || toID == "" {
 			return fmt.Errorf("relationship: empty entity id (a `:::class` reference needs a name)")
 		}
 		rel.From, rel.To = fromID, toID
 		fromIdx := p.ensureEntityIdx(fromID)
 		toIdx := p.ensureEntityIdx(toID)
+		if fromLabel != "" {
+			p.diagram.Entities[fromIdx].Label = fromLabel
+		}
+		if toLabel != "" {
+			p.diagram.Entities[toIdx].Label = toLabel
+		}
 		if fromCSS != "" {
 			p.diagram.Entities[fromIdx].CSSClasses = append(p.diagram.Entities[fromIdx].CSSClasses, fromCSS)
 		}
@@ -118,24 +132,35 @@ func (p *parser) parseLine(line string) error {
 	}
 	if strings.HasSuffix(strings.TrimSpace(line), "{") {
 		name := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line), "{"))
-		id, cssClass, ok := parserutil.ExtractCSSClassShorthand(name)
+		head, cssClass, ok := parserutil.ExtractCSSClassShorthand(name)
 		if !ok {
 			return fmt.Errorf("entity %q: only one `:::` cssClass shorthand is allowed", name)
+		}
+		id, label, err := parserutil.ExtractBracketLabel(head)
+		if err != nil {
+			return err
 		}
 		if id == "" {
 			return fmt.Errorf("entity declaration is missing a name")
 		}
 		idx := p.ensureEntityIdx(id)
+		if label != "" {
+			p.diagram.Entities[idx].Label = label
+		}
 		if cssClass != "" {
 			p.diagram.Entities[idx].CSSClasses = append(p.diagram.Entities[idx].CSSClasses, cssClass)
 		}
 		return p.parseEntityBody(id)
 	}
-	// Bare entity name on its own line (with optional `:::cssClass`).
-	if id, cssClass, ok, err := parseBareEntity(line); err != nil {
+	// Bare entity name on its own line (with optional alias and
+	// `:::cssClass`).
+	if id, label, cssClass, ok, err := parseBareEntity(line); err != nil {
 		return err
 	} else if ok {
 		idx := p.ensureEntityIdx(id)
+		if label != "" {
+			p.diagram.Entities[idx].Label = label
+		}
 		if cssClass != "" {
 			p.diagram.Entities[idx].CSSClasses = append(p.diagram.Entities[idx].CSSClasses, cssClass)
 		}
@@ -145,21 +170,50 @@ func (p *parser) parseLine(line string) error {
 }
 
 // parseBareEntity matches a single-token entity declaration with an
-// optional `:::cssClass` shorthand. Multi-token lines are not bare
-// entities (the higher-priority matchers above already handled
-// keywords and arrows); chained shorthand is rejected.
-func parseBareEntity(line string) (id, cssClass string, ok bool, err error) {
-	if strings.ContainsAny(line, " \t") {
-		return "", "", false, nil
+// optional `["Display Label"]` alias and `:::cssClass` shorthand.
+// The alias's quoted text may itself contain whitespace; only the
+// ID and bracket+shorthand structure must be a single token.
+//
+// Multi-token lines (where there's whitespace OUTSIDE any
+// `["..."]` alias) are not bare entities — those came from other
+// keyword paths or are unrecognised lines that earlier matchers
+// already handled.
+func parseBareEntity(line string) (id, label, cssClass string, ok bool, err error) {
+	// Replace anything inside `["..."]` with placeholder X's so the
+	// embedded whitespace doesn't disqualify the line.
+	stripped := stripBracketContents(line)
+	if strings.ContainsAny(stripped, " \t") {
+		return "", "", "", false, nil
 	}
-	id, cssClass, valid := parserutil.ExtractCSSClassShorthand(line)
+	rest, cssClass, valid := parserutil.ExtractCSSClassShorthand(line)
 	if !valid {
-		return "", "", false, fmt.Errorf("entity %q: only one `:::` cssClass shorthand is allowed", line)
+		return "", "", "", false, fmt.Errorf("entity %q: only one `:::` cssClass shorthand is allowed", line)
+	}
+	id, label, err = parserutil.ExtractBracketLabel(rest)
+	if err != nil {
+		return "", "", "", false, err
 	}
 	if id == "" {
-		return "", "", false, nil
+		return "", "", "", false, nil
 	}
-	return id, cssClass, true, nil
+	return id, label, cssClass, true, nil
+}
+
+// stripBracketContents replaces every byte inside `[...]` with `_`
+// so a multi-word alias like `ORDER["Customer Order"]` looks like
+// a single token to whitespace checks. Bracketless input is
+// returned unchanged.
+func stripBracketContents(s string) string {
+	open := strings.IndexByte(s, '[')
+	close := strings.LastIndexByte(s, ']')
+	if open < 0 || close <= open {
+		return s
+	}
+	b := []byte(s)
+	for i := open + 1; i < close; i++ {
+		b[i] = '_'
+	}
+	return string(b)
 }
 
 func (p *parser) parseClassDef(line string) error {
