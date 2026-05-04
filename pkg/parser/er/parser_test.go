@@ -308,6 +308,135 @@ func TestParseClickUndeclaredEntityError(t *testing.T) {
 	}
 }
 
+// Empty arguments after `call` / `href` and on `link` / `callback`
+// must error rather than silently storing empty values.
+func TestParseClickEmptyArgumentsError(t *testing.T) {
+	for _, src := range []string{
+		`erDiagram
+    CUSTOMER
+    click CUSTOMER call`,
+		`erDiagram
+    CUSTOMER
+    click CUSTOMER href`,
+		`erDiagram
+    CUSTOMER
+    callback CUSTOMER`,
+		`erDiagram
+    CUSTOMER
+    link CUSTOMER`,
+	} {
+		t.Run(strings.SplitN(src, "\n", 3)[2], func(t *testing.T) {
+			_, err := Parse(strings.NewReader(src))
+			if err == nil {
+				t.Errorf("expected error for empty click arguments")
+			}
+		})
+	}
+}
+
+// Unterminated `"` in click args must surface as an error.
+func TestParseClickUnterminatedQuoteError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    CUSTOMER
+    click CUSTOMER href "https://example.com`))
+	if err == nil {
+		t.Error("expected error for unterminated quote")
+	}
+}
+
+// Bare `click ID "url"` (no `href` subkeyword) parses as href form.
+func TestParseClickBareURL(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    CUSTOMER
+    click CUSTOMER "https://example.com" "tip"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := d.Clicks[0]
+	if c.URL != "https://example.com" || c.Tooltip != "tip" {
+		t.Errorf("click = %+v", c)
+	}
+}
+
+// All three positional URL args populate the ClickDef.
+func TestParseClickHrefAllArgs(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    CUSTOMER
+    click CUSTOMER href "https://example.com" "Open" "_blank"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := d.Clicks[0]
+	if c.URL != "https://example.com" || c.Tooltip != "Open" || c.Target != "_blank" {
+		t.Errorf("click = %+v", c)
+	}
+}
+
+// `link` 3-arg target.
+func TestParseLinkAliasWithTarget(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    A
+    link A "https://example.com" "tip" "_self"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Clicks[0].Target != "_self" {
+		t.Errorf("Target = %q", d.Clicks[0].Target)
+	}
+}
+
+// `callback Foo "func" "tooltip"` populates Tooltip alongside Callback.
+func TestParseCallbackWithTooltip(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    A
+    callback A "openDetails" "Click for more"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := d.Clicks[0]
+	if c.Callback != "openDetails" || c.Tooltip != "Click for more" {
+		t.Errorf("click = %+v", c)
+	}
+}
+
+// classDef without CSS body errors.
+func TestParseClassDefMissingCSSError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    classDef onlyname`))
+	if err == nil {
+		t.Error("expected error for classDef without CSS body")
+	}
+}
+
+// `style ID` without CSS body errors.
+func TestParseStyleMissingCSSError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    A
+    style A`))
+	if err == nil {
+		t.Error("expected error for style without CSS body")
+	}
+}
+
+// `class IDs` without a class name errors.
+func TestParseClassBindingMissingNameError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    A
+    class A`))
+	if err == nil {
+		t.Error("expected error for class binding without class name")
+	}
+}
+
+// Direction WAT errors.
+func TestParseDirectionInvalidValueError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`erDiagram
+    direction WAT`))
+	if err == nil {
+		t.Error("expected error for unknown direction")
+	}
+}
+
 // Chained `:::` shorthand on an entity reference must error,
 // matching the class diagram's behavior.
 func TestParseChainedCSSShorthandError(t *testing.T) {
