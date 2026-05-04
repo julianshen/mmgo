@@ -61,12 +61,34 @@ type GanttTask struct {
 	Section string
 }
 
+// GanttClickDef binds a click action to a task. Either URL or
+// Callback is set; the renderer emits an `<a>` wrap for URL
+// forms and an empty class+data hook for Callback forms.
+type GanttClickDef struct {
+	TaskID   string
+	URL      string
+	Tooltip  string
+	Target   string
+	Callback string
+}
+
+// GanttVert marks a vertical line at a date independent of any
+// task, useful for highlighting external events on the timeline
+// (release window, regulatory deadline, etc.).
+type GanttVert struct {
+	ID    string
+	Date  time.Time
+	Label string
+}
+
 // GanttDiagram is the parsed representation of a Mermaid Gantt
 // chart. Calendar / axis directives are surfaced as raw strings;
 // the renderer converts them into Go layout strings or interval
 // definitions at render time.
 type GanttDiagram struct {
 	Title        string
+	AccTitle     string
+	AccDescr     string
 	DateFormat   string
 	AxisFormat   string
 	TickInterval string
@@ -76,6 +98,8 @@ type GanttDiagram struct {
 	TodayMarker  string
 	Sections     []string
 	Tasks        []GanttTask
+	Clicks       []GanttClickDef
+	Verts        []GanttVert
 }
 
 func (*GanttDiagram) Type() DiagramType { return Gantt }

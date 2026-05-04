@@ -348,3 +348,117 @@ func TestMermaidToGoFormatExtended(t *testing.T) {
 		}
 	}
 }
+
+// accTitle / accDescr lines populate the matching AST fields.
+func TestParseAccessibility(t *testing.T) {
+	d, err := Parse(strings.NewReader(`gantt
+    accTitle Q1 plan
+    accDescr Roadmap for Q1`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.AccTitle != "Q1 plan" {
+		t.Errorf("accTitle = %q", d.AccTitle)
+	}
+	if d.AccDescr != "Roadmap for Q1" {
+		t.Errorf("accDescr = %q", d.AccDescr)
+	}
+}
+
+// `click TASKID href "url"` and `click TASKID call fn(args)` both
+// register on the diagram's Clicks slice. Unknown task ids error.
+func TestParseClickEvents(t *testing.T) {
+	d, err := Parse(strings.NewReader(`gantt
+    dateFormat YYYY-MM-DD
+    Design :a1, 2024-01-01, 5d
+    Build  :a2, 2024-01-06, 5d
+    click a1 href "https://example.com/design" "design doc"
+    click a2 call openTask("a2")`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Clicks) != 2 {
+		t.Fatalf("clicks = %v", d.Clicks)
+	}
+	if d.Clicks[0].URL != "https://example.com/design" || d.Clicks[0].Tooltip != "design doc" {
+		t.Errorf("a1 click = %+v", d.Clicks[0])
+	}
+	if d.Clicks[1].Callback != `openTask("a2")` || d.Clicks[1].TaskID != "a2" {
+		t.Errorf("a2 click = %+v", d.Clicks[1])
+	}
+
+	// Unknown id rejected.
+	_, err = Parse(strings.NewReader(`gantt
+    dateFormat YYYY-MM-DD
+    A :a1, 2024-01-01, 1d
+    click ghost href "x"`))
+	if err == nil {
+		t.Error("expected error for click with unknown task id")
+	}
+}
+
+// `vert <date>` and `vert id, date, "label"` both register a
+// vertical marker on the diagram's Verts slice.
+func TestParseVert(t *testing.T) {
+	d, err := Parse(strings.NewReader(`gantt
+    dateFormat YYYY-MM-DD
+    A :a1, 2024-01-01, 5d
+    vert 2024-01-03
+    vert v1, 2024-01-04, "Freeze"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Verts) != 2 {
+		t.Fatalf("verts = %v", d.Verts)
+	}
+	if d.Verts[0].Date.Day() != 3 || d.Verts[0].Label != "" {
+		t.Errorf("verts[0] = %+v", d.Verts[0])
+	}
+	if d.Verts[1].ID != "v1" || d.Verts[1].Label != "Freeze" {
+		t.Errorf("verts[1] = %+v", d.Verts[1])
+	}
+}
+
+// Click error paths surface meaningful messages: missing target,
+// missing callback after `call`, and bad URL syntax.
+func TestParseClickErrors(t *testing.T) {
+	cases := []string{
+		// missing target
+		`gantt
+    A :a1, 2024-01-01, 1d
+    click a1`,
+		// `call` keyword with no fn after it
+		`gantt
+    dateFormat YYYY-MM-DD
+    A :a1, 2024-01-01, 1d
+    click a1 call`,
+		// empty href value
+		`gantt
+    dateFormat YYYY-MM-DD
+    A :a1, 2024-01-01, 1d
+    click a1 href ""`,
+	}
+	for _, src := range cases {
+		if _, err := Parse(strings.NewReader(src)); err == nil {
+			t.Errorf("expected error for:\n%s", src)
+		}
+	}
+}
+
+// Vert error paths: missing date, malformed date, missing label
+// for too many positional args.
+func TestParseVertErrors(t *testing.T) {
+	cases := []string{
+		`gantt
+    dateFormat YYYY-MM-DD
+    vert not-a-date`,
+		`gantt
+    dateFormat YYYY-MM-DD
+    vert id, 2024-01-01, "label", extra`,
+	}
+	for _, src := range cases {
+		if _, err := Parse(strings.NewReader(src)); err == nil {
+			t.Errorf("expected error for:\n%s", src)
+		}
+	}
+}

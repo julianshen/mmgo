@@ -103,6 +103,12 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 	viewH := chartH
 
 	var children []any
+	if d.AccTitle != "" {
+		children = append(children, &title{Content: d.AccTitle})
+	}
+	if d.AccDescr != "" {
+		children = append(children, &desc{Content: d.AccDescr})
+	}
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
@@ -159,6 +165,7 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 			Content: sp.name,
 		})
 	}
+	clicksByID := ganttClicksByID(d.Clicks)
 	for i, task := range d.Tasks {
 		startOffset := task.Start.Sub(minDate).Hours() / 24 * dayWidth
 		endOffset := task.End.Sub(minDate).Hours() / 24 * dayWidth
@@ -170,22 +177,20 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 		by := rowY(i) + barGap/2
 
 		color := th.taskColor(task.Status)
+		var taskBuf []any
 
-		// Milestone tasks render as a diamond at the task's start
-		// rather than as a rectangle. The label always sits to the
-		// right of the glyph since its width is a small fixed
-		// constant regardless of the task's parsed duration.
 		if task.Status.Has(diagram.TaskStatusMilestone) {
+			// Milestone tasks render as a diamond at the start
+			// rather than a rectangle. A `crit, milestone` task
+			// keeps the crit stroke since the priority lookup
+			// already picked the crit fill.
 			cx, cy := bx, by+barH/2
 			half := barH / 2
-			// A `crit, milestone` task picks up the same emphasis
-			// stroke as crit bars do; the milestone branch returns
-			// early so we have to apply the stroke here too.
 			diamondStyle := fmt.Sprintf("fill:%s;stroke:none", color)
 			if task.Status.Has(diagram.TaskStatusCrit) {
 				diamondStyle = fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", color, th.CritStroke)
 			}
-			children = append(children, &polygon{
+			taskBuf = append(taskBuf, &polygon{
 				Points: fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
 					cx, cy-half,
 					cx+half, cy,
@@ -193,42 +198,68 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 					cx-half, cy),
 				Style: diamondStyle,
 			})
-			children = append(children, &text{
+			taskBuf = append(taskBuf, &text{
 				X: svgFloat(cx + half + labelOutsideGap), Y: svgFloat(cy),
 				Anchor: "start", Dominant: "central",
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.OutsideBarText, fontSize-1),
 				Content: task.Name,
 			})
-			continue
+		} else {
+			barStyle := fmt.Sprintf("fill:%s;stroke:none", color)
+			if task.Status.Has(diagram.TaskStatusCrit) {
+				barStyle = fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", color, th.CritStroke)
+			}
+			taskBuf = append(taskBuf, &rect{
+				X: svgFloat(bx), Y: svgFloat(by),
+				Width: svgFloat(barW), Height: svgFloat(barH),
+				RX: 3, RY: 3,
+				Style: barStyle,
+			})
+			if taskLabelW[i]+labelInsideSlack > barW {
+				taskBuf = append(taskBuf, &text{
+					X: svgFloat(bx + barW + labelOutsideGap), Y: svgFloat(by + barH/2),
+					Anchor: "start", Dominant: "central",
+					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.OutsideBarText, fontSize-1),
+					Content: task.Name,
+				})
+			} else {
+				taskBuf = append(taskBuf, &text{
+					X: svgFloat(bx + barW/2), Y: svgFloat(by + barH/2),
+					Anchor: "middle", Dominant: "central",
+					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.InsideBarText, fontSize-1),
+					Content: task.Name,
+				})
+			}
 		}
 
-		// Crit tasks get a strong outline on top of the fill so a
-		// blocker stands out even when its bar sits next to other
-		// red bars. The fill priority already used the crit color;
-		// the stroke darkens that.
-		barStyle := fmt.Sprintf("fill:%s;stroke:none", color)
-		if task.Status.Has(diagram.TaskStatusCrit) {
-			barStyle = fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", color, th.CritStroke)
-		}
-		children = append(children, &rect{
-			X: svgFloat(bx), Y: svgFloat(by),
-			Width: svgFloat(barW), Height: svgFloat(barH),
-			RX: 3, RY: 3,
-			Style: barStyle,
-		})
-		if taskLabelW[i]+labelInsideSlack > barW {
-			children = append(children, &text{
-				X: svgFloat(bx + barW + labelOutsideGap), Y: svgFloat(by + barH/2),
-				Anchor: "start", Dominant: "central",
-				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.OutsideBarText, fontSize-1),
-				Content: task.Name,
-			})
+		if click, ok := clicksByID[task.ID]; ok && click.URL != "" {
+			a := &anchor{Href: click.URL, Target: click.Target}
+			if click.Tooltip != "" {
+				a.Children = append(a.Children, &title{Content: click.Tooltip})
+			}
+			a.Children = append(a.Children, taskBuf...)
+			children = append(children, a)
 		} else {
+			children = append(children, taskBuf...)
+		}
+	}
+
+	for _, v := range d.Verts {
+		if v.Date.Before(minDate) || v.Date.After(maxDate) {
+			continue
+		}
+		dx := chartX + v.Date.Sub(minDate).Hours()/24*dayWidth
+		children = append(children, &line{
+			X1: svgFloat(dx), Y1: svgFloat(axisY + axisH),
+			X2: svgFloat(dx), Y2: svgFloat(axisY + axisH + rowH*float64(rows)),
+			Style: fmt.Sprintf("stroke:%s;stroke-width:1.5;stroke-dasharray:6 3", th.AxisStroke),
+		})
+		if v.Label != "" {
 			children = append(children, &text{
-				X: svgFloat(bx + barW/2), Y: svgFloat(by + barH/2),
-				Anchor: "middle", Dominant: "central",
-				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.InsideBarText, fontSize-1),
-				Content: task.Name,
+				X: svgFloat(dx + 3), Y: svgFloat(axisY + axisH + 4),
+				Anchor: "start", Dominant: "hanging",
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.AxisLabel, fontSize-2),
+				Content: v.Label,
 			})
 		}
 	}
@@ -430,6 +461,17 @@ func dateRange(tasks []diagram.GanttTask) (min, max time.Time) {
 		}
 	}
 	return min, max
+}
+
+func ganttClicksByID(clicks []diagram.GanttClickDef) map[string]diagram.GanttClickDef {
+	if len(clicks) == 0 {
+		return nil
+	}
+	out := make(map[string]diagram.GanttClickDef, len(clicks))
+	for _, c := range clicks {
+		out[c.TaskID] = c
+	}
+	return out
 }
 
 
