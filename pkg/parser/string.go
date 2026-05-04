@@ -1,6 +1,9 @@
 package parser
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // ExtractCSSClassShorthand extracts a trailing `:::name` shorthand
 // from an identifier reference (`Foo:::hot` → ("Foo", "hot")). When
@@ -47,4 +50,38 @@ func Unquote(s string) string {
 		}
 	}
 	return s
+}
+
+// ExtractBracketLabel splits an identifier reference of the form
+// `Head["Display Label"]` into the head text and the unquoted label.
+// Used by ER and class parsers to handle aliased entity / class names.
+//
+// Rules:
+//   - No `[` present → returns (s, "", nil) unchanged.
+//   - Unclosed `[` (no matching `]`, or `]` before `[`) → error.
+//   - Bracket contents must be quoted (`"..."` or `'...'`); a bare
+//     identifier inside brackets is rejected.
+//   - Any non-whitespace content AFTER the closing `]` is rejected
+//     so typos like `Foo["x"]junk` surface instead of silently
+//     dropping the trailing text.
+//
+// The returned head is whitespace-trimmed.
+func ExtractBracketLabel(s string) (head, label string, err error) {
+	open := strings.IndexByte(s, '[')
+	if open < 0 {
+		return s, "", nil
+	}
+	closeIdx := strings.LastIndexByte(s, ']')
+	if closeIdx <= open {
+		return "", "", fmt.Errorf("bracketed label %q: unclosed `[`", s)
+	}
+	if trailing := strings.TrimSpace(s[closeIdx+1:]); trailing != "" {
+		return "", "", fmt.Errorf("bracketed label %q: unexpected content after `]`", s)
+	}
+	inside := strings.TrimSpace(s[open+1 : closeIdx])
+	unq := Unquote(inside)
+	if unq == inside {
+		return "", "", fmt.Errorf("bracketed label %q: contents must be quoted", s)
+	}
+	return strings.TrimSpace(s[:open]), unq, nil
 }

@@ -466,6 +466,51 @@ func TestParseEntityAlias(t *testing.T) {
 	}
 }
 
+// Aliases declared on relationship endpoints register the label
+// against the bare entity ID (so a later bare `CUSTOMER` reference
+// matches and the label isn't silently dropped).
+func TestParseRelationshipEndpointAlias(t *testing.T) {
+	d, err := Parse(strings.NewReader(`erDiagram
+    CUSTOMER["Customer Profile"] ||--o{ ORDER["Customer Order"] : places`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Entities) != 2 {
+		t.Fatalf("want 2 entities, got %d (%+v)", len(d.Entities), d.Entities)
+	}
+	for _, e := range d.Entities {
+		switch e.Name {
+		case "CUSTOMER":
+			if e.Label != "Customer Profile" {
+				t.Errorf("CUSTOMER label = %q", e.Label)
+			}
+		case "ORDER":
+			if e.Label != "Customer Order" {
+				t.Errorf("ORDER label = %q", e.Label)
+			}
+		default:
+			t.Errorf("unexpected entity name %q (label=%q)", e.Name, e.Label)
+		}
+	}
+	if d.Relationships[0].From != "CUSTOMER" || d.Relationships[0].To != "ORDER" {
+		t.Errorf("relationship = %+v", d.Relationships[0])
+	}
+}
+
+// Trailing junk after `]` is rejected rather than silently dropped.
+func TestParseEntityAliasTrailingJunkError(t *testing.T) {
+	for _, src := range []string{
+		`erDiagram
+    CUSTOMER["x"]junk`,
+		`erDiagram
+    CUSTOMER["x"]junk ||--o{ ORDER`,
+	} {
+		if _, err := Parse(strings.NewReader(src)); err == nil {
+			t.Errorf("expected error for trailing-junk source:\n%s", src)
+		}
+	}
+}
+
 // `EntityID["..."]` combined with `:::cssClass` shorthand both
 // apply to the same entity.
 func TestParseEntityAliasWithCSSShorthand(t *testing.T) {

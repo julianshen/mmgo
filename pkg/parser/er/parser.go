@@ -101,12 +101,26 @@ func (p *parser) parseLine(line string) error {
 		if !fromOK || !toOK {
 			return fmt.Errorf("relationship: only one `:::` cssClass shorthand is allowed per entity reference")
 		}
+		fromID, fromLabel, err := parserutil.ExtractBracketLabel(fromID)
+		if err != nil {
+			return fmt.Errorf("relationship: %w", err)
+		}
+		toID, toLabel, err := parserutil.ExtractBracketLabel(toID)
+		if err != nil {
+			return fmt.Errorf("relationship: %w", err)
+		}
 		if fromID == "" || toID == "" {
 			return fmt.Errorf("relationship: empty entity id (a `:::class` reference needs a name)")
 		}
 		rel.From, rel.To = fromID, toID
 		fromIdx := p.ensureEntityIdx(fromID)
 		toIdx := p.ensureEntityIdx(toID)
+		if fromLabel != "" {
+			p.diagram.Entities[fromIdx].Label = fromLabel
+		}
+		if toLabel != "" {
+			p.diagram.Entities[toIdx].Label = toLabel
+		}
 		if fromCSS != "" {
 			p.diagram.Entities[fromIdx].CSSClasses = append(p.diagram.Entities[fromIdx].CSSClasses, fromCSS)
 		}
@@ -122,7 +136,7 @@ func (p *parser) parseLine(line string) error {
 		if !ok {
 			return fmt.Errorf("entity %q: only one `:::` cssClass shorthand is allowed", name)
 		}
-		id, label, err := extractEntityAlias(head)
+		id, label, err := parserutil.ExtractBracketLabel(head)
 		if err != nil {
 			return err
 		}
@@ -175,7 +189,7 @@ func parseBareEntity(line string) (id, label, cssClass string, ok bool, err erro
 	if !valid {
 		return "", "", "", false, fmt.Errorf("entity %q: only one `:::` cssClass shorthand is allowed", line)
 	}
-	id, label, err = extractEntityAlias(rest)
+	id, label, err = parserutil.ExtractBracketLabel(rest)
 	if err != nil {
 		return "", "", "", false, err
 	}
@@ -200,26 +214,6 @@ func stripBracketContents(s string) string {
 		b[i] = '_'
 	}
 	return string(b)
-}
-
-// extractEntityAlias splits `EntityID["Display Label"]` into the
-// bare ID and the alias text. Without brackets, returns the input
-// as-is and label="". Malformed `EntityID["unclosed` is an error.
-func extractEntityAlias(s string) (id, label string, err error) {
-	open := strings.IndexByte(s, '[')
-	if open < 0 {
-		return s, "", nil
-	}
-	closeIdx := strings.LastIndexByte(s, ']')
-	if closeIdx <= open {
-		return "", "", fmt.Errorf("entity alias %q: unclosed `[`", s)
-	}
-	inside := strings.TrimSpace(s[open+1 : closeIdx])
-	unq := parserutil.Unquote(inside)
-	if unq == inside {
-		return "", "", fmt.Errorf("entity alias %q: bracketed label must be quoted", s)
-	}
-	return strings.TrimSpace(s[:open]), unq, nil
 }
 
 func (p *parser) parseClassDef(line string) error {

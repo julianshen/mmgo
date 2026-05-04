@@ -566,20 +566,11 @@ func parseClassHeader(rest string) (classHeader, bool, error) {
 			return classHeader{}, false, fmt.Errorf("class header %q: only one annotation is allowed", rest)
 		}
 	}
-	var label string
-	if i := strings.IndexByte(rest, '['); i >= 0 {
-		j := strings.LastIndexByte(rest, ']')
-		if j <= i {
-			return classHeader{}, false, fmt.Errorf("class header %q: unclosed `[`", rest)
-		}
-		inside := strings.TrimSpace(rest[i+1 : j])
-		unq := parserutil.Unquote(inside)
-		if unq == inside {
-			return classHeader{}, false, fmt.Errorf("class header %q: bracketed label must be quoted", rest)
-		}
-		label = unq
-		rest = strings.TrimSpace(rest[:i])
+	head, label, err := parserutil.ExtractBracketLabel(rest)
+	if err != nil {
+		return classHeader{}, false, fmt.Errorf("class header %q: %w", rest, err)
 	}
+	rest = head
 	var generic string
 	if i := strings.IndexByte(rest, '~'); i >= 0 {
 		// Use the LAST `~` so nested generics like `Wrapper~List~int~~`
