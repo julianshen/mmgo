@@ -44,7 +44,12 @@ type layoutNode struct {
 	// and the existing single-tspan fast path still applies.
 	segments    [][]textSegment
 	lineHeights []float64
-	children    []*layoutNode
+	// extraCSS holds the merged classDef + per-node `style` rule
+	// CSS for this node, applied on top of the theme-based fill so
+	// `classDef accent fill:#f96` and `style id stroke:#000` show
+	// up on the rendered shape.
+	extraCSS string
+	children []*layoutNode
 }
 
 type svgText struct {
@@ -93,6 +98,7 @@ func Render(d *diagram.MindmapDiagram, opts *Options) ([]byte, error) {
 	}
 
 	root := buildTree(d.Root, ruler, fontSize, 0, make(map[*diagram.MindmapNode]bool))
+	applyNodeStyles(root, d.CSSClasses, stylesByID(d.Styles))
 
 	layoutRadial(root, levelSpacing)
 	bounds := computeBounds(root)
@@ -326,8 +332,8 @@ func renderElements(n *layoutNode, offX, offY, fontSize float64, th Theme, edges
 	} else {
 		classStr = fmt.Sprintf("mindmap-node section-%d", n.section)
 	}
-	if n.node.Class != "" {
-		classStr += " " + n.node.Class
+	if len(n.node.CSSClasses) > 0 {
+		classStr += " " + strings.Join(n.node.CSSClasses, " ")
 	}
 
 	*nodes = append(*nodes, &group{
@@ -362,6 +368,13 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 	fill := shapeFillColor(n.section, n.depth, th)
 	textCol := shapeTextColor(n.depth, th)
 	style := fmt.Sprintf("fill:%s;stroke:none", fill)
+	// classDef + per-node `style` overrides append after the
+	// theme-derived fill so authors win when they set the same
+	// property (e.g. `classDef accent fill:#f96` overrides the
+	// section color).
+	if n.extraCSS != "" {
+		style += ";" + n.extraCSS
+	}
 
 	var children []any
 
@@ -482,4 +495,45 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 		startY += lh
 	}
 	return children
+}
+
+// applyNodeStyles walks the layout tree and stamps each node with
+// the merged CSS string from its declared classes (looked up in
+// classDefs) plus any per-node override (looked up by node ID in
+// stylesByID). Order: classDefs in declaration order, then the
+// per-node style — so authors can override a class rule with a
+// targeted `style id ...`.
+func applyNodeStyles(n *layoutNode, classDefs map[string]string, byID map[string]string) {
+	if n == nil {
+		return
+	}
+	var parts []string
+	for _, name := range n.node.CSSClasses {
+		if css := classDefs[name]; css != "" {
+			parts = append(parts, css)
+		}
+	}
+	if css, ok := byID[n.node.ID]; ok && css != "" {
+		parts = append(parts, css)
+	}
+	if len(parts) > 0 {
+		n.extraCSS = strings.Join(parts, ";")
+	}
+	for _, c := range n.children {
+		applyNodeStyles(c, classDefs, byID)
+	}
+}
+
+// stylesByID indexes per-node `style id ...` overrides for fast
+// lookup during applyNodeStyles. Later entries override earlier
+// ones, matching the document-order semantics other diagrams use.
+func stylesByID(styles []diagram.MindmapStyleDef) map[string]string {
+	if len(styles) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(styles))
+	for _, s := range styles {
+		out[s.NodeID] = s.CSS
+	}
+	return out
 }
