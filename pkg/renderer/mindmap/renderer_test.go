@@ -291,7 +291,7 @@ func TestRenderIconAndClass(t *testing.T) {
 		Root: &diagram.MindmapNode{
 			Text: "Root",
 			Children: []*diagram.MindmapNode{
-				{Text: "A", Icon: "fa fa-user", Class: "urgent"},
+				{Text: "A", Icon: "fa fa-user", CSSClasses: []string{"urgent"}},
 			},
 		},
 	}
@@ -405,5 +405,47 @@ func TestRenderIconCaption(t *testing.T) {
 	}
 	if !strings.Contains(raw, "font-style:italic") {
 		t.Errorf("expected italic styling on icon caption")
+	}
+}
+
+// classDef CSS is merged onto the node's shape style so authors
+// see the override in the rendered SVG.
+func TestRenderClassDefStyle(t *testing.T) {
+	d := &diagram.MindmapDiagram{
+		CSSClasses: map[string]string{"hot": "fill:#f00"},
+		Root: &diagram.MindmapNode{
+			Text: "Root",
+			Children: []*diagram.MindmapNode{
+				{Text: "A", CSSClasses: []string{"hot"}},
+			},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "fill:#f00") {
+		t.Errorf("expected classDef fill in output")
+	}
+}
+
+// `style id css` overrides the theme fill on a specific node by ID.
+func TestRenderStyleRule(t *testing.T) {
+	d := &diagram.MindmapDiagram{
+		Styles: []diagram.MindmapStyleDef{{NodeID: "body", CSS: "stroke:#900;stroke-width:3"}},
+		Root: &diagram.MindmapNode{
+			Text: "Root",
+			Children: []*diagram.MindmapNode{
+				{ID: "body", Text: "Body"},
+			},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "stroke:#900") {
+		t.Errorf("expected style override stroke in output")
 	}
 }

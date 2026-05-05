@@ -42,7 +42,9 @@ func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 	var stack []stackEntry
 	var lastNode *diagram.MindmapNode
 
-	d := &diagram.MindmapDiagram{}
+	d := &diagram.MindmapDiagram{
+		CSSClasses: make(map[string]string),
+	}
 
 	for scanner.Scan() {
 		lineNum++
@@ -67,6 +69,25 @@ func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 			d.AccDescr = v
 			continue
 		}
+		if rest, ok := strings.CutPrefix(trimmed, "classDef "); ok {
+			name, css, err := parserutil.ParseClassDefLine(rest)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: %w", lineNum, err)
+			}
+			d.CSSClasses[name] = css
+			continue
+		}
+		if rest, ok := strings.CutPrefix(trimmed, "style "); ok {
+			parts := strings.SplitN(strings.TrimSpace(rest), " ", 2)
+			if len(parts) < 2 {
+				return nil, fmt.Errorf("line %d: style requires an ID and CSS", lineNum)
+			}
+			d.Styles = append(d.Styles, diagram.MindmapStyleDef{
+				NodeID: strings.TrimSpace(parts[0]),
+				CSS:    parserutil.NormalizeCSS(strings.TrimSpace(parts[1])),
+			})
+			continue
+		}
 
 		if strings.HasPrefix(trimmed, iconPrefix) {
 			if lastNode != nil {
@@ -79,9 +100,12 @@ func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 		}
 		if strings.HasPrefix(trimmed, classPrefix) && len(trimmed) > len(classPrefix) {
 			if lastNode != nil {
-				cls := strings.TrimSpace(trimmed[len(classPrefix):])
-				if cls != "" {
-					lastNode.Class = cls
+				rest := strings.TrimSpace(trimmed[len(classPrefix):])
+				if rest != "" {
+					// `:::a b c` attaches every space-separated
+					// class name in document order so authors can
+					// stack overrides.
+					lastNode.CSSClasses = append(lastNode.CSSClasses, strings.Fields(rest)...)
 				}
 			}
 			continue

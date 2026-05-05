@@ -160,8 +160,8 @@ func TestParseClassDecoration(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	child := d.Root.Children[0]
-	if child.Class != "urgent" {
-		t.Errorf("child class = %q, want %q", child.Class, "urgent")
+	if len(child.CSSClasses) != 1 || child.CSSClasses[0] != "urgent" {
+		t.Errorf("child classes = %v, want [urgent]", child.CSSClasses)
 	}
 }
 
@@ -223,8 +223,8 @@ func TestParseClassBeforeNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if d.Root.Class != "" {
-		t.Errorf("class before node should be ignored, got %q", d.Root.Class)
+	if len(d.Root.CSSClasses) != 0 {
+		t.Errorf("class before node should be ignored, got %v", d.Root.CSSClasses)
 	}
 }
 
@@ -330,5 +330,48 @@ Root1
 Root2`))
 	if err == nil {
 		t.Error("expected error for second root")
+	}
+}
+
+// `classDef name css` declarations populate the diagram's
+// CSSClasses map and `:::a b c` attaches multiple class names to
+// a node in document order.
+func TestParseClassDefAndMultipleClasses(t *testing.T) {
+	d, err := Parse(strings.NewReader(`mindmap
+classDef hot fill:#f00
+classDef bold stroke:#000,stroke-width:3
+Root
+    A
+        :::hot bold`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.CSSClasses["hot"] != "fill:#f00" {
+		t.Errorf("hot classdef = %q", d.CSSClasses["hot"])
+	}
+	if d.CSSClasses["bold"] != "stroke:#000;stroke-width:3" {
+		t.Errorf("bold classdef = %q", d.CSSClasses["bold"])
+	}
+	a := d.Root.Children[0]
+	if len(a.CSSClasses) != 2 || a.CSSClasses[0] != "hot" || a.CSSClasses[1] != "bold" {
+		t.Errorf("A classes = %v, want [hot bold]", a.CSSClasses)
+	}
+}
+
+// `style ID css` lines accumulate on the diagram's Styles slice.
+func TestParseStyleRule(t *testing.T) {
+	d, err := Parse(strings.NewReader(`mindmap
+Root
+    Body
+style Body fill:#fee,stroke:#900`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Styles) != 1 {
+		t.Fatalf("styles = %v", d.Styles)
+	}
+	got := d.Styles[0]
+	if got.NodeID != "Body" || got.CSS != "fill:#fee;stroke:#900" {
+		t.Errorf("style = %+v", got)
 	}
 }
