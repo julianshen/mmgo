@@ -31,12 +31,31 @@ func Parse(r io.Reader) (*diagram.TimelineDiagram, error) {
 			headerSeen = true
 			continue
 		}
-		if rest, ok := strings.CutPrefix(line, "title "); ok {
-			d.Title = strings.TrimSpace(rest)
+		if v, ok := parserutil.MatchKeywordValue(line, "title"); ok {
+			d.Title = v
 			continue
 		}
-		if rest, ok := strings.CutPrefix(line, "section "); ok {
-			d.Sections = append(d.Sections, diagram.TimelineSection{Name: strings.TrimSpace(rest)})
+		if v, ok := parserutil.MatchKeywordValue(line, "accTitle"); ok {
+			d.AccTitle = v
+			continue
+		}
+		if v, ok := parserutil.MatchKeywordValue(line, "accDescr"); ok {
+			d.AccDescr = v
+			continue
+		}
+		if line == "LR" || line == "TD" {
+			d.Direction = line
+			continue
+		}
+		if v, ok := parserutil.MatchKeywordValue(line, "direction"); ok {
+			if v != "LR" && v != "TD" {
+				return nil, fmt.Errorf("line %d: timeline direction must be LR or TD, got %q", lineNum, v)
+			}
+			d.Direction = v
+			continue
+		}
+		if v, ok := parserutil.MatchKeywordValue(line, "section"); ok {
+			d.Sections = append(d.Sections, diagram.TimelineSection{Name: v})
 			curSection = &d.Sections[len(d.Sections)-1]
 			continue
 		}

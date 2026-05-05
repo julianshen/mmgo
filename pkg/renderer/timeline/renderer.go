@@ -3,9 +3,9 @@ package timeline
 import (
 	"encoding/xml"
 	"fmt"
-	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 )
 
 const (
@@ -48,6 +48,12 @@ func Render(d *diagram.TimelineDiagram, opts *Options) ([]byte, error) {
 	viewW := pad + axisX + axisW + 30 + eventBoxW + pad
 
 	var children []any
+	if d.AccTitle != "" {
+		children = append(children, &svgutil.Title{Content: d.AccTitle})
+	}
+	if d.AccDescr != "" {
+		children = append(children, &svgutil.Desc{Content: d.AccDescr})
+	}
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(totalH),
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
@@ -87,15 +93,17 @@ func Render(d *diagram.TimelineDiagram, opts *Options) ([]byte, error) {
 			})
 			curY += sectionGap / 2
 			for _, ev := range sec.Events {
-				children = append(children, renderEvent(ev, axis, curY, color, fontSize, th)...)
-				curY += eventBoxH + rowGap
+				elems, dy := renderEvent(ev, axis, curY, color, fontSize, th)
+				children = append(children, elems...)
+				curY += dy
 			}
 		}
 	} else {
 		color := th.SectionColors[0]
 		for _, ev := range d.Events {
-			children = append(children, renderEvent(ev, axis, curY, color, fontSize, th)...)
-			curY += eventBoxH + rowGap
+			elems, dy := renderEvent(ev, axis, curY, color, fontSize, th)
+			children = append(children, elems...)
+			curY += dy
 		}
 	}
 
@@ -112,18 +120,40 @@ func Render(d *diagram.TimelineDiagram, opts *Options) ([]byte, error) {
 }
 
 func countRows(d *diagram.TimelineDiagram) int {
+	rows := 0
+	periods := d.Events
 	if len(d.Sections) > 0 {
-		rows := 0
 		for _, s := range d.Sections {
-			rows += len(s.Events)
+			for _, p := range s.Events {
+				rows += eventRowCount(p)
+			}
 		}
 		return rows
 	}
-	return len(d.Events)
+	for _, p := range periods {
+		rows += eventRowCount(p)
+	}
+	return rows
 }
 
-func renderEvent(ev diagram.TimelineEvent, axis, y float64, color string, fontSize float64, th Theme) []any {
+// eventRowCount is the number of vertically stacked event boxes a
+// period contributes. A period with no Events list is still one
+// row (so the Time + axis dot has somewhere to live).
+func eventRowCount(p diagram.TimelineEvent) int {
+	if n := len(p.Events); n > 0 {
+		return n
+	}
+	return 1
+}
+
+// renderEvent emits one period's stack of events: the Time label
+// and axis dot anchor at the first row, followed by one filled
+// rounded-rect+label per event in the period. Returns the
+// rendered elements and the y-delta consumed (so the caller can
+// advance its cursor across multi-event periods).
+func renderEvent(ev diagram.TimelineEvent, axis, y float64, color string, fontSize float64, th Theme) ([]any, float64) {
 	var elems []any
+	rowAdvance := eventBoxH + rowGap
 	elems = append(elems, &text{
 		X: svgFloat(axis - 20), Y: svgFloat(y + eventBoxH/2),
 		Anchor: "end", Dominant: "central",
@@ -135,18 +165,28 @@ func renderEvent(ev diagram.TimelineEvent, axis, y float64, color string, fontSi
 		Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:2", color, th.Background),
 	})
 	boxX := axis + 20
-	content := strings.Join(ev.Events, ", ")
-	elems = append(elems, &rect{
-		X: svgFloat(boxX), Y: svgFloat(y),
-		Width: svgFloat(eventBoxW), Height: svgFloat(eventBoxH),
-		RX: 5, RY: 5,
-		Style: fmt.Sprintf("fill:%s;stroke:none", color),
-	})
-	elems = append(elems, &text{
-		X: svgFloat(boxX + eventBoxW/2), Y: svgFloat(y + eventBoxH/2),
-		Anchor: "middle", Dominant: "central",
-		Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EventText, fontSize-1),
-		Content: content,
-	})
-	return elems
+	events := ev.Events
+	if len(events) == 0 {
+		// Period without any events still draws an empty box so
+		// the time label has a visual anchor.
+		events = []string{""}
+	}
+	for i, content := range events {
+		ey := y + float64(i)*rowAdvance
+		elems = append(elems, &rect{
+			X: svgFloat(boxX), Y: svgFloat(ey),
+			Width: svgFloat(eventBoxW), Height: svgFloat(eventBoxH),
+			RX: 5, RY: 5,
+			Style: fmt.Sprintf("fill:%s;stroke:none", color),
+		})
+		if content != "" {
+			elems = append(elems, &text{
+				X: svgFloat(boxX + eventBoxW/2), Y: svgFloat(ey + eventBoxH/2),
+				Anchor: "middle", Dominant: "central",
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EventText, fontSize-1),
+				Content: content,
+			})
+		}
+	}
+	return elems, float64(len(events)) * rowAdvance
 }
