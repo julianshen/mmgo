@@ -266,3 +266,46 @@ func TestSankeyDiagramType(t *testing.T) {
 		t.Errorf("Type() = %v, want Sankey", d.Type())
 	}
 }
+
+// `sankey` alias parses identically to `sankey-beta`.
+func TestParseSankeyAlias(t *testing.T) {
+	d, err := Parse(strings.NewReader("sankey\nA,B,5"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Flows) != 1 || d.Flows[0].Source != "A" {
+		t.Errorf("flows = %+v", d.Flows)
+	}
+}
+
+// Frontmatter title surfaces on the AST.
+func TestParseFrontmatterTitle(t *testing.T) {
+	d, err := Parse(strings.NewReader("---\ntitle: Energy budget\n---\nsankey-beta\nA,B,5"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Title != "Energy budget" {
+		t.Errorf("title = %q", d.Title)
+	}
+}
+
+// accTitle / accDescr lines mix freely with CSV rows and don't
+// trigger the "expected 3 columns" error.
+func TestParseSankeyAccessibility(t *testing.T) {
+	d, err := Parse(strings.NewReader(`sankey-beta
+accTitle: Energy
+accDescr: Power flows
+A,B,5`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.AccTitle != "Energy" {
+		t.Errorf("accTitle = %q", d.AccTitle)
+	}
+	if d.AccDescr != "Power flows" {
+		t.Errorf("accDescr = %q", d.AccDescr)
+	}
+	if len(d.Flows) != 1 {
+		t.Errorf("flows = %v", d.Flows)
+	}
+}
