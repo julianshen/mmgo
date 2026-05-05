@@ -18,8 +18,20 @@ import (
 )
 
 func Parse(r io.Reader) (*diagram.SankeyDiagram, error) {
+	src, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading input: %w", err)
+	}
 	d := &diagram.SankeyDiagram{}
-	scanner := bufio.NewScanner(r)
+	// Optional `---\n…\n---\n` frontmatter at the top of the source
+	// supplies a diagram title (and, eventually, sankey config).
+	front, body := parserutil.SplitFrontmatter(src)
+	if len(front) > 0 {
+		if t := parserutil.FrontmatterValue(front, "title"); t != "" {
+			d.Title = t
+		}
+	}
+	scanner := bufio.NewScanner(strings.NewReader(string(body)))
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 	lineNum := 0
 	headerSeen := false
@@ -41,6 +53,17 @@ func Parse(r io.Reader) (*diagram.SankeyDiagram, error) {
 				return nil, fmt.Errorf("line %d: expected 'sankey-beta' header, got %q", lineNum, line)
 			}
 			headerSeen = true
+			continue
+		}
+		// Accessibility lines mix freely with CSV rows; recognise
+		// them before the row parser tries to read a flow out of
+		// them.
+		if v, ok := parserutil.MatchKeywordValue(line, "accTitle"); ok {
+			d.AccTitle = v
+			continue
+		}
+		if v, ok := parserutil.MatchKeywordValue(line, "accDescr"); ok {
+			d.AccDescr = v
 			continue
 		}
 		if firstDataRow {
@@ -65,7 +88,11 @@ func Parse(r io.Reader) (*diagram.SankeyDiagram, error) {
 }
 
 func isHeader(line string) bool {
-	return parserutil.HasHeaderKeyword(line, "sankey-beta")
+	// Mermaid currently exposes both `sankey-beta` (legacy) and
+	// `sankey` (post-beta rollout); accept either so existing
+	// fixtures keep parsing while new ones can drop the suffix.
+	return parserutil.HasHeaderKeyword(line, "sankey-beta") ||
+		parserutil.HasHeaderKeyword(line, "sankey")
 }
 
 // isColumnHeader matches a literal `source,target,value` row (any

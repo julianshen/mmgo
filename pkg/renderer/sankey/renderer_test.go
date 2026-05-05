@@ -268,3 +268,30 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 		t.Error("viewBox missing")
 	}
 }
+
+// AccTitle/AccDescr emit as <title>/<desc>; Title renders as a
+// centered caption above the diagram body.
+func TestRenderSankeyHeader(t *testing.T) {
+	d := &diagram.SankeyDiagram{
+		Title:    "Energy",
+		AccTitle: "Energy budget",
+		AccDescr: "Q1 power flows",
+		Flows: []diagram.SankeyFlow{
+			{Source: "Coal", Target: "Power", Value: 5},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<title>Energy budget</title>") {
+		t.Errorf("expected accTitle <title> in:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<desc>Q1 power flows</desc>") {
+		t.Errorf("expected accDescr <desc> in:\n%s", raw)
+	}
+	if !strings.Contains(raw, ">Energy<") {
+		t.Errorf("expected diagram title rendered in:\n%s", raw)
+	}
+}

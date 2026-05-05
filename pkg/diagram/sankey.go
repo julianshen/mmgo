@@ -10,7 +10,10 @@ type SankeyFlow struct {
 }
 
 type SankeyDiagram struct {
-	Flows []SankeyFlow
+	Title    string
+	AccTitle string
+	AccDescr string
+	Flows    []SankeyFlow
 }
 
 // Nodes returns the unique node IDs in first-appearance order

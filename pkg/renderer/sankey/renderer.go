@@ -141,12 +141,29 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 	tgtOffset := make(map[string]float64, len(nodes))
 
 	children := make([]any, 0, 1+len(d.Flows)+2*len(nodes))
+	if d.AccTitle != "" {
+		children = append(children, &svgutil.Title{Content: d.AccTitle})
+	}
+	if d.AccDescr != "" {
+		children = append(children, &svgutil.Desc{Content: d.AccDescr})
+	}
 	children = append(children, &rect{
 		X: 0, Y: 0,
 		Width:  svgFloat(viewW),
 		Height: svgFloat(viewH),
 		Style:  fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
+	if d.Title != "" {
+		// Frontmatter `title:` renders as a centered caption above
+		// the diagram body so a screen reader and a human eye see
+		// the same heading text.
+		children = append(children, &text{
+			X: svgFloat(viewW / 2), Y: svgFloat(14),
+			Anchor: "middle", Dominant: "central",
+			Style:   fmt.Sprintf("fill:%s;font-size:14px;font-weight:bold", th.LabelText),
+			Content: d.Title,
+		})
+	}
 
 	// Ribbons before bars so bars paint over the ribbon edges.
 	for _, f := range d.Flows {
