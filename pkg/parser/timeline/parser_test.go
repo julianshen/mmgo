@@ -103,3 +103,49 @@ func TestParseInvalidEvent(t *testing.T) {
 		t.Errorf("invalid line should be ignored, got %+v", d.Events)
 	}
 }
+
+// accTitle / accDescr lines populate the matching AST fields.
+func TestParseAccessibility(t *testing.T) {
+	d, err := Parse(strings.NewReader(`timeline
+    accTitle: Web History
+    accDescr: A short timeline of the web
+    title History
+    2000 : Web 1.0`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.AccTitle != "Web History" {
+		t.Errorf("accTitle = %q", d.AccTitle)
+	}
+	if d.AccDescr != "A short timeline of the web" {
+		t.Errorf("accDescr = %q", d.AccDescr)
+	}
+}
+
+// Bare LR / TD lines and `direction LR|TD` both populate Direction.
+func TestParseDirection(t *testing.T) {
+	for _, src := range []string{
+		"timeline\nLR\n2000 : Y2K",
+		"timeline\nTD\n2000 : Y2K",
+		"timeline\ndirection LR\n2000 : Y2K",
+		"timeline\ndirection: TD\n2000 : Y2K",
+	} {
+		d, err := Parse(strings.NewReader(src))
+		if err != nil {
+			t.Errorf("parse %q: %v", src, err)
+			continue
+		}
+		if d.Direction != "LR" && d.Direction != "TD" {
+			t.Errorf("Direction = %q", d.Direction)
+		}
+	}
+}
+
+// `direction <bad>` errors rather than silently keeping the
+// default.
+func TestParseDirectionRejected(t *testing.T) {
+	_, err := Parse(strings.NewReader("timeline\ndirection sideways\n2000 : x"))
+	if err == nil {
+		t.Error("expected error for unknown direction")
+	}
+}

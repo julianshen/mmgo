@@ -11,9 +11,12 @@ type TimelineSection struct {
 }
 
 type TimelineDiagram struct {
-	Title    string
-	Sections []TimelineSection
-	Events   []TimelineEvent // top-level events when no sections
+	Title     string
+	AccTitle  string
+	AccDescr  string
+	Direction string // "LR" (default) or "TD"
+	Sections  []TimelineSection
+	Events    []TimelineEvent // top-level events when no sections
 }
 
 func (*TimelineDiagram) Type() DiagramType { return Timeline }

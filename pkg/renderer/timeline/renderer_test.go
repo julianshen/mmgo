@@ -163,3 +163,51 @@ func TestDefaultThemeStable(t *testing.T) {
 		t.Errorf("DefaultTheme drifted: %+v", got)
 	}
 }
+
+// AccTitle/AccDescr emit as <title>/<desc> SVG children.
+func TestRenderAccessibilityFields(t *testing.T) {
+	d := &diagram.TimelineDiagram{
+		AccTitle: "History of Web",
+		AccDescr: "Major web milestones",
+		Events: []diagram.TimelineEvent{
+			{Time: "2000", Events: []string{"Web 1.0"}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<title>History of Web</title>") {
+		t.Errorf("expected <title> in:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<desc>Major web milestones</desc>") {
+		t.Errorf("expected <desc> in:\n%s", raw)
+	}
+}
+
+// A period with multiple events renders one box per event,
+// stacked under the period header.
+func TestRenderMultiEventStacked(t *testing.T) {
+	d := &diagram.TimelineDiagram{
+		Events: []diagram.TimelineEvent{
+			{Time: "2005", Events: []string{"Web 2.0 rise", "Social networks"}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{">Web 2.0 rise<", ">Social networks<"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected %q stacked into separate box, got:\n%s", want, raw)
+		}
+	}
+	// Two events → two rect elements for the period (plus
+	// background, axis line; we look for the rounded rect rx="5"
+	// signature).
+	if got := strings.Count(raw, `rx="5.00"`); got < 2 {
+		t.Errorf("expected ≥2 rounded event boxes (rx=5), got %d", got)
+	}
+}
