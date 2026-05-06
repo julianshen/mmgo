@@ -211,3 +211,52 @@ func TestDefaultThemeStable(t *testing.T) {
 		t.Errorf("DefaultTheme drifted:\n got  %+v\n want %+v", got, want)
 	}
 }
+
+// AccTitle/AccDescr emit as <title>/<desc> SVG children.
+func TestRenderBlockAccessibility(t *testing.T) {
+	d := &diagram.BlockDiagram{
+		AccTitle: "System layout",
+		AccDescr: "Top-level boxes",
+		Nodes: []diagram.BlockNode{
+			{ID: "A", Label: "A"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<title>System layout</title>") {
+		t.Errorf("expected <title> in:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<desc>Top-level boxes</desc>") {
+		t.Errorf("expected <desc> in:\n%s", raw)
+	}
+}
+
+// Each new shape produces its hallmark SVG element.
+func TestRenderBlockExtendedShapes(t *testing.T) {
+	cases := []struct {
+		shape diagram.BlockShape
+		want  string
+	}{
+		{diagram.BlockShapeHexagon, "<polygon"},
+		{diagram.BlockShapeSubroutine, "<line"},
+		{diagram.BlockShapeDoubleCircle, "<circle"},
+		{diagram.BlockShapeCylinder, "<path"},
+	}
+	for _, tc := range cases {
+		d := &diagram.BlockDiagram{
+			Nodes: []diagram.BlockNode{
+				{ID: "A", Label: "A", Shape: tc.shape},
+			},
+		}
+		out, err := Render(d, nil)
+		if err != nil {
+			t.Fatalf("shape %v render: %v", tc.shape, err)
+		}
+		if !strings.Contains(string(out), tc.want) {
+			t.Errorf("shape %v: expected %q in output", tc.shape, tc.want)
+		}
+	}
+}
