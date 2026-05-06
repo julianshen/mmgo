@@ -20,6 +20,21 @@ func Parse(r io.Reader) (*diagram.BlockDiagram, error) {
 	headerSeen := false
 	nodeIdx := make(map[string]int)
 
+	// Each frame is the parser state for one nesting level: which
+	// `Items` slice new content lands in, and which `Columns` int
+	// `columns N` directives target. The bottom frame is the
+	// diagram itself; deeper frames are open `block:ID ... end`
+	// groups.
+	type frame struct {
+		items *[]diagram.BlockItem
+		group *diagram.BlockGroup
+		cols  *int
+	}
+	stack := []frame{{items: &d.Items, cols: &d.Columns}}
+	current := func() frame { return stack[len(stack)-1] }
+	push := func(f frame) { stack = append(stack, f) }
+	pop := func() { stack = stack[:len(stack)-1] }
+
 	for scanner.Scan() {
 		lineNum++
 		line := strings.TrimSpace(parserutil.StripComment(scanner.Text()))
@@ -44,11 +59,58 @@ func Parse(r io.Reader) (*diagram.BlockDiagram, error) {
 		if rest, ok := strings.CutPrefix(line, "columns "); ok {
 			n, err := strconv.Atoi(strings.TrimSpace(rest))
 			if err == nil && n > 0 {
-				d.Columns = n
+				*current().cols = n
 			}
 			continue
 		}
-		parseLine(d, line, nodeIdx)
+		if line == "end" {
+			if len(stack) == 1 {
+				return nil, fmt.Errorf("line %d: 'end' with no matching 'block:' to close", lineNum)
+			}
+			pop()
+			continue
+		}
+		if rest, ok := strings.CutPrefix(line, "block:"); ok {
+			grp, err := parseGroupHead(rest)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: %w", lineNum, err)
+			}
+			*current().items = append(*current().items, diagram.BlockItem{
+				Kind: diagram.BlockItemGroup, Group: grp,
+			})
+			push(frame{items: &grp.Items, group: grp, cols: &grp.Columns})
+			continue
+		}
+		if from, to, label, ok := matchArrow(line); ok {
+			ensureNode(d, nodeIdx, from, "", diagram.BlockShapeRect, 0)
+			ensureNode(d, nodeIdx, to, "", diagram.BlockShapeRect, 0)
+			d.Edges = append(d.Edges, diagram.BlockEdge{From: from, To: to, Label: label})
+			continue
+		}
+		// Token line: each whitespace-separated token becomes one
+		// item in the current scope. `space` / `space:N` is a
+		// reserved name that emits a spacer instead of a node.
+		for _, tok := range tokenize(line) {
+			head, width := splitWidthSuffix(tok)
+			if head == "space" {
+				cols := width
+				if cols <= 0 {
+					cols = 1
+				}
+				*current().items = append(*current().items, diagram.BlockItem{
+					Kind: diagram.BlockItemSpace, Cols: cols,
+				})
+				continue
+			}
+			id, label, shape := parseNodeToken(head)
+			if id == "" {
+				continue
+			}
+			ensureNode(d, nodeIdx, id, label, shape, width)
+			*current().items = append(*current().items, diagram.BlockItem{
+				Kind: diagram.BlockItemNodeRef, NodeID: id,
+			})
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("reading input: %w", err)
@@ -56,42 +118,76 @@ func Parse(r io.Reader) (*diagram.BlockDiagram, error) {
 	if !headerSeen {
 		return nil, fmt.Errorf("missing block-beta header")
 	}
+	if len(stack) != 1 {
+		return nil, fmt.Errorf("missing 'end' for block: %q", stack[len(stack)-1].group.ID)
+	}
 	return d, nil
 }
 
-func parseLine(d *diagram.BlockDiagram, line string, nodeIdx map[string]int) {
-	// Arrow line first so node tokens with shapes don't get misidentified.
-	if from, to, label, ok := matchArrow(line); ok {
-		ensureNode(d, nodeIdx, from, "", diagram.BlockShapeRect)
-		ensureNode(d, nodeIdx, to, "", diagram.BlockShapeRect)
-		d.Edges = append(d.Edges, diagram.BlockEdge{From: from, To: to, Label: label})
-		return
+// parseGroupHead parses the right-hand side of `block:` — i.e.
+// `ID`, `ID:N`, `ID["label"]`, or `ID["label"]:N` — into a fresh
+// BlockGroup. The group's `Items` are filled by subsequent lines
+// until a matching `end`.
+func parseGroupHead(s string) (*diagram.BlockGroup, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, fmt.Errorf("block: requires an identifier")
 	}
-	// Space-separated block tokens on a single line.
-	for _, tok := range tokenize(line) {
-		id, label, shape := parseNodeToken(tok)
-		if id != "" {
-			ensureNode(d, nodeIdx, id, label, shape)
-		}
+	head, width := splitWidthSuffix(s)
+	id, label, _ := parseNodeToken(head)
+	if id == "" {
+		return nil, fmt.Errorf("block: requires an identifier, got %q", s)
 	}
+	g := &diagram.BlockGroup{ID: id, Width: width}
+	if label != "" && label != id {
+		g.Label = label
+	}
+	return g, nil
 }
 
-func ensureNode(d *diagram.BlockDiagram, idx map[string]int, id, label string, shape diagram.BlockShape) {
+// splitWidthSuffix peels an optional trailing `:N` width
+// modifier off a token. The colon must come after the structural
+// closing bracket (so a bracket-enclosed label that itself
+// contains `:` is left alone). Returns (tok, 0) when no width
+// suffix is present.
+func splitWidthSuffix(tok string) (head string, width int) {
+	searchFrom := 0
+	if idx := strings.LastIndexAny(tok, "])}"); idx >= 0 {
+		searchFrom = idx + 1
+	}
+	colonAt := strings.LastIndex(tok[searchFrom:], ":")
+	if colonAt < 0 {
+		return tok, 0
+	}
+	abs := searchFrom + colonAt
+	n, err := strconv.Atoi(tok[abs+1:])
+	if err != nil || n <= 0 {
+		return tok, 0
+	}
+	return tok[:abs], n
+}
+
+func ensureNode(d *diagram.BlockDiagram, idx map[string]int, id, label string, shape diagram.BlockShape, width int) {
 	if label == "" {
 		label = id
 	}
 	if existing, ok := idx[id]; ok {
-		// Upgrade shape/label on redeclaration with explicit content.
+		// Upgrade shape/label/width on redeclaration with explicit
+		// content; otherwise keep the prior values so a later
+		// reference doesn't blank a previously-set label.
 		if label != id {
 			d.Nodes[existing].Label = label
 		}
 		if shape != diagram.BlockShapeRect {
 			d.Nodes[existing].Shape = shape
 		}
+		if width > 0 {
+			d.Nodes[existing].Width = width
+		}
 		return
 	}
 	idx[id] = len(d.Nodes)
-	d.Nodes = append(d.Nodes, diagram.BlockNode{ID: id, Label: label, Shape: shape})
+	d.Nodes = append(d.Nodes, diagram.BlockNode{ID: id, Label: label, Shape: shape, Width: width})
 }
 
 // parseNodeToken accepts shape-bracketed forms.
