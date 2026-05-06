@@ -8,9 +8,13 @@ const (
 	BlockShapeDiamond
 	BlockShapeStadium
 	BlockShapeCircle
+	BlockShapeHexagon
+	BlockShapeSubroutine
+	BlockShapeDoubleCircle
+	BlockShapeCylinder
 )
 
-var blockShapeNames = []string{"rect", "round", "diamond", "stadium", "circle"}
+var blockShapeNames = []string{"rect", "round", "diamond", "stadium", "circle", "hexagon", "subroutine", "doubleCircle", "cylinder"}
 
 func (s BlockShape) String() string { return enumString(s, blockShapeNames) }
 
@@ -27,9 +31,11 @@ type BlockEdge struct {
 }
 
 type BlockDiagram struct {
-	Columns int
-	Nodes   []BlockNode
-	Edges   []BlockEdge
+	Columns  int
+	AccTitle string
+	AccDescr string
+	Nodes    []BlockNode
+	Edges    []BlockEdge
 }
 
 func (*BlockDiagram) Type() DiagramType { return BlockDiag }

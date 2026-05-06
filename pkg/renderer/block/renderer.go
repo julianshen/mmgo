@@ -10,6 +10,7 @@ import (
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -67,6 +68,12 @@ func Render(d *diagram.BlockDiagram, opts *Options) ([]byte, error) {
 	viewH := sanitize(l.Height) + 2*pad
 
 	var children []any
+	if d.AccTitle != "" {
+		children = append(children, &svgutil.Title{Content: d.AccTitle})
+	}
+	if d.AccDescr != "" {
+		children = append(children, &svgutil.Desc{Content: d.AccDescr})
+	}
 	children = append(children, &defs{Markers: []marker{buildArrowMarker(th)}})
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
@@ -157,6 +164,62 @@ func renderNodes(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float6
 				Width: svgFloat(w), Height: svgFloat(h),
 				RX: svgFloat(h / 2), RY: svgFloat(h / 2),
 				Style: style,
+			})
+		case diagram.BlockShapeHexagon:
+			// Pointy-top hex with 1/4-width chamfers on each side.
+			cut := h / 2
+			pts := fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
+				x+cut, y, x+w-cut, y, x+w, cy, x+w-cut, y+h, x+cut, y+h, x, cy)
+			elems = append(elems, &polygon{Points: pts, Style: style})
+		case diagram.BlockShapeDoubleCircle:
+			// Two concentric circles share the inner fill; outer is
+			// drawn as a stroked-only hairline so the label still
+			// reads against the inner color.
+			r := w / 2
+			if h/2 < r {
+				r = h / 2
+			}
+			elems = append(elems, &circle{
+				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(r),
+				Style: fmt.Sprintf("fill:none;stroke:%s;stroke-width:1.5", th.NodeStroke),
+			})
+			elems = append(elems, &circle{
+				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(r - 4),
+				Style: style,
+			})
+		case diagram.BlockShapeSubroutine:
+			// Outer rect plus two inner vertical bars (the classic
+			// flowchart "subroutine" frame).
+			elems = append(elems, &rect{
+				X: svgFloat(x), Y: svgFloat(y),
+				Width: svgFloat(w), Height: svgFloat(h),
+				Style: style,
+			})
+			elems = append(elems, &line{
+				X1: svgFloat(x + 6), Y1: svgFloat(y),
+				X2: svgFloat(x + 6), Y2: svgFloat(y + h),
+				Style: fmt.Sprintf("stroke:%s;stroke-width:1.5", th.NodeStroke),
+			})
+			elems = append(elems, &line{
+				X1: svgFloat(x + w - 6), Y1: svgFloat(y),
+				X2: svgFloat(x + w - 6), Y2: svgFloat(y + h),
+				Style: fmt.Sprintf("stroke:%s;stroke-width:1.5", th.NodeStroke),
+			})
+		case diagram.BlockShapeCylinder:
+			// Body rect plus a top ellipse (the rim) and a half-arc
+			// at the bottom for visual depth.
+			elems = append(elems, &rect{
+				X: svgFloat(x), Y: svgFloat(y + 6),
+				Width: svgFloat(w), Height: svgFloat(h - 12),
+				Style: style,
+			})
+			elems = append(elems, &path{
+				D:     fmt.Sprintf("M%.2f,%.2f A%.2f,%.2f 0 0,0 %.2f,%.2f A%.2f,%.2f 0 0,0 %.2f,%.2f Z", x, y+6, w/2, 6.0, x+w, y+6, w/2, 6.0, x, y+6),
+				Style: style,
+			})
+			elems = append(elems, &path{
+				D:     fmt.Sprintf("M%.2f,%.2f A%.2f,%.2f 0 0,0 %.2f,%.2f", x, y+h-6, w/2, 6.0, x+w, y+h-6),
+				Style: fmt.Sprintf("fill:none;stroke:%s;stroke-width:1.5", th.NodeStroke),
 			})
 		default:
 			elems = append(elems, &rect{

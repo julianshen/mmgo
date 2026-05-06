@@ -169,3 +169,54 @@ func TestParseDashedEdge(t *testing.T) {
 		t.Fatalf("want 1 edge, got %d", len(d.Edges))
 	}
 }
+
+// accTitle / accDescr lines populate the matching AST fields.
+func TestParseAccessibility(t *testing.T) {
+	d, err := Parse(strings.NewReader(`block-beta
+    accTitle: System
+    accDescr: High-level layout
+    A B C`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.AccTitle != "System" {
+		t.Errorf("accTitle = %q", d.AccTitle)
+	}
+	if d.AccDescr != "High-level layout" {
+		t.Errorf("accDescr = %q", d.AccDescr)
+	}
+}
+
+// New shape lexicon: hexagon `{{...}}`, subroutine `[[...]]`,
+// double-circle `(((...)))`, cylinder `[(...)]`. Order matters
+// for paren-precedence (((  >  ((  >  ().
+func TestParseExtendedShapes(t *testing.T) {
+	cases := []struct {
+		input string
+		want  diagram.BlockShape
+		text  string
+	}{
+		{"H{{Hex}}", diagram.BlockShapeHexagon, "Hex"},
+		{"S[[Sub]]", diagram.BlockShapeSubroutine, "Sub"},
+		{"D(((Cd)))", diagram.BlockShapeDoubleCircle, "Cd"},
+		{"Y[(Cyl)]", diagram.BlockShapeCylinder, "Cyl"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("block-beta\n    " + tc.input))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(d.Nodes) != 1 {
+				t.Fatalf("nodes = %v", d.Nodes)
+			}
+			n := d.Nodes[0]
+			if n.Shape != tc.want {
+				t.Errorf("shape = %v, want %v", n.Shape, tc.want)
+			}
+			if n.Label != tc.text {
+				t.Errorf("label = %q, want %q", n.Label, tc.text)
+			}
+		})
+	}
+}

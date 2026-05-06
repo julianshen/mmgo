@@ -33,6 +33,14 @@ func Parse(r io.Reader) (*diagram.BlockDiagram, error) {
 			headerSeen = true
 			continue
 		}
+		if v, ok := parserutil.MatchKeywordValue(line, "accTitle"); ok {
+			d.AccTitle = v
+			continue
+		}
+		if v, ok := parserutil.MatchKeywordValue(line, "accDescr"); ok {
+			d.AccDescr = v
+			continue
+		}
 		if rest, ok := strings.CutPrefix(line, "columns "); ok {
 			n, err := strconv.Atoi(strings.TrimSpace(rest))
 			if err == nil && n > 0 {
@@ -86,19 +94,39 @@ func ensureNode(d *diagram.BlockDiagram, idx map[string]int, id, label string, s
 	d.Nodes = append(d.Nodes, diagram.BlockNode{ID: id, Label: label, Shape: shape})
 }
 
-// parseNodeToken accepts forms like `id`, `id[Label]`, `id(Label)`,
-// `id{Label}`, `id([Label])`, `id((Label))`.
+// parseNodeToken accepts shape-bracketed forms.
+//
+// Shape lexicon, in delimiter precedence order so longer pairs
+// match before their shorter prefixes:
+//
+//	id(((Label)))  → double-circle
+//	id((Label))    → circle
+//	id([Label])    → stadium
+//	id[(Label)]    → cylinder
+//	id[[Label]]    → subroutine
+//	id[Label]      → rect
+//	id{{Label}}    → hexagon
+//	id{Label}      → diamond
+//	id(Label)      → round
 func parseNodeToken(tok string) (id, label string, shape diagram.BlockShape) {
 	if i := strings.IndexAny(tok, "[({"); i > 0 {
 		id = tok[:i]
 		rest := tok[i:]
 		switch {
+		case strings.HasPrefix(rest, "((("):
+			return id, extractBetween(rest, "(((", ")))"), diagram.BlockShapeDoubleCircle
 		case strings.HasPrefix(rest, "(("):
 			return id, extractBetween(rest, "((", "))"), diagram.BlockShapeCircle
 		case strings.HasPrefix(rest, "(["):
 			return id, extractBetween(rest, "([", "])"), diagram.BlockShapeStadium
+		case strings.HasPrefix(rest, "[("):
+			return id, extractBetween(rest, "[(", ")]"), diagram.BlockShapeCylinder
+		case strings.HasPrefix(rest, "[["):
+			return id, extractBetween(rest, "[[", "]]"), diagram.BlockShapeSubroutine
 		case strings.HasPrefix(rest, "["):
 			return id, extractBetween(rest, "[", "]"), diagram.BlockShapeRect
+		case strings.HasPrefix(rest, "{{"):
+			return id, extractBetween(rest, "{{", "}}"), diagram.BlockShapeHexagon
 		case strings.HasPrefix(rest, "("):
 			return id, extractBetween(rest, "(", ")"), diagram.BlockShapeRound
 		case strings.HasPrefix(rest, "{"):
