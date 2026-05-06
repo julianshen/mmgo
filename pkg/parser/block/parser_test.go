@@ -220,3 +220,179 @@ func TestParseExtendedShapes(t *testing.T) {
 		})
 	}
 }
+
+// `block:ID ... end` opens a nested group. Items inside the group
+// flow into the group's Items slice, while flat Nodes still
+// receives every node for renderer-side ID lookup.
+func TestParseGroupBlock(t *testing.T) {
+	d, err := Parse(strings.NewReader(`block-beta
+columns 3
+A
+block:G
+  X Y
+end
+B`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Columns != 3 {
+		t.Errorf("columns = %d", d.Columns)
+	}
+	if len(d.Items) != 3 {
+		t.Fatalf("top-level items = %d, want 3", len(d.Items))
+	}
+	if d.Items[0].Kind != diagram.BlockItemNodeRef || d.Items[0].NodeID != "A" {
+		t.Errorf("items[0] = %+v", d.Items[0])
+	}
+	if d.Items[1].Kind != diagram.BlockItemGroup {
+		t.Fatalf("items[1] = %+v, want group", d.Items[1])
+	}
+	g := d.Items[1].Group
+	if g.ID != "G" || len(g.Items) != 2 {
+		t.Errorf("group = %+v", g)
+	}
+	if g.Items[0].NodeID != "X" || g.Items[1].NodeID != "Y" {
+		t.Errorf("group items = %+v", g.Items)
+	}
+	if d.Items[2].Kind != diagram.BlockItemNodeRef || d.Items[2].NodeID != "B" {
+		t.Errorf("items[2] = %+v", d.Items[2])
+	}
+	// Flat Nodes must include every id including those inside the
+	// group, so renderer/ensureNode lookups stay consistent.
+	gotIDs := []string{}
+	for _, n := range d.Nodes {
+		gotIDs = append(gotIDs, n.ID)
+	}
+	wantIDs := []string{"A", "X", "Y", "B"}
+	if len(gotIDs) != len(wantIDs) {
+		t.Errorf("Nodes ids = %v, want %v", gotIDs, wantIDs)
+	}
+	for i, w := range wantIDs {
+		if i < len(gotIDs) && gotIDs[i] != w {
+			t.Errorf("Nodes[%d].ID = %q, want %q", i, gotIDs[i], w)
+		}
+	}
+}
+
+// `block:ID:N` and `block:ID["label"]:N` populate the group's
+// Width and Label fields.
+func TestParseGroupWidthAndLabel(t *testing.T) {
+	d, err := Parse(strings.NewReader(`block-beta
+block:wide:3
+  A
+end
+block:nice["Display"]:2
+  B
+end`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Items) != 2 {
+		t.Fatalf("items = %v", d.Items)
+	}
+	g0 := d.Items[0].Group
+	if g0.ID != "wide" || g0.Width != 3 || g0.Label != "" {
+		t.Errorf("g0 = %+v", g0)
+	}
+	g1 := d.Items[1].Group
+	if g1.ID != "nice" || g1.Width != 2 || g1.Label != "Display" {
+		t.Errorf("g1 = %+v", g1)
+	}
+}
+
+// Nested groups push and pop their own scope. A `columns N` line
+// inside an inner group sets the inner group's Columns rather
+// than the outer's.
+func TestParseNestedGroups(t *testing.T) {
+	d, err := Parse(strings.NewReader(`block-beta
+columns 4
+block:outer
+  columns 2
+  block:inner
+    A B
+  end
+end`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Columns != 4 {
+		t.Errorf("top columns = %d, want 4", d.Columns)
+	}
+	outer := d.Items[0].Group
+	if outer.ID != "outer" || outer.Columns != 2 {
+		t.Errorf("outer = %+v", outer)
+	}
+	if len(outer.Items) != 1 || outer.Items[0].Kind != diagram.BlockItemGroup {
+		t.Fatalf("outer.Items = %+v", outer.Items)
+	}
+	inner := outer.Items[0].Group
+	if inner.ID != "inner" || len(inner.Items) != 2 {
+		t.Errorf("inner = %+v", inner)
+	}
+}
+
+// `space` and `space:N` emit a Space item with the requested
+// column count (default 1). Bare `space` may also appear inline
+// among other tokens on a row.
+func TestParseSpaceTokens(t *testing.T) {
+	d, err := Parse(strings.NewReader(`block-beta
+A space B
+space:3
+C`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	wantKinds := []diagram.BlockItemKind{
+		diagram.BlockItemNodeRef, // A
+		diagram.BlockItemSpace,   // inline space
+		diagram.BlockItemNodeRef, // B
+		diagram.BlockItemSpace,   // space:3
+		diagram.BlockItemNodeRef, // C
+	}
+	if len(d.Items) != len(wantKinds) {
+		t.Fatalf("items = %v", d.Items)
+	}
+	for i, want := range wantKinds {
+		if d.Items[i].Kind != want {
+			t.Errorf("items[%d].Kind = %v, want %v", i, d.Items[i].Kind, want)
+		}
+	}
+	if d.Items[1].Cols != 1 {
+		t.Errorf("inline space cols = %d", d.Items[1].Cols)
+	}
+	if d.Items[3].Cols != 3 {
+		t.Errorf("space:3 cols = %d", d.Items[3].Cols)
+	}
+}
+
+// `id:N` width suffix on a node persists onto BlockNode.Width.
+func TestParseNodeWidthSuffix(t *testing.T) {
+	d, err := Parse(strings.NewReader(`block-beta
+columns 4
+A:2 B[Wide]:3 C`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	want := map[string]int{"A": 2, "B": 3, "C": 0}
+	for _, n := range d.Nodes {
+		if got := n.Width; got != want[n.ID] {
+			t.Errorf("%s width = %d, want %d", n.ID, got, want[n.ID])
+		}
+	}
+	if d.Nodes[1].Label != "Wide" {
+		t.Errorf("B label = %q", d.Nodes[1].Label)
+	}
+}
+
+// Unbalanced 'end' (no open group) and missing 'end' (open group
+// at EOF) both surface as parse errors with line context.
+func TestParseGroupBalanceErrors(t *testing.T) {
+	for _, src := range []string{
+		"block-beta\nend",
+		"block-beta\nblock:G\n  A",
+	} {
+		if _, err := Parse(strings.NewReader(src)); err == nil {
+			t.Errorf("expected error for:\n%s", src)
+		}
+	}
+}
