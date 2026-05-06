@@ -74,7 +74,7 @@ func Render(d *diagram.BlockDiagram, opts *Options) ([]byte, error) {
 	if d.AccDescr != "" {
 		children = append(children, &svgutil.Desc{Content: d.AccDescr})
 	}
-	children = append(children, &defs{Markers: []marker{buildArrowMarker(th)}})
+	children = append(children, &defs{Markers: buildArrowMarkers(th)})
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
@@ -221,6 +221,36 @@ func renderNodes(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float6
 				D:     fmt.Sprintf("M%.2f,%.2f A%.2f,%.2f 0 0,0 %.2f,%.2f", x, y+h-6, w/2, 6.0, x+w, y+h-6),
 				Style: fmt.Sprintf("fill:none;stroke:%s;stroke-width:1.5", th.NodeStroke),
 			})
+		case diagram.BlockShapeAsymmetric:
+			// `>flag]` — chevron-tipped rect: pentagonal flag.
+			notch := h / 3
+			pts := fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
+				x, y, x+w-notch, y, x+w, cy, x+w-notch, y+h, x, y+h)
+			elems = append(elems, &polygon{Points: pts, Style: style})
+		case diagram.BlockShapeParallelogram:
+			// `[/.../]` slants the top-right and bottom-left corners.
+			slant := h / 3
+			pts := fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
+				x+slant, y, x+w, y, x+w-slant, y+h, x, y+h)
+			elems = append(elems, &polygon{Points: pts, Style: style})
+		case diagram.BlockShapeParallelogramAlt:
+			// `[\...\]` — mirrored slant.
+			slant := h / 3
+			pts := fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
+				x, y, x+w-slant, y, x+w, y+h, x+slant, y+h)
+			elems = append(elems, &polygon{Points: pts, Style: style})
+		case diagram.BlockShapeTrapezoid:
+			// `[/...\]` — wider at the bottom.
+			slant := h / 3
+			pts := fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
+				x+slant, y, x+w-slant, y, x+w, y+h, x, y+h)
+			elems = append(elems, &polygon{Points: pts, Style: style})
+		case diagram.BlockShapeTrapezoidAlt:
+			// `[\.../]` — wider at the top.
+			slant := h / 3
+			pts := fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
+				x, y, x+w, y, x+w-slant, y+h, x+slant, y+h)
+			elems = append(elems, &polygon{Points: pts, Style: style})
 		default:
 			elems = append(elems, &rect{
 				X: svgFloat(x), Y: svgFloat(y),
@@ -278,12 +308,18 @@ func renderEdges(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float6
 		for i, p := range el.Points {
 			pts[i] = layout.Point{X: p.X + pad, Y: p.Y + pad}
 		}
-		style := fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke)
+		style := edgeStyle(edge, th)
+		if style == "" {
+			// Invisible edge — skip rendering entirely.
+			continue
+		}
+		markerEnd := edgeMarker(edge.ArrowHead)
+		markerStart := edgeMarker(edge.ArrowTail)
 		if len(pts) == 2 {
 			elems = append(elems, &line{
 				X1: svgFloat(pts[0].X), Y1: svgFloat(pts[0].Y),
 				X2: svgFloat(pts[1].X), Y2: svgFloat(pts[1].Y),
-				Style: style, MarkerEnd: "url(#block-arrow)",
+				Style: style, MarkerEnd: markerEnd, MarkerStart: markerStart,
 			})
 		} else {
 			var b strings.Builder
@@ -291,7 +327,7 @@ func renderEdges(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float6
 			for _, p := range pts[1:] {
 				fmt.Fprintf(&b, " L%.2f,%.2f", p.X, p.Y)
 			}
-			elems = append(elems, &path{D: b.String(), Style: style, MarkerEnd: "url(#block-arrow)"})
+			elems = append(elems, &path{D: b.String(), Style: style, MarkerEnd: markerEnd, MarkerStart: markerStart})
 		}
 
 		if edge.Label != "" {
@@ -308,10 +344,65 @@ func renderEdges(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float6
 	return elems
 }
 
-func buildArrowMarker(th Theme) marker {
-	return marker{
-		ID: "block-arrow", ViewBox: "0 0 10 10",
-		RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto",
-		Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", th.EdgeStroke)}},
+// buildArrowMarkers returns the full set of head/tail markers used
+// by the block edge lexicon. Each kind in BlockEdge.ArrowHead /
+// ArrowTail picks one of these by ID; ArrowHeadNone uses no
+// marker at all.
+func buildArrowMarkers(th Theme) []marker {
+	stroke := fmt.Sprintf("stroke:%s;fill:none", th.EdgeStroke)
+	fill := fmt.Sprintf("fill:%s", th.EdgeStroke)
+	return []marker{
+		{
+			ID: "block-arrow", ViewBox: "0 0 10 10",
+			RefX: 9, RefY: 5, Width: 8, Height: 8, Orient: "auto",
+			Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fill}},
+		},
+		{
+			// `--x` cross marker — two diagonals through the centre.
+			ID: "block-cross", ViewBox: "0 0 10 10",
+			RefX: 5, RefY: 5, Width: 10, Height: 10, Orient: "auto",
+			Children: []any{
+				&line{X1: 0, Y1: 0, X2: 10, Y2: 10, Style: stroke},
+				&line{X1: 10, Y1: 0, X2: 0, Y2: 10, Style: stroke},
+			},
+		},
+		{
+			// `--o` open-circle marker — hollow ring.
+			ID: "block-circle", ViewBox: "0 0 10 10",
+			RefX: 9, RefY: 5, Width: 10, Height: 10, Orient: "auto",
+			Children: []any{
+				&svgutil.Circle{CX: 5, CY: 5, R: 4, Style: fmt.Sprintf("fill:%s;stroke:%s", th.Background, th.EdgeStroke)},
+			},
+		},
+	}
+}
+
+// edgeStyle assembles the stroke-pattern CSS for a block edge from
+// its LineStyle. Thick / dotted / invisible map to width or
+// dasharray modifications on top of the theme stroke colour.
+// Returns "" when the edge should be skipped entirely (invisible).
+func edgeStyle(e diagram.BlockEdge, th Theme) string {
+	switch e.LineStyle {
+	case diagram.LineStyleInvisible:
+		return ""
+	case diagram.LineStyleThick:
+		return fmt.Sprintf("stroke:%s;stroke-width:3;fill:none", th.EdgeStroke)
+	case diagram.LineStyleDotted:
+		return fmt.Sprintf("stroke:%s;stroke-width:1.5;stroke-dasharray:4 4;fill:none", th.EdgeStroke)
+	default:
+		return fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke)
+	}
+}
+
+func edgeMarker(h diagram.ArrowHead) string {
+	switch h {
+	case diagram.ArrowHeadArrow:
+		return "url(#block-arrow)"
+	case diagram.ArrowHeadCross:
+		return "url(#block-cross)"
+	case diagram.ArrowHeadCircle:
+		return "url(#block-circle)"
+	default:
+		return ""
 	}
 }
