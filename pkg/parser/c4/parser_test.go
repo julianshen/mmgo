@@ -312,3 +312,121 @@ System(s, "X")`))
 		t.Error("expected error for unterminated accDescr block")
 	}
 }
+
+// `Boundary( ... ) { ... }` opens a nested scope; elements inside
+// land in the flat Elements list AND the boundary's child slice.
+// The trailing `{` may be on the same line or the next.
+func TestParseC4BoundaryBlock(t *testing.T) {
+	d, err := Parse(strings.NewReader(`C4Context
+Boundary(b1, "Bank") {
+  System(s, "Internet Banking")
+  Person(u, "Customer")
+}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Boundaries) != 1 {
+		t.Fatalf("boundaries = %v", d.Boundaries)
+	}
+	b := d.Boundaries[0]
+	if b.ID != "b1" || b.Label != "Bank" || b.Kind != diagram.C4BoundaryGeneric {
+		t.Errorf("boundary = %+v", b)
+	}
+	if len(b.Elements) != 2 {
+		t.Errorf("boundary elements idx = %v, want 2", b.Elements)
+	}
+	// Flat Elements still has both entries.
+	if len(d.Elements) != 2 {
+		t.Errorf("flat Elements = %v", d.Elements)
+	}
+}
+
+// Each documented boundary keyword maps to its kind.
+func TestParseC4BoundaryKinds(t *testing.T) {
+	cases := []struct {
+		input string
+		want  diagram.C4BoundaryKind
+	}{
+		{`Boundary(b, "X") {`, diagram.C4BoundaryGeneric},
+		{`System_Boundary(b, "X") {`, diagram.C4BoundarySystem},
+		{`Enterprise_Boundary(b, "X") {`, diagram.C4BoundaryEnterprise},
+		{`Container_Boundary(b, "X") {`, diagram.C4BoundaryContainer},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("C4Context\n" + tc.input + "\n}\n"))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(d.Boundaries) != 1 {
+				t.Fatalf("boundaries = %v", d.Boundaries)
+			}
+			if d.Boundaries[0].Kind != tc.want {
+				t.Errorf("kind = %v, want %v", d.Boundaries[0].Kind, tc.want)
+			}
+		})
+	}
+}
+
+// Nested boundaries form a tree; inner element idx lands in the
+// inner boundary, NOT the outer.
+func TestParseC4BoundaryNested(t *testing.T) {
+	d, err := Parse(strings.NewReader(`C4Container
+Enterprise_Boundary(ent, "Enterprise") {
+  System_Boundary(sys, "System") {
+    Container(c, "App", "Go")
+  }
+}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Boundaries) != 1 {
+		t.Fatalf("boundaries = %v", d.Boundaries)
+	}
+	ent := d.Boundaries[0]
+	if len(ent.Boundaries) != 1 || len(ent.Elements) != 0 {
+		t.Errorf("ent = %+v", ent)
+	}
+	sys := ent.Boundaries[0]
+	if sys.Kind != diagram.C4BoundarySystem || len(sys.Elements) != 1 {
+		t.Errorf("sys = %+v", sys)
+	}
+	if d.Elements[sys.Elements[0]].ID != "c" {
+		t.Errorf("inner element id mismatch")
+	}
+}
+
+// A `}` with no matching `Boundary(` errors with line context.
+func TestParseC4BoundaryUnmatchedClose(t *testing.T) {
+	_, err := Parse(strings.NewReader(`C4Context
+Person(u, "X")
+}`))
+	if err == nil {
+		t.Error("expected error for unmatched '}'")
+	}
+}
+
+// A `Boundary(` without a closing `}` errors at EOF.
+func TestParseC4BoundaryUnterminated(t *testing.T) {
+	_, err := Parse(strings.NewReader(`C4Context
+Boundary(b, "X") {
+  Person(u, "Y")`))
+	if err == nil {
+		t.Error("expected error for unterminated boundary")
+	}
+}
+
+// The trailing `{` may live on its own line.
+func TestParseC4BoundaryBraceOnNextLine(t *testing.T) {
+	d, err := Parse(strings.NewReader(`C4Context
+Boundary(b, "X")
+{
+  Person(u, "Y")
+}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Boundaries) != 1 || len(d.Boundaries[0].Elements) != 1 {
+		t.Errorf("boundary = %+v", d.Boundaries[0])
+	}
+}

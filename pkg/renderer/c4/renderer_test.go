@@ -339,3 +339,29 @@ func TestRenderC4DeploymentNodeDashed(t *testing.T) {
 		t.Errorf("Deployment_Node should render with dashed border")
 	}
 }
+
+// A boundary block emits a dashed-frame rect plus its `«kind»`
+// stereotype label behind the inner elements.
+func TestRenderC4BoundaryFrame(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContext,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User"},
+			{ID: "s", Kind: diagram.C4ElementSystem, Label: "App"},
+		},
+		Boundaries: []*diagram.C4Boundary{
+			{ID: "b", Label: "Bank", Kind: diagram.C4BoundarySystem, Elements: []int{0, 1}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "stroke-dasharray:6 4") {
+		t.Errorf("expected dashed boundary frame in:\n%s", raw)
+	}
+	if !strings.Contains(raw, "Bank «system_boundary»") {
+		t.Errorf("expected boundary heading in:\n%s", raw)
+	}
+}

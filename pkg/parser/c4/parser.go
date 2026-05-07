@@ -60,6 +60,13 @@ var elementKeywords = []struct {
 	{"Node", diagram.C4ElementDeploymentNode},
 }
 
+// c4Frame is one entry on the boundary scope stack. boundary is
+// nil for the top-level (diagram) scope; otherwise it's the open
+// boundary that newly-parsed elements should attach to.
+type c4Frame struct {
+	boundary *diagram.C4Boundary
+}
+
 func Parse(r io.Reader) (*diagram.C4Diagram, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
@@ -68,6 +75,13 @@ func Parse(r io.Reader) (*diagram.C4Diagram, error) {
 	headerSeen := false
 	var accDescrLines []string
 	inAccDescrBlock := false
+	stack := []c4Frame{{}} // root frame
+	// pendingBoundary holds a boundary whose `{` lived on a
+	// separate line. The next non-blank line, if it's a bare
+	// `{`, opens the boundary's scope; otherwise the pending
+	// boundary is treated as childless and the parser proceeds
+	// normally with that line.
+	var pendingBoundary *diagram.C4Boundary
 
 	for scanner.Scan() {
 		lineNum++
@@ -98,7 +112,48 @@ func Parse(r io.Reader) (*diagram.C4Diagram, error) {
 			inAccDescrBlock = true
 			continue
 		}
-		if err := parseLine(d, line); err != nil {
+		// A bare `{` after a `Boundary(...)` whose brace lived on
+		// a separate line opens that boundary's scope.
+		if line == "{" && pendingBoundary != nil {
+			stack = append(stack, c4Frame{boundary: pendingBoundary})
+			pendingBoundary = nil
+			continue
+		}
+		pendingBoundary = nil
+		// `}` closes the most recent open boundary.
+		if line == "}" {
+			if len(stack) == 1 {
+				return nil, fmt.Errorf("line %d: unmatched '}' (no open Boundary)", lineNum)
+			}
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		// Boundary opener: `Boundary(...) {`, `System_Boundary(...) {`, etc.
+		// The trailing `{` may live on the same line or be the only
+		// content of the next line.
+		if kind, rest, ok := matchBoundaryKeyword(line); ok {
+			args, opened, err := splitBoundaryHead(rest)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: %w", lineNum, err)
+			}
+			b, err := parseBoundary(kind, args)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: %w", lineNum, err)
+			}
+			parent := stack[len(stack)-1].boundary
+			if parent == nil {
+				d.Boundaries = append(d.Boundaries, b)
+			} else {
+				parent.Boundaries = append(parent.Boundaries, b)
+			}
+			if opened {
+				stack = append(stack, c4Frame{boundary: b})
+			} else {
+				pendingBoundary = b
+			}
+			continue
+		}
+		if err := parseLine(d, line, stack[len(stack)-1].boundary); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
 	}
@@ -108,13 +163,16 @@ func Parse(r io.Reader) (*diagram.C4Diagram, error) {
 	if inAccDescrBlock {
 		return nil, fmt.Errorf("unterminated accDescr { ... } block")
 	}
+	if len(stack) > 1 {
+		return nil, fmt.Errorf("unterminated Boundary block %q", stack[len(stack)-1].boundary.ID)
+	}
 	if !headerSeen {
 		return nil, fmt.Errorf("missing C4 header")
 	}
 	return d, nil
 }
 
-func parseLine(d *diagram.C4Diagram, line string) error {
+func parseLine(d *diagram.C4Diagram, line string, scope *diagram.C4Boundary) error {
 	if v, ok := parserutil.MatchKeywordValue(line, "title"); ok {
 		d.Title = v
 		return nil
@@ -140,7 +198,11 @@ func parseLine(d *diagram.C4Diagram, line string) error {
 	//          Container(id, "label", "technology"[, "description"])
 	if kind, rest, ok := matchElementKeyword(line); ok {
 		if elem, ok := parseElement(kind, rest); ok {
+			idx := len(d.Elements)
 			d.Elements = append(d.Elements, elem)
+			if scope != nil {
+				scope.Elements = append(scope.Elements, idx)
+			}
 		}
 	}
 	return nil
@@ -239,3 +301,65 @@ func splitArgs(s string) []string {
 	return raw
 }
 
+
+// boundaryKeywords pairs each documented boundary keyword with
+// its kind. Ordered longest-first so `Container_Boundary(` wins
+// over `Boundary(`.
+var boundaryKeywords = []struct {
+	kw   string
+	kind diagram.C4BoundaryKind
+}{
+	{"Enterprise_Boundary", diagram.C4BoundaryEnterprise},
+	{"Container_Boundary", diagram.C4BoundaryContainer},
+	{"System_Boundary", diagram.C4BoundarySystem},
+	{"Boundary", diagram.C4BoundaryGeneric},
+}
+
+func matchBoundaryKeyword(line string) (diagram.C4BoundaryKind, string, bool) {
+	for _, bk := range boundaryKeywords {
+		if rest, ok := strings.CutPrefix(line, bk.kw+"("); ok {
+			return bk.kind, rest, true
+		}
+	}
+	return 0, "", false
+}
+
+// splitBoundaryHead extracts the parenthesized argument list from
+// the rest of a `Boundary(args) [{]` line. Returns (args, opened,
+// err) where opened reports whether a `{` was present on the same
+// line. A missing `{` is fine — the next non-blank line may carry
+// it standalone.
+func splitBoundaryHead(rest string) (args string, opened bool, err error) {
+	close := strings.LastIndex(rest, ")")
+	if close < 0 {
+		return "", false, fmt.Errorf("Boundary: missing closing ')'")
+	}
+	args = rest[:close]
+	tail := strings.TrimSpace(rest[close+1:])
+	switch tail {
+	case "":
+		return args, false, nil
+	case "{":
+		return args, true, nil
+	}
+	return "", false, fmt.Errorf("Boundary: unexpected trailing content after ')': %q", tail)
+}
+
+// parseBoundary turns a `Boundary(alias, "label", ?type, ?tags, $link)`
+// argument list into a fresh C4Boundary. Today only the positional
+// alias / label / optional type are recognised; named-arg `$tags=` /
+// `$link=` parsing lands in Phase 3.
+func parseBoundary(kind diagram.C4BoundaryKind, rest string) (*diagram.C4Boundary, error) {
+	args := splitArgs(rest)
+	if len(args) < 1 {
+		return nil, fmt.Errorf("Boundary: requires at least an alias")
+	}
+	b := &diagram.C4Boundary{Kind: kind, ID: args[0]}
+	if len(args) >= 2 {
+		b.Label = parserutil.Unquote(args[1])
+	}
+	if len(args) >= 3 {
+		b.Type = parserutil.Unquote(args[2])
+	}
+	return b, nil
+}

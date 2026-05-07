@@ -87,6 +87,12 @@ func Render(d *diagram.C4Diagram, opts *Options) ([]byte, error) {
 		})
 	}
 
+	// Boundaries paint behind edges + elements so the dashed frame
+	// reads as a backdrop. Walk the tree depth-first so nested
+	// boundaries are emitted in source order — outermost first
+	// is fine since the inner frames sit inside the outer's bbox
+	// either way.
+	children = append(children, renderBoundaries(d, l, pad, titleOffset, fontSize, th)...)
 	children = append(children, renderEdges(d, l, pad, titleOffset, fontSize, th, ruler)...)
 	children = append(children, renderElements(d, l, pad, titleOffset, fontSize, th)...)
 
@@ -402,4 +408,127 @@ func buildArrowMarker(th Theme) marker {
 		RefX: 9, RefY: 5, Width: 12, Height: 12, Orient: "auto",
 		Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", th.EdgeStroke)}},
 	}
+}
+
+// boundaryPad is the breathing room a boundary frame leaves around
+// its tightest child bounding box. Picked empirically — large
+// enough that the dashed border doesn't kiss the inner shapes,
+// small enough that nested boundaries still nest visibly.
+const boundaryPad = 18.0
+
+// renderBoundaries walks the diagram's Boundaries tree, computing
+// each boundary's bounding box from its element/sub-boundary
+// positions and emitting a dashed rect plus a stereotype + name
+// label aligned to the top-left corner. Boundaries with no
+// resolvable children (parser registered them but no children
+// landed in the layout result) are skipped silently.
+func renderBoundaries(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize float64, th Theme) []any {
+	var elems []any
+	for _, b := range d.Boundaries {
+		elems = append(elems, renderBoundary(d, b, l, pad, titleOff, fontSize, th)...)
+	}
+	return elems
+}
+
+func renderBoundary(d *diagram.C4Diagram, b *diagram.C4Boundary, l *layout.Result, pad, titleOff, fontSize float64, th Theme) []any {
+	bbox, ok := boundaryBBox(d, b, l, pad, titleOff)
+	if !ok {
+		return nil
+	}
+	x0 := bbox.minX - boundaryPad
+	y0 := bbox.minY - boundaryPad - 12 // extra room for the heading
+	x1 := bbox.maxX + boundaryPad
+	y1 := bbox.maxY + boundaryPad
+	stroke := th.EdgeStroke
+	if stroke == "" {
+		stroke = "#666"
+	}
+	out := []any{
+		&rect{
+			X: svgFloat(x0), Y: svgFloat(y0),
+			Width:  svgFloat(x1 - x0),
+			Height: svgFloat(y1 - y0),
+			RX:     6, RY: 6,
+			Style: fmt.Sprintf("fill:none;stroke:%s;stroke-width:1.2;stroke-dasharray:6 4", stroke),
+		},
+		&text{
+			X: svgFloat(x0 + 8), Y: svgFloat(y0 + 6),
+			Anchor: "start", Dominant: "hanging",
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize-1),
+			Content: boundaryHeading(b),
+		},
+	}
+	for _, child := range b.Boundaries {
+		out = append(out, renderBoundary(d, child, l, pad, titleOff, fontSize, th)...)
+	}
+	return out
+}
+
+// boundaryHeading composes the visible label: `Name <<kind>>` with
+// the stereotype tag the spec uses for boundaries.
+func boundaryHeading(b *diagram.C4Boundary) string {
+	name := b.Label
+	if name == "" {
+		name = b.ID
+	}
+	return fmt.Sprintf("%s «%s»", name, b.Kind.String())
+}
+
+type c4BBox struct{ minX, minY, maxX, maxY float64 }
+
+// boundaryBBox unions every child element's and nested boundary's
+// rect into one bounding box. Returns ok=false when no children
+// resolve in the layout — that happens when a Boundary( ) parses
+// successfully but every child id failed lookup, which is a
+// degenerate input we skip rather than crash.
+func boundaryBBox(d *diagram.C4Diagram, b *diagram.C4Boundary, l *layout.Result, pad, titleOff float64) (c4BBox, bool) {
+	bb := c4BBox{}
+	any := false
+	expand := func(x, y, w, h float64) {
+		x0 := x - w/2
+		y0 := y - h/2
+		x1 := x + w/2
+		y1 := y + h/2
+		if !any {
+			bb.minX, bb.minY, bb.maxX, bb.maxY = x0, y0, x1, y1
+			any = true
+			return
+		}
+		if x0 < bb.minX {
+			bb.minX = x0
+		}
+		if y0 < bb.minY {
+			bb.minY = y0
+		}
+		if x1 > bb.maxX {
+			bb.maxX = x1
+		}
+		if y1 > bb.maxY {
+			bb.maxY = y1
+		}
+	}
+	for _, idx := range b.Elements {
+		if idx < 0 || idx >= len(d.Elements) {
+			continue
+		}
+		nl, ok := l.Nodes[d.Elements[idx].ID]
+		if !ok {
+			continue
+		}
+		expand(nl.X+pad, nl.Y+pad+titleOff, nl.Width, nl.Height)
+	}
+	for _, child := range b.Boundaries {
+		cb, ok := boundaryBBox(d, child, l, pad, titleOff)
+		if !ok {
+			continue
+		}
+		// Treat the nested bbox as a "virtual element" centered
+		// on its midpoint, so the parent grows around it.
+		cw := cb.maxX - cb.minX + 2*boundaryPad
+		ch := cb.maxY - cb.minY + 2*boundaryPad + 12
+		cx := (cb.minX + cb.maxX) / 2
+		cy := (cb.minY + cb.maxY) / 2
+		expand(cx, cy, cw, ch)
+	}
+	return bb, any
 }

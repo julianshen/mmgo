@@ -85,6 +85,38 @@ type C4Relation struct {
 	Direction  C4RelDirection
 }
 
+// C4BoundaryKind discriminates among the documented boundary
+// container keywords. Each draws as a dashed outer rectangle with
+// a `<<kind>>` stereotype label; layout-aware renderers can use
+// the kind to pick a fill / heading style.
+type C4BoundaryKind int8
+
+const (
+	C4BoundaryGeneric C4BoundaryKind = iota
+	C4BoundarySystem
+	C4BoundaryEnterprise
+	C4BoundaryContainer
+)
+
+var c4BoundaryKindNames = []string{"boundary", "system_boundary", "enterprise_boundary", "container_boundary"}
+
+func (k C4BoundaryKind) String() string { return enumString(k, c4BoundaryKindNames) }
+
+// C4Boundary is a `Boundary(...) { ... }` container. Children
+// indexes into the parent diagram's flat Elements slice (or, for
+// nested groups, into Boundaries). Tags / Type are reserved for
+// Phase 3 named-arg parsing.
+type C4Boundary struct {
+	ID         string
+	Label      string
+	Type       string
+	Kind       C4BoundaryKind
+	Tags       string
+	Link       string
+	Elements   []int        // indexes into C4Diagram.Elements
+	Boundaries []*C4Boundary
+}
+
 type C4Diagram struct {
 	Variant   C4Variant
 	Title     string
@@ -92,6 +124,13 @@ type C4Diagram struct {
 	AccDescr  string
 	Elements  []C4Element
 	Relations []C4Relation
+	// Boundaries are top-level boundary blocks parsed from the
+	// source. Nested boundaries live in each parent's Boundaries
+	// slice; an element appearing inside a boundary is added to
+	// the flat Elements list (so existing renderer-side ID
+	// lookups keep working) AND has its index appended to the
+	// surrounding boundary's Elements slice.
+	Boundaries []*C4Boundary
 }
 
 func (*C4Diagram) Type() DiagramType { return C4 }
