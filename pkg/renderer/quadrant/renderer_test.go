@@ -381,10 +381,12 @@ func TestRenderQuadrantPerQuadrantFills(t *testing.T) {
 		Quadrant3: "Q3", Quadrant4: "Q4",
 	}
 	out, err := Render(d, &Options{Theme: Theme{
-		Quadrant1Fill: "#aabbcc",
-		Quadrant2Fill: "#ccbbaa",
-		Quadrant3Fill: "#ddeeff",
-		Quadrant4Fill: "#ffeedd",
+		Quadrants: [4]QuadrantPalette{
+			{Fill: "#aabbcc"}, // Q1 top-right
+			{Fill: "#ccbbaa"}, // Q2 top-left
+			{Fill: "#ddeeff"}, // Q3 bottom-left
+			{Fill: "#ffeedd"}, // Q4 bottom-right
+		},
 	}})
 	if err != nil {
 		t.Fatalf("Render: %v", err)

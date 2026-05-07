@@ -33,10 +33,6 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	if d == nil {
 		return nil, fmt.Errorf("quadrant render: diagram is nil")
 	}
-	fontSize := defaultFontSize
-	if opts != nil && opts.FontSize > 0 {
-		fontSize = opts.FontSize
-	}
 	th := resolveTheme(opts)
 	cfg := resolveConfig(opts)
 	// Options.FontSize is the legacy "scale every label" knob —
@@ -75,24 +71,26 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	xAxisAtTop := cfg.XAxisPosition == AxisPositionTop || (cfg.XAxisPosition == AxisPositionAuto && onlyBottomQuadrantsPopulated(d))
 	yAxisAtRight := cfg.YAxisPosition == AxisPositionRight || (cfg.YAxisPosition == AxisPositionAuto && onlyRightQuadrantsPopulated(d))
 
-	// Leave room for axis labels on whichever side they sit.
-	axisGap := cfg.XAxisLabelFontSize + 2*cfg.XAxisLabelPadding
+	// Each axis has its own gap because the documented config
+	// supplies separate font-size + padding values for X and Y.
+	xAxisGap := cfg.XAxisLabelFontSize + 2*cfg.XAxisLabelPadding
+	yAxisGap := cfg.YAxisLabelFontSize + 2*cfg.YAxisLabelPadding
 	leftPad := pageMarginX
 	rightPad := pageMarginX
 	topPad := pageMarginY + titleH
 	bottomPad := pageMarginY
 	if d.YAxisLow != "" || d.YAxisHigh != "" {
 		if yAxisAtRight {
-			rightPad += axisGap
+			rightPad += yAxisGap
 		} else {
-			leftPad += axisGap
+			leftPad += yAxisGap
 		}
 	}
 	if d.XAxisLow != "" || d.XAxisHigh != "" {
 		if xAxisAtTop {
-			topPad += axisGap
+			topPad += xAxisGap
 		} else {
-			bottomPad += axisGap
+			bottomPad += xAxisGap
 		}
 	}
 
@@ -124,23 +122,34 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	// per-quadrant rects. Keeping the single-rect path preserves
 	// SVG output stability when callers don't override the
 	// quadrant palette.
-	hasPerQuadrant := th.Quadrant1Fill != "" || th.Quadrant2Fill != "" ||
-		th.Quadrant3Fill != "" || th.Quadrant4Fill != ""
+	// Per-quadrant rect bounds in math-convention order
+	// (Q1=top-right, Q2=top-left, Q3=bottom-left, Q4=bottom-right).
+	type quadRect struct{ x0, y0, x1, y1 float64 }
+	quadRects := [4]quadRect{
+		{midX, plotY0, plotX1, midY},   // Q1 top-right
+		{plotX0, plotY0, midX, midY},   // Q2 top-left
+		{plotX0, midY, midX, plotY1},   // Q3 bottom-left
+		{midX, midY, plotX1, plotY1},   // Q4 bottom-right
+	}
+	hasPerQuadrant := false
+	for _, q := range th.Quadrants {
+		if q.Fill != "" {
+			hasPerQuadrant = true
+			break
+		}
+	}
 	if hasPerQuadrant {
-		quadrantRect := func(x0, y0, x1, y1 float64, fill string) {
+		for i, qr := range quadRects {
+			fill := th.Quadrants[i].Fill
 			if fill == "" {
 				fill = th.PlotFill
 			}
 			children = append(children, &rect{
-				X: svgFloat(x0), Y: svgFloat(y0),
-				Width: svgFloat(x1 - x0), Height: svgFloat(y1 - y0),
+				X: svgFloat(qr.x0), Y: svgFloat(qr.y0),
+				Width: svgFloat(qr.x1 - qr.x0), Height: svgFloat(qr.y1 - qr.y0),
 				Style: fmt.Sprintf("fill:%s;stroke:none", fill),
 			})
 		}
-		quadrantRect(midX, plotY0, plotX1, midY, th.Quadrant1Fill) // top-right
-		quadrantRect(plotX0, plotY0, midX, midY, th.Quadrant2Fill) // top-left
-		quadrantRect(plotX0, midY, midX, plotY1, th.Quadrant3Fill) // bottom-left
-		quadrantRect(midX, midY, plotX1, plotY1, th.Quadrant4Fill) // bottom-right
 		// Outer border drawn on top of the four fills.
 		children = append(children, &rect{
 			X: svgFloat(plotX0), Y: svgFloat(plotY0),
@@ -182,29 +191,29 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 
 	// Quadrant labels — Mermaid uses math-convention numbering:
 	// Q1 top-right, Q2 top-left, Q3 bottom-left, Q4 bottom-right.
+	// Labels iterate over the 4 quadrants in the same index order
+	// as Theme.Quadrants so text color picks straight off the
+	// matching palette.
+	type qLabel struct {
+		text string
+		x, y float64 // 0 = left/top, 1 = right/bottom within its half
+	}
+	labels := [4]qLabel{
+		{d.Quadrant1, 1, 0}, // Q1 top-right
+		{d.Quadrant2, 0, 0}, // Q2 top-left
+		{d.Quadrant3, 0, 1}, // Q3 bottom-left
+		{d.Quadrant4, 1, 1}, // Q4 bottom-right
+	}
 	quadCenter := func(x, y float64) (float64, float64) {
 		return (plotX0+midX)/2 + x*(plotSide/2), (plotY0+midY)/2 + y*(plotSide/2)
 	}
-	type qLabel struct {
-		text     string
-		fill     string
-		x, y     float64 // 0 = left/top, 1 = right/bottom within its half
-	}
-	pickFill := func(perQuad string) string {
-		if perQuad != "" {
-			return perQuad
-		}
-		return th.QuadrantTitleFill
-	}
-	labels := []qLabel{
-		{d.Quadrant2, pickFill(th.Quadrant2TextFill), 0, 0}, // top-left
-		{d.Quadrant1, pickFill(th.Quadrant1TextFill), 1, 0}, // top-right
-		{d.Quadrant3, pickFill(th.Quadrant3TextFill), 0, 1}, // bottom-left
-		{d.Quadrant4, pickFill(th.Quadrant4TextFill), 1, 1}, // bottom-right
-	}
-	for _, q := range labels {
+	for i, q := range labels {
 		if q.text == "" {
 			continue
+		}
+		fill := th.Quadrants[i].TextFill
+		if fill == "" {
+			fill = th.QuadrantTitleFill
 		}
 		cx, cy := quadCenter(q.x, q.y)
 		children = append(children, &text{
@@ -212,7 +221,7 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 			Y:        svgFloat(cy),
 			Anchor:   "middle",
 			Dominant: "central",
-			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", q.fill, cfg.QuadrantLabelFontSize),
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", fill, cfg.QuadrantLabelFontSize),
 			Content:  q.text,
 		})
 	}
@@ -299,7 +308,6 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 			})
 		}
 	}
-	_ = fontSize
 
 	doc := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
@@ -355,34 +363,45 @@ func resolvePointStyle(p diagram.QuadrantPoint, d *diagram.QuadrantChartDiagram,
 	return fill, stroke, width, radius
 }
 
-// onlyBottomQuadrantsPopulated reports whether only Q3 / Q4 carry
-// either a label or a data point. Used to auto-flip the X-axis
-// title to the top of the plot when the lower half is dense.
-func onlyBottomQuadrantsPopulated(d *diagram.QuadrantChartDiagram) bool {
-	topPopulated := d.Quadrant1 != "" || d.Quadrant2 != ""
-	bottomPopulated := d.Quadrant3 != "" || d.Quadrant4 != ""
+// quadrantsPopulated walks the diagram once and reports whether
+// the four "halves" (top / bottom / left / right) carry any
+// content — either a non-empty quadrant label or a data point on
+// that side. The boundary value 0.5 is treated as "high" on both
+// axes (point at exactly y=0.5 → top; x=0.5 → right) so the same
+// edge-case rule applies symmetrically.
+func quadrantsPopulated(d *diagram.QuadrantChartDiagram) (top, bottom, left, right bool) {
+	top = d.Quadrant1 != "" || d.Quadrant2 != ""
+	bottom = d.Quadrant3 != "" || d.Quadrant4 != ""
+	left = d.Quadrant2 != "" || d.Quadrant3 != ""
+	right = d.Quadrant1 != "" || d.Quadrant4 != ""
 	for _, p := range d.Points {
 		if p.Y >= 0.5 {
-			topPopulated = true
+			top = true
 		} else {
-			bottomPopulated = true
+			bottom = true
+		}
+		if p.X >= 0.5 {
+			right = true
+		} else {
+			left = true
 		}
 	}
-	return bottomPopulated && !topPopulated
+	return top, bottom, left, right
 }
 
-// onlyRightQuadrantsPopulated mirrors onlyBottomQuadrantsPopulated
-// for the X-axis: Y-axis title flips to the right when only Q1 / Q4
-// carry content.
+// onlyBottomQuadrantsPopulated reports whether the upper half of
+// the plot carries no labels or points. The X-axis auto-flip
+// kicks in only in that "no-content-up-top" case so the labels
+// don't collide with data.
+func onlyBottomQuadrantsPopulated(d *diagram.QuadrantChartDiagram) bool {
+	top, bottom, _, _ := quadrantsPopulated(d)
+	return bottom && !top
+}
+
+// onlyRightQuadrantsPopulated is the mirror condition for the
+// Y-axis label auto-flip — left half empty means the rotated
+// title can move to the right side without colliding.
 func onlyRightQuadrantsPopulated(d *diagram.QuadrantChartDiagram) bool {
-	leftPopulated := d.Quadrant2 != "" || d.Quadrant3 != ""
-	rightPopulated := d.Quadrant1 != "" || d.Quadrant4 != ""
-	for _, p := range d.Points {
-		if p.X < 0.5 {
-			leftPopulated = true
-		} else {
-			rightPopulated = true
-		}
-	}
-	return rightPopulated && !leftPopulated
+	_, _, left, right := quadrantsPopulated(d)
+	return right && !left
 }

@@ -16,8 +16,6 @@ type Config struct {
 	TitleFontSize float64
 	TitlePadding  float64
 
-	QuadrantPadding              float64
-	QuadrantTextTopPadding       float64
 	QuadrantLabelFontSize        float64
 	QuadrantInternalBorderStroke float64
 	QuadrantExternalBorderStroke float64
@@ -30,9 +28,8 @@ type Config struct {
 	YAxisLabelFontSize float64
 	YAxisPosition      AxisPosition
 
-	PointTextPadding  float64
 	PointLabelFontSize float64
-	PointRadius       float64
+	PointRadius        float64
 }
 
 // AxisPosition controls which edge of the plot an axis label
@@ -54,25 +51,22 @@ const (
 // resolveConfig fills the rest.
 func DefaultConfig() Config {
 	return Config{
-		// Keep the historical mmgo plotSide of 400 (Mermaid's
-		// default is 500; mmgo never matched it and the example
-		// snapshots are pinned to 400×400).
+		// Mermaid spec defaults to 500×500; mmgo's pinned example
+		// snapshots assume 400×400, so the default stays here
+		// until we regenerate every quadrant snapshot.
 		ChartWidth:                   400,
 		ChartHeight:                  400,
 		TitleFontSize:                15,
-		TitlePadding:                 0, // legacy renderer used `pageMarginY + titleH/2` directly; keep parity
-		QuadrantPadding:              5,
-		QuadrantTextTopPadding:       5,
+		TitlePadding:                 0,
 		QuadrantLabelFontSize:        13,
 		QuadrantInternalBorderStroke: 1,
 		QuadrantExternalBorderStroke: 1.5,
-		XAxisLabelPadding:            20, // matches the legacy `axisLabelGap` constant
+		XAxisLabelPadding:            20,
 		XAxisLabelFontSize:           12,
 		XAxisPosition:                AxisPositionAuto,
 		YAxisLabelPadding:            20,
 		YAxisLabelFontSize:           12,
 		YAxisPosition:                AxisPositionAuto,
-		PointTextPadding:             5,
 		PointLabelFontSize:           11,
 		PointRadius:                  7,
 	}
@@ -96,8 +90,6 @@ func resolveConfig(opts *Options) Config {
 	mergeF(&c.ChartHeight, o.ChartHeight)
 	mergeF(&c.TitleFontSize, o.TitleFontSize)
 	mergeF(&c.TitlePadding, o.TitlePadding)
-	mergeF(&c.QuadrantPadding, o.QuadrantPadding)
-	mergeF(&c.QuadrantTextTopPadding, o.QuadrantTextTopPadding)
 	mergeF(&c.QuadrantLabelFontSize, o.QuadrantLabelFontSize)
 	mergeF(&c.QuadrantInternalBorderStroke, o.QuadrantInternalBorderStroke)
 	mergeF(&c.QuadrantExternalBorderStroke, o.QuadrantExternalBorderStroke)
@@ -105,7 +97,6 @@ func resolveConfig(opts *Options) Config {
 	mergeF(&c.XAxisLabelFontSize, o.XAxisLabelFontSize)
 	mergeF(&c.YAxisLabelPadding, o.YAxisLabelPadding)
 	mergeF(&c.YAxisLabelFontSize, o.YAxisLabelFontSize)
-	mergeF(&c.PointTextPadding, o.PointTextPadding)
 	mergeF(&c.PointLabelFontSize, o.PointLabelFontSize)
 	mergeF(&c.PointRadius, o.PointRadius)
 	if o.XAxisPosition != AxisPositionAuto {

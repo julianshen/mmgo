@@ -1,49 +1,37 @@
 package quadrant
 
+// QuadrantPalette holds the per-quadrant colour pair (body fill +
+// label text fill). Empty fields fall back to Theme.PlotFill /
+// Theme.QuadrantTitleFill respectively.
+type QuadrantPalette struct {
+	Fill     string
+	TextFill string
+}
+
 // Theme mirrors the `themeVariables.quadrantChart.*` surface
 // Mermaid documents at https://mermaid.js.org/syntax/quadrantChart.html.
-// Every field maps 1:1 to a documented variable so callers can
-// translate `%%{init: {themeVariables: {...}}}%%` blocks into a
-// Theme without an intermediate lookup table.
+// Every field maps 1:1 to a documented variable. The four quadrant
+// palettes live in a fixed-size array indexed in math-convention
+// order (0=Q1 top-right, 1=Q2 top-left, 2=Q3 bottom-left,
+// 3=Q4 bottom-right) so the JSON `quadrant1Fill` / `quadrant2Fill`
+// keys decode into Quadrants[0].Fill / Quadrants[1].Fill.
 type Theme struct {
-	// Background and chrome colors.
 	BackgroundColor string
 	TitleColor      string
 
-	// Per-quadrant fills. Empty values fall back to PlotFill so
-	// authors can paint just one quadrant without rebuilding the
-	// whole palette.
-	Quadrant1Fill string
-	Quadrant2Fill string
-	Quadrant3Fill string
-	Quadrant4Fill string
+	Quadrants [4]QuadrantPalette
 
-	// Per-quadrant text fills. Empty falls back to QuadrantTitleFill.
-	Quadrant1TextFill string
-	Quadrant2TextFill string
-	Quadrant3TextFill string
-	Quadrant4TextFill string
-
-	// Quadrant label color (the text shown inside each quarter).
 	QuadrantTitleFill string
+	PlotFill          string
 
-	// Plot fill (the body color when no per-quadrant fill is
-	// supplied). Distinct from BackgroundColor so the plot can
-	// read against a different page background.
-	PlotFill string
-
-	// Internal divider stroke (the dashed midline) and external
-	// border stroke (the plot's outer rect).
 	QuadrantInternalBorderStrokeFill string
 	QuadrantExternalBorderStrokeFill string
 
-	// Axis label / tick fills.
 	XAxisLabelColor string
 	XAxisTitleColor string
 	YAxisLabelColor string
 	YAxisTitleColor string
 
-	// Default point color when a point has no inline / class style.
 	QuadrantPointFill     string
 	QuadrantPointTextFill string
 	QuadrantPointStroke   string
@@ -56,14 +44,6 @@ func DefaultTheme() Theme {
 	return Theme{
 		BackgroundColor:                  "#fff",
 		TitleColor:                       "#333",
-		Quadrant1Fill:                    "",
-		Quadrant2Fill:                    "",
-		Quadrant3Fill:                    "",
-		Quadrant4Fill:                    "",
-		Quadrant1TextFill:                "",
-		Quadrant2TextFill:                "",
-		Quadrant3TextFill:                "",
-		Quadrant4TextFill:                "",
 		QuadrantTitleFill:                "#555",
 		PlotFill:                         "#f7f7fa",
 		QuadrantInternalBorderStrokeFill: "#bbb",
@@ -94,14 +74,10 @@ func resolveTheme(opts *Options) Theme {
 	t := opts.Theme
 	merge(&th.BackgroundColor, t.BackgroundColor)
 	merge(&th.TitleColor, t.TitleColor)
-	merge(&th.Quadrant1Fill, t.Quadrant1Fill)
-	merge(&th.Quadrant2Fill, t.Quadrant2Fill)
-	merge(&th.Quadrant3Fill, t.Quadrant3Fill)
-	merge(&th.Quadrant4Fill, t.Quadrant4Fill)
-	merge(&th.Quadrant1TextFill, t.Quadrant1TextFill)
-	merge(&th.Quadrant2TextFill, t.Quadrant2TextFill)
-	merge(&th.Quadrant3TextFill, t.Quadrant3TextFill)
-	merge(&th.Quadrant4TextFill, t.Quadrant4TextFill)
+	for i := range th.Quadrants {
+		merge(&th.Quadrants[i].Fill, t.Quadrants[i].Fill)
+		merge(&th.Quadrants[i].TextFill, t.Quadrants[i].TextFill)
+	}
 	merge(&th.QuadrantTitleFill, t.QuadrantTitleFill)
 	merge(&th.PlotFill, t.PlotFill)
 	merge(&th.QuadrantInternalBorderStrokeFill, t.QuadrantInternalBorderStrokeFill)
