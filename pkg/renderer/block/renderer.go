@@ -80,6 +80,17 @@ func Render(d *diagram.BlockDiagram, opts *Options) ([]byte, error) {
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
+	if d.Title != "" {
+		// Frontmatter `title:` renders as a centered caption above
+		// the diagram body. Uses the existing NodeText surface so
+		// the heading reads against any theme.
+		children = append(children, &text{
+			X: svgFloat(viewW / 2), Y: svgFloat(14),
+			Anchor: "middle", Dominant: "central",
+			Style:   fmt.Sprintf("fill:%s;font-size:14px;font-weight:bold", th.NodeText),
+			Content: d.Title,
+		})
+	}
 	children = append(children, renderEdges(d, l, pad, fontSize, th)...)
 	children = append(children, renderNodes(d, l, pad, fontSize, th)...)
 

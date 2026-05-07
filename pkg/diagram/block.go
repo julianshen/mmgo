@@ -105,6 +105,7 @@ type BlockGroup struct {
 
 type BlockDiagram struct {
 	Columns  int
+	Title    string
 	AccTitle string
 	AccDescr string
 	Nodes    []BlockNode

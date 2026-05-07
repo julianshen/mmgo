@@ -586,3 +586,64 @@ A:::a:::b`))
 		t.Error("expected error for chained `:::` shorthand")
 	}
 }
+
+// Frontmatter `--- yaml ---` at the top supplies the diagram
+// title (and is stripped before the header check).
+func TestParseFrontmatterTitle(t *testing.T) {
+	d, err := Parse(strings.NewReader("---\ntitle: System layout\n---\nblock-beta\nA"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Title != "System layout" {
+		t.Errorf("title = %q", d.Title)
+	}
+	if len(d.Nodes) != 1 || d.Nodes[0].ID != "A" {
+		t.Errorf("nodes = %+v", d.Nodes)
+	}
+}
+
+// Multi-line `accDescr { ... }` block accumulates lines into
+// AccDescr until the closing `}`.
+func TestParseAccDescrBlock(t *testing.T) {
+	d, err := Parse(strings.NewReader(`block-beta
+accDescr {
+  Top-level layout
+  showing data flow
+}
+A B`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	want := "Top-level layout\nshowing data flow"
+	if d.AccDescr != want {
+		t.Errorf("accDescr = %q, want %q", d.AccDescr, want)
+	}
+}
+
+// Unterminated `accDescr {` block surfaces as an error rather
+// than silently swallowing the rest of the diagram.
+func TestParseAccDescrUnterminated(t *testing.T) {
+	_, err := Parse(strings.NewReader(`block-beta
+accDescr {
+  Open
+A`))
+	if err == nil {
+		t.Error("expected error for unterminated accDescr block")
+	}
+}
+
+// `columns auto` is the explicit "let layout decide" spelling
+// (stored as 0). Other non-int values are rejected.
+func TestParseColumnsAutoAndError(t *testing.T) {
+	d, err := Parse(strings.NewReader("block-beta\ncolumns auto\nA"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Columns != 0 {
+		t.Errorf("columns = %d, want 0", d.Columns)
+	}
+	_, err = Parse(strings.NewReader("block-beta\ncolumns wide\nA"))
+	if err == nil {
+		t.Error("expected error for non-numeric columns value")
+	}
+}
