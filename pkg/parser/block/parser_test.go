@@ -501,3 +501,88 @@ func TestParseEdgeInlineLabels(t *testing.T) {
 		})
 	}
 }
+
+// `classDef name css` populates the diagram's CSSClasses map and
+// `class id1,id2 name` attaches the named class to each id.
+func TestParseClassDefAndClassBinding(t *testing.T) {
+	d, err := Parse(strings.NewReader(`block-beta
+classDef hot fill:#f00
+classDef bold stroke:#000,stroke-width:3
+A B
+class A,B hot
+class B bold`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.CSSClasses["hot"] != "fill:#f00" {
+		t.Errorf("hot classdef = %q", d.CSSClasses["hot"])
+	}
+	if d.CSSClasses["bold"] != "stroke:#000;stroke-width:3" {
+		t.Errorf("bold classdef = %q", d.CSSClasses["bold"])
+	}
+	a, b := d.Nodes[0], d.Nodes[1]
+	if got := a.CSSClasses; len(got) != 1 || got[0] != "hot" {
+		t.Errorf("A.CSSClasses = %v, want [hot]", got)
+	}
+	if got := b.CSSClasses; len(got) != 2 || got[0] != "hot" || got[1] != "bold" {
+		t.Errorf("B.CSSClasses = %v, want [hot bold]", got)
+	}
+}
+
+// `id:::name` shorthand attaches the class inline at node-token
+// parse time.
+func TestParseClassShorthand(t *testing.T) {
+	d, err := Parse(strings.NewReader(`block-beta
+classDef hot fill:#f00
+A:::hot B[Wide]:::hot`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, n := range d.Nodes {
+		if got := n.CSSClasses; len(got) != 1 || got[0] != "hot" {
+			t.Errorf("%s classes = %v", n.ID, got)
+		}
+	}
+}
+
+// `style ID css` lines accumulate on diagram.Styles in declaration
+// order; commas in the CSS string are normalised to semicolons.
+func TestParseStyleRule(t *testing.T) {
+	d, err := Parse(strings.NewReader(`block-beta
+A B
+style A fill:#fee,stroke:#900
+style B stroke:#000`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Styles) != 2 {
+		t.Fatalf("styles = %v", d.Styles)
+	}
+	if d.Styles[0].NodeID != "A" || d.Styles[0].CSS != "fill:#fee;stroke:#900" {
+		t.Errorf("styles[0] = %+v", d.Styles[0])
+	}
+	if d.Styles[1].NodeID != "B" || d.Styles[1].CSS != "stroke:#000" {
+		t.Errorf("styles[1] = %+v", d.Styles[1])
+	}
+}
+
+// `class` referring to an undefined node is a parse error rather
+// than silently no-op.
+func TestParseClassUndefinedNodeError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`block-beta
+A
+class B hot`))
+	if err == nil {
+		t.Error("expected error for class binding referencing undefined node")
+	}
+}
+
+// Chained `:::a:::b` shorthand is rejected (matches the convention
+// established by class/state/ER parsers).
+func TestParseClassShorthandChainedError(t *testing.T) {
+	_, err := Parse(strings.NewReader(`block-beta
+A:::a:::b`))
+	if err == nil {
+		t.Error("expected error for chained `:::` shorthand")
+	}
+}

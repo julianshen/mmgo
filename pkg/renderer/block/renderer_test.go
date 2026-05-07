@@ -332,3 +332,41 @@ func TestRenderBlockInvisibleEdge(t *testing.T) {
 		t.Errorf("invisible edge should not emit arrow marker")
 	}
 }
+
+// classDef + class binding flows the CSS into the rendered shape's
+// style attribute.
+func TestRenderBlockClassDef(t *testing.T) {
+	d := &diagram.BlockDiagram{
+		CSSClasses: map[string]string{"hot": "fill:#f00"},
+		Nodes: []diagram.BlockNode{
+			{ID: "A", Label: "A", CSSClasses: []string{"hot"}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "fill:#f00") {
+		t.Errorf("expected classDef fill in output")
+	}
+}
+
+// `style id css` overrides the theme on a specific node by ID and
+// appears after the theme defaults so it wins on collisions.
+func TestRenderBlockStyleOverride(t *testing.T) {
+	d := &diagram.BlockDiagram{
+		Styles: []diagram.BlockStyleDef{{NodeID: "A", CSS: "stroke:#900;stroke-width:4"}},
+		Nodes:  []diagram.BlockNode{{ID: "A", Label: "A"}},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "stroke:#900") {
+		t.Errorf("expected style override stroke in output")
+	}
+	if !strings.Contains(raw, "stroke-width:4") {
+		t.Errorf("expected style override stroke-width in output")
+	}
+}

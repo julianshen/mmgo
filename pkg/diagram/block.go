@@ -40,6 +40,19 @@ type BlockNode struct {
 	// from the trailing `:N` suffix (`id:3`). Zero defaults to 1
 	// at layout time; renderers should treat 0 as "single column".
 	Width int
+	// CSSClasses is the list of class names this node has been
+	// associated with via `class id name` lines or the `id:::name`
+	// shorthand. Each entry should resolve to a key in
+	// BlockDiagram.CSSClasses.
+	CSSClasses []string
+}
+
+// BlockStyleDef is a per-node inline style override parsed from a
+// `style ID css` line. Mirrors the shape used by class / state /
+// ER / mindmap diagram parsers.
+type BlockStyleDef struct {
+	NodeID string
+	CSS    string
 }
 
 type BlockEdge struct {
@@ -96,6 +109,12 @@ type BlockDiagram struct {
 	AccDescr string
 	Nodes    []BlockNode
 	Edges    []BlockEdge
+	// CSSClasses maps a class name (declared via `classDef name css`)
+	// to its CSS string.
+	CSSClasses map[string]string
+	// Styles holds per-node `style id css` overrides in declaration
+	// order so later rules override earlier ones at render time.
+	Styles []BlockStyleDef
 	// Items preserves the structural ordering parsed from the
 	// source: top-level node references, spacers, and groups in
 	// source order. The flat Nodes slice retains every node
