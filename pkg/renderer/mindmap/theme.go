@@ -1,5 +1,7 @@
 package mindmap
 
+import "github.com/julianshen/mmgo/pkg/renderer/svgutil"
+
 type Theme struct {
 	SectionColors []string
 	RootColor     string
@@ -28,20 +30,10 @@ func resolveTheme(opts *Options) Theme {
 	if len(opts.Theme.SectionColors) > 0 {
 		th.SectionColors = opts.Theme.SectionColors
 	}
-	if opts.Theme.RootColor != "" {
-		th.RootColor = opts.Theme.RootColor
-	}
-	if opts.Theme.NodeText != "" {
-		th.NodeText = opts.Theme.NodeText
-	}
-	if opts.Theme.RootText != "" {
-		th.RootText = opts.Theme.RootText
-	}
-	if opts.Theme.EdgeStroke != "" {
-		th.EdgeStroke = opts.Theme.EdgeStroke
-	}
-	if opts.Theme.Background != "" {
-		th.Background = opts.Theme.Background
-	}
+	svgutil.MergeStr(&th.RootColor, opts.Theme.RootColor)
+	svgutil.MergeStr(&th.NodeText, opts.Theme.NodeText)
+	svgutil.MergeStr(&th.RootText, opts.Theme.RootText)
+	svgutil.MergeStr(&th.EdgeStroke, opts.Theme.EdgeStroke)
+	svgutil.MergeStr(&th.Background, opts.Theme.Background)
 	return th
 }

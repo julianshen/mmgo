@@ -1,6 +1,9 @@
 package c4
 
-import "github.com/julianshen/mmgo/pkg/diagram"
+import (
+	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
+)
 
 // RolePalette is the fill/stroke/text triple for a single C4 element
 // role (Person, System, Container, Component, plus their *Ext/DB
@@ -39,26 +42,26 @@ func DefaultTheme() Theme {
 			diagram.C4ElementPerson:    {Fill: "#08427B", Stroke: "#073B6F", Text: "white"},
 			diagram.C4ElementPersonExt: {Fill: "#686868", Stroke: "#4D4D4D", Text: "white"},
 
-			diagram.C4ElementSystem:          system,
-			diagram.C4ElementSystemExt:       systemExt,
-			diagram.C4ElementSystemDB:        system,
-			diagram.C4ElementSystemDBExt:     systemExt,
-			diagram.C4ElementSystemQueue:     system,
-			diagram.C4ElementSystemQueueExt:  systemExt,
+			diagram.C4ElementSystem:         system,
+			diagram.C4ElementSystemExt:      systemExt,
+			diagram.C4ElementSystemDB:       system,
+			diagram.C4ElementSystemDBExt:    systemExt,
+			diagram.C4ElementSystemQueue:    system,
+			diagram.C4ElementSystemQueueExt: systemExt,
 
-			diagram.C4ElementContainer:          container,
-			diagram.C4ElementContainerExt:       containerExt,
-			diagram.C4ElementContainerDB:        container,
-			diagram.C4ElementContainerDBExt:     containerExt,
-			diagram.C4ElementContainerQueue:     container,
-			diagram.C4ElementContainerQueueExt:  containerExt,
+			diagram.C4ElementContainer:         container,
+			diagram.C4ElementContainerExt:      containerExt,
+			diagram.C4ElementContainerDB:       container,
+			diagram.C4ElementContainerDBExt:    containerExt,
+			diagram.C4ElementContainerQueue:    container,
+			diagram.C4ElementContainerQueueExt: containerExt,
 
-			diagram.C4ElementComponent:          component,
-			diagram.C4ElementComponentExt:       componentExt,
-			diagram.C4ElementComponentDB:        component,
-			diagram.C4ElementComponentDBExt:     componentExt,
-			diagram.C4ElementComponentQueue:     component,
-			diagram.C4ElementComponentQueueExt:  componentExt,
+			diagram.C4ElementComponent:         component,
+			diagram.C4ElementComponentExt:      componentExt,
+			diagram.C4ElementComponentDB:       component,
+			diagram.C4ElementComponentDBExt:    componentExt,
+			diagram.C4ElementComponentQueue:    component,
+			diagram.C4ElementComponentQueueExt: componentExt,
 
 			diagram.C4ElementDeploymentNode: deployment,
 		},
@@ -114,17 +117,9 @@ func resolveTheme(opts *Options) Theme {
 			th.Roles[k] = v
 		}
 	}
-	if opts.Theme.TitleText != "" {
-		th.TitleText = opts.Theme.TitleText
-	}
-	if opts.Theme.EdgeStroke != "" {
-		th.EdgeStroke = opts.Theme.EdgeStroke
-	}
-	if opts.Theme.EdgeText != "" {
-		th.EdgeText = opts.Theme.EdgeText
-	}
-	if opts.Theme.Background != "" {
-		th.Background = opts.Theme.Background
-	}
+	svgutil.MergeStr(&th.TitleText, opts.Theme.TitleText)
+	svgutil.MergeStr(&th.EdgeStroke, opts.Theme.EdgeStroke)
+	svgutil.MergeStr(&th.EdgeText, opts.Theme.EdgeText)
+	svgutil.MergeStr(&th.Background, opts.Theme.Background)
 	return th
 }

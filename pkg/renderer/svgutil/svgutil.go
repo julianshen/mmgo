@@ -578,3 +578,30 @@ func MarshalSVG(doc Doc) ([]byte, error) {
 	}
 	return append([]byte(xmlDecl), raw...), nil
 }
+
+// MergeStr overwrites *dst with src when src != "". Empty src means
+// "inherit default".
+func MergeStr(dst *string, src string) {
+	if src != "" {
+		*dst = src
+	}
+}
+
+// MergeFloat overwrites *dst with src when src > 0. Non-positive src
+// means "inherit default" — fields where 0 is a meaningful explicit
+// override (e.g. "no border" on a stroke-width field) need bespoke
+// handling, not this helper.
+func MergeFloat(dst *float64, src float64) {
+	if src > 0 {
+		*dst = src
+	}
+}
+
+// MergeBoolPtr overwrites *dst with src when src != nil. The
+// tri-state of *bool lets a caller distinguish "explicitly off"
+// (&false) from "inherit default" (nil).
+func MergeBoolPtr(dst **bool, src *bool) {
+	if src != nil {
+		*dst = src
+	}
+}

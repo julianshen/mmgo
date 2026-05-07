@@ -1,5 +1,7 @@
 package quadrant
 
+import "github.com/julianshen/mmgo/pkg/renderer/svgutil"
+
 // Config mirrors the `quadrantChart` block users can supply via
 // `%%{init: {quadrantChart: {...}}}%%`.
 //
@@ -119,11 +121,6 @@ func resolveConfig(opts *Options) Config {
 	if opts == nil {
 		return c
 	}
-	mergeF := func(dst *float64, src float64) {
-		if src > 0 {
-			*dst = src
-		}
-	}
 	o := opts.Config
 	// If a caller sets only ChartWidth or only ChartHeight, mirror
 	// the explicit value into the other so the square plot picks
@@ -137,22 +134,22 @@ func resolveConfig(opts *Options) Config {
 	if oH > 0 && oW == 0 {
 		oW = oH
 	}
-	mergeF(&c.ChartWidth, oW)
-	mergeF(&c.ChartHeight, oH)
-	mergeF(&c.TitleFontSize, o.TitleFontSize)
-	mergeF(&c.TitlePadding, o.TitlePadding)
-	mergeF(&c.QuadrantPadding, o.QuadrantPadding)
-	mergeF(&c.QuadrantTextTopPadding, o.QuadrantTextTopPadding)
-	mergeF(&c.QuadrantLabelFontSize, o.QuadrantLabelFontSize)
-	mergeF(&c.QuadrantInternalBorderStroke, o.QuadrantInternalBorderStroke)
-	mergeF(&c.QuadrantExternalBorderStroke, o.QuadrantExternalBorderStroke)
-	mergeF(&c.XAxisLabelPadding, o.XAxisLabelPadding)
-	mergeF(&c.XAxisLabelFontSize, o.XAxisLabelFontSize)
-	mergeF(&c.YAxisLabelPadding, o.YAxisLabelPadding)
-	mergeF(&c.YAxisLabelFontSize, o.YAxisLabelFontSize)
-	mergeF(&c.PointTextPadding, o.PointTextPadding)
-	mergeF(&c.PointLabelFontSize, o.PointLabelFontSize)
-	mergeF(&c.PointRadius, o.PointRadius)
+	svgutil.MergeFloat(&c.ChartWidth, oW)
+	svgutil.MergeFloat(&c.ChartHeight, oH)
+	svgutil.MergeFloat(&c.TitleFontSize, o.TitleFontSize)
+	svgutil.MergeFloat(&c.TitlePadding, o.TitlePadding)
+	svgutil.MergeFloat(&c.QuadrantPadding, o.QuadrantPadding)
+	svgutil.MergeFloat(&c.QuadrantTextTopPadding, o.QuadrantTextTopPadding)
+	svgutil.MergeFloat(&c.QuadrantLabelFontSize, o.QuadrantLabelFontSize)
+	svgutil.MergeFloat(&c.QuadrantInternalBorderStroke, o.QuadrantInternalBorderStroke)
+	svgutil.MergeFloat(&c.QuadrantExternalBorderStroke, o.QuadrantExternalBorderStroke)
+	svgutil.MergeFloat(&c.XAxisLabelPadding, o.XAxisLabelPadding)
+	svgutil.MergeFloat(&c.XAxisLabelFontSize, o.XAxisLabelFontSize)
+	svgutil.MergeFloat(&c.YAxisLabelPadding, o.YAxisLabelPadding)
+	svgutil.MergeFloat(&c.YAxisLabelFontSize, o.YAxisLabelFontSize)
+	svgutil.MergeFloat(&c.PointTextPadding, o.PointTextPadding)
+	svgutil.MergeFloat(&c.PointLabelFontSize, o.PointLabelFontSize)
+	svgutil.MergeFloat(&c.PointRadius, o.PointRadius)
 	if o.XAxisPosition != XAxisAuto {
 		c.XAxisPosition = o.XAxisPosition
 	}

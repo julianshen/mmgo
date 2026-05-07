@@ -1,5 +1,7 @@
 package quadrant
 
+import "github.com/julianshen/mmgo/pkg/renderer/svgutil"
+
 // QuadrantPalette holds the per-quadrant colour pair (body fill +
 // label text fill). Empty fields fall back to Theme.PlotFill /
 // Theme.QuadrantTitleFill respectively.
@@ -66,28 +68,23 @@ func resolveTheme(opts *Options) Theme {
 	if opts == nil {
 		return th
 	}
-	merge := func(dst *string, src string) {
-		if src != "" {
-			*dst = src
-		}
-	}
 	t := opts.Theme
-	merge(&th.BackgroundColor, t.BackgroundColor)
-	merge(&th.TitleColor, t.TitleColor)
+	svgutil.MergeStr(&th.BackgroundColor, t.BackgroundColor)
+	svgutil.MergeStr(&th.TitleColor, t.TitleColor)
 	for i := range th.Quadrants {
-		merge(&th.Quadrants[i].Fill, t.Quadrants[i].Fill)
-		merge(&th.Quadrants[i].TextFill, t.Quadrants[i].TextFill)
+		svgutil.MergeStr(&th.Quadrants[i].Fill, t.Quadrants[i].Fill)
+		svgutil.MergeStr(&th.Quadrants[i].TextFill, t.Quadrants[i].TextFill)
 	}
-	merge(&th.QuadrantTitleFill, t.QuadrantTitleFill)
-	merge(&th.PlotFill, t.PlotFill)
-	merge(&th.QuadrantInternalBorderStrokeFill, t.QuadrantInternalBorderStrokeFill)
-	merge(&th.QuadrantExternalBorderStrokeFill, t.QuadrantExternalBorderStrokeFill)
-	merge(&th.XAxisLabelColor, t.XAxisLabelColor)
-	merge(&th.XAxisTitleColor, t.XAxisTitleColor)
-	merge(&th.YAxisLabelColor, t.YAxisLabelColor)
-	merge(&th.YAxisTitleColor, t.YAxisTitleColor)
-	merge(&th.QuadrantPointFill, t.QuadrantPointFill)
-	merge(&th.QuadrantPointTextFill, t.QuadrantPointTextFill)
-	merge(&th.QuadrantPointStroke, t.QuadrantPointStroke)
+	svgutil.MergeStr(&th.QuadrantTitleFill, t.QuadrantTitleFill)
+	svgutil.MergeStr(&th.PlotFill, t.PlotFill)
+	svgutil.MergeStr(&th.QuadrantInternalBorderStrokeFill, t.QuadrantInternalBorderStrokeFill)
+	svgutil.MergeStr(&th.QuadrantExternalBorderStrokeFill, t.QuadrantExternalBorderStrokeFill)
+	svgutil.MergeStr(&th.XAxisLabelColor, t.XAxisLabelColor)
+	svgutil.MergeStr(&th.XAxisTitleColor, t.XAxisTitleColor)
+	svgutil.MergeStr(&th.YAxisLabelColor, t.YAxisLabelColor)
+	svgutil.MergeStr(&th.YAxisTitleColor, t.YAxisTitleColor)
+	svgutil.MergeStr(&th.QuadrantPointFill, t.QuadrantPointFill)
+	svgutil.MergeStr(&th.QuadrantPointTextFill, t.QuadrantPointTextFill)
+	svgutil.MergeStr(&th.QuadrantPointStroke, t.QuadrantPointStroke)
 	return th
 }

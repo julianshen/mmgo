@@ -1,5 +1,7 @@
 package xychart
 
+import "github.com/julianshen/mmgo/pkg/renderer/svgutil"
+
 // Theme mirrors every `themeVariables.xyChart.*` key documented at
 // https://mermaid.js.org/syntax/xyChart.html. The aggregate fields
 // (LabelFill, AxisStroke) rebroadcast to every per-surface field they
@@ -57,20 +59,15 @@ func resolveTheme(opts *Options) Theme {
 	if opts == nil {
 		return th
 	}
-	merge := func(dst *string, src string) {
-		if src != "" {
-			*dst = src
-		}
-	}
 	t := opts.Theme
 	if len(t.SeriesColors) > 0 {
 		th.SeriesColors = t.SeriesColors
 	}
-	merge(&th.LabelFill, t.LabelFill)
-	merge(&th.AxisStroke, t.AxisStroke)
-	merge(&th.GridStroke, t.GridStroke)
-	merge(&th.MarkerStroke, t.MarkerStroke)
-	merge(&th.Background, t.Background)
+	svgutil.MergeStr(&th.LabelFill, t.LabelFill)
+	svgutil.MergeStr(&th.AxisStroke, t.AxisStroke)
+	svgutil.MergeStr(&th.GridStroke, t.GridStroke)
+	svgutil.MergeStr(&th.MarkerStroke, t.MarkerStroke)
+	svgutil.MergeStr(&th.Background, t.Background)
 
 	if t.LabelFill != "" {
 		th.TitleColor = t.LabelFill
@@ -87,15 +84,15 @@ func resolveTheme(opts *Options) Theme {
 		th.YAxisLineColor = t.AxisStroke
 	}
 
-	merge(&th.TitleColor, t.TitleColor)
-	merge(&th.DataLabelColor, t.DataLabelColor)
-	merge(&th.XAxisLabelColor, t.XAxisLabelColor)
-	merge(&th.XAxisTitleColor, t.XAxisTitleColor)
-	merge(&th.XAxisTickColor, t.XAxisTickColor)
-	merge(&th.XAxisLineColor, t.XAxisLineColor)
-	merge(&th.YAxisLabelColor, t.YAxisLabelColor)
-	merge(&th.YAxisTitleColor, t.YAxisTitleColor)
-	merge(&th.YAxisTickColor, t.YAxisTickColor)
-	merge(&th.YAxisLineColor, t.YAxisLineColor)
+	svgutil.MergeStr(&th.TitleColor, t.TitleColor)
+	svgutil.MergeStr(&th.DataLabelColor, t.DataLabelColor)
+	svgutil.MergeStr(&th.XAxisLabelColor, t.XAxisLabelColor)
+	svgutil.MergeStr(&th.XAxisTitleColor, t.XAxisTitleColor)
+	svgutil.MergeStr(&th.XAxisTickColor, t.XAxisTickColor)
+	svgutil.MergeStr(&th.XAxisLineColor, t.XAxisLineColor)
+	svgutil.MergeStr(&th.YAxisLabelColor, t.YAxisLabelColor)
+	svgutil.MergeStr(&th.YAxisTitleColor, t.YAxisTitleColor)
+	svgutil.MergeStr(&th.YAxisTickColor, t.YAxisTickColor)
+	svgutil.MergeStr(&th.YAxisLineColor, t.YAxisLineColor)
 	return th
 }
