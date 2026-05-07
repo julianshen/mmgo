@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -82,13 +83,28 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 	viewW := originX + float64(cols)*commitStride + marginX
 	viewH := marginY + float64(max(len(d.Branches), 1))*laneHeight + marginY
 
-	children := []any{
-		&rect{
-			X: 0, Y: 0,
-			Width:  svgFloat(viewW),
-			Height: svgFloat(viewH),
-			Style:  fmt.Sprintf("fill:%s;stroke:none", th.Background),
-		},
+	var children []any
+	if d.AccTitle != "" {
+		children = append(children, &svgutil.Title{Content: d.AccTitle})
+	}
+	if d.AccDescr != "" {
+		children = append(children, &svgutil.Desc{Content: d.AccDescr})
+	}
+	children = append(children, &rect{
+		X: 0, Y: 0,
+		Width:  svgFloat(viewW),
+		Height: svgFloat(viewH),
+		Style:  fmt.Sprintf("fill:%s;stroke:none", th.Background),
+	})
+	if d.Title != "" {
+		children = append(children, &text{
+			X:        svgFloat(viewW / 2),
+			Y:        svgFloat(marginY / 2),
+			Anchor:   "middle",
+			Dominant: "central",
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.Text, fontSize+2),
+			Content:  d.Title,
+		})
 	}
 
 	// Swimlane baselines drawn first so colored branch paths and

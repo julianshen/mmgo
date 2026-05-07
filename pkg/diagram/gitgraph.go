@@ -39,6 +39,12 @@ type GitCommit struct {
 }
 
 type GitGraphDiagram struct {
+	Title    string
+	AccTitle string
+	AccDescr string
+	// MainBranchName overrides the default "main" branch when the
+	// frontmatter / init directive supplies an alternative name.
+	MainBranchName string
 	// Branches lists branch names in declaration order. The first
 	// branch is typically "main" (implicit — created automatically
 	// when the first commit lands without a prior `branch` command).
