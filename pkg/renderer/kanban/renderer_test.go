@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
 func TestRenderNilDiagram(t *testing.T) {
@@ -220,18 +221,50 @@ func TestRenderEmptySection(t *testing.T) {
 }
 
 func TestWrapText(t *testing.T) {
+	ruler, err := textmeasure.NewDefaultRuler()
+	if err != nil {
+		t.Fatalf("NewDefaultRuler: %v", err)
+	}
+	defer func() { _ = ruler.Close() }()
+
 	// Empty input still yields one (empty) line so cards have non-zero height.
-	if got := wrapText("", 200, 13); len(got) != 1 || got[0] != "" {
+	if got := wrapText(ruler, "", 200, 13); len(got) != 1 || got[0] != "" {
 		t.Errorf("wrapText(\"\") = %v, want [\"\"]", got)
 	}
 	// Short text fits on one line.
-	if got := wrapText("Hi", 200, 13); len(got) != 1 {
+	if got := wrapText(ruler, "Hi", 200, 13); len(got) != 1 {
 		t.Errorf("short text should fit one line, got %v", got)
 	}
 	// Very long text wraps.
 	long := strings.Repeat("word ", 30)
-	if got := wrapText(long, 100, 13); len(got) < 2 {
+	if got := wrapText(ruler, long, 100, 13); len(got) < 2 {
 		t.Errorf("long text should wrap, got %d line(s)", len(got))
+	}
+}
+
+// Proportional-font-aware wrapping: at the same character count and
+// font size, a string of narrow glyphs (i) must wrap on fewer lines
+// than a string of wide glyphs (M). The pre-Phase-3 char-count
+// heuristic returned identical line counts for both (over-wrapping
+// narrow text and under-wrapping wide text); the Ruler-based version
+// reflects the actual rendered widths.
+func TestWrapTextRespectsGlyphWidth(t *testing.T) {
+	ruler, err := textmeasure.NewDefaultRuler()
+	if err != nil {
+		t.Fatalf("NewDefaultRuler: %v", err)
+	}
+	defer func() { _ = ruler.Close() }()
+
+	const fontSize = 13.0
+	const width = 80.0
+	narrow := strings.Repeat("i ", 30)
+	wide := strings.Repeat("M ", 30)
+
+	narrowLines := wrapText(ruler, narrow, width, fontSize)
+	wideLines := wrapText(ruler, wide, width, fontSize)
+	if len(narrowLines) >= len(wideLines) {
+		t.Errorf("narrow-glyph text (%d lines) must wrap on fewer lines than wide-glyph text (%d lines) for accurate measurement",
+			len(narrowLines), len(wideLines))
 	}
 }
 
