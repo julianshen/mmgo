@@ -370,3 +370,18 @@ func TestRenderBlockStyleOverride(t *testing.T) {
 		t.Errorf("expected style override stroke-width in output")
 	}
 }
+
+// Frontmatter title renders as a centered caption.
+func TestRenderBlockFrontmatterTitle(t *testing.T) {
+	d := &diagram.BlockDiagram{
+		Title: "System layout",
+		Nodes: []diagram.BlockNode{{ID: "A", Label: "A"}},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), ">System layout<") {
+		t.Errorf("expected diagram title in output")
+	}
+}

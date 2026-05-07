@@ -13,14 +13,33 @@ import (
 )
 
 func Parse(r io.Reader) (*diagram.BlockDiagram, error) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	src, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading input: %w", err)
+	}
 	d := &diagram.BlockDiagram{
 		CSSClasses: make(map[string]string),
 	}
+	// Optional `---\n…\n---` frontmatter at the top supplies the
+	// diagram title (and, eventually, more config). Stripped off
+	// the front of the body before the line loop so the header
+	// check still sees `block-beta` as the first non-blank line.
+	front, body := parserutil.SplitFrontmatter(src)
+	if len(front) > 0 {
+		if t := parserutil.FrontmatterValue(front, "title"); t != "" {
+			d.Title = t
+		}
+	}
+	scanner := bufio.NewScanner(strings.NewReader(string(body)))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	lineNum := 0
 	headerSeen := false
 	nodeIdx := make(map[string]int)
+	// inAccDescrBlock toggles when a `accDescr {` line opens a
+	// multi-line description; subsequent lines accumulate into
+	// d.AccDescr until the closing `}` line.
+	var accDescrLines []string
+	inAccDescrBlock := false
 
 	// Each frame is the parser state for one nesting level: which
 	// `Items` slice new content lands in, and which `Columns` int
@@ -50,6 +69,20 @@ func Parse(r io.Reader) (*diagram.BlockDiagram, error) {
 			headerSeen = true
 			continue
 		}
+		if inAccDescrBlock {
+			if line == "}" {
+				d.AccDescr = strings.Join(accDescrLines, "\n")
+				accDescrLines = accDescrLines[:0]
+				inAccDescrBlock = false
+				continue
+			}
+			accDescrLines = append(accDescrLines, line)
+			continue
+		}
+		if line == "accDescr {" || line == "accDescr{" {
+			inAccDescrBlock = true
+			continue
+		}
 		if v, ok := parserutil.MatchKeywordValue(line, "accTitle"); ok {
 			d.AccTitle = v
 			continue
@@ -59,10 +92,21 @@ func Parse(r io.Reader) (*diagram.BlockDiagram, error) {
 			continue
 		}
 		if rest, ok := strings.CutPrefix(line, "columns "); ok {
-			n, err := strconv.Atoi(strings.TrimSpace(rest))
-			if err == nil && n > 0 {
-				*current().cols = n
+			val := strings.TrimSpace(rest)
+			// `columns auto` is the explicit "let layout decide"
+			// spelling — store as 0 (the default) so renderer-side
+			// code sees no column constraint. Any other non-int
+			// value is rejected so a typo doesn't silently turn
+			// into an unbounded grid.
+			if val == "auto" {
+				*current().cols = 0
+				continue
 			}
+			n, err := strconv.Atoi(val)
+			if err != nil || n < 0 {
+				return nil, fmt.Errorf("line %d: columns expects a non-negative integer or `auto`, got %q", lineNum, val)
+			}
+			*current().cols = n
 			continue
 		}
 		if strings.HasPrefix(line, "classDef ") {
@@ -170,6 +214,9 @@ func Parse(r io.Reader) (*diagram.BlockDiagram, error) {
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("reading input: %w", err)
+	}
+	if inAccDescrBlock {
+		return nil, fmt.Errorf("unterminated accDescr { ... } block")
 	}
 	if !headerSeen {
 		return nil, fmt.Errorf("missing block-beta header")
