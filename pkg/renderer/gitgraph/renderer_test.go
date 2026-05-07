@@ -292,3 +292,26 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 		t.Error("viewBox missing")
 	}
 }
+
+// Cherry-pick commits render with a distinct hollow-circle +
+// horizontal-bar glyph, NOT the solid circle / square / ring
+// glyphs other types use.
+func TestRenderCherryPickGlyph(t *testing.T) {
+	d := &diagram.GitGraphDiagram{
+		Branches: []string{"main", "dev"},
+		Commits: []diagram.GitCommit{
+			{ID: "a", Branch: "main", Type: diagram.GitCommitNormal},
+			{ID: "b", Branch: "dev", Type: diagram.GitCommitNormal, Parents: []string{"a"}},
+			{ID: "cp1", Branch: "main", Type: diagram.GitCommitCherryPick,
+				CherryPickOf: "b", Parents: []string{"a"}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<circle") || !strings.Contains(raw, "<line") {
+		t.Errorf("cherry-pick glyph should emit both circle and line:\n%s", raw)
+	}
+}

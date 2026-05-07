@@ -15,7 +15,9 @@ const defaultBranch = "main"
 
 func Parse(r io.Reader) (*diagram.GitGraphDiagram, error) {
 	p := &parser{
-		diagram:    &diagram.GitGraphDiagram{},
+		diagram: &diagram.GitGraphDiagram{
+			BranchOrder: make(map[string]int),
+		},
 		branchHead: make(map[string]string),
 		branchSeen: make(map[string]bool),
 		current:    defaultBranch,
@@ -78,10 +80,14 @@ func (p *parser) parseLine(line string) error {
 		return p.parseCommit(rest)
 	case "branch":
 		return p.parseBranch(rest)
-	case "checkout":
+	case "checkout", "switch":
+		// `switch` is documented as an alias for `checkout` in
+		// newer Mermaid versions.
 		return p.parseCheckout(rest)
 	case "merge":
 		return p.parseMerge(rest)
+	case "cherry-pick":
+		return p.parseCherryPick(rest)
 	}
 	return nil
 }
@@ -123,7 +129,8 @@ func (p *parser) parseCommit(rest string) error {
 	return nil
 }
 
-// parseCommitAttrs parses `id: "x"`, `tag: "v1"`, `type: HIGHLIGHT` etc.
+// parseCommitAttrs parses `id: "x"`, `tag: "v1"`, `type: HIGHLIGHT`,
+// `msg: "..."`, plus the cherry-pick variants `parent: "..."`.
 func parseCommitAttrs(s string, c *diagram.GitCommit) {
 	for _, tok := range tokenizeAttrs(s) {
 		colon := strings.Index(tok, ":")
@@ -139,6 +146,10 @@ func parseCommitAttrs(s string, c *diagram.GitCommit) {
 			c.Tag = val
 		case "type":
 			c.Type = parseCommitType(val)
+		case "msg":
+			c.Msg = val
+		case "parent":
+			c.CherryPickParent = val
 		}
 	}
 }
@@ -200,10 +211,13 @@ func tokenizeAttrs(s string) []string {
 	return tokens
 }
 
-func (p *parser) parseBranch(name string) error {
-	name = stripOptionalOrder(name)
+func (p *parser) parseBranch(rest string) error {
+	name, after := splitQuotedOrField(rest)
 	if name == "" {
 		return fmt.Errorf("branch name required")
+	}
+	if order, ok := extractOrder(after); ok {
+		p.diagram.BranchOrder[name] = order
 	}
 	p.ensureBranch(name)
 	if head, ok := p.branchHead[p.current]; ok {
@@ -213,17 +227,52 @@ func (p *parser) parseBranch(name string) error {
 	return nil
 }
 
-// stripOptionalOrder drops a trailing `order: N` clause, which Mermaid
-// uses only to influence lane ordering — mmgo preserves declaration
-// order, so the clause is informational.
-func stripOptionalOrder(s string) string {
-	if idx := strings.Index(s, " order:"); idx >= 0 {
-		return strings.TrimSpace(s[:idx])
+// extractOrder peels an optional `order: N` clause from the tail of
+// a `branch <name> order: N` declaration. Returns (n, true) on a
+// valid integer, (0, false) when missing or malformed.
+func extractOrder(s string) (int, bool) {
+	idx := strings.Index(s, "order:")
+	if idx < 0 {
+		return 0, false
 	}
-	return strings.TrimSpace(s)
+	val := strings.TrimSpace(s[idx+len("order:"):])
+	val = strings.TrimSuffix(val, ",")
+	n := 0
+	for _, r := range val {
+		if r < '0' || r > '9' {
+			break
+		}
+		n = n*10 + int(r-'0')
+	}
+	if val == "" {
+		return 0, false
+	}
+	return n, true
 }
 
-func (p *parser) parseCheckout(name string) error {
+// splitQuotedOrField returns the first token (a quoted string if
+// present, otherwise a whitespace-delimited field) and the trimmed
+// remainder. Lets `branch "feat-X"` and `checkout "release/1.0"`
+// carry names containing spaces, slashes, or hyphens.
+func splitQuotedOrField(s string) (token, rest string) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", ""
+	}
+	if s[0] == '"' {
+		if end := strings.IndexByte(s[1:], '"'); end >= 0 {
+			return s[1 : end+1], strings.TrimSpace(s[end+2:])
+		}
+		return s[1:], ""
+	}
+	if i := strings.IndexAny(s, " \t"); i >= 0 {
+		return s[:i], strings.TrimSpace(s[i+1:])
+	}
+	return s, ""
+}
+
+func (p *parser) parseCheckout(rest string) error {
+	name, _ := splitQuotedOrField(rest)
 	if name == "" {
 		return fmt.Errorf("checkout: branch name required")
 	}
@@ -232,12 +281,35 @@ func (p *parser) parseCheckout(name string) error {
 	return nil
 }
 
+// parseCherryPick handles `cherry-pick id: "..." [tag: "..."]
+// [parent: "..."]`. The cherry-pick lands on the current branch as
+// a new commit whose CherryPickOf points back at the source.
+func (p *parser) parseCherryPick(rest string) error {
+	commit := diagram.GitCommit{
+		Branch: p.current,
+		Type:   diagram.GitCommitCherryPick,
+	}
+	parseCommitAttrs(rest, &commit)
+	if commit.ID == "" {
+		return fmt.Errorf("cherry-pick: id is required")
+	}
+	commit.CherryPickOf = commit.ID
+	p.commitSeq++
+	commit.ID = fmt.Sprintf("cp%d", p.commitSeq)
+	p.ensureBranch(p.current)
+	if head, ok := p.branchHead[p.current]; ok {
+		commit.Parents = []string{head}
+	}
+	p.branchHead[p.current] = commit.ID
+	p.diagram.Commits = append(p.diagram.Commits, commit)
+	return nil
+}
+
 func (p *parser) parseMerge(rest string) error {
-	parts := strings.Fields(rest)
-	if len(parts) == 0 {
+	mergedBranch, after := splitQuotedOrField(rest)
+	if mergedBranch == "" {
 		return fmt.Errorf("merge: branch name required")
 	}
-	mergedBranch := parts[0]
 
 	p.ensureBranch(p.current)
 	p.ensureBranch(mergedBranch)
@@ -246,8 +318,8 @@ func (p *parser) parseMerge(rest string) error {
 		Branch: p.current,
 		Type:   diagram.GitCommitMerge,
 	}
-	if len(parts) > 1 {
-		parseCommitAttrs(strings.TrimPrefix(rest, parts[0]), &commit)
+	if after != "" {
+		parseCommitAttrs(after, &commit)
 	}
 	if commit.ID == "" {
 		p.commitSeq++
