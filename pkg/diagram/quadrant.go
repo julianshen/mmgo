@@ -39,6 +39,8 @@ type QuadrantPoint struct {
 // syntax to declare them.
 type QuadrantChartDiagram struct {
 	Title      string
+	AccTitle   string
+	AccDescr   string
 	XAxisLow   string
 	XAxisHigh  string
 	YAxisLow   string

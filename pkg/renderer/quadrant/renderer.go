@@ -67,6 +67,12 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	viewH := plotY1 + bottomPad
 
 	children := make([]any, 0, 16+2*len(d.Points))
+	if d.AccTitle != "" {
+		children = append(children, &svgTitle{Content: d.AccTitle})
+	}
+	if d.AccDescr != "" {
+		children = append(children, &svgDesc{Content: d.AccDescr})
+	}
 	children = append(children, &rect{
 		X: 0, Y: 0,
 		Width:  svgFloat(viewW),

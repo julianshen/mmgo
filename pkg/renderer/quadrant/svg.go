@@ -9,4 +9,6 @@ type (
 	line     = svgutil.Line
 	text     = svgutil.Text
 	circle   = svgutil.Circle
+	svgTitle = svgutil.Title
+	svgDesc  = svgutil.Desc
 )
