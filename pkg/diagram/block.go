@@ -12,9 +12,23 @@ const (
 	BlockShapeSubroutine
 	BlockShapeDoubleCircle
 	BlockShapeCylinder
+	// BlockShapeAsymmetric is the `>label]` "odd" / flag shape.
+	BlockShapeAsymmetric
+	// BlockShapeParallelogram is `[/label/]`.
+	BlockShapeParallelogram
+	// BlockShapeParallelogramAlt is `[\label\]` (mirrored slant).
+	BlockShapeParallelogramAlt
+	// BlockShapeTrapezoid is `[/label\]`.
+	BlockShapeTrapezoid
+	// BlockShapeTrapezoidAlt is `[\label/]` (inverted trapezoid).
+	BlockShapeTrapezoidAlt
 )
 
-var blockShapeNames = []string{"rect", "round", "diamond", "stadium", "circle", "hexagon", "subroutine", "doubleCircle", "cylinder"}
+var blockShapeNames = []string{
+	"rect", "round", "diamond", "stadium", "circle",
+	"hexagon", "subroutine", "doubleCircle", "cylinder",
+	"asymmetric", "parallelogram", "parallelogramAlt", "trapezoid", "trapezoidAlt",
+}
 
 func (s BlockShape) String() string { return enumString(s, blockShapeNames) }
 
@@ -32,6 +46,14 @@ type BlockEdge struct {
 	From  string
 	To    string
 	Label string
+	// LineStyle covers the stroke pattern: solid (`-->`/`---`),
+	// thick (`==>`), dotted (`-.->`), invisible (`~~~`).
+	LineStyle LineStyle
+	// ArrowHead is the marker at the To end. `---` → None.
+	ArrowHead ArrowHead
+	// ArrowTail is the marker at the From end (only set for the
+	// bidirectional `<-->` form; otherwise None).
+	ArrowTail ArrowHead
 }
 
 // BlockItemKind discriminates the BlockItem union. Items are the

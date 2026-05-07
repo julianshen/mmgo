@@ -81,10 +81,13 @@ func Parse(r io.Reader) (*diagram.BlockDiagram, error) {
 			push(frame{items: &grp.Items, group: grp, cols: &grp.Columns})
 			continue
 		}
-		if from, to, label, ok := matchArrow(line); ok {
+		if from, to, label, style, head, tail, ok := matchArrow(line); ok {
 			ensureNode(d, nodeIdx, from, "", diagram.BlockShapeRect, 0)
 			ensureNode(d, nodeIdx, to, "", diagram.BlockShapeRect, 0)
-			d.Edges = append(d.Edges, diagram.BlockEdge{From: from, To: to, Label: label})
+			d.Edges = append(d.Edges, diagram.BlockEdge{
+				From: from, To: to, Label: label,
+				LineStyle: style, ArrowHead: head, ArrowTail: tail,
+			})
 			continue
 		}
 		// Token line: each whitespace-separated token becomes one
@@ -199,35 +202,52 @@ func ensureNode(d *diagram.BlockDiagram, idx map[string]int, id, label string, s
 //	id((Label))    → circle
 //	id([Label])    → stadium
 //	id[(Label)]    → cylinder
+//	id[/Label/]    → parallelogram
+//	id[\Label\]    → parallelogram-alt
+//	id[/Label\]    → trapezoid
+//	id[\Label/]    → trapezoid-alt
 //	id[[Label]]    → subroutine
 //	id[Label]      → rect
 //	id{{Label}}    → hexagon
 //	id{Label}      → diamond
 //	id(Label)      → round
+//	id>Label]      → asymmetric
 func parseNodeToken(tok string) (id, label string, shape diagram.BlockShape) {
-	if i := strings.IndexAny(tok, "[({"); i > 0 {
-		id = tok[:i]
-		rest := tok[i:]
-		switch {
-		case strings.HasPrefix(rest, "((("):
-			return id, extractBetween(rest, "(((", ")))"), diagram.BlockShapeDoubleCircle
-		case strings.HasPrefix(rest, "(("):
-			return id, extractBetween(rest, "((", "))"), diagram.BlockShapeCircle
-		case strings.HasPrefix(rest, "(["):
-			return id, extractBetween(rest, "([", "])"), diagram.BlockShapeStadium
-		case strings.HasPrefix(rest, "[("):
-			return id, extractBetween(rest, "[(", ")]"), diagram.BlockShapeCylinder
-		case strings.HasPrefix(rest, "[["):
-			return id, extractBetween(rest, "[[", "]]"), diagram.BlockShapeSubroutine
-		case strings.HasPrefix(rest, "["):
-			return id, extractBetween(rest, "[", "]"), diagram.BlockShapeRect
-		case strings.HasPrefix(rest, "{{"):
-			return id, extractBetween(rest, "{{", "}}"), diagram.BlockShapeHexagon
-		case strings.HasPrefix(rest, "("):
-			return id, extractBetween(rest, "(", ")"), diagram.BlockShapeRound
-		case strings.HasPrefix(rest, "{"):
-			return id, extractBetween(rest, "{", "}"), diagram.BlockShapeDiamond
-		}
+	i := strings.IndexAny(tok, "[({>")
+	if i <= 0 {
+		return tok, "", diagram.BlockShapeRect
+	}
+	id = tok[:i]
+	rest := tok[i:]
+	switch {
+	case strings.HasPrefix(rest, "((("):
+		return id, extractBetween(rest, "(((", ")))"), diagram.BlockShapeDoubleCircle
+	case strings.HasPrefix(rest, "(("):
+		return id, extractBetween(rest, "((", "))"), diagram.BlockShapeCircle
+	case strings.HasPrefix(rest, "(["):
+		return id, extractBetween(rest, "([", "])"), diagram.BlockShapeStadium
+	case strings.HasPrefix(rest, "[("):
+		return id, extractBetween(rest, "[(", ")]"), diagram.BlockShapeCylinder
+	case strings.HasPrefix(rest, "[/") && strings.HasSuffix(rest, "/]"):
+		return id, extractBetween(rest, "[/", "/]"), diagram.BlockShapeParallelogram
+	case strings.HasPrefix(rest, "[\\") && strings.HasSuffix(rest, "\\]"):
+		return id, extractBetween(rest, "[\\", "\\]"), diagram.BlockShapeParallelogramAlt
+	case strings.HasPrefix(rest, "[/") && strings.HasSuffix(rest, "\\]"):
+		return id, extractBetween(rest, "[/", "\\]"), diagram.BlockShapeTrapezoid
+	case strings.HasPrefix(rest, "[\\") && strings.HasSuffix(rest, "/]"):
+		return id, extractBetween(rest, "[\\", "/]"), diagram.BlockShapeTrapezoidAlt
+	case strings.HasPrefix(rest, "[["):
+		return id, extractBetween(rest, "[[", "]]"), diagram.BlockShapeSubroutine
+	case strings.HasPrefix(rest, "["):
+		return id, extractBetween(rest, "[", "]"), diagram.BlockShapeRect
+	case strings.HasPrefix(rest, "{{"):
+		return id, extractBetween(rest, "{{", "}}"), diagram.BlockShapeHexagon
+	case strings.HasPrefix(rest, "("):
+		return id, extractBetween(rest, "(", ")"), diagram.BlockShapeRound
+	case strings.HasPrefix(rest, "{"):
+		return id, extractBetween(rest, "{", "}"), diagram.BlockShapeDiamond
+	case strings.HasPrefix(rest, ">") && strings.HasSuffix(rest, "]"):
+		return id, extractBetween(rest, ">", "]"), diagram.BlockShapeAsymmetric
 	}
 	return tok, "", diagram.BlockShapeRect
 }
@@ -239,37 +259,76 @@ func extractBetween(s, open, close string) string {
 	return strings.Trim(s, "\"")
 }
 
-func matchArrow(line string) (from, to, label string, ok bool) {
-	// Find the arrow token outside brackets so labels like
-	// "a[x --> y]" aren't misread as an arrow.
-	idx := findArrowOutsideBrackets(line, "-->")
-	if idx < 0 {
-		idx = findArrowOutsideBrackets(line, "---")
-		if idx < 0 {
-			return "", "", "", false
-		}
-	}
-	fromRaw := strings.TrimSpace(line[:idx])
-	rest := strings.TrimSpace(line[idx+3:])
+// arrowSpecs maps each spec-defined arrow tail to (LineStyle,
+// ArrowHead, ArrowTail). Order matters: longer tails are tried
+// first so `<-->` beats `-->` and `-.->` beats `-->`. `~~~` and
+// `<-->` only work as full tokens (no `-- text -->` separator).
+var arrowSpecs = []struct {
+	tail  string
+	style diagram.LineStyle
+	head  diagram.ArrowHead
+	bidi  bool
+	// sep is the text-form left separator (`-- text TAIL`). Empty
+	// disables inline text labels for this arrow.
+	sep string
+}{
+	{"<-->", diagram.LineStyleSolid, diagram.ArrowHeadArrow, true, ""},
+	{"-.->", diagram.LineStyleDotted, diagram.ArrowHeadArrow, false, "-."},
+	{"==>", diagram.LineStyleThick, diagram.ArrowHeadArrow, false, "=="},
+	{"~~~", diagram.LineStyleInvisible, diagram.ArrowHeadNone, false, ""},
+	{"--x", diagram.LineStyleSolid, diagram.ArrowHeadCross, false, "--"},
+	{"--o", diagram.LineStyleSolid, diagram.ArrowHeadCircle, false, "--"},
+	{"-->", diagram.LineStyleSolid, diagram.ArrowHeadArrow, false, "--"},
+	{"---", diagram.LineStyleSolid, diagram.ArrowHeadNone, false, "--"},
+}
 
-	// `|label|` pipe-style label
-	if strings.HasPrefix(rest, "|") {
-		end := strings.Index(rest[1:], "|")
-		if end >= 0 {
-			label = strings.TrimSpace(rest[1 : end+1])
-			rest = strings.TrimSpace(rest[end+2:])
+// matchArrow recognises the full block-beta edge lexicon. Returns
+// the source and target node ids, an optional label (`|x|` pipe
+// form or `-- text -->` inline form), the line style, and the head
+// markers. The non-spec `: label` trailing form is no longer
+// accepted — colons inside a label must come from the pipe form.
+func matchArrow(line string) (from, to, label string, style diagram.LineStyle, head, tail diagram.ArrowHead, ok bool) {
+	for _, spec := range arrowSpecs {
+		idx := findArrowOutsideBrackets(line, spec.tail)
+		if idx < 0 {
+			continue
 		}
+		fromRaw := strings.TrimSpace(line[:idx])
+		rest := strings.TrimSpace(line[idx+len(spec.tail):])
+
+		// `-- text -->` inline label form: split fromRaw on the
+		// matching separator. The right segment becomes the label.
+		if spec.sep != "" {
+			if sepIdx := findArrowOutsideBrackets(fromRaw, " "+spec.sep+" "); sepIdx >= 0 {
+				labelText := strings.TrimSpace(fromRaw[sepIdx+len(spec.sep)+2:])
+				fromRaw = strings.TrimSpace(fromRaw[:sepIdx])
+				label = labelText
+			}
+		}
+
+		// `|label|` pipe-style label still wins over inline text
+		// when both are present (mermaid behaviour).
+		if strings.HasPrefix(rest, "|") {
+			if end := strings.Index(rest[1:], "|"); end >= 0 {
+				label = strings.TrimSpace(rest[1 : end+1])
+				rest = strings.TrimSpace(rest[end+2:])
+			}
+		}
+
+		from = firstID(fromRaw)
+		to = firstID(rest)
+		if from == "" || to == "" {
+			return "", "", "", 0, 0, 0, false
+		}
+		style = spec.style
+		head = spec.head
+		tail = diagram.ArrowHeadNone
+		if spec.bidi {
+			tail = diagram.ArrowHeadArrow
+		}
+		return from, to, label, style, head, tail, true
 	}
-	if colonIdx := strings.Index(rest, ":"); colonIdx >= 0 {
-		label = strings.TrimSpace(rest[colonIdx+1:])
-		rest = strings.TrimSpace(rest[:colonIdx])
-	}
-	from = firstID(fromRaw)
-	to = firstID(rest)
-	if from == "" || to == "" {
-		return "", "", "", false
-	}
-	return from, to, label, true
+	return "", "", "", 0, 0, 0, false
 }
 
 func findArrowOutsideBrackets(line, token string) int {
@@ -327,6 +386,15 @@ func tokenize(line string) []string {
 			cur.WriteByte(c)
 		case '{':
 			closers = append(closers, '}')
+			cur.WriteByte(c)
+		case '>':
+			// `>` opens an asymmetric shape that closes at `]`.
+			// tokenize is only called for token lines (arrow lines
+			// dispatch earlier), so a stray `>` only appears here
+			// as the shape prefix.
+			if cur.Len() > 0 {
+				closers = append(closers, ']')
+			}
 			cur.WriteByte(c)
 		case ' ', '\t':
 			flush()

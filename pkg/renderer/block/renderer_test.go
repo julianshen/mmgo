@@ -260,3 +260,75 @@ func TestRenderBlockExtendedShapes(t *testing.T) {
 		}
 	}
 }
+
+// Each new shape produces a polygon glyph (asymmetric flag,
+// parallelograms, trapezoids).
+func TestRenderBlockPhaseBShapes(t *testing.T) {
+	for _, shape := range []diagram.BlockShape{
+		diagram.BlockShapeAsymmetric,
+		diagram.BlockShapeParallelogram,
+		diagram.BlockShapeParallelogramAlt,
+		diagram.BlockShapeTrapezoid,
+		diagram.BlockShapeTrapezoidAlt,
+	} {
+		d := &diagram.BlockDiagram{
+			Nodes: []diagram.BlockNode{{ID: "A", Label: "A", Shape: shape}},
+		}
+		out, err := Render(d, nil)
+		if err != nil {
+			t.Fatalf("shape %v: %v", shape, err)
+		}
+		if !strings.Contains(string(out), "<polygon") {
+			t.Errorf("shape %v: expected <polygon> in output", shape)
+		}
+	}
+}
+
+// Each LineStyle/ArrowHead combination produces the expected
+// marker reference / dasharray / stroke-width in the SVG.
+func TestRenderBlockEdgeStyles(t *testing.T) {
+	cases := []struct {
+		style diagram.LineStyle
+		head  diagram.ArrowHead
+		want  []string
+	}{
+		{diagram.LineStyleSolid, diagram.ArrowHeadArrow, []string{"url(#block-arrow)"}},
+		{diagram.LineStyleSolid, diagram.ArrowHeadCross, []string{"url(#block-cross)"}},
+		{diagram.LineStyleSolid, diagram.ArrowHeadCircle, []string{"url(#block-circle)"}},
+		{diagram.LineStyleThick, diagram.ArrowHeadArrow, []string{"stroke-width:3"}},
+		{diagram.LineStyleDotted, diagram.ArrowHeadArrow, []string{"stroke-dasharray:4 4"}},
+	}
+	for _, tc := range cases {
+		d := &diagram.BlockDiagram{
+			Nodes: []diagram.BlockNode{{ID: "A", Label: "A"}, {ID: "B", Label: "B"}},
+			Edges: []diagram.BlockEdge{{From: "A", To: "B", LineStyle: tc.style, ArrowHead: tc.head}},
+		}
+		out, err := Render(d, nil)
+		if err != nil {
+			t.Fatalf("style %v head %v: %v", tc.style, tc.head, err)
+		}
+		raw := string(out)
+		for _, want := range tc.want {
+			if !strings.Contains(raw, want) {
+				t.Errorf("style %v head %v: expected %q in output", tc.style, tc.head, want)
+			}
+		}
+	}
+}
+
+// LineStyleInvisible suppresses the edge entirely.
+func TestRenderBlockInvisibleEdge(t *testing.T) {
+	d := &diagram.BlockDiagram{
+		Nodes: []diagram.BlockNode{{ID: "A", Label: "A"}, {ID: "B", Label: "B"}},
+		Edges: []diagram.BlockEdge{{From: "A", To: "B", LineStyle: diagram.LineStyleInvisible}},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// Both nodes still render but neither anchor marker should
+	// appear because the edge was suppressed.
+	if strings.Contains(string(out), "url(#block-arrow)") {
+		t.Errorf("invisible edge should not emit arrow marker")
+	}
+}

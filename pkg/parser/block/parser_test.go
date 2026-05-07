@@ -85,10 +85,13 @@ func TestParseShapes(t *testing.T) {
 }
 
 func TestParseEdges(t *testing.T) {
+	// Phase B drops the non-spec `: label` trailing form. Use the
+	// pipe-style `|label|` documented in
+	// https://mermaid.js.org/syntax/block.html.
 	input := `block-beta
     a b c
     a --> b
-    b --> c: next`
+    b -->|next| c`
 	d, err := Parse(strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -394,5 +397,107 @@ func TestParseGroupBalanceErrors(t *testing.T) {
 		if _, err := Parse(strings.NewReader(src)); err == nil {
 			t.Errorf("expected error for:\n%s", src)
 		}
+	}
+}
+
+// Asymmetric, parallelogram, parallelogram-alt, trapezoid, and
+// trapezoid-alt shapes round-trip from the spec's bracket forms.
+func TestParseAdditionalShapes(t *testing.T) {
+	cases := []struct {
+		input string
+		want  diagram.BlockShape
+		text  string
+	}{
+		{"A>flag]", diagram.BlockShapeAsymmetric, "flag"},
+		{"P[/slant/]", diagram.BlockShapeParallelogram, "slant"},
+		{"Q[\\slant\\]", diagram.BlockShapeParallelogramAlt, "slant"},
+		{"T[/wider\\]", diagram.BlockShapeTrapezoid, "wider"},
+		{"U[\\inverted/]", diagram.BlockShapeTrapezoidAlt, "inverted"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("block-beta\n    " + tc.input))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(d.Nodes) != 1 {
+				t.Fatalf("nodes = %v", d.Nodes)
+			}
+			if d.Nodes[0].Shape != tc.want {
+				t.Errorf("shape = %v, want %v", d.Nodes[0].Shape, tc.want)
+			}
+			if d.Nodes[0].Label != tc.text {
+				t.Errorf("label = %q, want %q", d.Nodes[0].Label, tc.text)
+			}
+		})
+	}
+}
+
+// Full edge lexicon: every spec-defined arrow tail maps to the
+// expected (LineStyle, ArrowHead, ArrowTail) triple.
+func TestParseEdgeLexicon(t *testing.T) {
+	cases := []struct {
+		arrow string
+		style diagram.LineStyle
+		head  diagram.ArrowHead
+		tail  diagram.ArrowHead
+	}{
+		{"-->", diagram.LineStyleSolid, diagram.ArrowHeadArrow, diagram.ArrowHeadNone},
+		{"---", diagram.LineStyleSolid, diagram.ArrowHeadNone, diagram.ArrowHeadNone},
+		{"<-->", diagram.LineStyleSolid, diagram.ArrowHeadArrow, diagram.ArrowHeadArrow},
+		{"==>", diagram.LineStyleThick, diagram.ArrowHeadArrow, diagram.ArrowHeadNone},
+		{"-.->", diagram.LineStyleDotted, diagram.ArrowHeadArrow, diagram.ArrowHeadNone},
+		{"--x", diagram.LineStyleSolid, diagram.ArrowHeadCross, diagram.ArrowHeadNone},
+		{"--o", diagram.LineStyleSolid, diagram.ArrowHeadCircle, diagram.ArrowHeadNone},
+		{"~~~", diagram.LineStyleInvisible, diagram.ArrowHeadNone, diagram.ArrowHeadNone},
+	}
+	for _, tc := range cases {
+		t.Run(tc.arrow, func(t *testing.T) {
+			src := "block-beta\nA " + tc.arrow + " B"
+			d, err := Parse(strings.NewReader(src))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(d.Edges) != 1 {
+				t.Fatalf("edges = %v", d.Edges)
+			}
+			e := d.Edges[0]
+			if e.LineStyle != tc.style || e.ArrowHead != tc.head || e.ArrowTail != tc.tail {
+				t.Errorf("got (%v, %v, %v), want (%v, %v, %v)",
+					e.LineStyle, e.ArrowHead, e.ArrowTail, tc.style, tc.head, tc.tail)
+			}
+		})
+	}
+}
+
+// `A -- text --> B` and the matching `-. text .->` / `== text ==>`
+// inline label forms surface as edge labels.
+func TestParseEdgeInlineLabels(t *testing.T) {
+	cases := []struct {
+		input string
+		label string
+	}{
+		{"A -- jumps --> B", "jumps"},
+		{"A == thick == B", ""}, // == … == is not the inline form; only `== text ==>`
+		{"A == thick ==> B", "thick"},
+		{"A -- crosses --x B", "crosses"},
+		{"A -- circles --o B", "circles"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("block-beta\n" + tc.input))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(d.Edges) == 0 {
+				if tc.label == "" {
+					return
+				}
+				t.Fatalf("no edges parsed")
+			}
+			if got := d.Edges[0].Label; got != tc.label {
+				t.Errorf("label = %q, want %q", got, tc.label)
+			}
+		})
 	}
 }
