@@ -86,7 +86,7 @@ func Render(d *diagram.BlockDiagram, opts *Options) ([]byte, error) {
 		// the heading reads against any theme.
 		children = append(children, &text{
 			X: svgFloat(viewW / 2), Y: svgFloat(14),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:14px;font-weight:bold", th.NodeText),
 			Content: d.Title,
 		})
@@ -279,7 +279,7 @@ func renderNodes(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float6
 
 		elems = append(elems, &text{
 			X: svgFloat(cx), Y: svgFloat(cy),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.NodeText, fontSize),
 			Content: n.Label,
 		})
@@ -352,7 +352,7 @@ func renderEdges(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float6
 			ly := el.LabelPos.Y + pad
 			elems = append(elems, &text{
 				X: svgFloat(lx), Y: svgFloat(ly),
-				Anchor: "middle", Dominant: "central",
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, fontSize-1),
 				Content: edge.Label,
 			})

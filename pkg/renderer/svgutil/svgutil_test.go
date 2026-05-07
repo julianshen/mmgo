@@ -373,3 +373,20 @@ func TestMergeBoolPtr(t *testing.T) {
 		t.Error("expected dst to point at false after merge")
 	}
 }
+
+func TestAttrConstantsMatchSVGSpec(t *testing.T) {
+	pairs := []struct{ got, want string }{
+		{AnchorStart, "start"},
+		{AnchorMiddle, "middle"},
+		{AnchorEnd, "end"},
+		{BaselineAuto, "auto"},
+		{BaselineCentral, "central"},
+		{BaselineHanging, "hanging"},
+		{BaselineBaseline, "baseline"},
+	}
+	for _, p := range pairs {
+		if p.got != p.want {
+			t.Errorf("constant must equal %q (SVG spec), got %q", p.want, p.got)
+		}
+	}
+}

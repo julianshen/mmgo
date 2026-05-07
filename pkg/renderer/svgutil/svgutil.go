@@ -579,6 +579,27 @@ func MarshalSVG(doc Doc) ([]byte, error) {
 	return append([]byte(xmlDecl), raw...), nil
 }
 
+// SVG text-anchor values. Use these instead of bare string literals
+// so a typo surfaces at compile time and renderers can grep for the
+// constants when refactoring text placement.
+const (
+	AnchorStart  = "start"
+	AnchorMiddle = "middle"
+	AnchorEnd    = "end"
+)
+
+// SVG dominant-baseline values. "auto" sits the alphabetic baseline
+// at y, "hanging" sits the cap at y, "central" centres the glyph at
+// y, and "baseline" (deprecated alias of "auto" in modern UAs) is
+// kept because tdewolff/canvas honours it explicitly. Picking the
+// right baseline avoids font-em offsetting in the caller.
+const (
+	BaselineAuto     = "auto"
+	BaselineCentral  = "central"
+	BaselineHanging  = "hanging"
+	BaselineBaseline = "baseline"
+)
+
 // MergeStr overwrites *dst with src when src != "". Empty src means
 // "inherit default".
 func MergeStr(dst *string, src string) {

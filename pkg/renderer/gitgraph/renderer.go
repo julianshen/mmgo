@@ -100,8 +100,8 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		children = append(children, &text{
 			X:        svgFloat(viewW / 2),
 			Y:        svgFloat(marginY / 2),
-			Anchor:   "middle",
-			Dominant: "central",
+			Anchor:   svgutil.AnchorMiddle,
+			Dominant: svgutil.BaselineCentral,
 			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.Text, fontSize+2),
 			Content:  d.Title,
 		})
@@ -140,8 +140,8 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		children = append(children, &text{
 			X:        svgFloat(marginX + pillW/2),
 			Y:        svgFloat(y),
-			Anchor:   "middle",
-			Dominant: "central",
+			Anchor:   svgutil.AnchorMiddle,
+			Dominant: svgutil.BaselineCentral,
 			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.BranchLabelText, fontSize),
 			Content:  b,
 		})
@@ -197,8 +197,8 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 			children = append(children, &text{
 				X:        svgFloat(x),
 				Y:        svgFloat(y - commitRadius - labelGap),
-				Anchor:   "middle",
-				Dominant: "baseline",
+				Anchor:   svgutil.AnchorMiddle,
+				Dominant: svgutil.BaselineBaseline,
 				Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.Text, fontSize-2),
 				Content:  c.ID,
 			})
@@ -320,8 +320,8 @@ func tagCallout(tag string, x, y, gap, fontSize float64, th Theme) []any {
 		&text{
 			X:        svgFloat(x),
 			Y:        svgFloat(by + h/2),
-			Anchor:   "middle",
-			Dominant: "central",
+			Anchor:   svgutil.AnchorMiddle,
+			Dominant: svgutil.BaselineCentral,
 			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.TagText, tagFont),
 			Content:  tag,
 		},

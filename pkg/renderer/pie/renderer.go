@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -96,7 +97,7 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 	if d.Title != "" {
 		children = append(children, &text{
 			X: svgFloat(cx), Y: svgFloat(pad + fontSize),
-			Anchor: "middle", Dominant: "auto",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineAuto,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize+2),
 			Content: d.Title,
 		})
@@ -114,7 +115,7 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 		}
 		children = append(children, &text{
 			X: svgFloat(cx), Y: svgFloat(cy),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.InsideText, fontSize-1),
 			Content: label,
 		})
@@ -139,7 +140,7 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 				ly := cy + defaultRadius*0.65*sinA
 				children = append(children, &text{
 					X: svgFloat(lx), Y: svgFloat(ly),
-					Anchor: "middle", Dominant: "central",
+					Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.InsideText, fontSize-1),
 					Content: label,
 				})
@@ -159,7 +160,7 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 				}
 				children = append(children, &text{
 					X: svgFloat(outX), Y: svgFloat(outY),
-					Anchor: anchor, Dominant: "central",
+					Anchor: anchor, Dominant: svgutil.BaselineCentral,
 					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.OutsideText, fontSize-1),
 					Content: label,
 				})
@@ -177,7 +178,7 @@ func Render(d *diagram.PieDiagram, opts *Options) ([]byte, error) {
 		})
 		children = append(children, &text{
 			X: svgFloat(legendX + legendSwatchW + 6), Y: svgFloat(y + legendSwatchW/2),
-			Anchor: "start", Dominant: "central",
+			Anchor: svgutil.AnchorStart, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.LegendText, fontSize),
 			Content: s.Label,
 		})
@@ -227,4 +228,3 @@ func formatSliceLabel(s diagram.Slice, total float64, showData bool) string {
 	}
 	return pct
 }
-

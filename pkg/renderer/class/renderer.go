@@ -288,7 +288,7 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 		if c.Annotation != diagram.AnnotationNone {
 			*buf = append(*buf, &text{
 				X: svgFloat(cx), Y: svgFloat(y + 14),
-				Anchor: "middle", Dominant: "auto",
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineAuto,
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-style:italic", th.AnnotationText, fontSize-2),
 				Content: "«" + c.Annotation.String() + "»",
 			})
@@ -297,7 +297,7 @@ func renderClasses(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize floa
 
 		*buf = append(*buf, &text{
 			X: svgFloat(cx), Y: svgFloat(curY),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.NodeText, fontSize),
 			Content: headerText(c),
 		})
@@ -356,7 +356,7 @@ func appendMemberSection(elems []any, members []diagram.ClassMember, x, w, secti
 		}
 		elems = append(elems, &text{
 			X: svgFloat(x + classPadX), Y: svgFloat(my),
-			Anchor: "start", Dominant: "central",
+			Anchor: svgutil.AnchorStart, Dominant: svgutil.BaselineCentral,
 			Style:   style,
 			Content: memberText(m),
 		})
@@ -366,9 +366,9 @@ func appendMemberSection(elems []any, members []diagram.ClassMember, x, w, secti
 
 // placedNamespace is a sized + positioned namespace rectangle.
 type placedNamespace struct {
-	name    string
-	x, y    float64
-	w, h    float64
+	name string
+	x, y float64
+	w, h float64
 }
 
 const (
@@ -440,7 +440,7 @@ func renderNamespaces(namespaces []placedNamespace, fontSize float64, th Theme) 
 			},
 			&text{
 				X: svgFloat(p.x + nsPadX), Y: svgFloat(p.y + nsLabelH/2 + nsPadY/2),
-				Anchor: "start", Dominant: "central",
+				Anchor: svgutil.AnchorStart, Dominant: svgutil.BaselineCentral,
 				Style:   textStyle,
 				Content: p.name,
 			},
@@ -451,10 +451,10 @@ func renderNamespaces(namespaces []placedNamespace, fontSize float64, th Theme) 
 
 // placedNote is a sized + positioned ClassNote ready to emit.
 type placedNote struct {
-	note    diagram.ClassNote
-	lines   []string
-	x, y    float64
-	w, h    float64
+	note  diagram.ClassNote
+	lines []string
+	x, y  float64
+	w, h  float64
 }
 
 // layoutNotes sizes each note from its text and stacks the lot in a
@@ -505,8 +505,8 @@ func renderNotes(notes []placedNote, l *layout.Result, pad, fontSize float64, th
 			elems = append(elems, &text{
 				X:        svgFloat(p.x + svgutil.NotePadX),
 				Y:        svgFloat(p.y + svgutil.NotePadY + float64(i)*svgutil.NoteLineH + svgutil.NoteLineH/2),
-				Anchor:   "start",
-				Dominant: "central",
+				Anchor:   svgutil.AnchorStart,
+				Dominant: svgutil.BaselineCentral,
 				Style:    textStyle,
 				Content:  ln,
 			})
@@ -657,7 +657,7 @@ func renderEdges(d *diagram.ClassDiagram, l *layout.Result, pad, fontSize float6
 			elems = append(elems, svgutil.LabelChip(lx, ly, labelW, labelH, 4, th.Background, 3))
 			elems = append(elems, &text{
 				X: svgFloat(lx), Y: svgFloat(ly),
-				Anchor: "middle", Dominant: "central",
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, labelFont),
 				Content: rel.Label,
 			})

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -183,7 +184,7 @@ func (mr *messageRenderer) appendAutoNumberBadge(elems []any, srcX, y float64, n
 		},
 		&text{
 			X: svgFloat(srcX), Y: svgFloat(y),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   mr.autoNumStyles.text,
 			Content: fmt.Sprintf("%d", n),
 		},
@@ -252,9 +253,9 @@ func (mr *messageRenderer) renderSelfMessage(x, y float64, m diagram.Message) []
 }
 
 const (
-	noteW      = 120.0
-	noteH      = 30.0
-	notePad    = 8.0
+	noteW       = 120.0
+	noteH       = 30.0
+	notePad     = 8.0
 	noteOffset  = 10.0
 	blockPad    = 15.0
 	blockIndent = 8.0
@@ -390,13 +391,13 @@ func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 			X: svgFloat(x), Y: svgFloat(startY - defaultRowHeight/4),
 			Width:  svgFloat(kindLabelW + 2*notePad),
 			Height: svgFloat(20),
-			RX: 6, RY: 6,
+			RX:     6, RY: 6,
 			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f",
 				mr.th.ParticipantFill, mr.th.ParticipantStroke, defaultStrokeWidth),
 		})
 		elems = append(elems, &text{
 			X: svgFloat(x + notePad), Y: svgFloat(startY - defaultRowHeight/4 + 14),
-			Anchor: "start", Dominant: "auto",
+			Anchor: svgutil.AnchorStart, Dominant: svgutil.BaselineAuto,
 			Style:   mr.msgTextSmallBoldStyle,
 			Content: kindLabel,
 		})
@@ -405,7 +406,7 @@ func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 			elems = append(elems, &text{
 				X:      svgFloat(x + w/2),
 				Y:      svgFloat(startY - defaultRowHeight/4 + 14),
-				Anchor: "middle", Dominant: "auto",
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineAuto,
 				Style:   mr.msgTextSmallStyle,
 				Content: "[" + b.Label + "]",
 			})
@@ -425,7 +426,7 @@ func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
 			// on each side without crashing into either neighbour.
 			elems = append(elems, &text{
 				X: svgFloat(x + w/2), Y: svgFloat(brY + 15),
-				Anchor: "middle", Dominant: "central",
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 				Style:   mr.msgTextSmallStyle,
 				Content: "[" + b.Branches[i].Label + "]",
 			})

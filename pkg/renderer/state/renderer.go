@@ -257,8 +257,8 @@ func renderStateNotes(notes []placedStateNote, l *layout.Result, pad, fontSize f
 			elems = append(elems, &text{
 				X:        svgFloat(p.x + svgutil.NotePadX),
 				Y:        svgFloat(p.y + svgutil.NotePadY + float64(i)*svgutil.NoteLineH + svgutil.NoteLineH/2),
-				Anchor:   "start",
-				Dominant: "central",
+				Anchor:   svgutil.AnchorStart,
+				Dominant: svgutil.BaselineCentral,
 				Style:    textStyle,
 				Content:  ln,
 			})
@@ -403,10 +403,10 @@ type placedComposite struct {
 }
 
 const (
-	compositePadX     = 14.0
-	compositePadY     = 12.0
-	compositeLabelH   = 22.0
-	compositeCornerR  = 8.0
+	compositePadX    = 14.0
+	compositePadY    = 12.0
+	compositeLabelH  = 22.0
+	compositeCornerR = 8.0
 )
 
 // layoutCompositeBoxes computes the bounding rect for each composite
@@ -506,7 +506,7 @@ func renderCompositeBoxes(composites []placedComposite, fontSize float64, th The
 			},
 			&text{
 				X: svgFloat(p.x + compositePadX), Y: svgFloat(p.y + compositeLabelH/2 + compositePadY/2),
-				Anchor: "start", Dominant: "central",
+				Anchor: svgutil.AnchorStart, Dominant: svgutil.BaselineCentral,
 				Style:   textStyle,
 				Content: p.def.Label,
 			},
@@ -636,7 +636,7 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 				titleH := titleBandHeight(fontSize)
 				*buf = append(*buf, &text{
 					X: svgFloat(cx), Y: svgFloat(y + titleH/2),
-					Anchor: "middle", Dominant: "central",
+					Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize),
 					Content: s.Label,
 				})
@@ -651,7 +651,7 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 					ly := y + titleH + statePadY/2 + float64(i)*lineH + lineH/2
 					*buf = append(*buf, &text{
 						X: svgFloat(cx), Y: svgFloat(ly),
-						Anchor: "middle", Dominant: "central",
+						Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 						Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize-1),
 						Content: ln,
 					})
@@ -659,7 +659,7 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 			} else {
 				*buf = append(*buf, &text{
 					X: svgFloat(cx), Y: svgFloat(cy),
-					Anchor: "middle", Dominant: "central",
+					Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize),
 					Content: s.Label,
 				})
@@ -804,7 +804,7 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 				for i, ln := range lines {
 					elems = append(elems, &text{
 						X: svgFloat(p.X), Y: svgFloat(topY + float64(i)*lineH),
-						Anchor: "middle", Dominant: "central",
+						Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 						Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, fontSize-1),
 						Content: ln,
 					})

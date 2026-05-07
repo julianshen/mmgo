@@ -6,6 +6,7 @@ import (
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 )
 
 type bbox struct {
@@ -136,7 +137,7 @@ func renderSubgraphGroup(sg *diagram.Subgraph, l *layout.Result, pad float64, th
 		}
 		textElem := &Text{
 			X: svgFloat(rx + rw/2), Y: svgFloat(subgraphTitleY(ry, titleBand)),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			FontSize: svgFloat(fontSize),
 			Style:    fmt.Sprintf("fill:%s;font-size:%.2fpx", th.SubgraphText, fontSize),
 			Content:  sg.Label,

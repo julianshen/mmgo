@@ -111,8 +111,8 @@ func Render(d *diagram.XYChartDiagram, opts *Options) ([]byte, error) {
 		children = append(children, &text{
 			X:        svgFloat((plotX0 + plotX1) / 2),
 			Y:        svgFloat(marginY + cfg.TitlePadding + cfg.TitleFontSize/2),
-			Anchor:   "middle",
-			Dominant: "central",
+			Anchor:   svgutil.AnchorMiddle,
+			Dominant: svgutil.BaselineCentral,
 			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleColor, cfg.TitleFontSize),
 			Content:  d.Title,
 		})
@@ -283,8 +283,8 @@ func renderTickRow(r tickRow) []any {
 				out = append(out, &text{
 					X:        svgFloat(it.pos),
 					Y:        svgFloat(r.axisOrigin + r.axisCfg.TickLength + r.axisCfg.LabelPadding),
-					Anchor:   "middle",
-					Dominant: "hanging",
+					Anchor:   svgutil.AnchorMiddle,
+					Dominant: svgutil.BaselineHanging,
 					Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", r.labelColor, r.axisCfg.LabelFontSize),
 					Content:  it.label,
 				})
@@ -292,8 +292,8 @@ func renderTickRow(r tickRow) []any {
 				out = append(out, &text{
 					X:        svgFloat(r.axisOrigin - r.axisCfg.TickLength - r.axisCfg.LabelPadding),
 					Y:        svgFloat(it.pos),
-					Anchor:   "end",
-					Dominant: "central",
+					Anchor:   svgutil.AnchorEnd,
+					Dominant: svgutil.BaselineCentral,
 					Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", r.labelColor, r.axisCfg.LabelFontSize),
 					Content:  it.label,
 				})
@@ -392,8 +392,8 @@ func axisTitlesOriented(bottomDef, leftDef diagram.XYAxis, x0, y0, x1, y1 float6
 		elems = append(elems, &text{
 			X:        svgFloat((x0 + x1) / 2),
 			Y:        svgFloat(y1 + axisLabelGap(bottomCfg) + bottomCfg.TitlePadding + bottomCfg.TitleFontSize/2),
-			Anchor:   "middle",
-			Dominant: "central",
+			Anchor:   svgutil.AnchorMiddle,
+			Dominant: svgutil.BaselineCentral,
 			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", bottomColor, bottomCfg.TitleFontSize),
 			Content:  bottomDef.Title,
 		})
@@ -404,8 +404,8 @@ func axisTitlesOriented(bottomDef, leftDef diagram.XYAxis, x0, y0, x1, y1 float6
 		elems = append(elems, &text{
 			X:         svgFloat(tx),
 			Y:         svgFloat(midY),
-			Anchor:    "middle",
-			Dominant:  "central",
+			Anchor:    svgutil.AnchorMiddle,
+			Dominant:  svgutil.BaselineCentral,
 			Style:     fmt.Sprintf("fill:%s;font-size:%.0fpx", leftColor, leftCfg.TitleFontSize),
 			Transform: fmt.Sprintf("rotate(-90 %.2f %.2f)", tx, midY),
 			Content:   leftDef.Title,

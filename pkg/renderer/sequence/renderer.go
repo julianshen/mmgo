@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -244,7 +245,7 @@ func fillStyleWithOpacity(fill, stroke string, hasAlpha bool, opacity float64) s
 func renderTitle(title string, lay seqLayout, th Theme, fontSize float64) []any {
 	return []any{&text{
 		X: svgFloat(lay.width / 2), Y: svgFloat(titleHeight(fontSize) / 2),
-		Anchor: "middle", Dominant: "central",
+		Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 		Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.MessageText, fontSize+2),
 		Content: title,
 	}}
@@ -442,7 +443,7 @@ func renderParticipantBox(cx, topY, w float64, label string, th Theme, fontSize 
 		},
 		&text{
 			X: svgFloat(cx), Y: svgFloat(ry + h/2),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   labelStyle(th, fontSize),
 			Content: label,
 		},
@@ -470,7 +471,7 @@ func renderActor(cx, topY float64, label string, th Theme, fontSize float64) []a
 		&line{X1: svgFloat(cx), Y1: svgFloat(bodyBot - 10), X2: svgFloat(cx + 10), Y2: svgFloat(bodyBot), Style: strokeStyle},
 		&text{
 			X: svgFloat(cx), Y: svgFloat(bodyBot + fontSize + 2),
-			Anchor: "middle", Dominant: "auto",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineAuto,
 			Style:   labelStyle(th, fontSize),
 			Content: label,
 		},
@@ -574,7 +575,7 @@ func renderBoxes(d *diagram.SequenceDiagram, lay seqLayout, th Theme, fontSize f
 		if bx.Label != "" {
 			elems = append(elems, &text{
 				X: svgFloat(boxX + boxW/2), Y: svgFloat(boxY + titleStripH/2),
-				Anchor: "middle", Dominant: "central",
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.ParticipantText, titleFontSize),
 				Content: bx.Label,
 			})

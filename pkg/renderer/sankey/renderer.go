@@ -215,7 +215,7 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 		// the same heading text.
 		children = append(children, &text{
 			X: svgFloat(viewW / 2), Y: svgFloat(14),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:14px;font-weight:bold", th.LabelText),
 			Content: d.Title,
 		})
@@ -298,7 +298,7 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 			X:        svgFloat(labelX),
 			Y:        svgFloat(nodeY[n] + nodeH[n]/2),
 			Anchor:   anchor,
-			Dominant: "central",
+			Dominant: svgutil.BaselineCentral,
 			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.LabelText, fontSize),
 			Content:  labelOf(n),
 		})

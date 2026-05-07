@@ -119,7 +119,7 @@ func Render(d *diagram.C4Diagram, opts *Options) ([]byte, error) {
 	if d.Title != "" {
 		children = append(children, &text{
 			X: svgFloat(viewW / 2), Y: svgFloat(pad + titleH/2),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize+2),
 			Content: d.Title,
 		})
@@ -242,13 +242,13 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 		kindLabel := kindDisplayLabel(e.Kind)
 		elems = append(elems, &text{
 			X: svgFloat(cx), Y: svgFloat(y + kindLabelH/2 + 2),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-style:italic;opacity:0.85", p.Text, fontSize-3),
 			Content: kindLabel,
 		})
 		elems = append(elems, &text{
 			X: svgFloat(cx), Y: svgFloat(curY + fontSize/2),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", p.Text, fontSize),
 			Content: e.Label,
 		})
@@ -256,7 +256,7 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 		if e.Technology != "" {
 			elems = append(elems, &text{
 				X: svgFloat(cx), Y: svgFloat(curY),
-				Anchor: "middle", Dominant: "central",
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", p.Text, fontSize-2),
 				Content: "[" + e.Technology + "]",
 			})
@@ -265,7 +265,7 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 		if e.Description != "" {
 			elems = append(elems, &text{
 				X: svgFloat(cx), Y: svgFloat(curY),
-				Anchor: "middle", Dominant: "central",
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;opacity:0.9", p.Text, fontSize-2),
 				Content: e.Description,
 			})
@@ -426,7 +426,7 @@ func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize
 			for i, ln := range lines {
 				elems = append(elems, &text{
 					X: svgFloat(lx), Y: svgFloat(startY + float64(i)*lineH),
-					Anchor: "middle", Dominant: "central",
+					Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, labelFont),
 					Content: ln,
 				})
@@ -489,7 +489,7 @@ func renderBoundary(d *diagram.C4Diagram, b *diagram.C4Boundary, l *layout.Resul
 		},
 		&text{
 			X: svgFloat(x0 + 8), Y: svgFloat(y0 + 6),
-			Anchor: "start", Dominant: "hanging",
+			Anchor: svgutil.AnchorStart, Dominant: svgutil.BaselineHanging,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize-1),
 			Content: boundaryHeading(b),
 		},

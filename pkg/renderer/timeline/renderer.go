@@ -83,7 +83,7 @@ func renderTD(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, e
 			curY += sectionGap / 2
 			children = append(children, &text{
 				X: svgFloat(axis - 40), Y: svgFloat(curY - 4),
-				Anchor: "end", Dominant: "auto",
+				Anchor: svgutil.AnchorEnd, Dominant: svgutil.BaselineAuto,
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", color, fontSize),
 				Content: sec.Name,
 			})
@@ -143,7 +143,7 @@ func renderEvent(ev diagram.TimelineEvent, axis, y float64, color string, fontSi
 	rowAdvance := eventBoxH + rowGap
 	elems = append(elems, &text{
 		X: svgFloat(axis - 20), Y: svgFloat(y + eventBoxH/2),
-		Anchor: "end", Dominant: "central",
+		Anchor: svgutil.AnchorEnd, Dominant: svgutil.BaselineCentral,
 		Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.SectionText, fontSize),
 		Content: ev.Time,
 	})
@@ -169,7 +169,7 @@ func renderEvent(ev diagram.TimelineEvent, axis, y float64, color string, fontSi
 		if content != "" {
 			elems = append(elems, &text{
 				X: svgFloat(boxX + eventBoxW/2), Y: svgFloat(ey + eventBoxH/2),
-				Anchor: "middle", Dominant: "central",
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EventText, fontSize-1),
 				Content: content,
 			})
@@ -291,7 +291,7 @@ func renderLR(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, e
 		if r.name != "" {
 			children = append(children, &text{
 				X: svgFloat((startX + endX) / 2), Y: svgFloat(bandY + lrSectionBandH/2),
-				Anchor: "middle", Dominant: "central",
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", color, fontSize),
 				Content: r.name,
 			})
@@ -310,7 +310,7 @@ func renderLR(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, e
 		cx := colCenterX(i)
 		children = append(children, &text{
 			X: svgFloat(cx), Y: svgFloat(timeRowY + lrTimeRowH/2),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.SectionText, fontSize),
 			Content: c.ev.Time,
 		})
@@ -333,7 +333,7 @@ func renderLR(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, e
 			if content != "" {
 				children = append(children, &text{
 					X: svgFloat(cx), Y: svgFloat(ey + lrEventBoxH/2),
-					Anchor: "middle", Dominant: "central",
+					Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EventText, fontSize-1),
 					Content: content,
 				})
@@ -376,7 +376,7 @@ func emitChrome(d *diagram.TimelineDiagram, viewW, viewH, fontSize float64, th T
 	if d.Title != "" {
 		children = append(children, &text{
 			X: svgFloat(viewW / 2), Y: svgFloat(defaultPadding + titleH/2),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize+2),
 			Content: d.Title,
 		})
