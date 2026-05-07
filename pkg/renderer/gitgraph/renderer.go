@@ -156,7 +156,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 				Content:  b,
 			})
 		}
-		if r, ok := branchRange[b]; ok {
+		if r, ok := branchRange[b]; ok && showBranches {
 			children = append(children, &line{
 				X1: svgFloat(r[0]), Y1: svgFloat(y),
 				X2: svgFloat(r[1]), Y2: svgFloat(y),
@@ -191,9 +191,9 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		x, y := cx[c.ID], cy[c.ID]
 		children = append(children, commitDot(c, x, y, color, th)...)
 
-		// Tag takes precedence over id when both exist: mmdc shows the
-		// tag as a rounded callout above the commit, the commit id as
-		// plain text below.
+		// Tag callout suppresses the id label when both are set —
+		// the callout already carries the visible text, so an id
+		// underneath would just clutter the lane.
 		if c.Tag != "" {
 			// HIGHLIGHT commits are squares reaching ±highlightRadius from
 			// the center; the default tagGap (14) leaves only 3px over a
@@ -242,9 +242,14 @@ func laneY(lane int) float64 { return marginY + float64(lane)*laneHeight }
 // SliceStable is required so two branches at the same order keep the
 // declaration sequence — golden-file tests depend on that determinism.
 func orderedLanes(d *diagram.GitGraphDiagram, mainBranchOrder int) []string {
+	// Mermaid's "main branch" is whatever name MainBranchName configures;
+	// the literal "main" is the spec default when the directive is
+	// unset. Falling back to d.Branches[0] would mis-target the order
+	// shift if the user declared a non-main branch first without
+	// configuring MainBranchName.
 	mainName := d.MainBranchName
-	if mainName == "" && len(d.Branches) > 0 {
-		mainName = d.Branches[0]
+	if mainName == "" {
+		mainName = "main"
 	}
 	type lane struct {
 		name  string

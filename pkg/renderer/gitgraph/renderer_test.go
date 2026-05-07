@@ -364,6 +364,12 @@ func TestRenderHidesBranchPillsWhenDisabled(t *testing.T) {
 	if strings.Contains(raw, ">main<") || strings.Contains(raw, ">feat<") {
 		t.Errorf("expected branch pill labels suppressed when ShowBranches=false")
 	}
+	// The colored per-branch path line uses stroke-width:4 (branchPathW);
+	// no other element shares that thickness, so its absence is a clean
+	// signal that the branch swimlane is fully suppressed.
+	if strings.Contains(raw, "stroke-width:4;fill:none;opacity:1") {
+		t.Errorf("expected colored branch path lines suppressed when ShowBranches=false")
+	}
 }
 
 // ShowCommitLabel=false suppresses the commit-id labels above each
