@@ -18,6 +18,11 @@ import (
 type Options struct {
 	FontSize float64
 	Theme    Theme
+	// Ruler measures card text for word-wrap. When nil the renderer
+	// constructs a NewDefaultRuler for the call and closes it on
+	// return; callers in render hot-paths should supply a long-lived
+	// shared ruler to avoid repeated font parsing.
+	Ruler *textmeasure.Ruler
 }
 
 const (
@@ -43,6 +48,17 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 		fontSize = opts.FontSize
 	}
 	th := resolveTheme(opts)
+	var ruler *textmeasure.Ruler
+	if opts != nil && opts.Ruler != nil {
+		ruler = opts.Ruler
+	} else {
+		var err error
+		ruler, err = textmeasure.NewDefaultRuler()
+		if err != nil {
+			return nil, fmt.Errorf("kanban render: text measurer: %w", err)
+		}
+		defer func() { _ = ruler.Close() }()
+	}
 
 	nCols := len(d.Sections)
 	viewW := 2*marginX + float64(nCols)*columnWidth + float64(max(nCols-1, 0))*columnGap
@@ -74,7 +90,7 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 		y := columnHeaderH + cardGap
 		for _, task := range s.Tasks {
 			c := cardLayout{
-				lines: wrapText(task.Text, textWidth, fontSize),
+				lines: wrapText(ruler, task.Text, textWidth, fontSize),
 				meta:  formatMetadata(task.Metadata),
 				task:  task,
 			}
@@ -251,24 +267,22 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 // emitted on their own line (allowed to overflow) rather than broken
 // mid-word. Returns at least one line even for empty input so the
 // card has a non-zero height.
-func wrapText(s string, width, fontSize float64) []string {
+//
+// Width is measured against the supplied Ruler so proportional-font
+// glyph widths (e.g. "i" much narrower than "M") are reflected
+// accurately — the previous char-count heuristic over-wrapped narrow
+// strings and under-wrapped wide ones.
+func wrapText(ruler *textmeasure.Ruler, s string, width, fontSize float64) []string {
 	if s == "" {
 		return []string{""}
-	}
-	// Translate width budget into a rough character cap using the
-	// shared per-rune heuristic. Close enough for wrapping word-level
-	// tokens; exact layout still happens at render time.
-	oneCharW := textmeasure.EstimateWidth("x", fontSize)
-	if oneCharW <= 0 {
-		return []string{s}
-	}
-	maxChars := int(width / oneCharW)
-	if maxChars <= 0 {
-		return []string{s}
 	}
 	words := strings.Fields(s)
 	if len(words) == 0 {
 		return []string{s}
+	}
+	measure := func(text string) float64 {
+		w, _ := ruler.Measure(text, fontSize)
+		return w
 	}
 	var lines []string
 	var cur strings.Builder
@@ -277,7 +291,8 @@ func wrapText(s string, width, fontSize float64) []string {
 			cur.WriteString(w)
 			continue
 		}
-		if cur.Len()+1+len(w) > maxChars {
+		candidate := cur.String() + " " + w
+		if measure(candidate) > width {
 			lines = append(lines, cur.String())
 			cur.Reset()
 			cur.WriteString(w)
