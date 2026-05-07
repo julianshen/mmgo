@@ -632,10 +632,10 @@ func TestRenderHorizontalAxisCfgSwap(t *testing.T) {
 }
 
 // Bars whose values are negative or straddle zero must render with
-// non-negative width/height. Pre-fix, the renderer emitted rects with
-// negative Height (vertical) or negative Width (horizontal) when a
-// data point sat below the value-axis baseline, producing undefined
-// SVG that some rasterizers drop silently.
+// non-negative width/height. SVG with negative dimensions is
+// undefined and silently dropped by some rasterizers, so any
+// regression that recomputes a bar's size from a clamped value
+// without an abs() would land here.
 func TestRenderBarsCrossingZero(t *testing.T) {
 	cases := []struct {
 		name string

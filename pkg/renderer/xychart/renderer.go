@@ -433,18 +433,16 @@ func renderSeriesVertical(d *diagram.XYChartDiagram, categories []string, yMin, 
 	// value, so derive their font from the Y-axis label size.
 	labelFontSize := cfg.YAxis.LabelFontSize - 2
 
+	// Bars grow from the v=0 pixel on the value axis, clamped into
+	// the plot range. When the range straddles zero, positive values
+	// grow toward yMax and negative toward yMin; otherwise the
+	// baseline lands at the plot edge and the bar fills from there.
+	baselineY := axisPos(0, yMin, yMax, y1, y0)
+
 	for seriesIdx, s := range d.Series {
 		color := th.SeriesColors[seriesIdx%len(th.SeriesColors)]
 		switch s.Type {
 		case diagram.XYSeriesBar:
-			// Bars grow from the value-axis baseline (the pixel at v=0
-			// on the y-axis, clamped into [yMin,yMax]). For ranges
-			// fully above or fully below zero the baseline lands at
-			// the plot edge and the bar reduces to the same shape it
-			// had before negative-value support; for ranges that
-			// straddle zero, positive values grow up from the baseline
-			// and negative values grow down.
-			baselineY := axisPos(0, yMin, yMax, y1, y0)
 			barSlot := barIndexes[seriesIdx]
 			for i := 0; i < len(s.Data) && i < nCols; i++ {
 				cx := x0 + slotW*(float64(i)+0.5)
@@ -569,14 +567,15 @@ func renderSeriesHorizontal(d *diagram.XYChartDiagram, categories []string, vMin
 	// data labels match that font.
 	labelFontSize := cfg.YAxis.LabelFontSize - 2
 
+	// Bars grow rightward from the v=0 pixel for positive values,
+	// leftward for negative — same baseline rule as the vertical
+	// layout, applied to the x-axis.
+	baselineX := axisPos(0, vMin, vMax, x0, x1)
+
 	for seriesIdx, s := range d.Series {
 		color := th.SeriesColors[seriesIdx%len(th.SeriesColors)]
 		switch s.Type {
 		case diagram.XYSeriesBar:
-			// Mirror of the vertical baseline: bars grow rightward
-			// from the v=0 pixel for positive values, leftward for
-			// negative — relevant when the value range straddles zero.
-			baselineX := axisPos(0, vMin, vMax, x0, x1)
 			barSlot := barIndexes[seriesIdx]
 			for i := 0; i < len(s.Data) && i < nCats; i++ {
 				cy := y0 + slotH*(float64(i)+0.5)
