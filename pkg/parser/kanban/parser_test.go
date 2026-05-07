@@ -350,3 +350,65 @@ func TestKanbanMixedTabSpaceIndent(t *testing.T) {
 			d.Sections[0].Title, d.Sections[1].Title)
 	}
 }
+
+// Frontmatter `title:` populates Title and `ticketBaseUrl:` (which
+// the spec nests under `config.kanban.ticketBaseUrl` but the flat
+// FrontmatterValue helper still finds) populates TicketBaseURL.
+func TestParseKanbanFrontmatter(t *testing.T) {
+	d, err := Parse(strings.NewReader(`---
+title: Sprint 12
+config:
+  kanban:
+    ticketBaseUrl: 'https://example.com/issues/#TICKET#'
+---
+kanban
+    Todo
+        [Write tests]`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Title != "Sprint 12" {
+		t.Errorf("title = %q", d.Title)
+	}
+	if d.TicketBaseURL != "https://example.com/issues/#TICKET#" {
+		t.Errorf("ticketBaseUrl = %q", d.TicketBaseURL)
+	}
+}
+
+// accTitle / accDescr (single + block) populate the AST.
+func TestParseKanbanAccessibility(t *testing.T) {
+	d, err := Parse(strings.NewReader(`kanban
+accTitle: Sprint board
+accDescr {
+  Tasks across the sprint
+  grouped by lifecycle stage
+}
+Todo
+    [A task]`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.AccTitle != "Sprint board" {
+		t.Errorf("accTitle = %q", d.AccTitle)
+	}
+	want := "Tasks across the sprint\ngrouped by lifecycle stage"
+	if d.AccDescr != want {
+		t.Errorf("accDescr = %q, want %q", d.AccDescr, want)
+	}
+	// Tree must remain intact.
+	if len(d.Sections) != 1 || d.Sections[0].Title != "Todo" {
+		t.Errorf("sections = %+v", d.Sections)
+	}
+}
+
+// Unterminated `accDescr {` block surfaces as an error.
+func TestParseKanbanAccDescrUnterminated(t *testing.T) {
+	_, err := Parse(strings.NewReader(`kanban
+accDescr {
+  Open
+Todo
+    [A]`))
+	if err == nil {
+		t.Error("expected error for unterminated accDescr block")
+	}
+}

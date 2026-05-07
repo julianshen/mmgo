@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -96,7 +97,14 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 	if canvasH == 0 {
 		canvasH = columnHeaderH + cardGap
 	}
-	viewH := 2*marginY + canvasH
+	// titleBandH reserves vertical space above the columns for the
+	// frontmatter `title:` caption, when one is present.
+	titleBandH := 0.0
+	if d.Title != "" {
+		titleBandH = 30
+	}
+	viewH := 2*marginY + titleBandH + canvasH
+	columnsTopY := marginY + titleBandH
 
 	// Exact preallocation: 1 bg + per section (1 column rect + 1
 	// title text + per card 1 rect + len(lines) body text + len(meta)
@@ -109,19 +117,35 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 		}
 	}
 	children := make([]any, 0, total)
+	if d.AccTitle != "" {
+		children = append(children, &svgutil.Title{Content: d.AccTitle})
+	}
+	if d.AccDescr != "" {
+		children = append(children, &svgutil.Desc{Content: d.AccDescr})
+	}
 	children = append(children, &rect{
 		X: 0, Y: 0,
 		Width:  svgFloat(viewW),
 		Height: svgFloat(viewH),
 		Style:  fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
+	if d.Title != "" {
+		children = append(children, &text{
+			X:        svgFloat(viewW / 2),
+			Y:        svgFloat(marginY + titleBandH/2),
+			Anchor:   "middle",
+			Dominant: "central",
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.ColumnTitle, fontSize+3),
+			Content:  d.Title,
+		})
+	}
 
 	for i, s := range d.Sections {
 		colX := marginX + float64(i)*(columnWidth+columnGap)
 		col := columns[i]
 
 		children = append(children, &rect{
-			X: svgFloat(colX), Y: svgFloat(marginY),
+			X: svgFloat(colX), Y: svgFloat(columnsTopY),
 			Width:  svgFloat(columnWidth),
 			Height: svgFloat(canvasH),
 			RX:     svgFloat(cardRadius), RY: svgFloat(cardRadius),
@@ -129,7 +153,7 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 		})
 		children = append(children, &text{
 			X:        svgFloat(colX + columnWidth/2),
-			Y:        svgFloat(marginY + columnHeaderH/2),
+			Y:        svgFloat(columnsTopY + columnHeaderH/2),
 			Anchor:   "middle",
 			Dominant: "central",
 			Style: fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold",
@@ -137,7 +161,7 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 			Content: s.Title,
 		})
 
-		cardY := marginY + columnHeaderH + cardGap
+		cardY := columnsTopY + columnHeaderH + cardGap
 		for _, c := range col.cards {
 			children = append(children, &rect{
 				X: svgFloat(colX + cardGap/2),
