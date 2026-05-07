@@ -179,9 +179,6 @@ func renderEvent(ev diagram.TimelineEvent, axis, y float64, color string, fontSi
 }
 
 const (
-	// LR layout metrics. Period columns are slightly wider than
-	// TD's eventBoxW because the LR header (time label) sits
-	// above the column instead of beside the axis dot.
 	lrColW           = 180.0
 	lrColGap         = 16.0
 	lrSectionBandH   = 28.0
@@ -270,7 +267,9 @@ func renderLR(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, e
 	axisY := timeRowY + lrTimeRowH
 	eventsY := axisY + lrEventGap
 
-	viewW := pad + float64(len(cols))*(lrColW+lrColGap) + pad
+	// Right edge is the last column's right edge plus pad — no trailing
+	// inter-column gap on the outside.
+	viewW := pad + float64(len(cols))*(lrColW+lrColGap) - lrColGap + pad
 	viewH := eventsY + eventsRowH + pad
 
 	colCenterX := func(i int) float64 {
