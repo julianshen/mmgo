@@ -443,16 +443,152 @@ func TestRenderMainBranchOrder(t *testing.T) {
 	}
 }
 
-// Direction parsed from the header (gitGraph TB / BT) is captured on
-// the AST. Renderer wiring for TB/BT is tracked separately; this
-// test pins the parser surface.
-func TestParseDirectionCapturedOnAST(t *testing.T) {
-	t.Skip("direction-capture lives in pkg/parser/gitgraph; covered there")
+// All four header forms (bare, LR, TB, BT) must produce the same SVG
+// today — Direction is captured on the AST but the renderer doesn't
+// yet act on it. Phase 4's TB/BT wiring needs a clean before/after
+// delta, and a stray dependency on `d.Direction` would silently
+// regress LR output without this pin.
+func TestRenderDirectionInvariantUntilPhase4(t *testing.T) {
+	build := func(dir diagram.GitGraphDirection) []byte {
+		d := &diagram.GitGraphDiagram{
+			Direction: dir,
+			Branches:  []string{"main"},
+			Commits: []diagram.GitCommit{
+				{ID: "a", Branch: "main"},
+				{ID: "b", Branch: "main", Parents: []string{"a"}},
+			},
+		}
+		out, err := Render(d, nil)
+		if err != nil {
+			t.Fatalf("Render(%q): %v", dir, err)
+		}
+		return out
+	}
+	bare := string(build(""))
+	for _, dir := range []diagram.GitGraphDirection{
+		diagram.GitGraphDirLR,
+		diagram.GitGraphDirTB,
+		diagram.GitGraphDirBT,
+	} {
+		if string(build(dir)) != bare {
+			t.Errorf("renderer must ignore Direction=%q until Phase 4 wires TB/BT", dir)
+		}
+	}
 }
 
-// lookupBranchPillY scans for the pill's rounded rect (rx="10") with
-// the matching colored fill and returns its y attribute. Helper is
-// regex-free so it doesn't pull in another import.
+// Explicit BranchOrder["main"] beats MainBranchOrder. The renderer's
+// orderedLanes only falls back to mainBranchOrder when the map has no
+// entry for the main branch, so a future precedence flip would
+// silently change layouts.
+func TestRenderMainBranchOrderDeferredToExplicit(t *testing.T) {
+	d := &diagram.GitGraphDiagram{
+		MainBranchName: "main",
+		Branches:       []string{"main", "feat"},
+		BranchOrder:    map[string]int{"main": 0, "feat": 1},
+		Commits: []diagram.GitCommit{
+			{ID: "a", Branch: "main"},
+			{ID: "b", Branch: "feat", Parents: []string{"a"}},
+		},
+	}
+	out, err := Render(d, &Options{Config: Config{MainBranchOrder: 999}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	mainY := lookupBranchPillY(t, raw, "main")
+	featY := lookupBranchPillY(t, raw, "feat")
+	if !(mainY < featY) {
+		t.Errorf("explicit BranchOrder[main]=0 must beat MainBranchOrder=999; got mainY=%v featY=%v", mainY, featY)
+	}
+}
+
+// Branches sharing the same explicit order keep declaration sequence
+// (sort.SliceStable). A future swap to sort.Slice would break
+// determinism and is invisible without this pin.
+func TestRenderLaneSortStableOnTies(t *testing.T) {
+	d := &diagram.GitGraphDiagram{
+		Branches:    []string{"a", "b", "c"},
+		BranchOrder: map[string]int{"a": 1, "b": 1, "c": 1},
+		Commits:     []diagram.GitCommit{{ID: "x", Branch: "a"}},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	yA := lookupBranchPillY(t, raw, "a")
+	yB := lookupBranchPillY(t, raw, "b")
+	yC := lookupBranchPillY(t, raw, "c")
+	if !(yA < yB && yB < yC) {
+		t.Errorf("equal-order branches must keep declaration order; got yA=%v yB=%v yC=%v", yA, yB, yC)
+	}
+}
+
+// ShowBranches=false collapses the gutter — commit dots shift left
+// to the bare margin. Without this assertion a regression that hides
+// pills but leaves the gutter (wasted whitespace) would pass the
+// existing coverage.
+func TestRenderShowBranchesCollapsesGutter(t *testing.T) {
+	d := &diagram.GitGraphDiagram{
+		Branches: []string{"main", "feature-with-long-name"},
+		Commits: []diagram.GitCommit{
+			{ID: "a", Branch: "main"},
+		},
+	}
+	on, off := true, false
+	with, _ := Render(d, &Options{Config: Config{ShowBranches: &on}})
+	without, _ := Render(d, &Options{Config: Config{ShowBranches: &off}})
+	// First commit dot is the only <circle> with cy ≠ 0; compare cx.
+	cxOn := firstCircleCX(t, string(with))
+	cxOff := firstCircleCX(t, string(without))
+	if cxOn-cxOff < 50 {
+		t.Errorf("ShowBranches=false must collapse the gutter; cxOn=%v cxOff=%v", cxOn, cxOff)
+	}
+}
+
+// RotateCommitLabel=false applied to a tag-bearing commit must leave
+// the tag callout unrotated — tag rendering is a separate code path
+// that should never pick up the rotate transform.
+func TestRenderRotateLabelDoesNotAffectTags(t *testing.T) {
+	d := &diagram.GitGraphDiagram{
+		Branches: []string{"main"},
+		Commits: []diagram.GitCommit{
+			{ID: "abc", Branch: "main", Tag: "v1.0"},
+		},
+	}
+	off := false
+	out, err := Render(d, &Options{Config: Config{RotateCommitLabel: &off}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(string(out), "rotate(") {
+		t.Errorf("tag callouts must never carry rotate transforms")
+	}
+}
+
+func firstCircleCX(t *testing.T, svg string) float64 {
+	t.Helper()
+	idx := strings.Index(svg, "<circle")
+	if idx < 0 {
+		t.Fatalf("no <circle> element in:\n%s", svg)
+	}
+	head := svg[idx:]
+	cxAt := strings.Index(head, `cx="`)
+	if cxAt < 0 {
+		t.Fatal("circle missing cx")
+	}
+	end := strings.Index(head[cxAt+4:], `"`)
+	v, err := strconv.ParseFloat(head[cxAt+4:cxAt+4+end], 64)
+	if err != nil {
+		t.Fatalf("parse cx: %v", err)
+	}
+	return v
+}
+
+// lookupBranchPillY returns the y attribute of the <text> element
+// containing the supplied label — this is the pill's text baseline,
+// which equals the lane center, so it works for ordering assertions
+// even though it isn't the pill rect's y.
 func lookupBranchPillY(t *testing.T, svg, branchLabel string) float64 {
 	t.Helper()
 	marker := ">" + branchLabel + "<"

@@ -38,10 +38,8 @@ type GitCommit struct {
 	Parents []string
 }
 
-// GitGraphDirection mirrors the orientation token after the
-// `gitGraph` header. Default is LR (horizontal swim lanes); TB / BT
-// flip the layout to vertical lanes with commits running top-down or
-// bottom-up.
+// GitGraphDirection is the orientation token after the `gitGraph`
+// header. Empty value falls back to LR.
 type GitGraphDirection string
 
 const (

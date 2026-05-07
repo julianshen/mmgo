@@ -51,9 +51,6 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 	th := resolveTheme(opts)
 	cfg := resolveConfig(opts)
 
-	// Lane order: explicit BranchOrder ascending, ties broken by
-	// declaration index. MainBranchOrder shifts the implicit main
-	// branch when no explicit order was set on it.
 	lanes := orderedLanes(d, cfg.MainBranchOrder)
 	laneOf := make(map[string]int, len(lanes))
 	for i, b := range lanes {
@@ -241,10 +238,9 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 
 func laneY(lane int) float64 { return marginY + float64(lane)*laneHeight }
 
-// orderedLanes returns the branch list sorted by BranchOrder ascending,
-// with sort.SliceStable preserving declaration order on ties. Branches
-// not present in BranchOrder use the zero-value 0; the implicit main
-// branch picks up mainBranchOrder when no explicit order was set on it.
+// orderedLanes returns the branch list sorted by BranchOrder ascending.
+// SliceStable is required so two branches at the same order keep the
+// declaration sequence — golden-file tests depend on that determinism.
 func orderedLanes(d *diagram.GitGraphDiagram, mainBranchOrder int) []string {
 	mainName := d.MainBranchName
 	if mainName == "" && len(d.Branches) > 0 {

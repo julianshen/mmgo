@@ -529,3 +529,24 @@ func TestParseHeaderDirectionCaptured(t *testing.T) {
 		}
 	}
 }
+
+func TestParseBranchOrderRejectsNonNumeric(t *testing.T) {
+	cases := []struct {
+		input string
+		name  string
+	}{
+		{"gitGraph\nbranch foo order: -1\n", "negative order should not silently coerce to 0"},
+		{"gitGraph\nbranch foo order: abc\n", "non-numeric order should not silently coerce to 0"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d, err := Parse(strings.NewReader(c.input))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if _, has := d.BranchOrder["foo"]; has {
+				t.Errorf("malformed `order:` value must not be silently coerced to 0; BranchOrder=%v", d.BranchOrder)
+			}
+		})
+	}
+}

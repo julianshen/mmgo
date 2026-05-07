@@ -103,9 +103,7 @@ func Parse(r io.Reader) (*diagram.GitGraphDiagram, error) {
 
 // headerResidue strips the `gitGraph` keyword (and optional trailing
 // colon) and returns the residual direction token. ok=false means
-// the line isn't a gitGraph header at all. Sharing the trim chain
-// keeps isHeader and headerDirection in lockstep so a future
-// header form (e.g. RL) only needs to change one acceptor.
+// the line isn't a gitGraph header at all.
 func headerResidue(line string) (rest string, ok bool) {
 	if !parserutil.HasHeaderKeyword(line, "gitGraph") {
 		return "", false
@@ -313,15 +311,15 @@ func extractOrder(s string) (int, bool) {
 	}
 	val := strings.TrimSpace(s[idx+len("order:"):])
 	val = strings.TrimSuffix(val, ",")
+	if val == "" || val[0] < '0' || val[0] > '9' {
+		return 0, false
+	}
 	n := 0
 	for _, r := range val {
 		if r < '0' || r > '9' {
 			break
 		}
 		n = n*10 + int(r-'0')
-	}
-	if val == "" {
-		return 0, false
 	}
 	return n, true
 }
