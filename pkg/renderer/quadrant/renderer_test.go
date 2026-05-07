@@ -372,3 +372,293 @@ func TestRenderAccessibility(t *testing.T) {
 		t.Errorf("expected <desc> in output:\n%s", raw)
 	}
 }
+
+func TestRenderQuadrantPerQuadrantFills(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Quadrant1: "Q1", Quadrant2: "Q2",
+		Quadrant3: "Q3", Quadrant4: "Q4",
+	}
+	out, err := Render(d, &Options{Theme: Theme{
+		Quadrants: [4]QuadrantPalette{
+			{Fill: "#aabbcc"}, // Q1 top-right
+			{Fill: "#ccbbaa"}, // Q2 top-left
+			{Fill: "#ddeeff"}, // Q3 bottom-left
+			{Fill: "#ffeedd"}, // Q4 bottom-right
+		},
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{
+		"fill:#aabbcc",
+		"fill:#ccbbaa",
+		"fill:#ddeeff",
+		"fill:#ffeedd",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected per-quadrant fill %q in output", want)
+		}
+	}
+}
+
+func TestRenderQuadrantThemeVariables(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Title:    "T",
+		XAxisLow: "Lo",
+		Points:   []diagram.QuadrantPoint{{Label: "P", X: 0.5, Y: 0.5}},
+	}
+	out, err := Render(d, &Options{Theme: Theme{
+		BackgroundColor: "#000",
+		TitleColor:      "#fff",
+		XAxisLabelColor: "#0f0",
+		QuadrantPointFill: "#f0f",
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{
+		"fill:#000",
+		"fill:#fff",
+		"fill:#0f0",
+		"fill:#f0f",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected themed color %q in output", want)
+		}
+	}
+}
+
+func TestRenderQuadrantConfigPointRadius(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Points: []diagram.QuadrantPoint{{Label: "P", X: 0.5, Y: 0.5}},
+	}
+	out, err := Render(d, &Options{Config: Config{PointRadius: 14}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), `r="14.00"`) {
+		t.Errorf("expected r=\"14.00\" from custom PointRadius")
+	}
+}
+
+// onlyBottomQuadrantsPopulated triggers the X-axis auto-flip so
+// the axis labels move to the top of the plot.
+func TestRenderQuadrantXAxisAutoFlip(t *testing.T) {
+	// Only Q3/Q4 have labels; X-axis label should auto-flip to top.
+	d := &diagram.QuadrantChartDiagram{
+		Quadrant3: "BL", Quadrant4: "BR",
+		XAxisLow:  "Lo",
+		XAxisHigh: "Hi",
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// `dominant-baseline="auto"` is the top-anchored variant the
+	// renderer switches to when the axis sits above the plot.
+	if !strings.Contains(raw, `dominant-baseline="auto"`) {
+		t.Errorf("expected dominant-baseline=\"auto\" for top-anchored X-axis")
+	}
+	// Explicit Bottom override defeats auto-flip.
+	out2, _ := Render(d, &Options{Config: Config{XAxisPosition: XAxisBottom}})
+	if !strings.Contains(string(out2), `dominant-baseline="hanging"`) {
+		t.Errorf("explicit XAxisBottom should anchor labels below the plot")
+	}
+}
+
+// onlyRightQuadrantsPopulated triggers the Y-axis auto-flip; an
+// explicit YAxisLeft override defeats it. The signal is the
+// rotated label's X coordinate: when flipped right it sits past
+// plotX1, when forced left it sits before plotX0.
+func TestRenderQuadrantYAxisAutoFlip(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Quadrant1: "TR", Quadrant4: "BR", // only right half labelled
+		YAxisLow:  "Lo",
+		YAxisHigh: "Hi",
+	}
+	autoX := yAxisLabelRotationCX(t, d, nil)
+	forcedX := yAxisLabelRotationCX(t, d, &Options{Config: Config{YAxisPosition: YAxisLeft}})
+	if !(autoX > forcedX) {
+		t.Errorf("auto-flip should place Y label to the right of the forced-left position; auto=%.2f forced=%.2f", autoX, forcedX)
+	}
+}
+
+// yAxisLabelRotationCX renders the chart and extracts the cx of
+// the first `transform="rotate(-90 cx cy)"` — the Y-axis label
+// rotation pivot, equivalent to the label's X position.
+func yAxisLabelRotationCX(t *testing.T, d *diagram.QuadrantChartDiagram, opts *Options) float64 {
+	t.Helper()
+	out, err := Render(d, opts)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	const marker = `transform="rotate(-90 `
+	i := strings.Index(raw, marker)
+	if i < 0 {
+		t.Fatalf("no rotated Y-axis label in output:\n%s", raw)
+	}
+	rest := raw[i+len(marker):]
+	end := strings.IndexByte(rest, ' ')
+	if end < 0 {
+		t.Fatal("rotate transform malformed")
+	}
+	v, err := strconv.ParseFloat(rest[:end], 64)
+	if err != nil {
+		t.Fatalf("rotate cx parse: %v", err)
+	}
+	return v
+}
+
+// When both opts.FontSize and opts.Config.TitleFontSize are set,
+// the explicit Config value wins.
+func TestRenderQuadrantConfigBeatsFontSize(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{Title: "T"}
+	out, err := Render(d, &Options{
+		FontSize: 30,
+		Config:   Config{TitleFontSize: 18},
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// Title renders at the explicit cfg.TitleFontSize=18; the
+	// FontSize-derived `30+2=32` MUST NOT appear on the title.
+	if !strings.Contains(raw, "font-size:18px;font-weight:bold") {
+		t.Errorf("explicit Config.TitleFontSize should win over FontSize:\n%s", raw)
+	}
+}
+
+// Independent X / Y axis padding: setting different paddings
+// produces a non-square outer chrome (left vs bottom pads
+// diverge).
+func TestRenderQuadrantIndependentAxisGaps(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		XAxisLow: "Lo", YAxisLow: "Lo",
+	}
+	out, err := Render(d, &Options{Config: Config{
+		XAxisLabelPadding: 5,
+		YAxisLabelPadding: 40,
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// Pull the SVG's viewBox attribute and parse the four floats.
+	const marker = `viewBox="`
+	i := strings.Index(raw, marker)
+	if i < 0 {
+		t.Fatal("viewBox missing")
+	}
+	rest := raw[i+len(marker):]
+	end := strings.Index(rest, `"`)
+	parts := strings.Fields(rest[:end])
+	if len(parts) != 4 {
+		t.Fatalf("viewBox shape: %q", rest[:end])
+	}
+	w, _ := strconv.ParseFloat(parts[2], 64)
+	h, _ := strconv.ParseFloat(parts[3], 64)
+	// Y label padding (40 vs 5) inflates the *left* margin, so
+	// the chart's overall width should clearly exceed the height
+	// even though plotSide is the same.
+	if w <= h {
+		t.Errorf("yAxisGap=40 should widen the viewBox; got %vx%v", w, h)
+	}
+}
+
+// resolveTheme and resolveConfig with nil opts return defaults
+// unchanged; partial overrides leave un-set fields at default.
+func TestResolveThemeAndConfigPartial(t *testing.T) {
+	if got := resolveTheme(nil); got != DefaultTheme() {
+		t.Errorf("resolveTheme(nil) drift: %+v", got)
+	}
+	if got := resolveConfig(nil); got != DefaultConfig() {
+		t.Errorf("resolveConfig(nil) drift: %+v", got)
+	}
+	// Partial theme override: only TitleColor changes; the rest
+	// keeps DefaultTheme values.
+	got := resolveTheme(&Options{Theme: Theme{TitleColor: "#abc"}})
+	if got.TitleColor != "#abc" {
+		t.Errorf("TitleColor override missed: %q", got.TitleColor)
+	}
+	if got.BackgroundColor != DefaultTheme().BackgroundColor {
+		t.Errorf("non-overridden BackgroundColor drifted: %q", got.BackgroundColor)
+	}
+	// Partial config override: only PointRadius changes.
+	gotCfg := resolveConfig(&Options{Config: Config{PointRadius: 12}})
+	if gotCfg.PointRadius != 12 {
+		t.Errorf("PointRadius override missed: %v", gotCfg.PointRadius)
+	}
+	if gotCfg.ChartWidth != DefaultConfig().ChartWidth {
+		t.Errorf("non-overridden ChartWidth drifted: %v", gotCfg.ChartWidth)
+	}
+}
+
+// Per-quadrant TextFill flows into the rendered SVG so the four
+// quadrant captions can each carry their own color.
+func TestRenderQuadrantPerQuadrantTextFill(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Quadrant1: "Q1", Quadrant2: "Q2",
+		Quadrant3: "Q3", Quadrant4: "Q4",
+	}
+	out, err := Render(d, &Options{Theme: Theme{
+		Quadrants: [4]QuadrantPalette{
+			{TextFill: "#111111"}, // QuadrantQ1
+			{TextFill: "#222222"}, // QuadrantQ2
+			{TextFill: "#333333"}, // QuadrantQ3
+			{TextFill: "#444444"}, // QuadrantQ4
+		},
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{"fill:#111111", "fill:#222222", "fill:#333333", "fill:#444444"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected per-quadrant TextFill %q in output", want)
+		}
+	}
+}
+
+// Data points alone never trigger auto-flip — a chart with
+// only points (no labels) keeps the default axis positions
+// regardless of where the points land.
+func TestQuadrantsPopulatedPointsDoNotTriggerFlip(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Points: []diagram.QuadrantPoint{
+			{Label: "Lo", X: 0.2, Y: 0.2},
+			{Label: "Hi", X: 0.8, Y: 0.8},
+		},
+	}
+	top, bottom, left, right := quadrantsPopulated(d)
+	if top || bottom || left || right {
+		t.Errorf("points alone shouldn't mark any half populated; got top=%v bottom=%v left=%v right=%v",
+			top, bottom, left, right)
+	}
+	if onlyBottomQuadrantsPopulated(d) || onlyRightQuadrantsPopulated(d) {
+		t.Error("auto-flip should never trigger on point presence alone")
+	}
+}
+
+// Setting only ChartWidth (or only ChartHeight) widens the plot
+// to that single value — without this the default-height of 400
+// would clamp the explicit width via the min() rule at render
+// time.
+func TestResolveConfigSingleAxisDimension(t *testing.T) {
+	got := resolveConfig(&Options{Config: Config{ChartWidth: 700}})
+	if got.ChartWidth != 700 || got.ChartHeight != 700 {
+		t.Errorf("single ChartWidth override should mirror to ChartHeight; got W=%v H=%v", got.ChartWidth, got.ChartHeight)
+	}
+	got = resolveConfig(&Options{Config: Config{ChartHeight: 800}})
+	if got.ChartWidth != 800 || got.ChartHeight != 800 {
+		t.Errorf("single ChartHeight override should mirror to ChartWidth; got W=%v H=%v", got.ChartWidth, got.ChartHeight)
+	}
+	// Both explicit values keep their independent settings.
+	got = resolveConfig(&Options{Config: Config{ChartWidth: 700, ChartHeight: 500}})
+	if got.ChartWidth != 700 || got.ChartHeight != 500 {
+		t.Errorf("both explicit values should be preserved; got W=%v H=%v", got.ChartWidth, got.ChartHeight)
+	}
+}
