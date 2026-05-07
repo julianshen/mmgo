@@ -198,7 +198,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 				X:        svgFloat(x),
 				Y:        svgFloat(y - commitRadius - labelGap),
 				Anchor:   svgutil.AnchorMiddle,
-				Dominant: "baseline",
+				Dominant: svgutil.BaselineBaseline,
 				Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.Text, fontSize-2),
 				Content:  c.ID,
 			})

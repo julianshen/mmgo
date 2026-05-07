@@ -382,6 +382,7 @@ func TestAttrConstantsMatchSVGSpec(t *testing.T) {
 		{BaselineAuto, "auto"},
 		{BaselineCentral, "central"},
 		{BaselineHanging, "hanging"},
+		{BaselineBaseline, "baseline"},
 	}
 	for _, p := range pairs {
 		if p.got != p.want {

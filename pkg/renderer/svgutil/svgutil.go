@@ -590,12 +590,14 @@ const (
 
 // SVG dominant-baseline values. "auto" sits the alphabetic baseline
 // at y, "hanging" sits the cap at y, "central" centres the glyph at
-// y. Picking the right baseline avoids font-em offsetting in the
-// caller.
+// y, and "baseline" (deprecated alias of "auto" in modern UAs) is
+// kept because tdewolff/canvas honours it explicitly. Picking the
+// right baseline avoids font-em offsetting in the caller.
 const (
-	BaselineAuto    = "auto"
-	BaselineCentral = "central"
-	BaselineHanging = "hanging"
+	BaselineAuto     = "auto"
+	BaselineCentral  = "central"
+	BaselineHanging  = "hanging"
+	BaselineBaseline = "baseline"
 )
 
 // MergeStr overwrites *dst with src when src != "". Empty src means

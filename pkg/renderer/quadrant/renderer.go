@@ -312,7 +312,7 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 				X:        svgFloat(px),
 				Y:        svgFloat(py - radius - cfg.PointTextPadding),
 				Anchor:   svgutil.AnchorMiddle,
-				Dominant: "baseline",
+				Dominant: svgutil.BaselineBaseline,
 				Style:    pointLabelStyle,
 				Content:  p.Label,
 			})
