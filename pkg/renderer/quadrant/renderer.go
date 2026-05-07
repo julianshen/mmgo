@@ -99,6 +99,21 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	viewW := plotX1 + rightPad
 	viewH := plotY1 + bottomPad
 
+	// QuadrantPadding is an outer margin around the quadrant area:
+	// shrink the inner plot rect uniformly so the fills, divider
+	// lines, points and axis labels all live inside the same
+	// padded region. Cap at plotSide/4 so the inner rect stays
+	// non-degenerate for misconfigured pad values.
+	quadrantPad := cfg.QuadrantPadding
+	if maxPad := plotSide / 4; quadrantPad > maxPad {
+		quadrantPad = maxPad
+	}
+	plotX0 += quadrantPad
+	plotY0 += quadrantPad
+	plotX1 -= quadrantPad
+	plotY1 -= quadrantPad
+	plotSide -= 2 * quadrantPad
+
 	children := make([]any, 0, 20+2*len(d.Points))
 	if d.AccTitle != "" {
 		children = append(children, &svgTitle{Content: d.AccTitle})
@@ -116,23 +131,15 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	midX := (plotX0 + plotX1) / 2
 	midY := (plotY0 + plotY1) / 2
 
-	// Inner edges split QuadrantPadding (½ each) so the visible gap
-	// between adjacent rects equals pad; outer edges take the full
-	// pad against the plot border. Each rect's width is therefore
-	// plotSide/2 − 1.5·pad; clamping at plotSide/4 keeps the rect
-	// at least plotSide/8 wide so a misconfigured pad can't degenerate
-	// the layout.
+	// All four quadrant rects share inner edges at midX/midY; the
+	// outer margin already lives in the padded plot rect computed
+	// above, so no per-rect inset is needed here.
 	type quadRect struct{ x0, y0, x1, y1 float64 }
-	pad := cfg.QuadrantPadding
-	if maxPad := plotSide / 4; pad > maxPad {
-		pad = maxPad
-	}
-	half := pad / 2
 	quadRects := [4]quadRect{
-		{midX + half, plotY0 + pad, plotX1 - pad, midY - half},
-		{plotX0 + pad, plotY0 + pad, midX - half, midY - half},
-		{plotX0 + pad, midY + half, midX - half, plotY1 - pad},
-		{midX + half, midY + half, plotX1 - pad, plotY1 - pad},
+		{midX, plotY0, plotX1, midY}, // Q1 top-right
+		{plotX0, plotY0, midX, midY}, // Q2 top-left
+		{plotX0, midY, midX, plotY1}, // Q3 bottom-left
+		{midX, midY, plotX1, plotY1}, // Q4 bottom-right
 	}
 	hasPerQuadrant := false
 	for _, q := range th.Quadrants {
