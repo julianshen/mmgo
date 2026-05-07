@@ -123,8 +123,14 @@ func Parse(r io.Reader) (*diagram.C4Diagram, error) {
 			continue
 		}
 		if line == "}" {
+			// Only treat `}` as an error when we know it was
+			// supposed to close an open Boundary. A stray `}` at
+			// top level may belong to another brace-delimited
+			// construct mmgo doesn't yet recognise (e.g. a
+			// Deployment_Node block with `{ ... }`); silently
+			// skipping is safer than aborting the whole parse.
 			if len(stack) == 1 {
-				return nil, fmt.Errorf("line %d: unmatched '}' (no open Boundary)", lineNum)
+				continue
 			}
 			stack = stack[:len(stack)-1]
 			continue
@@ -349,8 +355,8 @@ func splitBoundaryHead(rest string) (args string, opened bool, err error) {
 // `$link=`, `$sprite=`) aren't recognised yet.
 func parseBoundary(kind diagram.C4BoundaryKind, rest string) (*diagram.C4Boundary, error) {
 	args := splitArgs(rest)
-	if len(args) < 1 {
-		return nil, fmt.Errorf("boundary: requires at least an alias")
+	if len(args) < 1 || args[0] == "" {
+		return nil, fmt.Errorf("boundary: requires a non-empty alias")
 	}
 	b := &diagram.C4Boundary{Kind: kind, ID: args[0]}
 	if len(args) >= 2 {

@@ -396,13 +396,19 @@ Enterprise_Boundary(ent, "Enterprise") {
 	}
 }
 
-// A `}` with no matching `Boundary(` errors with line context.
-func TestParseC4BoundaryUnmatchedClose(t *testing.T) {
-	_, err := Parse(strings.NewReader(`C4Context
+// A stray top-level `}` is silently skipped — it may belong to a
+// brace-delimited construct mmgo doesn't yet recognise (e.g. a
+// Deployment_Node block), and aborting the whole parse on a
+// trailing brace would regress accepted inputs.
+func TestParseC4BoundaryStrayCloseSkipped(t *testing.T) {
+	d, err := Parse(strings.NewReader(`C4Context
 Person(u, "X")
 }`))
-	if err == nil {
-		t.Error("expected error for unmatched '}'")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Elements) != 1 || d.Elements[0].ID != "u" {
+		t.Errorf("element survived stray '}': %+v", d.Elements)
 	}
 }
 
@@ -472,6 +478,12 @@ func TestParseC4BoundaryArities(t *testing.T) {
 	// Empty argument list rejected.
 	if _, err := Parse(strings.NewReader("C4Context\nBoundary() {\n}\n")); err == nil {
 		t.Error("expected error for empty Boundary arg list")
+	}
+	// Empty first arg also rejected so a typo like `Boundary(, "X")`
+	// doesn't ship a boundary with ID="" (which would render as a
+	// bare ` <<boundary>>` heading).
+	if _, err := Parse(strings.NewReader("C4Context\nBoundary(, \"Bank\") {\n}\n")); err == nil {
+		t.Error("expected error for empty Boundary alias")
 	}
 }
 

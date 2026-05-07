@@ -428,3 +428,44 @@ func TestRenderC4BoundaryNested(t *testing.T) {
 		t.Errorf("expected 2 dashed frames, got %d", got)
 	}
 }
+
+// A boundary around top/left-most elements would clip past a
+// `0 0 W H` viewBox (its frame extends boundaryPad +
+// boundaryHeadingPad above/left of the layout's bbox). The
+// renderer must adjust the viewBox origin so the frame stays
+// visible.
+func TestRenderC4BoundaryViewportNoClip(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContext,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User"},
+		},
+		Boundaries: []*diagram.C4Boundary{
+			{ID: "b", Label: "Bank", Kind: diagram.C4BoundaryGeneric, Elements: []int{0}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// Extract the viewBox attribute value.
+	const marker = `viewBox="`
+	i := strings.Index(raw, marker)
+	if i < 0 {
+		t.Fatalf("viewBox missing")
+	}
+	rest := raw[i+len(marker):]
+	end := strings.Index(rest, `"`)
+	vb := rest[:end]
+	parts := strings.Fields(vb)
+	if len(parts) != 4 {
+		t.Fatalf("viewBox shape: %q", vb)
+	}
+	// minX / minY should be <= 0 — top-left boundary frame
+	// extends above and left of the layout's element bounds, so
+	// the viewBox origin must absorb that overhead.
+	if parts[0] == "0.00" && parts[1] == "0.00" {
+		t.Errorf("expected viewBox origin <0 to fit boundary frame, got %q", vb)
+	}
+}

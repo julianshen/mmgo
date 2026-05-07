@@ -64,6 +64,43 @@ func Render(d *diagram.C4Diagram, opts *Options) ([]byte, error) {
 	}
 	viewW := sanitize(l.Width) + 2*pad
 	viewH := sanitize(l.Height) + 2*pad + titleOffset
+	// Boundary frames extend beyond the layout's element bbox by
+	// boundaryPad + boundaryHeadingPad, so a frame around an
+	// element at (~0, ~0) would clip outside the SVG viewBox.
+	// Walk the top-level frames once to find the worst-case
+	// overflow on each side and grow the viewport (using negative
+	// origin where needed) so every frame stays inside.
+	viewMinX, viewMinY := 0.0, 0.0
+	for _, b := range d.Boundaries {
+		bb := boundaryBBox(d, b, l, pad, titleOffset)
+		if bb.Empty() {
+			continue
+		}
+		left := bb.MinX - boundaryPad
+		top := bb.MinY - boundaryPad - boundaryHeadingPad
+		right := bb.MaxX + boundaryPad
+		bottom := bb.MaxY + boundaryPad
+		if left < viewMinX {
+			viewMinX = left
+		}
+		if top < viewMinY {
+			viewMinY = top
+		}
+		if right+pad > viewW {
+			viewW = right + pad
+		}
+		if bottom+pad > viewH {
+			viewH = bottom + pad
+		}
+	}
+	// Translate negative origins into extra width/height so the
+	// background rect at (0,0) still covers the full viewBox.
+	if viewMinX < 0 {
+		viewW -= viewMinX
+	}
+	if viewMinY < 0 {
+		viewH -= viewMinY
+	}
 
 	var children []any
 	if d.AccTitle != "" {
@@ -74,7 +111,8 @@ func Render(d *diagram.C4Diagram, opts *Options) ([]byte, error) {
 	}
 	children = append(children, &defs{Markers: []marker{buildArrowMarker(th)}})
 	children = append(children, &rect{
-		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
+		X: svgFloat(viewMinX), Y: svgFloat(viewMinY),
+		Width: svgFloat(viewW), Height: svgFloat(viewH),
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
@@ -96,7 +134,7 @@ func Render(d *diagram.C4Diagram, opts *Options) ([]byte, error) {
 
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
-		ViewBox:  fmt.Sprintf("0 0 %.2f %.2f", viewW, viewH),
+		ViewBox:  fmt.Sprintf("%.2f %.2f %.2f %.2f", viewMinX, viewMinY, viewW, viewH),
 		Children: children,
 	}
 	svgBytes, err := xml.Marshal(svg)
