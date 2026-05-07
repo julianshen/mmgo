@@ -567,9 +567,10 @@ func renderSeriesHorizontal(d *diagram.XYChartDiagram, categories []string, vMin
 	// data labels match that font.
 	labelFontSize := cfg.YAxis.LabelFontSize - 2
 
-	// Bars grow rightward from the v=0 pixel for positive values,
-	// leftward for negative — same baseline rule as the vertical
-	// layout, applied to the x-axis.
+	// Bars grow from the v=0 pixel on the value axis, clamped into
+	// the plot range. Positive values grow toward vMax (rightward),
+	// negative toward vMin (leftward); otherwise the baseline lands
+	// at the plot edge and the bar fills from there.
 	baselineX := axisPos(0, vMin, vMax, x0, x1)
 
 	for seriesIdx, s := range d.Series {
