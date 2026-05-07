@@ -361,7 +361,9 @@ func TestRenderC4BoundaryFrame(t *testing.T) {
 	if !strings.Contains(raw, "stroke-dasharray:6 4") {
 		t.Errorf("expected dashed boundary frame in:\n%s", raw)
 	}
-	if !strings.Contains(raw, "Bank «system_boundary»") {
+	// XML-escaped form of `Bank <<system_boundary>>` — renderer
+	// emits the raw `<<…>>` and the encoder escapes the chevrons.
+	if !strings.Contains(raw, "Bank &lt;&lt;system_boundary&gt;&gt;") {
 		t.Errorf("expected boundary heading in:\n%s", raw)
 	}
 }

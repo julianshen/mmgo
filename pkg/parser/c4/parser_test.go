@@ -430,3 +430,15 @@ Boundary(b, "X")
 		t.Errorf("boundary = %+v", d.Boundaries[0])
 	}
 }
+
+// `Boundary(...)` without an eventual `{` (e.g., immediately
+// followed by an element line) is rejected — the silent-scope-
+// swallow path the simplify review flagged as critical.
+func TestParseC4BoundaryMissingBraceRejected(t *testing.T) {
+	_, err := Parse(strings.NewReader(`C4Context
+Boundary(b, "X")
+Person(p, "Y")`))
+	if err == nil {
+		t.Error("expected error for Boundary(...) without { before next line")
+	}
+}

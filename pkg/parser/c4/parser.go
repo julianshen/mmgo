@@ -63,8 +63,14 @@ var elementKeywords = []struct {
 // c4Frame is one entry on the boundary scope stack. boundary is
 // nil for the top-level (diagram) scope; otherwise it's the open
 // boundary that newly-parsed elements should attach to.
+//
+// pendingBrace=true marks a frame whose `Boundary(...)` line did
+// NOT carry an inline `{` — the next non-blank line must be a
+// bare `{` to actually open the scope. Anything else is rejected
+// so an element line can't silently land in the wrong scope.
 type c4Frame struct {
-	boundary *diagram.C4Boundary
+	boundary     *diagram.C4Boundary
+	pendingBrace bool
 }
 
 func Parse(r io.Reader) (*diagram.C4Diagram, error) {
@@ -75,13 +81,7 @@ func Parse(r io.Reader) (*diagram.C4Diagram, error) {
 	headerSeen := false
 	var accDescrLines []string
 	inAccDescrBlock := false
-	stack := []c4Frame{{}} // root frame
-	// pendingBoundary holds a boundary whose `{` lived on a
-	// separate line. The next non-blank line, if it's a bare
-	// `{`, opens the boundary's scope; otherwise the pending
-	// boundary is treated as childless and the parser proceeds
-	// normally with that line.
-	var pendingBoundary *diagram.C4Boundary
+	stack := []c4Frame{{}}
 
 	for scanner.Scan() {
 		lineNum++
@@ -112,15 +112,16 @@ func Parse(r io.Reader) (*diagram.C4Diagram, error) {
 			inAccDescrBlock = true
 			continue
 		}
+		top := &stack[len(stack)-1]
 		// A bare `{` after a `Boundary(...)` whose brace lived on
-		// a separate line opens that boundary's scope.
-		if line == "{" && pendingBoundary != nil {
-			stack = append(stack, c4Frame{boundary: pendingBoundary})
-			pendingBoundary = nil
+		// a separate line activates that frame's scope.
+		if top.pendingBrace {
+			if line != "{" {
+				return nil, fmt.Errorf("line %d: expected '{' to open Boundary %q, got %q", lineNum, top.boundary.ID, line)
+			}
+			top.pendingBrace = false
 			continue
 		}
-		pendingBoundary = nil
-		// `}` closes the most recent open boundary.
 		if line == "}" {
 			if len(stack) == 1 {
 				return nil, fmt.Errorf("line %d: unmatched '}' (no open Boundary)", lineNum)
@@ -140,20 +141,16 @@ func Parse(r io.Reader) (*diagram.C4Diagram, error) {
 			if err != nil {
 				return nil, fmt.Errorf("line %d: %w", lineNum, err)
 			}
-			parent := stack[len(stack)-1].boundary
+			parent := top.boundary
 			if parent == nil {
 				d.Boundaries = append(d.Boundaries, b)
 			} else {
 				parent.Boundaries = append(parent.Boundaries, b)
 			}
-			if opened {
-				stack = append(stack, c4Frame{boundary: b})
-			} else {
-				pendingBoundary = b
-			}
+			stack = append(stack, c4Frame{boundary: b, pendingBrace: !opened})
 			continue
 		}
-		if err := parseLine(d, line, stack[len(stack)-1].boundary); err != nil {
+		if err := parseLine(d, line, top.boundary); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
 	}

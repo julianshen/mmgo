@@ -431,14 +431,14 @@ func renderBoundaries(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fon
 }
 
 func renderBoundary(d *diagram.C4Diagram, b *diagram.C4Boundary, l *layout.Result, pad, titleOff, fontSize float64, th Theme) []any {
-	bbox, ok := boundaryBBox(d, b, l, pad, titleOff)
-	if !ok {
+	bbox := boundaryBBox(d, b, l, pad, titleOff)
+	if bbox.Empty() {
 		return nil
 	}
-	x0 := bbox.minX - boundaryPad
-	y0 := bbox.minY - boundaryPad - 12 // extra room for the heading
-	x1 := bbox.maxX + boundaryPad
-	y1 := bbox.maxY + boundaryPad
+	x0 := bbox.MinX - boundaryPad
+	y0 := bbox.MinY - boundaryPad - boundaryHeadingPad
+	x1 := bbox.MaxX + boundaryPad
+	y1 := bbox.MaxY + boundaryPad
 	stroke := th.EdgeStroke
 	if stroke == "" {
 		stroke = "#666"
@@ -464,71 +464,59 @@ func renderBoundary(d *diagram.C4Diagram, b *diagram.C4Boundary, l *layout.Resul
 	return out
 }
 
-// boundaryHeading composes the visible label: `Name <<kind>>` with
-// the stereotype tag the spec uses for boundaries.
+// boundaryHeadingPad is the extra vertical room reserved at the
+// top of a boundary frame so the `Name <<kind>>` stereotype label
+// has somewhere to sit without overlapping the children's bbox.
+const boundaryHeadingPad = 12.0
+
+// boundaryHeading composes the visible label: `Name <<kind>>`,
+// matching the `<<…>>` stereotype convention C4 element labels
+// already use (`kindDisplayLabel` in this file).
 func boundaryHeading(b *diagram.C4Boundary) string {
 	name := b.Label
 	if name == "" {
 		name = b.ID
 	}
-	return fmt.Sprintf("%s «%s»", name, b.Kind.String())
+	return fmt.Sprintf("%s <<%s>>", name, b.Kind.String())
 }
 
-type c4BBox struct{ minX, minY, maxX, maxY float64 }
-
 // boundaryBBox unions every child element's and nested boundary's
-// rect into one bounding box. Returns ok=false when no children
-// resolve in the layout — that happens when a Boundary( ) parses
-// successfully but every child id failed lookup, which is a
-// degenerate input we skip rather than crash.
-func boundaryBBox(d *diagram.C4Diagram, b *diagram.C4Boundary, l *layout.Result, pad, titleOff float64) (c4BBox, bool) {
-	bb := c4BBox{}
-	any := false
-	expand := func(x, y, w, h float64) {
-		x0 := x - w/2
-		y0 := y - h/2
-		x1 := x + w/2
-		y1 := y + h/2
-		if !any {
-			bb.minX, bb.minY, bb.maxX, bb.maxY = x0, y0, x1, y1
-			any = true
-			return
-		}
-		if x0 < bb.minX {
-			bb.minX = x0
-		}
-		if y0 < bb.minY {
-			bb.minY = y0
-		}
-		if x1 > bb.maxX {
-			bb.maxX = x1
-		}
-		if y1 > bb.maxY {
-			bb.maxY = y1
-		}
-	}
+// rect into one bounding box, including the per-frame padding +
+// heading slot for nested frames. Returns an Empty() bbox when
+// no descendant resolves in the layout — that happens when a
+// Boundary( ) parses successfully but every child id failed
+// lookup, which is degenerate input we skip rather than crash.
+func boundaryBBox(d *diagram.C4Diagram, b *diagram.C4Boundary, l *layout.Result, pad, titleOff float64) svgutil.BBox {
+	// Resolve element indexes to ids once so we can reuse the
+	// shared BBoxOver helper for the leaf union.
+	ids := make([]string, 0, len(b.Elements))
 	for _, idx := range b.Elements {
 		if idx < 0 || idx >= len(d.Elements) {
 			continue
 		}
-		nl, ok := l.Nodes[d.Elements[idx].ID]
-		if !ok {
-			continue
-		}
-		expand(nl.X+pad, nl.Y+pad+titleOff, nl.Width, nl.Height)
+		ids = append(ids, d.Elements[idx].ID)
+	}
+	bb := svgutil.BBoxOver(ids, l.Nodes, pad)
+	// titleOff shifts every node down by its constant. BBoxOver
+	// only takes a single `pad` so apply the title offset by
+	// translating the bbox after the union — equivalent.
+	if !bb.Empty() {
+		bb.MinY += titleOff
+		bb.MaxY += titleOff
 	}
 	for _, child := range b.Boundaries {
-		cb, ok := boundaryBBox(d, child, l, pad, titleOff)
-		if !ok {
+		cb := boundaryBBox(d, child, l, pad, titleOff)
+		if cb.Empty() {
 			continue
 		}
-		// Treat the nested bbox as a "virtual element" centered
-		// on its midpoint, so the parent grows around it.
-		cw := cb.maxX - cb.minX + 2*boundaryPad
-		ch := cb.maxY - cb.minY + 2*boundaryPad + 12
-		cx := (cb.minX + cb.maxX) / 2
-		cy := (cb.minY + cb.maxY) / 2
-		expand(cx, cy, cw, ch)
+		// Union the child's *frame* rect (its own bbox grown by
+		// boundaryPad + heading slot) so the parent sits outside
+		// the child's drawn frame.
+		w := cb.MaxX - cb.MinX + 2*boundaryPad
+		h := cb.MaxY - cb.MinY + 2*boundaryPad + boundaryHeadingPad
+		cx := (cb.MinX + cb.MaxX) / 2
+		cy := (cb.MinY+cb.MaxY)/2 - boundaryHeadingPad/2
+		bb.Expand(cx, cy, w, h)
 	}
-	return bb, any
+	return bb
 }
