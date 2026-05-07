@@ -1,12 +1,4 @@
-// Package xychart renders an XYChartDiagram to SVG. The plot area is
-// a rectangle bounded by X and Y axes; bars and lines are positioned
-// by column index (categorical x) and data value (y, scaled to the
-// y-axis range). Multiple bar series in the same chart share each
-// category's horizontal slot and split it into equal-width bands.
-//
-// Vertical layout: categories along x-axis, data scaled to y-axis.
-// Horizontal layout (`xychart-beta horizontal`): the value-axis is
-// the x-axis and categories run down the y-axis; bars grow rightward.
+// Package xychart renders an XYChartDiagram to SVG.
 package xychart
 
 import (
@@ -49,7 +41,12 @@ func Render(d *diagram.XYChartDiagram, opts *Options) ([]byte, error) {
 	horizontal := isHorizontal(d, cfg)
 
 	categories := d.XAxis.Categories
-	if len(categories) == 0 && !d.XAxis.HasRange {
+	if len(categories) == 0 {
+		// Even in continuous-X mode (HasRange) the parser does not
+		// capture per-point x values, so series get laid out across
+		// synthetic index slots; the x-axis ticks render numeric
+		// values from the explicit range while the series still
+		// project onto these slot positions.
 		n := maxSeriesLen(d.Series)
 		categories = make([]string, n)
 		for i := range categories {
@@ -74,8 +71,6 @@ func Render(d *diagram.XYChartDiagram, opts *Options) ([]byte, error) {
 		bottomAxisPad += cfg.XAxis.TitleFontSize + cfg.XAxis.TitlePadding
 	}
 
-	// Plot area sized off the spec width/height with the chrome
-	// (title + axis pads + outer margins) carved out.
 	plotX0 := marginX + leftAxisPad
 	plotY0 := marginY + titleH
 	plotX1 := cfg.Width - marginX
@@ -146,8 +141,6 @@ func isHorizontal(d *diagram.XYChartDiagram, cfg Config) bool {
 	}
 }
 
-// axisLabelGap is the room reserved for one axis's label row + tick
-// length, observing the per-axis show* flags.
 func axisLabelGap(a AxisConfig) float64 {
 	gap := 0.0
 	if flag(a.ShowTick, true) {
@@ -159,9 +152,9 @@ func axisLabelGap(a AxisConfig) float64 {
 	return gap
 }
 
-// valueRange returns the value-axis [min, max] honoring an explicit
-// y-range when set, otherwise deriving from the data with a 10% top
-// headroom and a clamp-to-zero floor for non-negative data.
+// valueRange returns the value-axis [min, max]. The clamp-to-zero
+// floor for all-non-negative data keeps bars anchored to a visible
+// baseline rather than floating mid-plot.
 func valueRange(d *diagram.XYChartDiagram) (float64, float64) {
 	if d.YAxis.HasRange {
 		return d.YAxis.Min, d.YAxis.Max
@@ -202,31 +195,32 @@ func maxSeriesLen(series []diagram.XYSeries) int {
 	return n
 }
 
-// tickEdge selects which edge of the plot the tick row attaches to.
 type tickEdge int
 
 const (
-	edgeBottom tickEdge = iota // x-axis: ticks below y1, labels middle/hanging
-	edgeLeft                   // y-axis: ticks left of x0, labels end/central
+	edgeBottom tickEdge = iota
+	edgeLeft
 )
 
-// tickItem is one entry in a tick row: a pixel coordinate along the
-// axis paired with the label text.
 type tickItem struct {
 	pos   float64
 	label string
 }
 
-// tickRow describes everything needed to draw one axis's ticks +
-// labels + (optional) gridlines. Centralises the three near-identical
-// loops that vertical-y, vertical-x and horizontal-x previously had.
+// gridSpec bundles the three coupled gridline fields. A zero stroke
+// disables grid emission; lo/hi are then ignored.
+type gridSpec struct {
+	lo, hi float64
+	stroke string
+}
+
 type tickRow struct {
-	edge       tickEdge
+	edge tickEdge
+	// axisOrigin is y1 for edgeBottom, x0 for edgeLeft — the coupling
+	// is non-obvious because the field name doesn't carry the edge.
+	axisOrigin float64
 	items      []tickItem
-	axisOrigin float64 // y1 for edgeBottom, x0 for edgeLeft
-	gridLo     float64 // gridline cross-axis range; ignored if gridStroke==""
-	gridHi     float64
-	gridStroke string
+	grid       gridSpec
 	axisCfg    AxisConfig
 	tickColor  string
 	labelColor string
@@ -237,20 +231,22 @@ func renderTickRow(r tickRow) []any {
 	showTick := flag(r.axisCfg.ShowTick, true)
 	showLabel := flag(r.axisCfg.ShowLabel, true)
 	for _, it := range r.items {
-		if r.gridStroke != "" {
+		if r.grid.stroke != "" {
 			switch r.edge {
 			case edgeBottom:
 				out = append(out, &line{
-					X1: svgFloat(it.pos), Y1: svgFloat(r.gridLo),
-					X2: svgFloat(it.pos), Y2: svgFloat(r.gridHi),
-					Style: fmt.Sprintf("stroke:%s;stroke-width:1", r.gridStroke),
+					X1: svgFloat(it.pos), Y1: svgFloat(r.grid.lo),
+					X2: svgFloat(it.pos), Y2: svgFloat(r.grid.hi),
+					Style: fmt.Sprintf("stroke:%s;stroke-width:1", r.grid.stroke),
 				})
 			case edgeLeft:
 				out = append(out, &line{
-					X1: svgFloat(r.gridLo), Y1: svgFloat(it.pos),
-					X2: svgFloat(r.gridHi), Y2: svgFloat(it.pos),
-					Style: fmt.Sprintf("stroke:%s;stroke-width:1", r.gridStroke),
+					X1: svgFloat(r.grid.lo), Y1: svgFloat(it.pos),
+					X2: svgFloat(r.grid.hi), Y2: svgFloat(it.pos),
+					Style: fmt.Sprintf("stroke:%s;stroke-width:1", r.grid.stroke),
 				})
+			default:
+				panic(fmt.Sprintf("xychart: unknown tickEdge %d", r.edge))
 			}
 		}
 		if showTick {
@@ -267,6 +263,8 @@ func renderTickRow(r tickRow) []any {
 					X2: svgFloat(r.axisOrigin), Y2: svgFloat(it.pos),
 					Style: fmt.Sprintf("stroke:%s;stroke-width:1", r.tickColor),
 				})
+			default:
+				panic(fmt.Sprintf("xychart: unknown tickEdge %d", r.edge))
 			}
 		}
 		if showLabel {
@@ -289,6 +287,8 @@ func renderTickRow(r tickRow) []any {
 					Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", r.labelColor, r.axisCfg.LabelFontSize),
 					Content:  it.label,
 				})
+			default:
+				panic(fmt.Sprintf("xychart: unknown tickEdge %d", r.edge))
 			}
 		}
 	}
@@ -322,7 +322,7 @@ func renderVertical(d *diagram.XYChartDiagram, categories []string, yMin, yMax, 
 		edge:       edgeLeft,
 		items:      continuousTicks(yMin, yMax, y1, y0),
 		axisOrigin: x0,
-		gridLo:     x0, gridHi: x1, gridStroke: th.GridStroke,
+		grid:       gridSpec{lo: x0, hi: x1, stroke: th.GridStroke},
 		axisCfg:    cfg.YAxis,
 		tickColor:  th.YAxisTickColor,
 		labelColor: th.YAxisLabelColor,
@@ -399,8 +399,6 @@ func axisTitles(d *diagram.XYChartDiagram, x0, y0, x1, y1, _ float64, cfg Config
 	return elems
 }
 
-// renderSeriesVertical draws bar/line series for the vertical layout,
-// honoring cfg.ShowDataLabel / ShowDataLabelOutsideBar.
 func renderSeriesVertical(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, y0, x1, y1 float64, cfg Config, th Theme) []any {
 	var elems []any
 	nCols := len(categories)
@@ -490,8 +488,6 @@ func renderSeriesVertical(d *diagram.XYChartDiagram, categories []string, yMin, 
 	return elems
 }
 
-// renderHorizontal: category axis on the left, value axis along the
-// bottom. Bars grow rightward from x0, lines run top-to-bottom.
 func renderHorizontal(d *diagram.XYChartDiagram, categories []string, vMin, vMax, x0, y0, x1, y1, fontSize float64, cfg Config, th Theme) []any {
 	var elems []any
 
@@ -499,7 +495,7 @@ func renderHorizontal(d *diagram.XYChartDiagram, categories []string, vMin, vMax
 		edge:       edgeBottom,
 		items:      continuousTicks(vMin, vMax, x0, x1),
 		axisOrigin: y1,
-		gridLo:     y0, gridHi: y1, gridStroke: th.GridStroke,
+		grid:       gridSpec{lo: y0, hi: y1, stroke: th.GridStroke},
 		axisCfg:    cfg.XAxis,
 		tickColor:  th.XAxisTickColor,
 		labelColor: th.XAxisLabelColor,

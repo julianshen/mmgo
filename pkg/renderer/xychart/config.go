@@ -52,28 +52,23 @@ type Config struct {
 	YAxis AxisConfig
 }
 
-// BoolPtr returns a *bool pointing at b. Public so external callers
-// can construct Config / AxisConfig values that explicitly set a
-// Show* flag to false (the zero *bool means "inherit default", so
-// `&false` is the only way to override a default-true field to off).
+// BoolPtr returns a *bool pointing at b. Needed because zero *bool
+// means "inherit default", so an explicit `&false` is the only way to
+// override a default-true Show* flag to off.
 func BoolPtr(b bool) *bool { return &b }
 
-// boolPtr is the package-internal alias kept for the existing
-// DefaultConfig/defaultAxisConfig literals.
-func boolPtr(b bool) *bool { return BoolPtr(b) }
-
 // DefaultConfig returns the spec defaults from the Mermaid xyChart
-// docs. resolveConfig overlays Options.Config on top of this.
+// docs.
 func DefaultConfig() Config {
 	return Config{
 		Width:                   700,
 		Height:                  500,
 		TitlePadding:            10,
 		TitleFontSize:           20,
-		ShowTitle:               boolPtr(true),
+		ShowTitle:               BoolPtr(true),
 		ChartOrientation:        OrientationAuto,
-		ShowDataLabel:           boolPtr(false),
-		ShowDataLabelOutsideBar: boolPtr(false),
+		ShowDataLabel:           BoolPtr(false),
+		ShowDataLabelOutsideBar: BoolPtr(false),
 		XAxis:                   defaultAxisConfig(),
 		YAxis:                   defaultAxisConfig(),
 	}
@@ -81,16 +76,16 @@ func DefaultConfig() Config {
 
 func defaultAxisConfig() AxisConfig {
 	return AxisConfig{
-		ShowLabel:     boolPtr(true),
+		ShowLabel:     BoolPtr(true),
 		LabelFontSize: 14,
 		LabelPadding:  5,
-		ShowTitle:     boolPtr(true),
+		ShowTitle:     BoolPtr(true),
 		TitleFontSize: 16,
 		TitlePadding:  5,
-		ShowTick:      boolPtr(true),
+		ShowTick:      BoolPtr(true),
 		TickLength:    5,
 		TickWidth:     2,
-		ShowAxisLine:  boolPtr(true),
+		ShowAxisLine:  BoolPtr(true),
 		AxisLineWidth: 2,
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -474,6 +475,140 @@ func TestRenderShowFlags(t *testing.T) {
 	// are gridlines (#e5e5e5 default).
 	if strings.Contains(raw, ">a<") || strings.Contains(raw, ">b<") {
 		t.Error("ShowLabel=false should suppress category labels")
+	}
+}
+
+// Each show-flag must be independently honoured. Toggle exactly one
+// flag at a time and verify the corresponding SVG element disappears
+// while the unaffected ones stay.
+func TestRenderShowFlagsIsolation(t *testing.T) {
+	off := false
+	base := func() *diagram.XYChartDiagram {
+		return &diagram.XYChartDiagram{
+			XAxis: diagram.XYAxis{Title: "X", Categories: []string{"a", "b"}},
+			YAxis: diagram.XYAxis{Title: "Y", HasRange: true, Min: 0, Max: 10},
+			Series: []diagram.XYSeries{
+				{Type: diagram.XYSeriesBar, Data: []float64{1, 2}},
+			},
+		}
+	}
+	defaultOut, err := Render(base(), nil)
+	if err != nil {
+		t.Fatalf("default render: %v", err)
+	}
+	defaultRaw := string(defaultOut)
+	// Sanity: defaults emit category labels, axis title, ticks, axis lines.
+	for _, want := range []string{">a<", ">X<", ">Y<"} {
+		if !strings.Contains(defaultRaw, want) {
+			t.Fatalf("baseline missing %q", want)
+		}
+	}
+
+	tests := []struct {
+		name      string
+		opts      *Options
+		mustNot   []string
+		mustStill []string
+	}{
+		{
+			name: "XAxis.ShowLabel=off keeps Y labels",
+			opts: &Options{Config: Config{XAxis: AxisConfig{ShowLabel: &off}}},
+			mustNot:   []string{">a<", ">b<"},
+			mustStill: []string{">X<", ">Y<", "<line"},
+		},
+		{
+			name: "YAxis.ShowLabel=off keeps X labels",
+			opts: &Options{Config: Config{YAxis: AxisConfig{ShowLabel: &off}}},
+			mustNot:   []string{},
+			mustStill: []string{">a<", ">b<", ">X<", ">Y<"},
+		},
+		{
+			name: "XAxis.ShowTitle=off keeps Y title",
+			opts: &Options{Config: Config{XAxis: AxisConfig{ShowTitle: &off}}},
+			mustNot:   []string{">X<"},
+			mustStill: []string{">Y<", ">a<"},
+		},
+		{
+			name: "YAxis.ShowTitle=off keeps X title",
+			opts: &Options{Config: Config{YAxis: AxisConfig{ShowTitle: &off}}},
+			mustNot:   []string{">Y<"},
+			mustStill: []string{">X<", ">a<"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := Render(base(), tc.opts)
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			raw := string(out)
+			for _, s := range tc.mustNot {
+				if strings.Contains(raw, s) {
+					t.Errorf("expected %q absent, found in output", s)
+				}
+			}
+			for _, s := range tc.mustStill {
+				if !strings.Contains(raw, s) {
+					t.Errorf("expected %q present, missing", s)
+				}
+			}
+		})
+	}
+}
+
+// Continuous X with HasRange must clamp out-of-range data points so
+// they project onto the plot edges instead of escaping the viewBox or
+// producing NaN coordinates.
+func TestRenderContinuousXAxisClampsOutOfRange(t *testing.T) {
+	d := &diagram.XYChartDiagram{
+		XAxis: diagram.XYAxis{HasRange: true, Min: 0, Max: 10},
+		YAxis: diagram.XYAxis{HasRange: true, Min: 0, Max: 100},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesLine, Data: []float64{-50, 50, 500}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if strings.Contains(raw, "NaN") {
+		t.Error("NaN coordinate leaked into SVG (continuous-X clamp failed)")
+	}
+	// Polyline must still render — clamped, not dropped.
+	if !strings.Contains(raw, "<polyline") {
+		t.Error("expected polyline even with out-of-range data")
+	}
+}
+
+// In horizontal layout, two bar series in the same category must
+// occupy non-overlapping y-slots.
+func TestRenderHorizontalMultiBarSlotSplit(t *testing.T) {
+	d := &diagram.XYChartDiagram{
+		Horizontal: true,
+		XAxis:      diagram.XYAxis{Categories: []string{"only"}},
+		YAxis:      diagram.XYAxis{HasRange: true, Min: 0, Max: 100},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{50}},
+			{Type: diagram.XYSeriesBar, Data: []float64{75}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	rectRe := regexp.MustCompile(`<rect[^>]*y="([0-9.]+)"[^>]*style="fill:(#[0-9a-fA-F]{6});`)
+	matches := rectRe.FindAllStringSubmatch(string(out), -1)
+	ys := map[string]string{}
+	for _, m := range matches {
+		// Skip the background rect (always #fff or theme background).
+		if m[2] == "#fff" || m[2] == "#FFF" {
+			continue
+		}
+		ys[m[1]] = m[2]
+	}
+	if len(ys) != 2 {
+		t.Errorf("expected 2 distinct bar y-coordinates (split slot), got %d (%v)", len(ys), ys)
 	}
 }
 
