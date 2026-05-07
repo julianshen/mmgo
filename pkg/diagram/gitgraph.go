@@ -38,10 +38,23 @@ type GitCommit struct {
 	Parents []string
 }
 
+// GitGraphDirection mirrors the orientation token after the
+// `gitGraph` header. Default is LR (horizontal swim lanes); TB / BT
+// flip the layout to vertical lanes with commits running top-down or
+// bottom-up.
+type GitGraphDirection string
+
+const (
+	GitGraphDirLR GitGraphDirection = "LR"
+	GitGraphDirTB GitGraphDirection = "TB"
+	GitGraphDirBT GitGraphDirection = "BT"
+)
+
 type GitGraphDiagram struct {
-	Title    string
-	AccTitle string
-	AccDescr string
+	Title     string
+	AccTitle  string
+	AccDescr  string
+	Direction GitGraphDirection
 	// MainBranchName overrides the default "main" branch when the
 	// frontmatter / init directive supplies an alternative name.
 	MainBranchName string

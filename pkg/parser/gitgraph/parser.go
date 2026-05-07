@@ -57,6 +57,9 @@ func Parse(r io.Reader) (*diagram.GitGraphDiagram, error) {
 			if !isHeader(line) {
 				return nil, fmt.Errorf("line %d: expected 'gitGraph' header, got %q", lineNum, line)
 			}
+			if dir := headerDirection(line); dir != "" {
+				p.diagram.Direction = dir
+			}
 			headerSeen = true
 			continue
 		}
@@ -108,6 +111,24 @@ func isHeader(line string) bool {
 	rest = strings.TrimSuffix(rest, ":")
 	rest = strings.TrimSpace(rest)
 	return rest == "" || rest == "LR" || rest == "TB" || rest == "BT"
+}
+
+// headerDirection extracts the direction token from a `gitGraph LR`
+// (etc.) header. Returns "" for the bare-header form, leaving the
+// AST default in place.
+func headerDirection(line string) diagram.GitGraphDirection {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "gitGraph"))
+	rest = strings.TrimSuffix(rest, ":")
+	rest = strings.TrimSpace(rest)
+	switch rest {
+	case "LR":
+		return diagram.GitGraphDirLR
+	case "TB":
+		return diagram.GitGraphDirTB
+	case "BT":
+		return diagram.GitGraphDirBT
+	}
+	return ""
 }
 
 type parser struct {

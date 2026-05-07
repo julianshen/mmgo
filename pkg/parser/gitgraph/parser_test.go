@@ -510,3 +510,22 @@ commit`))
 		t.Error("expected error for unterminated accDescr block")
 	}
 }
+
+func TestParseHeaderDirectionCaptured(t *testing.T) {
+	cases := map[string]diagram.GitGraphDirection{
+		"gitGraph":    "",
+		"gitGraph LR": diagram.GitGraphDirLR,
+		"gitGraph TB": diagram.GitGraphDirTB,
+		"gitGraph BT": diagram.GitGraphDirBT,
+	}
+	for header, want := range cases {
+		d, err := Parse(strings.NewReader(header + "\ncommit\n"))
+		if err != nil {
+			t.Errorf("Parse(%q): %v", header, err)
+			continue
+		}
+		if d.Direction != want {
+			t.Errorf("header %q: Direction = %q, want %q", header, d.Direction, want)
+		}
+	}
+}

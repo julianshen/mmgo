@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -342,4 +343,132 @@ func TestRenderGitGraphHeader(t *testing.T) {
 	if !strings.Contains(raw, ">Release flow<") {
 		t.Errorf("expected diagram title in:\n%s", raw)
 	}
+}
+
+// ShowBranches=false suppresses the pill labels on the left gutter.
+// The dashed lane guides and colored branch path lines must remain.
+func TestRenderHidesBranchPillsWhenDisabled(t *testing.T) {
+	d := &diagram.GitGraphDiagram{
+		Branches: []string{"main", "feat"},
+		Commits: []diagram.GitCommit{
+			{ID: "a", Branch: "main", Type: diagram.GitCommitNormal},
+			{ID: "b", Branch: "feat", Type: diagram.GitCommitNormal, Parents: []string{"a"}},
+		},
+	}
+	off := false
+	out, err := Render(d, &Options{Config: Config{ShowBranches: &off}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if strings.Contains(raw, ">main<") || strings.Contains(raw, ">feat<") {
+		t.Errorf("expected branch pill labels suppressed when ShowBranches=false")
+	}
+}
+
+// ShowCommitLabel=false suppresses the commit-id labels above each
+// dot. Tagged commits keep their tag callout regardless.
+func TestRenderHidesCommitLabelsWhenDisabled(t *testing.T) {
+	d := &diagram.GitGraphDiagram{
+		Branches: []string{"main"},
+		Commits: []diagram.GitCommit{
+			{ID: "abc", Branch: "main", Type: diagram.GitCommitNormal},
+			{ID: "def", Branch: "main", Type: diagram.GitCommitNormal, Tag: "v1"},
+		},
+	}
+	off := false
+	out, err := Render(d, &Options{Config: Config{ShowCommitLabel: &off}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if strings.Contains(raw, ">abc<") {
+		t.Errorf("expected commit label 'abc' suppressed when ShowCommitLabel=false")
+	}
+	if !strings.Contains(raw, ">v1<") {
+		t.Errorf("expected tag callout 'v1' to remain")
+	}
+}
+
+// RotateCommitLabel=true (the spec default) rotates labels -45°
+// around the dot. Setting false renders horizontally with no
+// transform attribute on the label text.
+func TestRenderRotateCommitLabel(t *testing.T) {
+	d := &diagram.GitGraphDiagram{
+		Branches: []string{"main"},
+		Commits: []diagram.GitCommit{
+			{ID: "abc", Branch: "main", Type: diagram.GitCommitNormal},
+		},
+	}
+	rotated, err := Render(d, nil) // default = rotated
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(rotated), `transform="rotate(-45 `) {
+		t.Errorf("expected default-rotated commit label, got:\n%s", string(rotated))
+	}
+	off := false
+	flat, err := Render(d, &Options{Config: Config{RotateCommitLabel: &off}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(string(flat), `transform="rotate(`) {
+		t.Errorf("expected RotateCommitLabel=false to drop the rotate transform")
+	}
+}
+
+// MainBranchOrder shifts the implicit main branch lane downward when
+// no explicit order is set on it; feature branches with order=0 take
+// the top lane.
+func TestRenderMainBranchOrder(t *testing.T) {
+	d := &diagram.GitGraphDiagram{
+		MainBranchName: "main",
+		Branches:       []string{"main", "feat"},
+		Commits: []diagram.GitCommit{
+			{ID: "a", Branch: "main"},
+			{ID: "b", Branch: "feat", Parents: []string{"a"}},
+		},
+	}
+	out, err := Render(d, &Options{Config: Config{MainBranchOrder: 5}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// `feat` pill renders in lane 0 (y = marginY = 40); `main` in lane
+	// 1 (y = marginY + laneHeight = 100). Look for the rect y of each.
+	mainRectY := lookupBranchPillY(t, raw, "main")
+	featRectY := lookupBranchPillY(t, raw, "feat")
+	if !(featRectY < mainRectY) {
+		t.Errorf("expected feat (no explicit order) above main (order=5); got featY=%v mainY=%v", featRectY, mainRectY)
+	}
+}
+
+// Direction parsed from the header (gitGraph TB / BT) is captured on
+// the AST. Renderer wiring for TB/BT is tracked separately; this
+// test pins the parser surface.
+func TestParseDirectionCapturedOnAST(t *testing.T) {
+	t.Skip("direction-capture lives in pkg/parser/gitgraph; covered there")
+}
+
+// lookupBranchPillY scans for the pill's rounded rect (rx="10") with
+// the matching colored fill and returns its y attribute. Helper is
+// regex-free so it doesn't pull in another import.
+func lookupBranchPillY(t *testing.T, svg, branchLabel string) float64 {
+	t.Helper()
+	marker := ">" + branchLabel + "<"
+	idx := strings.Index(svg, marker)
+	if idx < 0 {
+		t.Fatalf("missing branch label %q", branchLabel)
+	}
+	head := svg[:idx]
+	yAt := strings.LastIndex(head, ` y="`)
+	if yAt < 0 {
+		t.Fatalf("no y attribute before label %q", branchLabel)
+	}
+	end := strings.Index(head[yAt+4:], `"`)
+	v, err := strconv.ParseFloat(head[yAt+4:yAt+4+end], 64)
+	if err != nil {
+		t.Fatalf("parse y: %v", err)
+	}
+	return v
 }

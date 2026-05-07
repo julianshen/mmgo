@@ -15,6 +15,7 @@ import (
 type Options struct {
 	FontSize float64
 	Theme    Theme
+	Config   Config
 }
 
 const (
@@ -47,9 +48,14 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		fontSize = opts.FontSize
 	}
 	th := resolveTheme(opts)
+	cfg := resolveConfig(opts)
 
-	laneOf := make(map[string]int, len(d.Branches))
-	for i, b := range d.Branches {
+	// Lane order: explicit BranchOrder ascending, ties broken by
+	// declaration index. MainBranchOrder shifts the implicit main
+	// branch when no explicit order was set on it.
+	lanes := orderedLanes(d, cfg.MainBranchOrder)
+	laneOf := make(map[string]int, len(lanes))
+	for i, b := range lanes {
 		laneOf[b] = i
 	}
 
@@ -57,13 +63,17 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 	// `commitRadius` keeps the first commit's dot clear of the pill
 	// even when that commit sits on the branch with the longest name
 	// (otherwise the dot's left edge would overlap the pill's right).
-	originX := marginX + branchGutterW(d.Branches, fontSize) + 2*branchLabelPadX + commitRadius
+	gutter := branchGutterW(lanes, fontSize) + 2*branchLabelPadX
+	if !flag(cfg.ShowBranches, true) {
+		gutter = 0
+	}
+	originX := marginX + gutter + commitRadius
 
 	cx := make(map[string]float64, len(d.Commits))
 	cy := make(map[string]float64, len(d.Commits))
 	// x is monotonic in commit index, so only the first and last x per
 	// branch are ever needed; no min/max reduction required.
-	branchRange := make(map[string][2]float64, len(d.Branches))
+	branchRange := make(map[string][2]float64, len(lanes))
 	for i, c := range d.Commits {
 		x := originX + float64(i)*commitStride
 		cx[c.ID] = x
@@ -81,7 +91,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		cols--
 	}
 	viewW := originX + float64(cols)*commitStride + marginX
-	viewH := marginY + float64(max(len(d.Branches), 1))*laneHeight + marginY
+	viewH := marginY + float64(max(len(lanes), 1))*laneHeight + marginY
 
 	var children []any
 	if d.AccTitle != "" {
@@ -112,7 +122,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 	// across each lane, matching mmdc's faint lane guide.
 	baselineX1 := originX - commitStride/2
 	baselineX2 := viewW - marginX
-	for i := range d.Branches {
+	for i := range lanes {
 		y := laneY(i)
 		children = append(children, &line{
 			X1: svgFloat(baselineX1), Y1: svgFloat(y),
@@ -121,30 +131,33 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		})
 	}
 
-	for i, b := range d.Branches {
+	showBranches := flag(cfg.ShowBranches, true)
+	for i, b := range lanes {
 		color := colorFor(th, i)
 		y := laneY(i)
-		// Pill label: rounded rect filled with the branch color, white
-		// text centered inside — matches mmdc's branch-tag affordance.
-		labelW := textmeasure.EstimateWidth(b, fontSize)
-		pillW := labelW + 2*branchLabelPadX
-		pillH := fontSize + 2*branchLabelPadY
-		children = append(children, &rect{
-			X:      svgFloat(marginX),
-			Y:      svgFloat(y - pillH/2),
-			Width:  svgFloat(pillW),
-			Height: svgFloat(pillH),
-			RX:     svgFloat(branchLabelR), RY: svgFloat(branchLabelR),
-			Style: fmt.Sprintf("fill:%s;stroke:none", color),
-		})
-		children = append(children, &text{
-			X:        svgFloat(marginX + pillW/2),
-			Y:        svgFloat(y),
-			Anchor:   svgutil.AnchorMiddle,
-			Dominant: svgutil.BaselineCentral,
-			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.BranchLabelText, fontSize),
-			Content:  b,
-		})
+		if showBranches {
+			// Pill label: rounded rect filled with the branch color, white
+			// text centered inside — matches mmdc's branch-tag affordance.
+			labelW := textmeasure.EstimateWidth(b, fontSize)
+			pillW := labelW + 2*branchLabelPadX
+			pillH := fontSize + 2*branchLabelPadY
+			children = append(children, &rect{
+				X:      svgFloat(marginX),
+				Y:      svgFloat(y - pillH/2),
+				Width:  svgFloat(pillW),
+				Height: svgFloat(pillH),
+				RX:     svgFloat(branchLabelR), RY: svgFloat(branchLabelR),
+				Style: fmt.Sprintf("fill:%s;stroke:none", color),
+			})
+			children = append(children, &text{
+				X:        svgFloat(marginX + pillW/2),
+				Y:        svgFloat(y),
+				Anchor:   svgutil.AnchorMiddle,
+				Dominant: svgutil.BaselineCentral,
+				Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.BranchLabelText, fontSize),
+				Content:  b,
+			})
+		}
 		if r, ok := branchRange[b]; ok {
 			children = append(children, &line{
 				X1: svgFloat(r[0]), Y1: svgFloat(y),
@@ -193,15 +206,24 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 				gap = highlightRadius + labelGap
 			}
 			children = append(children, tagCallout(c.Tag, x, y, gap, fontSize, th)...)
-		} else if c.ID != "" {
-			children = append(children, &text{
+		} else if c.ID != "" && flag(cfg.ShowCommitLabel, true) {
+			labelY := y - commitRadius - labelGap
+			t := &text{
 				X:        svgFloat(x),
-				Y:        svgFloat(y - commitRadius - labelGap),
+				Y:        svgFloat(labelY),
 				Anchor:   svgutil.AnchorMiddle,
 				Dominant: svgutil.BaselineBaseline,
 				Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.Text, fontSize-2),
 				Content:  c.ID,
-			})
+			}
+			if flag(cfg.RotateCommitLabel, true) {
+				// Mermaid's default rotation: anchored at the dot,
+				// label rises diagonally up-and-right at -45° so long
+				// IDs don't overlap adjacent commits.
+				t.Anchor = svgutil.AnchorStart
+				t.Transform = fmt.Sprintf("rotate(-45 %.2f %.2f)", x, labelY)
+			}
+			children = append(children, t)
 		}
 	}
 
@@ -218,6 +240,54 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 }
 
 func laneY(lane int) float64 { return marginY + float64(lane)*laneHeight }
+
+// orderedLanes returns the branch list sorted by (BranchOrder asc,
+// declaration index asc). Branches without an explicit order keep
+// their declaration position; the implicit main branch (index 0)
+// gets cfg.MainBranchOrder when no explicit order was set on it.
+func orderedLanes(d *diagram.GitGraphDiagram, mainBranchOrder int) []string {
+	type lane struct {
+		name  string
+		idx   int
+		order int
+		hasOrder bool
+	}
+	mainName := d.MainBranchName
+	if mainName == "" && len(d.Branches) > 0 {
+		mainName = d.Branches[0]
+	}
+	all := make([]lane, len(d.Branches))
+	for i, b := range d.Branches {
+		ord, has := d.BranchOrder[b]
+		if !has && b == mainName && mainBranchOrder != 0 {
+			ord, has = mainBranchOrder, true
+		}
+		all[i] = lane{name: b, idx: i, order: ord, hasOrder: has}
+	}
+	// Stable sort by order asc; unorderd branches (treated as order=0)
+	// keep their declaration position relative to other unorderd ones.
+	for i := 1; i < len(all); i++ {
+		for j := i; j > 0; j-- {
+			a, b := all[j-1], all[j]
+			aord, bord := a.order, b.order
+			if !a.hasOrder {
+				aord = 0
+			}
+			if !b.hasOrder {
+				bord = 0
+			}
+			if aord <= bord {
+				break
+			}
+			all[j-1], all[j] = b, a
+		}
+	}
+	out := make([]string, len(all))
+	for i, l := range all {
+		out[i] = l.name
+	}
+	return out
+}
 
 func colorFor(th Theme, lane int) string {
 	return th.BranchColors[lane%len(th.BranchColors)]
