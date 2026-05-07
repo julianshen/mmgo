@@ -433,6 +433,12 @@ func renderSeriesVertical(d *diagram.XYChartDiagram, categories []string, yMin, 
 	// value, so derive their font from the Y-axis label size.
 	labelFontSize := cfg.YAxis.LabelFontSize - 2
 
+	// Bars grow from the v=0 pixel on the value axis, clamped into
+	// the plot range. When the range straddles zero, positive values
+	// grow toward yMax and negative toward yMin; otherwise the
+	// baseline lands at the plot edge and the bar fills from there.
+	baselineY := axisPos(0, yMin, yMax, y1, y0)
+
 	for seriesIdx, s := range d.Series {
 		color := th.SeriesColors[seriesIdx%len(th.SeriesColors)]
 		switch s.Type {
@@ -442,18 +448,31 @@ func renderSeriesVertical(d *diagram.XYChartDiagram, categories []string, yMin, 
 				cx := x0 + slotW*(float64(i)+0.5)
 				bx := cx - bandW/2 + float64(barSlot)*bw
 				by := axisPos(s.Data[i], yMin, yMax, y1, y0)
+				topY := math.Min(by, baselineY)
+				height := math.Abs(by - baselineY)
 				elems = append(elems, &rect{
-					X: svgFloat(bx), Y: svgFloat(by),
+					X: svgFloat(bx), Y: svgFloat(topY),
 					Width:  svgFloat(bw),
-					Height: svgFloat(y1 - by),
+					Height: svgFloat(height),
 					Style:  fmt.Sprintf("fill:%s;stroke:none", color),
 				})
 				if showLabel {
-					ly := by - 2
-					dom := "auto"
-					if !outside {
-						ly = by + (y1-by)/2
-						dom = "central"
+					// Anchor the label to the bar's outer edge using
+					// dominant-baseline rather than offsetting by the
+					// font's em-height: "auto" sits the alphabetic
+					// baseline at y, "hanging" sits the cap at y, and
+					// "central" centres at y. Each picks the right
+					// anchor for its placement so we never rely on a
+					// font-size approximation.
+					var ly float64
+					var dom string
+					switch {
+					case outside && s.Data[i] >= 0:
+						ly, dom = by-2, "auto"
+					case outside:
+						ly, dom = by+2, "hanging"
+					default:
+						ly, dom = topY+height/2, "central"
 					}
 					elems = append(elems, &text{
 						X:        svgFloat(bx + bw/2),
@@ -555,6 +574,12 @@ func renderSeriesHorizontal(d *diagram.XYChartDiagram, categories []string, vMin
 	// data labels match that font.
 	labelFontSize := cfg.YAxis.LabelFontSize - 2
 
+	// Bars grow from the v=0 pixel on the value axis, clamped into
+	// the plot range. Positive values grow toward vMax (rightward),
+	// negative toward vMin (leftward); otherwise the baseline lands
+	// at the plot edge and the bar fills from there.
+	baselineX := axisPos(0, vMin, vMax, x0, x1)
+
 	for seriesIdx, s := range d.Series {
 		color := th.SeriesColors[seriesIdx%len(th.SeriesColors)]
 		switch s.Type {
@@ -564,18 +589,24 @@ func renderSeriesHorizontal(d *diagram.XYChartDiagram, categories []string, vMin
 				cy := y0 + slotH*(float64(i)+0.5)
 				by := cy - bandH/2 + float64(barSlot)*bh
 				bx := axisPos(s.Data[i], vMin, vMax, x0, x1)
+				leftX := math.Min(bx, baselineX)
+				width := math.Abs(bx - baselineX)
 				elems = append(elems, &rect{
-					X: svgFloat(x0), Y: svgFloat(by),
-					Width:  svgFloat(bx - x0),
+					X: svgFloat(leftX), Y: svgFloat(by),
+					Width:  svgFloat(width),
 					Height: svgFloat(bh),
 					Style:  fmt.Sprintf("fill:%s;stroke:none", color),
 				})
 				if showLabel {
-					lx := bx + 3
-					anchor := "start"
-					if !outside {
-						lx = (x0 + bx) / 2
-						anchor = "middle"
+					var lx float64
+					var anchor string
+					switch {
+					case outside && s.Data[i] >= 0:
+						lx, anchor = bx+3, "start"
+					case outside:
+						lx, anchor = bx-3, "end"
+					default:
+						lx, anchor = leftX+width/2, "middle"
 					}
 					elems = append(elems, &text{
 						X:        svgFloat(lx),

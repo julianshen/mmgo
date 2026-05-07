@@ -631,6 +631,218 @@ func TestRenderHorizontalAxisCfgSwap(t *testing.T) {
 	}
 }
 
+// Bars whose values are negative or straddle zero must render with
+// non-negative width/height. SVG with negative dimensions is
+// undefined and silently dropped by some rasterizers, so any
+// regression that recomputes a bar's size from a clamped value
+// without an abs() would land here.
+func TestRenderBarsCrossingZero(t *testing.T) {
+	cases := []struct {
+		name string
+		d    *diagram.XYChartDiagram
+	}{
+		{
+			name: "vertical, range crosses zero, mixed signs",
+			d: &diagram.XYChartDiagram{
+				XAxis: diagram.XYAxis{Categories: []string{"a", "b", "c", "d"}},
+				YAxis: diagram.XYAxis{HasRange: true, Min: -10, Max: 10},
+				Series: []diagram.XYSeries{
+					{Type: diagram.XYSeriesBar, Data: []float64{-5, 3, -8, 6}},
+				},
+			},
+		},
+		{
+			name: "horizontal, range crosses zero, mixed signs",
+			d: &diagram.XYChartDiagram{
+				Horizontal: true,
+				XAxis:      diagram.XYAxis{Categories: []string{"a", "b", "c"}},
+				YAxis:      diagram.XYAxis{HasRange: true, Min: -10, Max: 10},
+				Series: []diagram.XYSeries{
+					{Type: diagram.XYSeriesBar, Data: []float64{-5, 3, -8}},
+				},
+			},
+		},
+	}
+	rectRe := regexp.MustCompile(`<rect[^>]*width="(-?[0-9.]+)"[^>]*height="(-?[0-9.]+)"`)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := Render(tc.d, nil)
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			matches := rectRe.FindAllStringSubmatch(string(out), -1)
+			if len(matches) == 0 {
+				t.Fatal("no rect elements found")
+			}
+			for _, m := range matches {
+				w, err := strconv.ParseFloat(m[1], 64)
+				if err != nil {
+					t.Fatalf("malformed width attribute %q: %v", m[1], err)
+				}
+				h, err := strconv.ParseFloat(m[2], 64)
+				if err != nil {
+					t.Fatalf("malformed height attribute %q: %v", m[2], err)
+				}
+				if w < 0 || h < 0 {
+					t.Errorf("rect with negative dimensions: width=%s height=%s", m[1], m[2])
+				}
+			}
+		})
+	}
+}
+
+// With a symmetric range, a positive-value bar and the same-magnitude
+// negative-value bar must share an edge at the value-axis baseline
+// pixel. Asserts the baseline math is correct, not just the abs()
+// dimension guard.
+func TestRenderBarsShareBaselineEdge(t *testing.T) {
+	d := &diagram.XYChartDiagram{
+		XAxis: diagram.XYAxis{Categories: []string{"pos", "neg"}},
+		YAxis: diagram.XYAxis{HasRange: true, Min: -10, Max: 10},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{5, -5}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	rectRe := regexp.MustCompile(`<rect[^>]*y="([0-9.]+)"[^>]*height="([0-9.]+)"[^>]*style="fill:(#[0-9a-fA-F]{6});`)
+	matches := rectRe.FindAllStringSubmatch(string(out), -1)
+	var bars []struct{ y, h float64 }
+	for _, m := range matches {
+		if m[3] == "#fff" {
+			continue
+		}
+		y, _ := strconv.ParseFloat(m[1], 64)
+		h, _ := strconv.ParseFloat(m[2], 64)
+		bars = append(bars, struct{ y, h float64 }{y, h})
+	}
+	if len(bars) != 2 {
+		t.Fatalf("expected 2 data bars, got %d", len(bars))
+	}
+	// pos bar's bottom edge = neg bar's top edge = baseline pixel.
+	posBottom := bars[0].y + bars[0].h
+	negTop := bars[1].y
+	if math.Abs(posBottom-negTop) > 0.01 {
+		t.Errorf("expected positive-bar bottom (%.2f) to equal negative-bar top (%.2f) at baseline", posBottom, negTop)
+	}
+	// Same magnitude → same height.
+	if math.Abs(bars[0].h-bars[1].h) > 0.01 {
+		t.Errorf("expected equal heights for ±5 bars, got %.2f vs %.2f", bars[0].h, bars[1].h)
+	}
+}
+
+// Range fully below zero — baseline clamps to plot top edge (yMax)
+// and bars hang downward from it. Regression for the
+// axisPos-clamps-to-edge case.
+func TestRenderBarsAllNegativeRange(t *testing.T) {
+	d := &diagram.XYChartDiagram{
+		XAxis: diagram.XYAxis{Categories: []string{"a", "b", "c"}},
+		YAxis: diagram.XYAxis{HasRange: true, Min: -10, Max: -1},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{-3, -7, -2}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if strings.Contains(raw, "NaN") {
+		t.Error("NaN coordinate leaked into SVG with all-negative range")
+	}
+	rectRe := regexp.MustCompile(`<rect[^>]*width="(-?[0-9.]+)"[^>]*height="(-?[0-9.]+)"`)
+	for _, m := range rectRe.FindAllStringSubmatch(raw, -1) {
+		w, err := strconv.ParseFloat(m[1], 64)
+		if err != nil {
+			t.Fatalf("malformed width %q: %v", m[1], err)
+		}
+		h, err := strconv.ParseFloat(m[2], 64)
+		if err != nil {
+			t.Fatalf("malformed height %q: %v", m[2], err)
+		}
+		if w < 0 || h < 0 {
+			t.Errorf("rect with negative dimensions in all-negative range: w=%.2f h=%.2f", w, h)
+		}
+	}
+}
+
+// Outside-bar data labels for negative values must be placed below
+// (vertical) or to the left (horizontal) of the bar — not above /
+// right where they'd overlap empty space far from the bar.
+func TestRenderDataLabelsFollowBarSign(t *testing.T) {
+	on := true
+	t.Run("vertical: negative bar's outside label sits below", func(t *testing.T) {
+		d := &diagram.XYChartDiagram{
+			XAxis: diagram.XYAxis{Categories: []string{"only"}},
+			YAxis: diagram.XYAxis{HasRange: true, Min: -10, Max: 10},
+			Series: []diagram.XYSeries{
+				{Type: diagram.XYSeriesBar, Data: []float64{-5}},
+			},
+		}
+		out, err := Render(d, &Options{Config: Config{
+			ShowDataLabel: &on, ShowDataLabelOutsideBar: &on,
+		}})
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		raw := string(out)
+		// Find the bar's y attribute and the label "-5"'s y attribute;
+		// label must sit below the bar's bottom edge.
+		rectRe := regexp.MustCompile(`<rect[^>]*y="([0-9.]+)"[^>]*height="([0-9.]+)"[^>]*style="fill:#[0-9a-fA-F]{6}[^"]*"[^>]*>`)
+		// Skip the background rect (fill:#fff in default theme).
+		var barY, barH float64
+		for _, m := range rectRe.FindAllStringSubmatch(raw, -1) {
+			y, _ := strconv.ParseFloat(m[1], 64)
+			h, _ := strconv.ParseFloat(m[2], 64)
+			if h > 0 && h < 500 { // skip background
+				barY, barH = y, h
+				break
+			}
+		}
+		// The y-axis also has a tick label "-5"; scope to the data
+		// label by its smaller font (LabelFontSize - 2 = 12px default)
+		// and middle anchor.
+		labelRe := regexp.MustCompile(`<text[^>]*y="([0-9.]+)"[^>]*text-anchor="middle"[^>]*font-size:12px[^>]*>-5</text>`)
+		m := labelRe.FindStringSubmatch(raw)
+		if m == nil {
+			t.Fatalf("missing data label '-5' (middle/12px) in:\n%s", raw)
+		}
+		labelY, _ := strconv.ParseFloat(m[1], 64)
+		if labelY <= barY+barH {
+			t.Errorf("expected negative-bar outside label below bar bottom %.2f, got y=%.2f", barY+barH, labelY)
+		}
+	})
+	t.Run("horizontal: negative bar's outside label sits left", func(t *testing.T) {
+		d := &diagram.XYChartDiagram{
+			Horizontal: true,
+			XAxis:      diagram.XYAxis{Categories: []string{"only"}},
+			YAxis:      diagram.XYAxis{HasRange: true, Min: -10, Max: 10},
+			Series: []diagram.XYSeries{
+				{Type: diagram.XYSeriesBar, Data: []float64{-5}},
+			},
+		}
+		out, err := Render(d, &Options{Config: Config{
+			ShowDataLabel: &on, ShowDataLabelOutsideBar: &on,
+		}})
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		// Scope to the data label (12px) — y-axis tick labels for the
+		// continuous value axis at the bottom would also contain "-5"
+		// at 14px.
+		labelRe := regexp.MustCompile(`<text[^>]*text-anchor="(end|middle|start)"[^>]*font-size:12px[^>]*>-5</text>`)
+		m := labelRe.FindStringSubmatch(string(out))
+		if m == nil {
+			t.Fatalf("missing 12px data label '-5':\n%s", string(out))
+		}
+		if m[1] != "end" {
+			t.Errorf("expected text-anchor=\"end\" for negative-bar outside label in horizontal mode, got %q", m[1])
+		}
+	})
+}
+
 // In horizontal layout, two bar series in the same category must
 // occupy non-overlapping y-slots.
 func TestRenderHorizontalMultiBarSlotSplit(t *testing.T) {
