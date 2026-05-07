@@ -662,3 +662,107 @@ func TestResolveConfigSingleAxisDimension(t *testing.T) {
 		t.Errorf("both explicit values should be preserved; got W=%v H=%v", got.ChartWidth, got.ChartHeight)
 	}
 }
+
+// QuadrantPadding inserts a visible gap between adjacent per-quadrant
+// rects (and between the rects and the outer plot border) when
+// per-quadrant fills are supplied. With pad=0 the four rects share
+// edges; with pad>0 each rect's bounds shrink so the gap between
+// rects equals pad.
+func TestRenderQuadrantPaddingWired(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Title:     "padding test",
+		Quadrant1: "Q1", Quadrant2: "Q2", Quadrant3: "Q3", Quadrant4: "Q4",
+		Points: []diagram.QuadrantPoint{{Label: "p", X: 0.5, Y: 0.5}},
+	}
+	pal := [4]QuadrantPalette{{Fill: "#fee2e2"}, {Fill: "#dbeafe"}, {Fill: "#dcfce7"}, {Fill: "#fef3c7"}}
+	withPad := func(pad float64) string {
+		out, err := Render(d, &Options{
+			Theme:  Theme{Quadrants: pal},
+			Config: Config{QuadrantPadding: pad},
+		})
+		if err != nil {
+			t.Fatalf("Render(pad=%v): %v", pad, err)
+		}
+		return string(out)
+	}
+	zeroPad := withPad(0.001) // smallest positive that survives merge-on-positive
+	bigPad := withPad(20)
+
+	// At zero padding two adjacent quadrant rects share an edge —
+	// the right edge of Q2 equals the left edge of Q1. At 20px
+	// padding they are 20px apart. We extract the first quadrant
+	// rect's `width` attribute and check it shrinks accordingly.
+	q1WidthZero := firstQuadrantWidth(t, zeroPad, "#fee2e2")
+	q1WidthBig := firstQuadrantWidth(t, bigPad, "#fee2e2")
+	// Big-pad rect is at least (1.5 * 20)px narrower (full pad on
+	// outer edge + half pad on inner edge = 1.5 * pad).
+	if q1WidthZero-q1WidthBig < 30 {
+		t.Errorf("expected Q1 width to shrink by ≥30px at pad=20 (was %v→%v)", q1WidthZero, q1WidthBig)
+	}
+}
+
+// QuadrantTextTopPadding moves the quadrant title down from the top
+// of its rect. Doubling the padding must increase each label's `y`
+// attribute by the same delta.
+func TestRenderQuadrantTextTopPaddingWired(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Quadrant1: "Q1", Quadrant2: "Q2", Quadrant3: "Q3", Quadrant4: "Q4",
+	}
+	out5, err := Render(d, &Options{Config: Config{QuadrantTextTopPadding: 5}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	out25, err := Render(d, &Options{Config: Config{QuadrantTextTopPadding: 25}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	q1Y5 := firstLabelY(t, string(out5), "Q1")
+	q1Y25 := firstLabelY(t, string(out25), "Q1")
+	if delta := q1Y25 - q1Y5; delta < 19 || delta > 21 {
+		t.Errorf("expected Q1 label y to shift by ~20px when padding goes 5→25, got delta=%v", delta)
+	}
+}
+
+// firstQuadrantWidth pulls the `width` attribute of the first <rect>
+// whose fill matches `fillHex`. Used to measure post-padding rect
+// dimensions without relying on element ordering.
+func firstQuadrantWidth(t *testing.T, svg, fillHex string) float64 {
+	t.Helper()
+	idx := strings.Index(svg, "fill:"+fillHex)
+	if idx < 0 {
+		t.Fatalf("missing rect with fill %s", fillHex)
+	}
+	head := svg[:idx]
+	wAt := strings.LastIndex(head, ` width="`)
+	if wAt < 0 {
+		t.Fatalf("could not locate width attribute for %s", fillHex)
+	}
+	wEnd := strings.Index(head[wAt+8:], `"`)
+	v, err := strconv.ParseFloat(head[wAt+8:wAt+8+wEnd], 64)
+	if err != nil {
+		t.Fatalf("malformed width %q: %v", head[wAt+8:wAt+8+wEnd], err)
+	}
+	return v
+}
+
+// firstLabelY returns the `y` attribute of the first <text> element
+// containing the given label string.
+func firstLabelY(t *testing.T, svg, label string) float64 {
+	t.Helper()
+	marker := ">" + label + "<"
+	idx := strings.Index(svg, marker)
+	if idx < 0 {
+		t.Fatalf("missing label %q", label)
+	}
+	head := svg[:idx]
+	yAt := strings.LastIndex(head, ` y="`)
+	if yAt < 0 {
+		t.Fatalf("could not locate y attribute for %q", label)
+	}
+	yEnd := strings.Index(head[yAt+4:], `"`)
+	v, err := strconv.ParseFloat(head[yAt+4:yAt+4+yEnd], 64)
+	if err != nil {
+		t.Fatalf("malformed y %q: %v", head[yAt+4:yAt+4+yEnd], err)
+	}
+	return v
+}
