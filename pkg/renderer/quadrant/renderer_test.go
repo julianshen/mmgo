@@ -642,3 +642,23 @@ func TestQuadrantsPopulatedPointsDoNotTriggerFlip(t *testing.T) {
 		t.Error("auto-flip should never trigger on point presence alone")
 	}
 }
+
+// Setting only ChartWidth (or only ChartHeight) widens the plot
+// to that single value — without this the default-height of 400
+// would clamp the explicit width via the min() rule at render
+// time.
+func TestResolveConfigSingleAxisDimension(t *testing.T) {
+	got := resolveConfig(&Options{Config: Config{ChartWidth: 700}})
+	if got.ChartWidth != 700 || got.ChartHeight != 700 {
+		t.Errorf("single ChartWidth override should mirror to ChartHeight; got W=%v H=%v", got.ChartWidth, got.ChartHeight)
+	}
+	got = resolveConfig(&Options{Config: Config{ChartHeight: 800}})
+	if got.ChartWidth != 800 || got.ChartHeight != 800 {
+		t.Errorf("single ChartHeight override should mirror to ChartWidth; got W=%v H=%v", got.ChartWidth, got.ChartHeight)
+	}
+	// Both explicit values keep their independent settings.
+	got = resolveConfig(&Options{Config: Config{ChartWidth: 700, ChartHeight: 500}})
+	if got.ChartWidth != 700 || got.ChartHeight != 500 {
+		t.Errorf("both explicit values should be preserved; got W=%v H=%v", got.ChartWidth, got.ChartHeight)
+	}
+}

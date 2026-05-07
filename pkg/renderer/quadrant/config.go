@@ -125,8 +125,20 @@ func resolveConfig(opts *Options) Config {
 		}
 	}
 	o := opts.Config
-	mergeF(&c.ChartWidth, o.ChartWidth)
-	mergeF(&c.ChartHeight, o.ChartHeight)
+	// If a caller sets only ChartWidth or only ChartHeight, mirror
+	// the explicit value into the other so the square plot picks
+	// it up. Without this a single `Config.ChartWidth = 700` would
+	// be capped by the default ChartHeight of 400 once min() runs
+	// at render time, making one-field overrides silently inert.
+	oW, oH := o.ChartWidth, o.ChartHeight
+	if oW > 0 && oH == 0 {
+		oH = oW
+	}
+	if oH > 0 && oW == 0 {
+		oW = oH
+	}
+	mergeF(&c.ChartWidth, oW)
+	mergeF(&c.ChartHeight, oH)
 	mergeF(&c.TitleFontSize, o.TitleFontSize)
 	mergeF(&c.TitlePadding, o.TitlePadding)
 	mergeF(&c.QuadrantPadding, o.QuadrantPadding)
