@@ -23,24 +23,73 @@ type Theme struct {
 // DefaultTheme returns the Mermaid-classic C4 palette — the
 // blue-scale hierarchy where people/systems/containers/components
 // shade from dark navy down to pale blue, with gray for external
-// actors.
+// actors. `_Ext` variants share the same gray as their non-ext
+// counterpart's external sibling so a queue/db external still
+// reads as "external" first.
 func DefaultTheme() Theme {
+	system := RolePalette{Fill: "#1168BD", Stroke: "#0B4884", Text: "white"}
+	systemExt := RolePalette{Fill: "#999999", Stroke: "#6B6B6B", Text: "white"}
+	container := RolePalette{Fill: "#438DD5", Stroke: "#3C7FC0", Text: "white"}
+	containerExt := RolePalette{Fill: "#B3B3B3", Stroke: "#9A9A9A", Text: "white"}
+	component := RolePalette{Fill: "#85BBF0", Stroke: "#78A8D8", Text: "#000"}
+	componentExt := RolePalette{Fill: "#CCCCCC", Stroke: "#B0B0B0", Text: "#000"}
+	deployment := RolePalette{Fill: "#FFFFFF", Stroke: "#444444", Text: "#222"}
 	return Theme{
 		Roles: map[diagram.C4ElementKind]RolePalette{
-			diagram.C4ElementPerson:       {"#08427B", "#073B6F", "white"},
-			diagram.C4ElementPersonExt:    {"#686868", "#4D4D4D", "white"},
-			diagram.C4ElementSystem:       {"#1168BD", "#0B4884", "white"},
-			diagram.C4ElementSystemExt:    {"#999999", "#6B6B6B", "white"},
-			diagram.C4ElementSystemDB:     {"#1168BD", "#0B4884", "white"},
-			diagram.C4ElementContainer:    {"#438DD5", "#3C7FC0", "white"},
-			diagram.C4ElementContainerDB:  {"#438DD5", "#3C7FC0", "white"},
-			diagram.C4ElementComponent:    {"#85BBF0", "#78A8D8", "#000"},
+			diagram.C4ElementPerson:    {Fill: "#08427B", Stroke: "#073B6F", Text: "white"},
+			diagram.C4ElementPersonExt: {Fill: "#686868", Stroke: "#4D4D4D", Text: "white"},
+
+			diagram.C4ElementSystem:          system,
+			diagram.C4ElementSystemExt:       systemExt,
+			diagram.C4ElementSystemDB:        system,
+			diagram.C4ElementSystemDBExt:     systemExt,
+			diagram.C4ElementSystemQueue:     system,
+			diagram.C4ElementSystemQueueExt:  systemExt,
+
+			diagram.C4ElementContainer:          container,
+			diagram.C4ElementContainerExt:       containerExt,
+			diagram.C4ElementContainerDB:        container,
+			diagram.C4ElementContainerDBExt:     containerExt,
+			diagram.C4ElementContainerQueue:     container,
+			diagram.C4ElementContainerQueueExt:  containerExt,
+
+			diagram.C4ElementComponent:          component,
+			diagram.C4ElementComponentExt:       componentExt,
+			diagram.C4ElementComponentDB:        component,
+			diagram.C4ElementComponentDBExt:     componentExt,
+			diagram.C4ElementComponentQueue:     component,
+			diagram.C4ElementComponentQueueExt:  componentExt,
+
+			diagram.C4ElementDeploymentNode: deployment,
 		},
 		TitleText:  "#333",
 		EdgeStroke: "#333",
 		EdgeText:   "#333",
 		Background: "#fff",
 	}
+}
+
+// IsDBKind reports whether the kind should render as a cylinder.
+func IsDBKind(k diagram.C4ElementKind) bool {
+	switch k {
+	case diagram.C4ElementSystemDB, diagram.C4ElementSystemDBExt,
+		diagram.C4ElementContainerDB, diagram.C4ElementContainerDBExt,
+		diagram.C4ElementComponentDB, diagram.C4ElementComponentDBExt:
+		return true
+	}
+	return false
+}
+
+// IsQueueKind reports whether the kind should render as a queue
+// (stadium / pill) shape.
+func IsQueueKind(k diagram.C4ElementKind) bool {
+	switch k {
+	case diagram.C4ElementSystemQueue, diagram.C4ElementSystemQueueExt,
+		diagram.C4ElementContainerQueue, diagram.C4ElementContainerQueueExt,
+		diagram.C4ElementComponentQueue, diagram.C4ElementComponentQueueExt:
+		return true
+	}
+	return false
 }
 
 // roleOf returns the palette for kind, falling back to the System

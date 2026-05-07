@@ -9,15 +9,32 @@ const (
 	C4ElementSystem
 	C4ElementSystemExt
 	C4ElementSystemDB
+	C4ElementSystemDBExt
+	C4ElementSystemQueue
+	C4ElementSystemQueueExt
 	C4ElementContainer
+	C4ElementContainerExt
 	C4ElementContainerDB
+	C4ElementContainerDBExt
+	C4ElementContainerQueue
+	C4ElementContainerQueueExt
 	C4ElementComponent
+	C4ElementComponentExt
+	C4ElementComponentDB
+	C4ElementComponentDBExt
+	C4ElementComponentQueue
+	C4ElementComponentQueueExt
 	C4ElementBoundary
+	C4ElementDeploymentNode
 )
 
 var c4ElementNames = []string{
-	"unknown", "person", "person_ext", "system", "system_ext", "system_db",
-	"container", "container_db", "component", "boundary",
+	"unknown",
+	"person", "person_ext",
+	"system", "system_ext", "system_db", "system_db_ext", "system_queue", "system_queue_ext",
+	"container", "container_ext", "container_db", "container_db_ext", "container_queue", "container_queue_ext",
+	"component", "component_ext", "component_db", "component_db_ext", "component_queue", "component_queue_ext",
+	"boundary", "deployment_node",
 }
 
 func (k C4ElementKind) String() string { return enumString(k, c4ElementNames) }
@@ -71,6 +88,8 @@ type C4Relation struct {
 type C4Diagram struct {
 	Variant   C4Variant
 	Title     string
+	AccTitle  string
+	AccDescr  string
 	Elements  []C4Element
 	Relations []C4Relation
 }

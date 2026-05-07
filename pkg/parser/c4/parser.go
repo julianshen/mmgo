@@ -20,22 +20,44 @@ var headerVariants = map[string]diagram.C4Variant{
 	"C4Deployment": diagram.C4VariantDeployment,
 }
 
-// elementKeywords is ordered by keyword length (longest first) so that
-// keyword dispatch is deterministic even though the `(` suffix already
-// prevents prefix ambiguity (e.g. `Container(` vs `ContainerDb(`).
+// elementKeywords is ordered by keyword length (longest first) so
+// that keyword dispatch is deterministic even though the `(` suffix
+// already prevents prefix ambiguity (e.g. `Container(` vs
+// `ContainerDb(`). Covers every documented C4 element keyword
+// across Context / Container / Component / Deployment variants.
 var elementKeywords = []struct {
 	kw   string
 	kind diagram.C4ElementKind
 }{
-	{"SystemDb_Ext", diagram.C4ElementSystemDB},
+	// 19+ char keywords first.
+	{"ComponentQueue_Ext", diagram.C4ElementComponentQueueExt},
+	{"ContainerQueue_Ext", diagram.C4ElementContainerQueueExt},
+	{"ContainerDb_Ext", diagram.C4ElementContainerDBExt},
+	{"SystemQueue_Ext", diagram.C4ElementSystemQueueExt},
+	{"ComponentDb_Ext", diagram.C4ElementComponentDBExt},
+	{"Component_Ext", diagram.C4ElementComponentExt},
 	{"ContainerDb", diagram.C4ElementContainerDB},
+	{"ContainerQueue", diagram.C4ElementContainerQueue},
+	{"Container_Ext", diagram.C4ElementContainerExt},
+	{"ComponentDb", diagram.C4ElementComponentDB},
+	{"ComponentQueue", diagram.C4ElementComponentQueue},
+	{"SystemDb_Ext", diagram.C4ElementSystemDBExt},
+	{"SystemQueue", diagram.C4ElementSystemQueue},
+	{"Deployment_Node", diagram.C4ElementDeploymentNode},
 	{"Person_Ext", diagram.C4ElementPersonExt},
 	{"System_Ext", diagram.C4ElementSystemExt},
 	{"Component", diagram.C4ElementComponent},
 	{"Container", diagram.C4ElementContainer},
 	{"SystemDb", diagram.C4ElementSystemDB},
+	// `Node`, `Node_L`, `Node_R` are aliases for Deployment_Node
+	// per the spec — the underscore-suffixed variants pin the
+	// node to a left/right column. We map all three to the same
+	// kind for now; layout uses the Direction-style hints later.
+	{"Node_L", diagram.C4ElementDeploymentNode},
+	{"Node_R", diagram.C4ElementDeploymentNode},
 	{"System", diagram.C4ElementSystem},
 	{"Person", diagram.C4ElementPerson},
+	{"Node", diagram.C4ElementDeploymentNode},
 }
 
 func Parse(r io.Reader) (*diagram.C4Diagram, error) {
@@ -74,8 +96,16 @@ func Parse(r io.Reader) (*diagram.C4Diagram, error) {
 }
 
 func parseLine(d *diagram.C4Diagram, line string) error {
-	if rest, ok := strings.CutPrefix(line, "title "); ok {
-		d.Title = strings.TrimSpace(rest)
+	if v, ok := parserutil.MatchKeywordValue(line, "title"); ok {
+		d.Title = v
+		return nil
+	}
+	if v, ok := parserutil.MatchKeywordValue(line, "accTitle"); ok {
+		d.AccTitle = v
+		return nil
+	}
+	if v, ok := parserutil.MatchKeywordValue(line, "accDescr"); ok {
+		d.AccDescr = v
 		return nil
 	}
 	if dir, args, ok := matchRelation(line); ok {
@@ -97,13 +127,20 @@ func parseLine(d *diagram.C4Diagram, line string) error {
 	return nil
 }
 
-// relKeywords is ordered longest-first so `Rel_Back(` wins over `Rel(`.
+// relKeywords is ordered longest-first so `Rel_Right(` wins over
+// `Rel_R(` and `Rel_Back(` wins over `Rel(`. Both the long-form
+// (`Rel_Up`, `Rel_Down`, `Rel_Left`, `Rel_Right`) and short-form
+// (`Rel_U`/`_D`/`_L`/`_R`) directions are recognised.
 var relKeywords = []struct {
 	kw  string
 	dir diagram.C4RelDirection
 }{
+	{"Rel_Right", diagram.C4RelRight},
 	{"Rel_Back", diagram.C4RelBack},
+	{"Rel_Down", diagram.C4RelDown},
+	{"Rel_Left", diagram.C4RelLeft},
 	{"BiRel", diagram.C4RelBi},
+	{"Rel_Up", diagram.C4RelUp},
 	{"Rel_U", diagram.C4RelUp},
 	{"Rel_D", diagram.C4RelDown},
 	{"Rel_L", diagram.C4RelLeft},
