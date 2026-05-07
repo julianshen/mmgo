@@ -390,3 +390,25 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 		t.Error("viewBox missing")
 	}
 }
+
+// AccTitle/AccDescr emit as <title>/<desc> SVG children.
+func TestRenderXYChartAccessibility(t *testing.T) {
+	d := &diagram.XYChartDiagram{
+		AccTitle: "Quarterly revenue",
+		AccDescr: "Sum across product lines",
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{1, 2, 3}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<title>Quarterly revenue</title>") {
+		t.Errorf("expected <title> in output:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<desc>Sum across product lines</desc>") {
+		t.Errorf("expected <desc> in output:\n%s", raw)
+	}
+}

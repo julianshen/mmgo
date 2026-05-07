@@ -379,3 +379,50 @@ func TestXYChartDiagramType(t *testing.T) {
 		t.Errorf("Type() = %v", d.Type())
 	}
 }
+
+// `xychart` (the stable spec keyword) parses identically to the
+// legacy `xychart-beta`.
+func TestParseXYChartStableKeyword(t *testing.T) {
+	d, err := Parse(strings.NewReader(`xychart
+title "Demo"
+bar [1, 2, 3]`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Title != "Demo" {
+		t.Errorf("title = %q", d.Title)
+	}
+	if len(d.Series) != 1 || d.Series[0].Type != diagram.XYSeriesBar {
+		t.Errorf("series = %+v", d.Series)
+	}
+}
+
+// Frontmatter `title:` populates the AST and is stripped before
+// the header check.
+func TestParseXYChartFrontmatterTitle(t *testing.T) {
+	d, err := Parse(strings.NewReader(`---
+title: Sales by Quarter
+---
+xychart
+bar [1, 2]`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Title != "Sales by Quarter" {
+		t.Errorf("title = %q", d.Title)
+	}
+}
+
+// accTitle / accDescr lines populate the matching AST fields.
+func TestParseXYChartAccessibility(t *testing.T) {
+	d, err := Parse(strings.NewReader(`xychart-beta
+accTitle: Quarterly revenue
+accDescr: Sum across product lines
+bar [1, 2]`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.AccTitle != "Quarterly revenue" || d.AccDescr != "Sum across product lines" {
+		t.Errorf("acc = %q / %q", d.AccTitle, d.AccDescr)
+	}
+}

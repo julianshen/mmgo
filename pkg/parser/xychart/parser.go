@@ -24,11 +24,28 @@ import (
 	parserutil "github.com/julianshen/mmgo/pkg/parser"
 )
 
-const headerKeyword = "xychart-beta"
+// Mermaid currently exposes both the legacy `xychart-beta` header
+// and the newer stable `xychart` keyword. mmgo accepts either —
+// existing fixtures keep parsing while new ones can drop the
+// suffix.
+const (
+	headerKeyword       = "xychart-beta"
+	headerKeywordStable = "xychart"
+)
 
 func Parse(r io.Reader) (*diagram.XYChartDiagram, error) {
+	src, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading input: %w", err)
+	}
 	d := &diagram.XYChartDiagram{}
-	scanner := bufio.NewScanner(r)
+	front, body := parserutil.SplitFrontmatter(src)
+	if len(front) > 0 {
+		if t := parserutil.FrontmatterValue(front, "title"); t != "" {
+			d.Title = t
+		}
+	}
+	scanner := bufio.NewScanner(strings.NewReader(string(body)))
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 
 	lineNum := 0
@@ -40,13 +57,17 @@ func Parse(r io.Reader) (*diagram.XYChartDiagram, error) {
 			continue
 		}
 		if !headerSeen {
+			matched := headerKeyword
 			if !parserutil.HasHeaderKeyword(line, headerKeyword) {
-				return nil, fmt.Errorf("line %d: expected '%s' header, got %q", lineNum, headerKeyword, line)
+				if !parserutil.HasHeaderKeyword(line, headerKeywordStable) {
+					return nil, fmt.Errorf("line %d: expected '%s' or '%s' header, got %q", lineNum, headerKeyword, headerKeywordStable, line)
+				}
+				matched = headerKeywordStable
 			}
 			// Strip whitespace and the optional colon in one pass so
-			// `xychart-beta horizontal`, `xychart-beta: horizontal`,
-			// and `xychart-beta:\thorizontal` all resolve identically.
-			rest := strings.Trim(line[len(headerKeyword):], " \t:")
+			// `xychart horizontal`, `xychart: horizontal`, and
+			// `xychart:\thorizontal` all resolve identically.
+			rest := strings.Trim(line[len(matched):], " \t:")
 			if rest == "horizontal" {
 				d.Horizontal = true
 			}
@@ -67,6 +88,14 @@ func Parse(r io.Reader) (*diagram.XYChartDiagram, error) {
 }
 
 func parseLine(line string, d *diagram.XYChartDiagram) error {
+	if v, ok := parserutil.MatchKeywordValue(line, "accTitle"); ok {
+		d.AccTitle = v
+		return nil
+	}
+	if v, ok := parserutil.MatchKeywordValue(line, "accDescr"); ok {
+		d.AccDescr = v
+		return nil
+	}
 	switch {
 	case parserutil.HasHeaderKeyword(line, "title"):
 		rest := parserutil.TrimKeyword(line, "title")

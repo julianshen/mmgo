@@ -39,6 +39,8 @@ type XYSeries struct {
 // honor it — all charts render vertically.
 type XYChartDiagram struct {
 	Title      string
+	AccTitle   string
+	AccDescr   string
 	Horizontal bool
 	XAxis      XYAxis
 	YAxis      XYAxis
