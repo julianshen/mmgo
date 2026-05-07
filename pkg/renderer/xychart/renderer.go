@@ -457,13 +457,20 @@ func renderSeriesVertical(d *diagram.XYChartDiagram, categories []string, yMin, 
 					Style:  fmt.Sprintf("fill:%s;stroke:none", color),
 				})
 				if showLabel {
+					// Anchor the label to the bar's outer edge using
+					// dominant-baseline rather than offsetting by the
+					// font's em-height: "auto" sits the alphabetic
+					// baseline at y, "hanging" sits the cap at y, and
+					// "central" centres at y. Each picks the right
+					// anchor for its placement so we never rely on a
+					// font-size approximation.
 					var ly float64
 					var dom string
 					switch {
 					case outside && s.Data[i] >= 0:
 						ly, dom = by-2, "auto"
 					case outside:
-						ly, dom = by+2+labelFontSize, "auto"
+						ly, dom = by+2, "hanging"
 					default:
 						ly, dom = topY+height/2, "central"
 					}

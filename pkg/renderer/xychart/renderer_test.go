@@ -675,8 +675,14 @@ func TestRenderBarsCrossingZero(t *testing.T) {
 				t.Fatal("no rect elements found")
 			}
 			for _, m := range matches {
-				w, _ := strconv.ParseFloat(m[1], 64)
-				h, _ := strconv.ParseFloat(m[2], 64)
+				w, err := strconv.ParseFloat(m[1], 64)
+				if err != nil {
+					t.Fatalf("malformed width attribute %q: %v", m[1], err)
+				}
+				h, err := strconv.ParseFloat(m[2], 64)
+				if err != nil {
+					t.Fatalf("malformed height attribute %q: %v", m[2], err)
+				}
 				if w < 0 || h < 0 {
 					t.Errorf("rect with negative dimensions: width=%s height=%s", m[1], m[2])
 				}
@@ -748,8 +754,14 @@ func TestRenderBarsAllNegativeRange(t *testing.T) {
 	}
 	rectRe := regexp.MustCompile(`<rect[^>]*width="(-?[0-9.]+)"[^>]*height="(-?[0-9.]+)"`)
 	for _, m := range rectRe.FindAllStringSubmatch(raw, -1) {
-		w, _ := strconv.ParseFloat(m[1], 64)
-		h, _ := strconv.ParseFloat(m[2], 64)
+		w, err := strconv.ParseFloat(m[1], 64)
+		if err != nil {
+			t.Fatalf("malformed width %q: %v", m[1], err)
+		}
+		h, err := strconv.ParseFloat(m[2], 64)
+		if err != nil {
+			t.Fatalf("malformed height %q: %v", m[2], err)
+		}
 		if w < 0 || h < 0 {
 			t.Errorf("rect with negative dimensions in all-negative range: w=%.2f h=%.2f", w, h)
 		}
