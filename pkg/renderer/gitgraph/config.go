@@ -44,10 +44,3 @@ func resolveConfig(opts *Options) Config {
 	return c
 }
 
-// flag returns *p, or fallback when p is nil.
-func flag(p *bool, fallback bool) bool {
-	if p == nil {
-		return fallback
-	}
-	return *p
-}

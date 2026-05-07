@@ -101,25 +101,35 @@ func Parse(r io.Reader) (*diagram.GitGraphDiagram, error) {
 	return p.diagram, nil
 }
 
-// isHeader accepts `gitGraph`, `gitGraph:`, or `gitGraph <dir>` where
-// <dir> is LR/TB/BT — the forms Mermaid allows on this diagram.
-func isHeader(line string) bool {
+// headerResidue strips the `gitGraph` keyword (and optional trailing
+// colon) and returns the residual direction token. ok=false means
+// the line isn't a gitGraph header at all. Sharing the trim chain
+// keeps isHeader and headerDirection in lockstep so a future
+// header form (e.g. RL) only needs to change one acceptor.
+func headerResidue(line string) (rest string, ok bool) {
 	if !parserutil.HasHeaderKeyword(line, "gitGraph") {
+		return "", false
+	}
+	rest = strings.TrimSpace(strings.TrimPrefix(line, "gitGraph"))
+	rest = strings.TrimSuffix(rest, ":")
+	return strings.TrimSpace(rest), true
+}
+
+func isHeader(line string) bool {
+	rest, ok := headerResidue(line)
+	if !ok {
 		return false
 	}
-	rest := strings.TrimSpace(strings.TrimPrefix(line, "gitGraph"))
-	rest = strings.TrimSuffix(rest, ":")
-	rest = strings.TrimSpace(rest)
 	return rest == "" || rest == "LR" || rest == "TB" || rest == "BT"
 }
 
-// headerDirection extracts the direction token from a `gitGraph LR`
-// (etc.) header. Returns "" for the bare-header form, leaving the
-// AST default in place.
+// headerDirection returns the direction token from `gitGraph LR`
+// (etc.). Empty means the bare-header form, leaving the AST default.
 func headerDirection(line string) diagram.GitGraphDirection {
-	rest := strings.TrimSpace(strings.TrimPrefix(line, "gitGraph"))
-	rest = strings.TrimSuffix(rest, ":")
-	rest = strings.TrimSpace(rest)
+	rest, ok := headerResidue(line)
+	if !ok {
+		return ""
+	}
 	switch rest {
 	case "LR":
 		return diagram.GitGraphDirLR

@@ -6,6 +6,7 @@ package gitgraph
 import (
 	"encoding/xml"
 	"fmt"
+	"sort"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
@@ -64,7 +65,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 	// even when that commit sits on the branch with the longest name
 	// (otherwise the dot's left edge would overlap the pill's right).
 	gutter := branchGutterW(lanes, fontSize) + 2*branchLabelPadX
-	if !flag(cfg.ShowBranches, true) {
+	if !svgutil.BoolOr(cfg.ShowBranches, true) {
 		gutter = 0
 	}
 	originX := marginX + gutter + commitRadius
@@ -131,7 +132,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		})
 	}
 
-	showBranches := flag(cfg.ShowBranches, true)
+	showBranches := svgutil.BoolOr(cfg.ShowBranches, true)
 	for i, b := range lanes {
 		color := colorFor(th, i)
 		y := laneY(i)
@@ -206,7 +207,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 				gap = highlightRadius + labelGap
 			}
 			children = append(children, tagCallout(c.Tag, x, y, gap, fontSize, th)...)
-		} else if c.ID != "" && flag(cfg.ShowCommitLabel, true) {
+		} else if c.ID != "" && svgutil.BoolOr(cfg.ShowCommitLabel, true) {
 			labelY := y - commitRadius - labelGap
 			t := &text{
 				X:        svgFloat(x),
@@ -216,10 +217,9 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 				Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.Text, fontSize-2),
 				Content:  c.ID,
 			}
-			if flag(cfg.RotateCommitLabel, true) {
-				// Mermaid's default rotation: anchored at the dot,
-				// label rises diagonally up-and-right at -45° so long
-				// IDs don't overlap adjacent commits.
+			if svgutil.BoolOr(cfg.RotateCommitLabel, true) {
+				// Rotation prevents long ids from overlapping adjacent
+				// commits along the lane.
 				t.Anchor = svgutil.AnchorStart
 				t.Transform = fmt.Sprintf("rotate(-45 %.2f %.2f)", x, labelY)
 			}
@@ -241,47 +241,28 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 
 func laneY(lane int) float64 { return marginY + float64(lane)*laneHeight }
 
-// orderedLanes returns the branch list sorted by (BranchOrder asc,
-// declaration index asc). Branches without an explicit order keep
-// their declaration position; the implicit main branch (index 0)
-// gets cfg.MainBranchOrder when no explicit order was set on it.
+// orderedLanes returns the branch list sorted by BranchOrder ascending,
+// with sort.SliceStable preserving declaration order on ties. Branches
+// not present in BranchOrder use the zero-value 0; the implicit main
+// branch picks up mainBranchOrder when no explicit order was set on it.
 func orderedLanes(d *diagram.GitGraphDiagram, mainBranchOrder int) []string {
-	type lane struct {
-		name  string
-		idx   int
-		order int
-		hasOrder bool
-	}
 	mainName := d.MainBranchName
 	if mainName == "" && len(d.Branches) > 0 {
 		mainName = d.Branches[0]
 	}
+	type lane struct {
+		name  string
+		order int
+	}
 	all := make([]lane, len(d.Branches))
 	for i, b := range d.Branches {
-		ord, has := d.BranchOrder[b]
-		if !has && b == mainName && mainBranchOrder != 0 {
-			ord, has = mainBranchOrder, true
+		ord, ok := d.BranchOrder[b]
+		if !ok && b == mainName {
+			ord = mainBranchOrder
 		}
-		all[i] = lane{name: b, idx: i, order: ord, hasOrder: has}
+		all[i] = lane{name: b, order: ord}
 	}
-	// Stable sort by order asc; unorderd branches (treated as order=0)
-	// keep their declaration position relative to other unorderd ones.
-	for i := 1; i < len(all); i++ {
-		for j := i; j > 0; j-- {
-			a, b := all[j-1], all[j]
-			aord, bord := a.order, b.order
-			if !a.hasOrder {
-				aord = 0
-			}
-			if !b.hasOrder {
-				bord = 0
-			}
-			if aord <= bord {
-				break
-			}
-			all[j-1], all[j] = b, a
-		}
-	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].order < all[j].order })
 	out := make([]string, len(all))
 	for i, l := range all {
 		out[i] = l.name
