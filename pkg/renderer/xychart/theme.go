@@ -1,13 +1,11 @@
 package xychart
 
-// Theme holds xychart color surfaces. The fields enumerated here mirror
-// every documented `themeVariables.xyChart.*` key from
-// https://mermaid.js.org/syntax/xyChart.html, plus a few aggregate
-// fallbacks (LabelFill, AxisStroke) that pre-date the per-axis split.
-//
-// Resolution order in resolveTheme: a caller override of an aggregate
-// (LabelFill / AxisStroke) rebroadcasts to every per-surface field
-// that aggregate covers; an override of a narrow field always wins.
+// Theme mirrors every `themeVariables.xyChart.*` key documented at
+// https://mermaid.js.org/syntax/xyChart.html. The aggregate fields
+// (LabelFill, AxisStroke) rebroadcast to every per-surface field they
+// cover when set, so callers that only know the aggregate keep the
+// same behaviour they'd get if they set every narrow field by hand.
+// Narrow-field overrides always win.
 type Theme struct {
 	SeriesColors []string
 
@@ -74,9 +72,6 @@ func resolveTheme(opts *Options) Theme {
 	merge(&th.MarkerStroke, t.MarkerStroke)
 	merge(&th.Background, t.Background)
 
-	// Aggregate overrides rebroadcast to every narrow surface they
-	// cover, so callers stuck on the Phase A API keep the same
-	// behaviour as before the per-axis split.
 	if t.LabelFill != "" {
 		th.TitleColor = t.LabelFill
 		th.DataLabelColor = t.LabelFill

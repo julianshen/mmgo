@@ -202,101 +202,150 @@ func maxSeriesLen(series []diagram.XYSeries) int {
 	return n
 }
 
-// renderVertical draws the original layout: categories along x-axis,
-// data scaled to y-axis. When d.XAxis.HasRange and Categories is
-// empty, the x-axis renders continuous numeric ticks instead of
-// per-category labels.
-func renderVertical(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, y0, x1, y1, fontSize float64, cfg Config, th Theme) []any {
-	var elems []any
+// tickEdge selects which edge of the plot the tick row attaches to.
+type tickEdge int
 
-	// Y gridlines + tick labels.
-	yTicks := niceTicks(yMin, yMax, yTickTarget)
-	if flag(cfg.YAxis.ShowTick, true) {
-		for _, val := range yTicks {
-			t := (val - yMin) / (yMax - yMin)
-			yPx := y1 - t*(y1-y0)
-			elems = append(elems, &line{
-				X1: svgFloat(x0), Y1: svgFloat(yPx),
-				X2: svgFloat(x1), Y2: svgFloat(yPx),
-				Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.GridStroke),
-			})
-			if flag(cfg.YAxis.ShowLabel, true) {
-				elems = append(elems, &text{
-					X:        svgFloat(x0 - cfg.YAxis.TickLength - cfg.YAxis.LabelPadding),
-					Y:        svgFloat(yPx),
+const (
+	edgeBottom tickEdge = iota // x-axis: ticks below y1, labels middle/hanging
+	edgeLeft                   // y-axis: ticks left of x0, labels end/central
+)
+
+// tickItem is one entry in a tick row: a pixel coordinate along the
+// axis paired with the label text.
+type tickItem struct {
+	pos   float64
+	label string
+}
+
+// tickRow describes everything needed to draw one axis's ticks +
+// labels + (optional) gridlines. Centralises the three near-identical
+// loops that vertical-y, vertical-x and horizontal-x previously had.
+type tickRow struct {
+	edge       tickEdge
+	items      []tickItem
+	axisOrigin float64 // y1 for edgeBottom, x0 for edgeLeft
+	gridLo     float64 // gridline cross-axis range; ignored if gridStroke==""
+	gridHi     float64
+	gridStroke string
+	axisCfg    AxisConfig
+	tickColor  string
+	labelColor string
+}
+
+func renderTickRow(r tickRow) []any {
+	var out []any
+	showTick := flag(r.axisCfg.ShowTick, true)
+	showLabel := flag(r.axisCfg.ShowLabel, true)
+	for _, it := range r.items {
+		if r.gridStroke != "" {
+			switch r.edge {
+			case edgeBottom:
+				out = append(out, &line{
+					X1: svgFloat(it.pos), Y1: svgFloat(r.gridLo),
+					X2: svgFloat(it.pos), Y2: svgFloat(r.gridHi),
+					Style: fmt.Sprintf("stroke:%s;stroke-width:1", r.gridStroke),
+				})
+			case edgeLeft:
+				out = append(out, &line{
+					X1: svgFloat(r.gridLo), Y1: svgFloat(it.pos),
+					X2: svgFloat(r.gridHi), Y2: svgFloat(it.pos),
+					Style: fmt.Sprintf("stroke:%s;stroke-width:1", r.gridStroke),
+				})
+			}
+		}
+		if showTick {
+			switch r.edge {
+			case edgeBottom:
+				out = append(out, &line{
+					X1: svgFloat(it.pos), Y1: svgFloat(r.axisOrigin),
+					X2: svgFloat(it.pos), Y2: svgFloat(r.axisOrigin + r.axisCfg.TickLength),
+					Style: fmt.Sprintf("stroke:%s;stroke-width:1", r.tickColor),
+				})
+			case edgeLeft:
+				out = append(out, &line{
+					X1: svgFloat(r.axisOrigin - r.axisCfg.TickLength), Y1: svgFloat(it.pos),
+					X2: svgFloat(r.axisOrigin), Y2: svgFloat(it.pos),
+					Style: fmt.Sprintf("stroke:%s;stroke-width:1", r.tickColor),
+				})
+			}
+		}
+		if showLabel {
+			switch r.edge {
+			case edgeBottom:
+				out = append(out, &text{
+					X:        svgFloat(it.pos),
+					Y:        svgFloat(r.axisOrigin + r.axisCfg.TickLength + r.axisCfg.LabelPadding),
+					Anchor:   "middle",
+					Dominant: "hanging",
+					Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", r.labelColor, r.axisCfg.LabelFontSize),
+					Content:  it.label,
+				})
+			case edgeLeft:
+				out = append(out, &text{
+					X:        svgFloat(r.axisOrigin - r.axisCfg.TickLength - r.axisCfg.LabelPadding),
+					Y:        svgFloat(it.pos),
 					Anchor:   "end",
 					Dominant: "central",
-					Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.YAxisLabelColor, cfg.YAxis.LabelFontSize),
-					Content:  formatTick(val),
+					Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", r.labelColor, r.axisCfg.LabelFontSize),
+					Content:  it.label,
 				})
 			}
 		}
 	}
+	return out
+}
 
-	// X axis: continuous when HasRange w/o categories, else categorical.
-	if d.XAxis.HasRange && len(d.XAxis.Categories) == 0 {
-		elems = append(elems, renderContinuousXTicks(d.XAxis.Min, d.XAxis.Max, x0, y1, x1, cfg, th)...)
-	} else {
-		elems = append(elems, renderCategoricalXTicks(categories, x0, y1, x1, cfg, th)...)
+// continuousTicks projects niceTicks values onto pixel positions.
+func continuousTicks(lo, hi, pxLo, pxHi float64) []tickItem {
+	vals := niceTicks(lo, hi, yTickTarget)
+	items := make([]tickItem, 0, len(vals))
+	for _, v := range vals {
+		t := (v - lo) / (hi - lo)
+		items = append(items, tickItem{pos: pxLo + t*(pxHi-pxLo), label: formatTick(v)})
 	}
+	return items
+}
+
+// categoricalTicks centres labels in their slot.
+func categoricalTicks(categories []string, pxLo, pxHi float64) []tickItem {
+	items := make([]tickItem, len(categories))
+	for i, c := range categories {
+		items[i] = tickItem{pos: categoryCenter(i, len(categories), pxLo, pxHi), label: c}
+	}
+	return items
+}
+
+func renderVertical(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, y0, x1, y1, fontSize float64, cfg Config, th Theme) []any {
+	var elems []any
+
+	elems = append(elems, renderTickRow(tickRow{
+		edge:       edgeLeft,
+		items:      continuousTicks(yMin, yMax, y1, y0),
+		axisOrigin: x0,
+		gridLo:     x0, gridHi: x1, gridStroke: th.GridStroke,
+		axisCfg:    cfg.YAxis,
+		tickColor:  th.YAxisTickColor,
+		labelColor: th.YAxisLabelColor,
+	})...)
+
+	var xItems []tickItem
+	if d.XAxis.HasRange && len(d.XAxis.Categories) == 0 {
+		xItems = continuousTicks(d.XAxis.Min, d.XAxis.Max, x0, x1)
+	} else {
+		xItems = categoricalTicks(categories, x0, x1)
+	}
+	elems = append(elems, renderTickRow(tickRow{
+		edge:       edgeBottom,
+		items:      xItems,
+		axisOrigin: y1,
+		axisCfg:    cfg.XAxis,
+		tickColor:  th.XAxisTickColor,
+		labelColor: th.XAxisLabelColor,
+	})...)
 
 	elems = append(elems, axisLines(x0, y0, x1, y1, cfg, th)...)
-	elems = append(elems, axisTitlesVertical(d, x0, y0, x1, y1, fontSize, cfg, th)...)
+	elems = append(elems, axisTitles(d, x0, y0, x1, y1, fontSize, cfg, th)...)
 	elems = append(elems, renderSeriesVertical(d, categories, yMin, yMax, x0, y0, x1, y1, cfg, th)...)
-	return elems
-}
-
-func renderContinuousXTicks(xMin, xMax, x0, y1, x1 float64, cfg Config, th Theme) []any {
-	var elems []any
-	if !flag(cfg.XAxis.ShowTick, true) && !flag(cfg.XAxis.ShowLabel, true) {
-		return elems
-	}
-	for _, val := range niceTicks(xMin, xMax, yTickTarget) {
-		t := (val - xMin) / (xMax - xMin)
-		xPx := x0 + t*(x1-x0)
-		if flag(cfg.XAxis.ShowTick, true) {
-			elems = append(elems, &line{
-				X1: svgFloat(xPx), Y1: svgFloat(y1),
-				X2: svgFloat(xPx), Y2: svgFloat(y1 + cfg.XAxis.TickLength),
-				Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.XAxisTickColor),
-			})
-		}
-		if flag(cfg.XAxis.ShowLabel, true) {
-			elems = append(elems, &text{
-				X:        svgFloat(xPx),
-				Y:        svgFloat(y1 + cfg.XAxis.TickLength + cfg.XAxis.LabelPadding),
-				Anchor:   "middle",
-				Dominant: "hanging",
-				Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.XAxisLabelColor, cfg.XAxis.LabelFontSize),
-				Content:  formatTick(val),
-			})
-		}
-	}
-	return elems
-}
-
-func renderCategoricalXTicks(categories []string, x0, y1, x1 float64, cfg Config, th Theme) []any {
-	var elems []any
-	for i, c := range categories {
-		x := categoryCenter(i, len(categories), x0, x1)
-		if flag(cfg.XAxis.ShowTick, true) {
-			elems = append(elems, &line{
-				X1: svgFloat(x), Y1: svgFloat(y1),
-				X2: svgFloat(x), Y2: svgFloat(y1 + cfg.XAxis.TickLength),
-				Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.XAxisTickColor),
-			})
-		}
-		if flag(cfg.XAxis.ShowLabel, true) {
-			elems = append(elems, &text{
-				X:        svgFloat(x),
-				Y:        svgFloat(y1 + cfg.XAxis.TickLength + cfg.XAxis.LabelPadding),
-				Anchor:   "middle",
-				Dominant: "hanging",
-				Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.XAxisLabelColor, cfg.XAxis.LabelFontSize),
-				Content:  c,
-			})
-		}
-	}
 	return elems
 }
 
@@ -319,7 +368,7 @@ func axisLines(x0, y0, x1, y1 float64, cfg Config, th Theme) []any {
 	return elems
 }
 
-func axisTitlesVertical(d *diagram.XYChartDiagram, x0, y0, x1, y1, _ float64, cfg Config, th Theme) []any {
+func axisTitles(d *diagram.XYChartDiagram, x0, y0, x1, y1, _ float64, cfg Config, th Theme) []any {
 	var elems []any
 	if d.XAxis.Title != "" && flag(cfg.XAxis.ShowTitle, true) {
 		elems = append(elems, &text{
@@ -441,64 +490,31 @@ func renderSeriesVertical(d *diagram.XYChartDiagram, categories []string, yMin, 
 	return elems
 }
 
-// renderHorizontal draws the chart with category-axis on the left
-// (vertical) and value-axis along the bottom (horizontal). Bars grow
-// rightward from x0, lines run top-to-bottom.
+// renderHorizontal: category axis on the left, value axis along the
+// bottom. Bars grow rightward from x0, lines run top-to-bottom.
 func renderHorizontal(d *diagram.XYChartDiagram, categories []string, vMin, vMax, x0, y0, x1, y1, fontSize float64, cfg Config, th Theme) []any {
 	var elems []any
 
-	// X axis: continuous value scale.
-	xTicks := niceTicks(vMin, vMax, yTickTarget)
-	if flag(cfg.XAxis.ShowTick, true) {
-		for _, val := range xTicks {
-			t := (val - vMin) / (vMax - vMin)
-			xPx := x0 + t*(x1-x0)
-			elems = append(elems, &line{
-				X1: svgFloat(xPx), Y1: svgFloat(y0),
-				X2: svgFloat(xPx), Y2: svgFloat(y1),
-				Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.GridStroke),
-			})
-			if flag(cfg.XAxis.ShowLabel, true) {
-				elems = append(elems, &text{
-					X:        svgFloat(xPx),
-					Y:        svgFloat(y1 + cfg.XAxis.TickLength + cfg.XAxis.LabelPadding),
-					Anchor:   "middle",
-					Dominant: "hanging",
-					Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.XAxisLabelColor, cfg.XAxis.LabelFontSize),
-					Content:  formatTick(val),
-				})
-			}
-		}
-	}
-
-	// Y axis: categorical, top-to-bottom.
-	nCats := len(categories)
-	for i, c := range categories {
-		yc := categoryCenter(i, nCats, y0, y1)
-		if flag(cfg.YAxis.ShowTick, true) {
-			elems = append(elems, &line{
-				X1: svgFloat(x0 - cfg.YAxis.TickLength), Y1: svgFloat(yc),
-				X2: svgFloat(x0), Y2: svgFloat(yc),
-				Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.YAxisTickColor),
-			})
-		}
-		if flag(cfg.YAxis.ShowLabel, true) {
-			elems = append(elems, &text{
-				X:        svgFloat(x0 - cfg.YAxis.TickLength - cfg.YAxis.LabelPadding),
-				Y:        svgFloat(yc),
-				Anchor:   "end",
-				Dominant: "central",
-				Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.YAxisLabelColor, cfg.YAxis.LabelFontSize),
-				Content:  c,
-			})
-		}
-	}
+	elems = append(elems, renderTickRow(tickRow{
+		edge:       edgeBottom,
+		items:      continuousTicks(vMin, vMax, x0, x1),
+		axisOrigin: y1,
+		gridLo:     y0, gridHi: y1, gridStroke: th.GridStroke,
+		axisCfg:    cfg.XAxis,
+		tickColor:  th.XAxisTickColor,
+		labelColor: th.XAxisLabelColor,
+	})...)
+	elems = append(elems, renderTickRow(tickRow{
+		edge:       edgeLeft,
+		items:      categoricalTicks(categories, y0, y1),
+		axisOrigin: x0,
+		axisCfg:    cfg.YAxis,
+		tickColor:  th.YAxisTickColor,
+		labelColor: th.YAxisLabelColor,
+	})...)
 
 	elems = append(elems, axisLines(x0, y0, x1, y1, cfg, th)...)
-	// Axis titles flipped: x-title at the bottom (value axis),
-	// y-title rotated on the left (category axis) — same placement
-	// as vertical, but the underlying axes have swapped meaning.
-	elems = append(elems, axisTitlesVertical(d, x0, y0, x1, y1, fontSize, cfg, th)...)
+	elems = append(elems, axisTitles(d, x0, y0, x1, y1, fontSize, cfg, th)...)
 	elems = append(elems, renderSeriesHorizontal(d, categories, vMin, vMax, x0, y0, x1, y1, cfg, th)...)
 	return elems
 }
@@ -626,9 +642,10 @@ func axisPos(v, vMin, vMax, lo, hi float64) float64 {
 	return lo + t*(hi-lo)
 }
 
-// niceTicks returns axis tick values at round intervals covering
-// [lo, hi]. 1/2/5 × 10^k step selector — the standard "nice ticks"
-// heuristic. For [0, 12] / target=6 it produces {0,2,4,6,8,10,12}.
+// niceTicks returns axis tick values at round intervals via the 1/2/5
+// × 10^k step selector — the standard "nice ticks" heuristic. Used to
+// avoid awkward decimal stops like 2.4, 4.8, 7.2 that naive uniform
+// spacing produces.
 func niceTicks(lo, hi float64, target int) []float64 {
 	if hi <= lo || target < 2 {
 		return []float64{lo, hi}

@@ -36,39 +36,46 @@ type AxisConfig struct {
 // Config mirrors `themeVariables.xyChart.*` and the per-axis surface
 // from https://mermaid.js.org/syntax/xyChart.html. Pointer-typed bool
 // fields preserve the "not set" state so resolveConfig can apply the
-// spec default of `true` without callers having to set it explicitly.
+// spec default of `true` without callers having to set it explicitly;
+// use BoolPtr to construct one tersely.
 type Config struct {
-	Width                    float64
-	Height                   float64
-	TitlePadding             float64
-	TitleFontSize            float64
-	ShowTitle                *bool
-	ChartOrientation         ChartOrientation
-	PlotReservedSpacePercent float64
-	ShowDataLabel            *bool
-	ShowDataLabelOutsideBar  *bool
+	Width                   float64
+	Height                  float64
+	TitlePadding            float64
+	TitleFontSize           float64
+	ShowTitle               *bool
+	ChartOrientation        ChartOrientation
+	ShowDataLabel           *bool
+	ShowDataLabelOutsideBar *bool
 
 	XAxis AxisConfig
 	YAxis AxisConfig
 }
 
-func boolPtr(b bool) *bool { return &b }
+// BoolPtr returns a *bool pointing at b. Public so external callers
+// can construct Config / AxisConfig values that explicitly set a
+// Show* flag to false (the zero *bool means "inherit default", so
+// `&false` is the only way to override a default-true field to off).
+func BoolPtr(b bool) *bool { return &b }
+
+// boolPtr is the package-internal alias kept for the existing
+// DefaultConfig/defaultAxisConfig literals.
+func boolPtr(b bool) *bool { return BoolPtr(b) }
 
 // DefaultConfig returns the spec defaults from the Mermaid xyChart
 // docs. resolveConfig overlays Options.Config on top of this.
 func DefaultConfig() Config {
 	return Config{
-		Width:                    700,
-		Height:                   500,
-		TitlePadding:             10,
-		TitleFontSize:            20,
-		ShowTitle:                boolPtr(true),
-		ChartOrientation:         OrientationAuto,
-		PlotReservedSpacePercent: 50,
-		ShowDataLabel:            boolPtr(false),
-		ShowDataLabelOutsideBar:  boolPtr(false),
-		XAxis:                    defaultAxisConfig(),
-		YAxis:                    defaultAxisConfig(),
+		Width:                   700,
+		Height:                  500,
+		TitlePadding:            10,
+		TitleFontSize:           20,
+		ShowTitle:               boolPtr(true),
+		ChartOrientation:        OrientationAuto,
+		ShowDataLabel:           boolPtr(false),
+		ShowDataLabelOutsideBar: boolPtr(false),
+		XAxis:                   defaultAxisConfig(),
+		YAxis:                   defaultAxisConfig(),
 	}
 }
 
@@ -93,10 +100,9 @@ func resolveConfig(opts *Options) Config {
 	if opts == nil {
 		return c
 	}
-	// opts.FontSize is a pre-Config shortcut that re-scales the axis
-	// label/title fonts (and the chart title) so callers stuck on the
-	// pre-Config Options still get a global font knob. Explicit
-	// Config field overrides below win because they are merged on top.
+	// opts.FontSize re-scales the axis label/title fonts (and chart
+	// title) before opts.Config is merged, so Config field overrides
+	// still win.
 	if opts.FontSize > 0 {
 		c.TitleFontSize = opts.FontSize + 2
 		c.XAxis.LabelFontSize = opts.FontSize - 2
@@ -123,7 +129,6 @@ func resolveConfig(opts *Options) Config {
 	if o.ChartOrientation != OrientationAuto {
 		c.ChartOrientation = o.ChartOrientation
 	}
-	mergeF(&c.PlotReservedSpacePercent, o.PlotReservedSpacePercent)
 	mergeB(&c.ShowDataLabel, o.ShowDataLabel)
 	mergeB(&c.ShowDataLabelOutsideBar, o.ShowDataLabelOutsideBar)
 	c.XAxis = mergeAxis(c.XAxis, o.XAxis)
