@@ -14,6 +14,10 @@ import (
 const defaultBranch = "main"
 
 func Parse(r io.Reader) (*diagram.GitGraphDiagram, error) {
+	src, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading input: %w", err)
+	}
 	p := &parser{
 		diagram: &diagram.GitGraphDiagram{
 			BranchOrder: make(map[string]int),
@@ -22,10 +26,26 @@ func Parse(r io.Reader) (*diagram.GitGraphDiagram, error) {
 		branchSeen: make(map[string]bool),
 		current:    defaultBranch,
 	}
-	scanner := bufio.NewScanner(r)
+	// Optional `---\n…\n---` frontmatter at the top supplies the
+	// title and (under `config.gitGraph.mainBranchName`) the
+	// effective default branch. The flat FrontmatterValue helper
+	// finds nested keys by name — sufficient for Phase 2.
+	front, body := parserutil.SplitFrontmatter(src)
+	if len(front) > 0 {
+		if t := parserutil.FrontmatterValue(front, "title"); t != "" {
+			p.diagram.Title = t
+		}
+		if name := parserutil.FrontmatterValue(front, "mainBranchName"); name != "" {
+			p.diagram.MainBranchName = name
+			p.current = name
+		}
+	}
+	scanner := bufio.NewScanner(strings.NewReader(string(body)))
 	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	lineNum := 0
 	headerSeen := false
+	var accDescrLines []string
+	inAccDescrBlock := false
 
 	for scanner.Scan() {
 		lineNum++
@@ -40,12 +60,37 @@ func Parse(r io.Reader) (*diagram.GitGraphDiagram, error) {
 			headerSeen = true
 			continue
 		}
+		if inAccDescrBlock {
+			if line == "}" {
+				p.diagram.AccDescr = strings.Join(accDescrLines, "\n")
+				accDescrLines = accDescrLines[:0]
+				inAccDescrBlock = false
+				continue
+			}
+			accDescrLines = append(accDescrLines, line)
+			continue
+		}
+		if line == "accDescr {" || line == "accDescr{" {
+			inAccDescrBlock = true
+			continue
+		}
+		if v, ok := parserutil.MatchKeywordValue(line, "accTitle"); ok {
+			p.diagram.AccTitle = v
+			continue
+		}
+		if v, ok := parserutil.MatchKeywordValue(line, "accDescr"); ok {
+			p.diagram.AccDescr = v
+			continue
+		}
 		if err := p.parseLine(line); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("reading input: %w", err)
+	}
+	if inAccDescrBlock {
+		return nil, fmt.Errorf("unterminated accDescr { ... } block")
 	}
 	if !headerSeen {
 		return nil, fmt.Errorf("missing gitGraph header")

@@ -315,3 +315,31 @@ func TestRenderCherryPickGlyph(t *testing.T) {
 		t.Errorf("cherry-pick glyph should emit both circle and line:\n%s", raw)
 	}
 }
+
+// AccTitle/AccDescr emit as <title>/<desc> SVG children; Title
+// renders as a centered caption above the lanes.
+func TestRenderGitGraphHeader(t *testing.T) {
+	d := &diagram.GitGraphDiagram{
+		Title:    "Release flow",
+		AccTitle: "Build pipeline",
+		AccDescr: "Trunk + hotfix",
+		Branches: []string{"main"},
+		Commits: []diagram.GitCommit{
+			{ID: "a", Branch: "main", Type: diagram.GitCommitNormal},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<title>Build pipeline</title>") {
+		t.Errorf("expected accTitle <title> in:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<desc>Trunk + hotfix</desc>") {
+		t.Errorf("expected accDescr <desc> in:\n%s", raw)
+	}
+	if !strings.Contains(raw, ">Release flow<") {
+		t.Errorf("expected diagram title in:\n%s", raw)
+	}
+}

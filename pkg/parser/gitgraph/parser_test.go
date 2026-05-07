@@ -444,3 +444,69 @@ commit`))
 		t.Errorf("branches = %v, missing quoted name", d.Branches)
 	}
 }
+
+// Frontmatter `title:` populates Title.
+func TestParseGitGraphFrontmatterTitle(t *testing.T) {
+	d, err := Parse(strings.NewReader(`---
+title: Release flow
+---
+gitGraph
+commit`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Title != "Release flow" {
+		t.Errorf("title = %q", d.Title)
+	}
+}
+
+// Frontmatter `mainBranchName:` overrides the implicit "main"
+// default; commits land on the renamed branch.
+func TestParseGitGraphMainBranchName(t *testing.T) {
+	d, err := Parse(strings.NewReader(`---
+mainBranchName: trunk
+---
+gitGraph
+commit`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.MainBranchName != "trunk" {
+		t.Errorf("MainBranchName = %q", d.MainBranchName)
+	}
+	if len(d.Commits) != 1 || d.Commits[0].Branch != "trunk" {
+		t.Errorf("commit branch = %v", d.Commits)
+	}
+}
+
+// accTitle / accDescr (single + block) populate the AST fields.
+func TestParseGitGraphAccessibility(t *testing.T) {
+	d, err := Parse(strings.NewReader(`gitGraph
+accTitle: Build pipeline
+accDescr {
+  Trunk-based with hotfixes
+  cherry-picked back to main
+}
+commit`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.AccTitle != "Build pipeline" {
+		t.Errorf("accTitle = %q", d.AccTitle)
+	}
+	want := "Trunk-based with hotfixes\ncherry-picked back to main"
+	if d.AccDescr != want {
+		t.Errorf("accDescr = %q, want %q", d.AccDescr, want)
+	}
+}
+
+// Unterminated `accDescr {` block surfaces as an error.
+func TestParseGitGraphAccDescrUnterminated(t *testing.T) {
+	_, err := Parse(strings.NewReader(`gitGraph
+accDescr {
+  Open
+commit`))
+	if err == nil {
+		t.Error("expected error for unterminated accDescr block")
+	}
+}
