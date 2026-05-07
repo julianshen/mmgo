@@ -4,14 +4,14 @@ Dashboard view of progress against [implementation-plan.md](implementation-plan.
 Updated at each step boundary and committed to git, so any client can read
 current state without relying on chat history.
 
-**Last updated:** 2026-05-05 (post Mindmap parity work — PRs #161–#163)
+**Last updated:** 2026-05-07 (post Timeline / Sankey / Block parity work — PRs #165–#171)
 
 ## Overall
 
 - **Current milestone:** v0.4.0 complete; working toward v0.5.0 (Gantt, mindmap, others)
 - **Current phase:** Phase 6 in progress
-- **Completed:** 25 of 25 steps (Phase 6 in progress for remaining diagram-type parity)
-- **Next:** Step 25 — Remaining types (GitGraph, Timeline, Sankey, XY, C4, Quadrant, Kanban, Block)
+- **Completed:** Block parity (Step 27); Timeline / Sankey at Phase 1 (one PR each, follow-up phases queued)
+- **Next:** GitGraph, XY, C4, Quadrant, Kanban — remaining v0.5.0 types
 
 ## Phase 0: Project Scaffold
 
@@ -72,7 +72,10 @@ current state without relying on chat history.
 | ✅ | 22. ER diagram | #40, #153–#155 | ~95% / ~95% | Full Mermaid surface: entity attributes with PK/FK/UK + multi-key (`PK, FK`) and `*name` markers, full cardinality matrix (4×4×2), `direction` keyword, quoted attribute comments, title / accTitle / accDescr, classDef / style / cssClass / `:::` shorthand, click / link / callback events with SVG `<a>` wrap, aliased entity names (`EntityID["Display Label"]`) |
 | ✅ | 23. Gantt chart | #157, #158, #159 | ~94% / ~89% | Full Mermaid surface: tag-list status flags (`done` / `active` / `crit` / `milestone` combinable), `after id1 id2 ...` and `until id1 id2 ...` dependencies (forward + backward), full duration unit set (ms / s / m / h / d / w / M / y) with decimals, complete Moment.js `dateFormat` token set, d3-strftime `axisFormat`, calendar-aware `tickInterval`, `weekday` / `excludes` / `includes` / `todayMarker` directives, milestone diamond glyphs, crit stroke emphasis, today-marker rule, `vert` marker lines, `accTitle` / `accDescr`, click / href / call events with SVG `<a>` wrap |
 | ✅ | 24. Mindmap | #161, #162, #163 | ~93% / ~92% | Full Mermaid surface: 7 node shapes (default / round / square / circle / cloud / bang / hexagon) including the historical `!text!` bang form, indentation hierarchy with multi-root rejection, `::icon(...)` decoration with rendered caption, multi-class `:::a b c` shorthand, `classDef` / `style id` styling pipeline, accTitle / accDescr (`<title>`/`<desc>` emission), backtick-wrapped markdown labels, `**bold**` / `*italic*` segments, `\n` multi-line labels with per-line measurement and stacked `<text>` rendering |
-| ⏳ | 25+. Remaining types (GitGraph, Timeline, Sankey, XY, C4, Quadrant, Kanban, Block) | — |
+| 🚧 | 25. Timeline | #165 | ~92% / ~91% | Phase 1: accTitle / accDescr, `direction LR\|TD` (parsed; layout still TD), multi-event periods rendered as stacked boxes (replaces comma-join); Phase 2 deferred (LR layout, `cScale*` / `disableMulticolor` theme variables) |
+| 🚧 | 26. Sankey | #166 | ~92% / ~93% | PR1: `sankey` alias accepted alongside `sankey-beta`, frontmatter `title:`, accTitle / accDescr inline with CSV rows; PR2 deferred (linkColor / nodeAlignment / showValues / prefix / suffix / width / height config plumbing) |
+| ✅ | 27. Block | #167–#171 | ~93% / ~89% | Full Mermaid surface (modulo `<["..."]>(dir)` block-arrow shape): 13 node shapes including parallelograms / trapezoids / asymmetric / cylinder / subroutine / double-circle / hexagon, `block:ID[:N]["label"] ... end` group nesting with per-group `columns`, `space` / `space:N` spacers, `id:N` width spans, full edge lexicon (`-->`, `---`, `<-->`, `==>`, `-.->`, `~~~`, `--x`, `--o`) with inline `-- text -->` labels, `style` / `classDef` / `class id name` / `id:::name` styling, frontmatter `title:`, `accTitle` / `accDescr` (single + multi-line block), `columns auto` |
+| ⏳ | 28+. Remaining types (GitGraph, XY, C4, Quadrant, Kanban) | — |
 
 ## Milestones
 
