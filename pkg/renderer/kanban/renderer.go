@@ -57,6 +57,7 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 		lines    []string
 		meta     []string
 		height   float64
+		task     diagram.KanbanTask
 	}
 	type colLayout struct {
 		cards  []cardLayout
@@ -76,6 +77,7 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 			c := cardLayout{
 				lines: wrapText(task.Text, textWidth, fontSize),
 				meta:  formatMetadata(task.Metadata),
+				task:  task,
 			}
 			c.height = 2*cardPadding + float64(len(c.lines))*lineHeight
 			if len(c.meta) > 0 {
@@ -163,17 +165,36 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 
 		cardY := columnsTopY + columnHeaderH + cardGap
 		for _, c := range col.cards {
-			children = append(children, &rect{
-				X: svgFloat(colX + cardGap/2),
+			cardBuf := []any{}
+			cardX := colX + cardGap/2
+			cardW := columnWidth - cardGap
+			cardBuf = append(cardBuf, &rect{
+				X: svgFloat(cardX),
 				Y: svgFloat(cardY),
-				Width:  svgFloat(columnWidth - cardGap),
+				Width:  svgFloat(cardW),
 				Height: svgFloat(c.height),
 				RX:     svgFloat(cardRadius), RY: svgFloat(cardRadius),
 				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1", th.CardFill, th.CardStroke),
 			})
+			// Priority stripe: a 4-px-wide colored bar on the
+			// card's left edge keyed by `priority:` metadata.
+			// Spec values are `Very High`, `High`, `Low`,
+			// `Very Low`; anything else falls through silently.
+			if level := c.task.Metadata["priority"]; level != "" {
+				if color := th.priorityColor(level); color != "" {
+					cardBuf = append(cardBuf, &rect{
+						X: svgFloat(cardX),
+						Y: svgFloat(cardY),
+						Width:  4,
+						Height: svgFloat(c.height),
+						RX:     svgFloat(cardRadius), RY: svgFloat(cardRadius),
+						Style: fmt.Sprintf("fill:%s;stroke:none", color),
+					})
+				}
+			}
 			textY := cardY + cardPadding + lineHeight/2
 			for _, ln := range c.lines {
-				children = append(children, &text{
+				cardBuf = append(cardBuf, &text{
 					X:        svgFloat(colX + cardGap/2 + cardPadding),
 					Y:        svgFloat(textY),
 					Dominant: "central",
@@ -184,7 +205,7 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 			}
 			metaY := textY + metaLineHeight/2 - lineHeight/2
 			for _, m := range c.meta {
-				children = append(children, &text{
+				cardBuf = append(cardBuf, &text{
 					X:        svgFloat(colX + cardGap/2 + cardPadding),
 					Y:        svgFloat(metaY),
 					Dominant: "central",
@@ -193,6 +214,23 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 				})
 				metaY += metaLineHeight
 			}
+			// Ticket-link wrap: when both the diagram-level
+			// TicketBaseURL and the task's `ticket:` metadata
+			// are set, wrap the entire card in an <a> after
+			// substituting `#TICKET#` with the ticket id.
+			if d.TicketBaseURL != "" {
+				if ticket := c.task.Metadata["ticket"]; ticket != "" {
+					href := strings.ReplaceAll(d.TicketBaseURL, "#TICKET#", ticket)
+					children = append(children, &svgutil.Anchor{
+						Href:     href,
+						Target:   "_blank",
+						Children: cardBuf,
+					})
+					cardY += c.height + cardGap
+					continue
+				}
+			}
+			children = append(children, cardBuf...)
 			cardY += c.height + cardGap
 		}
 	}
