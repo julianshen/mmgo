@@ -4,14 +4,14 @@ Dashboard view of progress against [implementation-plan.md](implementation-plan.
 Updated at each step boundary and committed to git, so any client can read
 current state without relying on chat history.
 
-**Last updated:** 2026-05-07 (post Timeline / Sankey / Block parity work — PRs #165–#171)
+**Last updated:** 2026-05-07 (post Quadrant / C4 / Kanban Phase 1 — PRs #173–#176)
 
 ## Overall
 
 - **Current milestone:** v0.4.0 complete; working toward v0.5.0 (Gantt, mindmap, others)
 - **Current phase:** Phase 6 in progress
-- **Completed:** Block parity (Step 27); Timeline / Sankey at Phase 1 (one PR each, follow-up phases queued)
-- **Next:** GitGraph, XY, C4, Quadrant, Kanban — remaining v0.5.0 types
+- **Completed:** Block parity (Step 27); Timeline / Sankey / Quadrant / C4 / Kanban at Phase 1 with follow-up phases queued
+- **Next:** GitGraph, XY — remaining v0.5.0 types; then Phase 2+ catch-up on the partially-shipped types
 
 ## Phase 0: Project Scaffold
 
@@ -75,7 +75,10 @@ current state without relying on chat history.
 | 🚧 | 25. Timeline | #165 | ~92% / ~91% | Phase 1: accTitle / accDescr, `direction LR\|TD` (parsed; layout still TD), multi-event periods rendered as stacked boxes (replaces comma-join); Phase 2 deferred (LR layout, `cScale*` / `disableMulticolor` theme variables) |
 | 🚧 | 26. Sankey | #166 | ~92% / ~93% | PR1: `sankey` alias accepted alongside `sankey-beta`, frontmatter `title:`, accTitle / accDescr inline with CSV rows; PR2 deferred (linkColor / nodeAlignment / showValues / prefix / suffix / width / height config plumbing) |
 | ✅ | 27. Block | #167–#171 | ~93% / ~89% | Full Mermaid surface (modulo `<["..."]>(dir)` block-arrow shape): 13 node shapes including parallelograms / trapezoids / asymmetric / cylinder / subroutine / double-circle / hexagon, `block:ID[:N]["label"] ... end` group nesting with per-group `columns`, `space` / `space:N` spacers, `id:N` width spans, full edge lexicon (`-->`, `---`, `<-->`, `==>`, `-.->`, `~~~`, `--x`, `--o`) with inline `-- text -->` labels, `style` / `classDef` / `class id name` / `id:::name` styling, frontmatter `title:`, `accTitle` / `accDescr` (single + multi-line block), `columns auto` |
-| ⏳ | 28+. Remaining types (GitGraph, XY, C4, Quadrant, Kanban) | — |
+| 🚧 | 28. Quadrant | #173, #174 | ~92% / ~91% | Phase A + C: per-point `Style` (color / radius / stroke) + `classDef` + `:::class` shorthand, `accTitle` / `accDescr` (single + block), `<title>` / `<desc>` SVG emission, label-with-colon edge case fix; Phase B deferred (full theme + 17 config knobs + frontmatter / `%%{init}%%` for `quadrantChart` + `xAxisPosition` / `yAxisPosition` auto-flip + per-quadrant fill / text colors + internal vs external border separation) |
+| 🚧 | 29. C4 | #175 | ~92% / ~89% | Phase 1: 14 new element kinds covering every queue / `_Ext` / `Deployment_Node` / `Node_*` keyword, long-form `Rel_Up`/`Down`/`Left`/`Right`, `BiRel` renders with `marker-start` + `marker-end`, queue stadium + DB cylinder + dashed `Deployment_Node` shapes, `accTitle` / `accDescr`; Phases 2–4 deferred (boundary `{ ... }` blocks, named-arg `$descr=` / `$tags=` / `$link=` / `$sprite=` / `RelIndex`, `UpdateElementStyle` / `UpdateRelStyle` / `UpdateLayoutConfig`, `LAYOUT_*` directives, legend) |
+| 🚧 | 30. Kanban | #176 | ~92% / ~91% | Phase 1: frontmatter `title:` + `ticketBaseUrl:`, `accTitle` / `accDescr` (single + block), `<title>` / `<desc>` SVG emission + title caption above columns; Phases 2–3 deferred (priority-driven left-edge stripe, `<a href>` ticket-link wrapping, `classDef` / `class` / `:::class` styling, `%%{init}%%`, `<br/>` / markdown bold in cards, accurate text width measurement) |
+| ⏳ | 31+. Remaining types (GitGraph, XY) | — |
 
 ## Milestones
 
