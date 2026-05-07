@@ -225,9 +225,9 @@ type dotStyle struct {
 	innerR  float64 // non-zero for merge commits — a small white dot on top
 }
 
-// dotStyleFor returns the circle style for a commit. Highlight commits
-// are handled separately in commitDot (they render as a square) and
-// never reach this function.
+// dotStyleFor returns the circle style for a commit. Highlight and
+// CherryPick commits are handled separately in commitDot (they
+// render as alternative glyphs) and never reach this function.
 func dotStyleFor(c diagram.GitCommit, color string, th Theme) dotStyle {
 	switch c.Type {
 	case diagram.GitCommitMerge:
@@ -252,6 +252,23 @@ func commitDot(c diagram.GitCommit, x, y float64, color string, th Theme) []any 
 			Height: svgFloat(side),
 			Style:  fmt.Sprintf("fill:%s;stroke:%s;stroke-width:2", th.DotStrokeFill, color),
 		}}
+	}
+	if c.Type == diagram.GitCommitCherryPick {
+		// Cherry-pick: hollow circle with a chevron-style bisecting
+		// line, the closest stable approximation to mmdc's notched
+		// glyph using only stroke primitives.
+		r := commitRadius
+		return []any{
+			&circle{
+				CX: svgFloat(x), CY: svgFloat(y), R: svgFloat(r),
+				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:2", th.DotStrokeFill, color),
+			},
+			&line{
+				X1: svgFloat(x - r*0.6), Y1: svgFloat(y),
+				X2: svgFloat(x + r*0.6), Y2: svgFloat(y),
+				Style: fmt.Sprintf("stroke:%s;stroke-width:2", color),
+			},
+		}
 	}
 	s := dotStyleFor(c, color, th)
 	elems := []any{&circle{

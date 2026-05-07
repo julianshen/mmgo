@@ -334,3 +334,113 @@ func TestGitGraphDiagramType(t *testing.T) {
 		t.Errorf("Type() = %v, want GitGraph", d.Type())
 	}
 }
+
+// `cherry-pick id: "x"` lands a CherryPickOf commit on the current
+// branch with the original id stashed for the renderer.
+func TestParseCherryPick(t *testing.T) {
+	d, err := Parse(strings.NewReader(`gitGraph
+commit id: "a"
+branch dev
+commit id: "b"
+checkout main
+cherry-pick id: "b"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	last := d.Commits[len(d.Commits)-1]
+	if last.Type != diagram.GitCommitCherryPick {
+		t.Errorf("last commit type = %v, want cherry_pick", last.Type)
+	}
+	if last.CherryPickOf != "b" {
+		t.Errorf("CherryPickOf = %q, want %q", last.CherryPickOf, "b")
+	}
+	if last.Branch != "main" {
+		t.Errorf("branch = %q, want main", last.Branch)
+	}
+	if !strings.HasPrefix(last.ID, "cp") {
+		t.Errorf("auto id = %q, want cpN prefix", last.ID)
+	}
+}
+
+// `cherry-pick` without an `id:` is rejected per spec.
+func TestParseCherryPickRequiresID(t *testing.T) {
+	_, err := Parse(strings.NewReader("gitGraph\ncommit\ncherry-pick"))
+	if err == nil {
+		t.Error("expected error for cherry-pick without id")
+	}
+}
+
+// `switch <branch>` is an alias for `checkout <branch>`.
+func TestParseSwitchAlias(t *testing.T) {
+	d, err := Parse(strings.NewReader(`gitGraph
+commit
+branch dev
+commit
+switch main
+commit`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	last := d.Commits[len(d.Commits)-1]
+	if last.Branch != "main" {
+		t.Errorf("commit after switch should land on main, got %q", last.Branch)
+	}
+}
+
+// `commit msg: "..."` populates the new Msg field, distinct from
+// id and tag.
+func TestParseCommitMsg(t *testing.T) {
+	d, err := Parse(strings.NewReader(`gitGraph
+commit id: "x" msg: "hello world"`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	c := d.Commits[0]
+	if c.ID != "x" || c.Msg != "hello world" {
+		t.Errorf("commit = %+v", c)
+	}
+}
+
+// `branch <name> order: N` records the lane order without dropping
+// the branch.
+func TestParseBranchOrder(t *testing.T) {
+	d, err := Parse(strings.NewReader(`gitGraph
+commit
+branch feature order: 2
+commit
+branch hotfix order: 1
+commit`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.BranchOrder["feature"] != 2 {
+		t.Errorf("feature order = %d, want 2", d.BranchOrder["feature"])
+	}
+	if d.BranchOrder["hotfix"] != 1 {
+		t.Errorf("hotfix order = %d, want 1", d.BranchOrder["hotfix"])
+	}
+}
+
+// Quoted branch names (`branch "release/1.0"`) survive without
+// being split on the slash or whitespace.
+func TestParseQuotedBranchName(t *testing.T) {
+	d, err := Parse(strings.NewReader(`gitGraph
+commit
+branch "release/1.0"
+commit
+checkout "release/1.0"
+commit`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	found := false
+	for _, b := range d.Branches {
+		if b == "release/1.0" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("branches = %v, missing quoted name", d.Branches)
+	}
+}
