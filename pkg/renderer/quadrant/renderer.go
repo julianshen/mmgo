@@ -188,19 +188,22 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 
 	// Y is inverted: our coords put (0, 0) at bottom-left but SVG's
 	// origin is top-left.
-	pointStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:2", pointFill, pointStroke)
 	pointLabelStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", pointLabelFill, pointLabelFontSize)
 	for _, p := range d.Points {
 		px := plotX0 + p.X*plotSide
 		py := plotY1 - p.Y*plotSide
+		// Resolve point styling: inline `color: …` etc. wins over
+		// the referenced classDef, which wins over the theme
+		// defaults the constants supply.
+		fill, stroke, width, radius := resolvePointStyle(p, d)
 		children = append(children, &circle{
-			CX: svgFloat(px), CY: svgFloat(py), R: pointRadius,
-			Style: pointStyle,
+			CX: svgFloat(px), CY: svgFloat(py), R: svgFloat(radius),
+			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%g", fill, stroke, width),
 		})
 		if p.Label != "" {
 			children = append(children, &text{
 				X:        svgFloat(px),
-				Y:        svgFloat(py - pointRadius - pointLabelGap),
+				Y:        svgFloat(py - radius - pointLabelGap),
 				Anchor:   "middle",
 				Dominant: "baseline",
 				Style:    pointLabelStyle,
@@ -221,3 +224,44 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), b...), nil
 }
 
+
+// resolvePointStyle layers inline > class > theme defaults to
+// produce the final (fill, stroke, stroke-width, radius) for a
+// quadrant point. Zero-valued numeric fields fall through to the
+// next layer rather than masking the theme as 0px circles.
+func resolvePointStyle(p diagram.QuadrantPoint, d *diagram.QuadrantChartDiagram) (fill, stroke string, width, radius float64) {
+	fill = pointFill
+	stroke = pointStroke
+	width = 2
+	radius = pointRadius
+
+	if p.Class != "" {
+		if cls, ok := d.Classes[p.Class]; ok {
+			if cls.Color != "" {
+				fill = cls.Color
+			}
+			if cls.StrokeColor != "" {
+				stroke = cls.StrokeColor
+			}
+			if cls.Radius > 0 {
+				radius = cls.Radius
+			}
+			if cls.StrokeWidth > 0 {
+				width = cls.StrokeWidth
+			}
+		}
+	}
+	if p.Style.Color != "" {
+		fill = p.Style.Color
+	}
+	if p.Style.StrokeColor != "" {
+		stroke = p.Style.StrokeColor
+	}
+	if p.Style.Radius > 0 {
+		radius = p.Style.Radius
+	}
+	if p.Style.StrokeWidth > 0 {
+		width = p.Style.StrokeWidth
+	}
+	return fill, stroke, width, radius
+}

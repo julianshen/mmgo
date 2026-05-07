@@ -319,3 +319,75 @@ func TestQuadrantChartDiagramType(t *testing.T) {
 		t.Errorf("Type() = %v", d.Type())
 	}
 }
+
+// `classDef name color: ..., radius: ..., stroke-width: ..., stroke-color: ...`
+// populates the diagram's Classes map.
+func TestParseClassDef(t *testing.T) {
+	d, err := Parse(strings.NewReader(`quadrantChart
+classDef hot color: #f00, radius: 12, stroke-width: 3px, stroke-color: #000
+A: [0.3, 0.6]`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	got, ok := d.Classes["hot"]
+	if !ok {
+		t.Fatalf("classes = %v", d.Classes)
+	}
+	if got.Color != "#f00" || got.StrokeColor != "#000" || got.Radius != 12 || got.StrokeWidth != 3 {
+		t.Errorf("hot class = %+v", got)
+	}
+}
+
+// Inline style list after `]` flows onto the point.
+func TestParsePointInlineStyle(t *testing.T) {
+	d, err := Parse(strings.NewReader("quadrantChart\nA: [0.3, 0.6] color: #ff0, radius: 9, stroke-width: 2"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Points) != 1 {
+		t.Fatalf("points = %v", d.Points)
+	}
+	p := d.Points[0]
+	if p.Style.Color != "#ff0" || p.Style.Radius != 9 || p.Style.StrokeWidth != 2 {
+		t.Errorf("inline style = %+v", p.Style)
+	}
+}
+
+// `Name:::class: [x, y]` shorthand attaches the class to the point.
+// The `findCoordSeparator` logic must skip the `:::` triple-colon
+// when scanning for the coordinate-list separator.
+func TestParsePointClassShorthand(t *testing.T) {
+	d, err := Parse(strings.NewReader(`quadrantChart
+classDef hot color: #f00
+A:::hot: [0.3, 0.6]`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Points) != 1 {
+		t.Fatalf("points = %v", d.Points)
+	}
+	if got := d.Points[0]; got.Label != "A" || got.Class != "hot" {
+		t.Errorf("point = %+v", got)
+	}
+}
+
+// A label that contains a colon (e.g., "Time: 9:00 AM") parses
+// without confusing the coord-separator finder, since only the
+// `: [` form opens the coordinate list.
+func TestParsePointLabelWithColon(t *testing.T) {
+	d, err := Parse(strings.NewReader("quadrantChart\nTime: 9:00 AM: [0.5, 0.5]"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := d.Points[0]; got.Label != "Time: 9:00 AM" || got.X != 0.5 || got.Y != 0.5 {
+		t.Errorf("point = %+v", got)
+	}
+}
+
+// Unknown style key is rejected (typo protection).
+func TestParseStyleListUnknownKey(t *testing.T) {
+	_, err := Parse(strings.NewReader("quadrantChart\nA: [0.3, 0.6] colour: #f00"))
+	if err == nil {
+		t.Error("expected error for unknown style key")
+	}
+}
