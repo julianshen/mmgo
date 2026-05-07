@@ -4,14 +4,14 @@ Dashboard view of progress against [implementation-plan.md](implementation-plan.
 Updated at each step boundary and committed to git, so any client can read
 current state without relying on chat history.
 
-**Last updated:** 2026-05-07 (post Quadrant / C4 / Kanban Phase 1 — PRs #173–#176)
+**Last updated:** 2026-05-07 (post GitGraph / XY Phase 1 — PRs #178, #179; every v0.5.0 type now at least Phase-1)
 
 ## Overall
 
 - **Current milestone:** v0.4.0 complete; working toward v0.5.0 (Gantt, mindmap, others)
 - **Current phase:** Phase 6 in progress
-- **Completed:** Block parity (Step 27); Timeline / Sankey / Quadrant / C4 / Kanban at Phase 1 with follow-up phases queued
-- **Next:** GitGraph, XY — remaining v0.5.0 types; then Phase 2+ catch-up on the partially-shipped types
+- **Completed:** Block parity (Step 27); every other v0.5.0 type (Timeline / Sankey / Quadrant / C4 / Kanban / GitGraph / XY) at Phase 1 with follow-up phases queued
+- **Next:** Phase 2+ catch-up on the partially-shipped types — full theme/config plumbing, layout fidelity, the few remaining shape/syntax gaps documented per type
 
 ## Phase 0: Project Scaffold
 
@@ -78,7 +78,8 @@ current state without relying on chat history.
 | 🚧 | 28. Quadrant | #173, #174 | ~92% / ~91% | Phase A + C: per-point `Style` (color / radius / stroke) + `classDef` + `:::class` shorthand, `accTitle` / `accDescr` (single + block), `<title>` / `<desc>` SVG emission, label-with-colon edge case fix; Phase B deferred (full theme + 17 config knobs + frontmatter / `%%{init}%%` for `quadrantChart` + `xAxisPosition` / `yAxisPosition` auto-flip + per-quadrant fill / text colors + internal vs external border separation) |
 | 🚧 | 29. C4 | #175 | ~92% / ~89% | Phase 1: 14 new element kinds covering every queue / `_Ext` / `Deployment_Node` / `Node_*` keyword, long-form `Rel_Up`/`Down`/`Left`/`Right`, `BiRel` renders with `marker-start` + `marker-end`, queue stadium + DB cylinder + dashed `Deployment_Node` shapes, `accTitle` / `accDescr`; Phases 2–4 deferred (boundary `{ ... }` blocks, named-arg `$descr=` / `$tags=` / `$link=` / `$sprite=` / `RelIndex`, `UpdateElementStyle` / `UpdateRelStyle` / `UpdateLayoutConfig`, `LAYOUT_*` directives, legend) |
 | 🚧 | 30. Kanban | #176 | ~92% / ~91% | Phase 1: frontmatter `title:` + `ticketBaseUrl:`, `accTitle` / `accDescr` (single + block), `<title>` / `<desc>` SVG emission + title caption above columns; Phases 2–3 deferred (priority-driven left-edge stripe, `<a href>` ticket-link wrapping, `classDef` / `class` / `:::class` styling, `%%{init}%%`, `<br/>` / markdown bold in cards, accurate text width measurement) |
-| ⏳ | 31+. Remaining types (GitGraph, XY) | — |
+| 🚧 | 31. GitGraph | #178 | ~92% / ~89% | Phase 1: `cherry-pick id: "..." [tag] [parent]` with new `GitCommitCherryPick` glyph, `switch` alias for `checkout`, `commit msg: "..."`, `branch <name> order: N` captured to `BranchOrder`, quoted names (`branch "release/1.0"` etc.); Phases 2–3 deferred (frontmatter / `%%{init}%%`, accTitle / accDescr, `mainBranchName` / `mainBranchOrder`, `showBranches` / `showCommitLabel` / `rotateCommitLabel`, named theme resolution, `parallelCommits` depth layout, TB / BT direction rendering, validation pass for duplicate-branch / self-merge / cherry-pick preconditions) |
+| 🚧 | 32. XY chart | #179 | ~93% / ~90% | Phase A: stable `xychart` keyword alongside legacy `xychart-beta`, frontmatter `title:`, `accTitle` / `accDescr`, `<title>` / `<desc>` SVG emission; Phases B–C deferred (full config + theme variable plumbing, horizontal-orientation layout, continuous X-axis rendering, `showDataLabel` / `showDataLabelOutsideBar`, plot border, X-gridlines, negative-bar baseline) |
 
 ## Milestones
 
