@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -255,24 +256,409 @@ func TestRenderWithAxisTitles(t *testing.T) {
 // the renderer — output must match the vertical rendering byte-for-byte.
 // This test pins that intentional no-op so a future `Horizontal` impl
 // has to touch the test deliberately.
-func TestRenderHorizontalCurrentlyNoOp(t *testing.T) {
-	vertical := &diagram.XYChartDiagram{
+// Horizontal layout swaps which axis carries the categorical labels:
+// vertical puts categories along the bottom (text-anchor=middle,
+// dominant=hanging), horizontal puts them down the left side
+// (text-anchor=end, dominant=central).
+func TestRenderHorizontalLayoutSwapsAxes(t *testing.T) {
+	d := &diagram.XYChartDiagram{
+		Horizontal: true,
+		XAxis:      diagram.XYAxis{Categories: []string{"alpha", "beta"}},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{1, 2}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// In horizontal mode, the category labels render with text-anchor="end"
+	// (right-aligned to the left of the y-axis). Vertical mode uses "middle".
+	if !strings.Contains(raw, `text-anchor="end"`) {
+		t.Error("horizontal layout should anchor category labels at end (right of y-axis)")
+	}
+	for _, want := range []string{">alpha<", ">beta<"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected category label %q in horizontal output", want)
+		}
+	}
+	// Config-level orientation override should also flip the layout
+	// even when the AST flag is false.
+	d2 := &diagram.XYChartDiagram{
+		XAxis: diagram.XYAxis{Categories: []string{"alpha", "beta"}},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{1, 2}},
+		},
+	}
+	out2, err := Render(d2, &Options{Config: Config{ChartOrientation: OrientationHorizontal}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out2), `text-anchor="end"`) {
+		t.Error("Config.ChartOrientation=Horizontal should flip layout regardless of AST flag")
+	}
+}
+
+// `xychart-beta` with a numeric x-axis range and no categories should
+// render continuous-axis tick labels along the x-axis instead of
+// per-category labels.
+func TestRenderContinuousXAxis(t *testing.T) {
+	d := &diagram.XYChartDiagram{
+		XAxis: diagram.XYAxis{Title: "T", HasRange: true, Min: 0, Max: 10},
+		YAxis: diagram.XYAxis{HasRange: true, Min: 0, Max: 100},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesLine, Data: []float64{10, 30, 60, 90}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{">0<", ">2<", ">4<", ">6<", ">8<", ">10<"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected continuous x-axis tick %q", want)
+		}
+	}
+}
+
+// ShowDataLabel paints the value over each bar; ShowDataLabelOutsideBar
+// flips the placement to the bar's outer edge.
+func TestRenderDataLabels(t *testing.T) {
+	d := &diagram.XYChartDiagram{
+		XAxis: diagram.XYAxis{Categories: []string{"a", "b"}},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{42, 17}},
+		},
+	}
+	t.Run("inside", func(t *testing.T) {
+		on := true
+		out, err := Render(d, &Options{Config: Config{ShowDataLabel: &on}})
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		raw := string(out)
+		for _, want := range []string{">42<", ">17<"} {
+			if !strings.Contains(raw, want) {
+				t.Errorf("expected data label %q", want)
+			}
+		}
+	})
+	t.Run("off by default", func(t *testing.T) {
+		out, err := Render(d, nil)
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if strings.Contains(string(out), ">42<") {
+			t.Error("data labels should be off by default")
+		}
+	})
+}
+
+// Per-axis theme overrides bypass the LabelFill aggregate.
+func TestRenderPerAxisThemeOverride(t *testing.T) {
+	d := &diagram.XYChartDiagram{
+		XAxis: diagram.XYAxis{Title: "X", Categories: []string{"a"}},
+		YAxis: diagram.XYAxis{Title: "Y"},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{1}},
+		},
+	}
+	out, err := Render(d, &Options{Theme: Theme{
+		XAxisTitleColor: "#ff0000",
+		YAxisTitleColor: "#0000ff",
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "fill:#ff0000") {
+		t.Error("XAxisTitleColor override missing")
+	}
+	if !strings.Contains(raw, "fill:#0000ff") {
+		t.Error("YAxisTitleColor override missing")
+	}
+}
+
+// Disabling axis show-flags suppresses the corresponding SVG.
+// Horizontal layout with line series + multi-bar series + data labels
+// exercises the lower coverage paths in renderSeriesHorizontal.
+func TestRenderHorizontalSeriesCoverage(t *testing.T) {
+	on := true
+	d := &diagram.XYChartDiagram{
+		Horizontal: true,
+		XAxis:      diagram.XYAxis{Categories: []string{"a", "b", "c"}},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{10, 20, 30}},
+			{Type: diagram.XYSeriesBar, Data: []float64{15, 25, 5}},
+			{Type: diagram.XYSeriesLine, Data: []float64{12, 18, 22}},
+			{Type: diagram.XYSeriesLine, Data: nil}, // empty line: skip path
+		},
+	}
+	out, err := Render(d, &Options{Config: Config{
+		ShowDataLabel:           &on,
+		ShowDataLabelOutsideBar: &on,
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "<polyline") {
+		t.Error("expected line polyline in horizontal output")
+	}
+}
+
+// Aggregate Theme.LabelFill / Theme.AxisStroke overrides rebroadcast
+// to every per-axis surface they covered pre-split.
+func TestRenderThemeAggregateRebroadcast(t *testing.T) {
+	d := &diagram.XYChartDiagram{
+		Title: "T",
+		XAxis: diagram.XYAxis{Title: "X", Categories: []string{"a"}},
+		YAxis: diagram.XYAxis{Title: "Y"},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{1}},
+		},
+	}
+	out, err := Render(d, &Options{Theme: Theme{
+		LabelFill:  "#abc123",
+		AxisStroke: "#def456",
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "fill:#abc123") {
+		t.Error("LabelFill aggregate should rebroadcast to title/label/axis-title surfaces")
+	}
+	if !strings.Contains(raw, "stroke:#def456") {
+		t.Error("AxisStroke aggregate should rebroadcast to axis-line/tick surfaces")
+	}
+}
+
+// Config.ChartOrientation=Vertical forces vertical layout even when
+// the AST flag says horizontal.
+func TestRenderConfigForcesVerticalOverridesAST(t *testing.T) {
+	d := &diagram.XYChartDiagram{
+		Horizontal: true,
+		XAxis:      diagram.XYAxis{Categories: []string{"a"}},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{1}},
+		},
+	}
+	out, err := Render(d, &Options{Config: Config{ChartOrientation: OrientationVertical}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// Vertical category labels anchor "middle".
+	if !strings.Contains(string(out), `text-anchor="middle"`) {
+		t.Error("OrientationVertical should override AST Horizontal=true")
+	}
+}
+
+func TestRenderShowFlags(t *testing.T) {
+	d := &diagram.XYChartDiagram{
 		XAxis: diagram.XYAxis{Categories: []string{"a", "b"}},
 		Series: []diagram.XYSeries{
 			{Type: diagram.XYSeriesBar, Data: []float64{1, 2}},
 		},
 	}
-	horizontal := &diagram.XYChartDiagram{
+	off := false
+	out, err := Render(d, &Options{Config: Config{
+		XAxis: AxisConfig{ShowAxisLine: &off, ShowTick: &off, ShowLabel: &off},
+		YAxis: AxisConfig{ShowAxisLine: &off, ShowTick: &off, ShowLabel: &off},
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// With both axis lines + ticks off, the only stroke entries left
+	// are gridlines (#e5e5e5 default).
+	if strings.Contains(raw, ">a<") || strings.Contains(raw, ">b<") {
+		t.Error("ShowLabel=false should suppress category labels")
+	}
+}
+
+// Each show-flag must be independently honoured. Toggle exactly one
+// flag at a time and verify the corresponding SVG element disappears
+// while the unaffected ones stay.
+func TestRenderShowFlagsIsolation(t *testing.T) {
+	off := false
+	base := func() *diagram.XYChartDiagram {
+		return &diagram.XYChartDiagram{
+			XAxis: diagram.XYAxis{Title: "X", Categories: []string{"a", "b"}},
+			YAxis: diagram.XYAxis{Title: "Y", HasRange: true, Min: 0, Max: 10},
+			Series: []diagram.XYSeries{
+				{Type: diagram.XYSeriesBar, Data: []float64{1, 2}},
+			},
+		}
+	}
+	defaultOut, err := Render(base(), nil)
+	if err != nil {
+		t.Fatalf("default render: %v", err)
+	}
+	defaultRaw := string(defaultOut)
+	// Sanity: defaults emit category labels, axis title, ticks, axis lines.
+	for _, want := range []string{">a<", ">X<", ">Y<"} {
+		if !strings.Contains(defaultRaw, want) {
+			t.Fatalf("baseline missing %q", want)
+		}
+	}
+
+	tests := []struct {
+		name      string
+		opts      *Options
+		mustNot   []string
+		mustStill []string
+	}{
+		{
+			name: "XAxis.ShowLabel=off keeps Y labels",
+			opts: &Options{Config: Config{XAxis: AxisConfig{ShowLabel: &off}}},
+			mustNot:   []string{">a<", ">b<"},
+			mustStill: []string{">X<", ">Y<", "<line"},
+		},
+		{
+			name: "YAxis.ShowLabel=off keeps X labels",
+			opts: &Options{Config: Config{YAxis: AxisConfig{ShowLabel: &off}}},
+			mustNot:   []string{},
+			mustStill: []string{">a<", ">b<", ">X<", ">Y<"},
+		},
+		{
+			name: "XAxis.ShowTitle=off keeps Y title",
+			opts: &Options{Config: Config{XAxis: AxisConfig{ShowTitle: &off}}},
+			mustNot:   []string{">X<"},
+			mustStill: []string{">Y<", ">a<"},
+		},
+		{
+			name: "YAxis.ShowTitle=off keeps X title",
+			opts: &Options{Config: Config{YAxis: AxisConfig{ShowTitle: &off}}},
+			mustNot:   []string{">Y<"},
+			mustStill: []string{">X<", ">a<"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := Render(base(), tc.opts)
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			raw := string(out)
+			for _, s := range tc.mustNot {
+				if strings.Contains(raw, s) {
+					t.Errorf("expected %q absent, found in output", s)
+				}
+			}
+			for _, s := range tc.mustStill {
+				if !strings.Contains(raw, s) {
+					t.Errorf("expected %q present, missing", s)
+				}
+			}
+		})
+	}
+}
+
+// Continuous X with HasRange must clamp out-of-range data points so
+// they project onto the plot edges instead of escaping the viewBox or
+// producing NaN coordinates.
+func TestRenderContinuousXAxisClampsOutOfRange(t *testing.T) {
+	d := &diagram.XYChartDiagram{
+		XAxis: diagram.XYAxis{HasRange: true, Min: 0, Max: 10},
+		YAxis: diagram.XYAxis{HasRange: true, Min: 0, Max: 100},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesLine, Data: []float64{-50, 50, 500}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if strings.Contains(raw, "NaN") {
+		t.Error("NaN coordinate leaked into SVG (continuous-X clamp failed)")
+	}
+	// Polyline must still render — clamped, not dropped.
+	if !strings.Contains(raw, "<polyline") {
+		t.Error("expected polyline even with out-of-range data")
+	}
+}
+
+// In horizontal mode, cfg/theme keyed to the AST x-axis (which carries
+// categories) must apply to the visible LEFT axis, not to the bottom.
+// Regression for the axis-swap bug surfaced in PR review.
+func TestRenderHorizontalAxisCfgSwap(t *testing.T) {
+	d := &diagram.XYChartDiagram{
 		Horizontal: true,
-		XAxis:      diagram.XYAxis{Categories: []string{"a", "b"}},
+		XAxis:      diagram.XYAxis{Title: "CategoryAxis", Categories: []string{"a", "b"}},
+		YAxis:      diagram.XYAxis{Title: "ValueAxis", HasRange: true, Min: 0, Max: 10},
 		Series: []diagram.XYSeries{
 			{Type: diagram.XYSeriesBar, Data: []float64{1, 2}},
 		},
 	}
-	vOut, _ := Render(vertical, nil)
-	hOut, _ := Render(horizontal, nil)
-	if string(vOut) != string(hOut) {
-		t.Error("Horizontal flag currently a no-op; outputs should match")
+	out, err := Render(d, &Options{Config: Config{
+		// Make the X-axis label font distinctly larger than Y so we
+		// can tell which one ended up where.
+		XAxis: AxisConfig{LabelFontSize: 24, TitleFontSize: 28},
+		YAxis: AxisConfig{LabelFontSize: 10, TitleFontSize: 12},
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// Categories ("a", "b") should render at 24px (XAxis font),
+	// because in horizontal mode the X-axis (categorical) is on the
+	// left. Find an "a" label and verify its preceding font-size.
+	aIdx := strings.Index(raw, ">a<")
+	if aIdx < 0 {
+		t.Fatalf("missing category label 'a'")
+	}
+	prelude := raw[:aIdx]
+	fsIdx := strings.LastIndex(prelude, "font-size:")
+	if fsIdx < 0 {
+		t.Fatalf("could not locate font-size for category label")
+	}
+	fsEnd := strings.Index(prelude[fsIdx:], "px")
+	if !strings.Contains(prelude[fsIdx:fsIdx+fsEnd], "24") {
+		t.Errorf("expected category label at XAxis font (24px), got: %q", prelude[fsIdx:fsIdx+fsEnd+2])
+	}
+	// Bottom value-axis labels ("0", "2", ...) should be at YAxis 10px.
+	if !strings.Contains(raw, "font-size:10px") {
+		t.Errorf("expected value-axis labels at YAxis font (10px)")
+	}
+	// Title text colors shouldn't matter, just verify both titles render.
+	for _, want := range []string{">CategoryAxis<", ">ValueAxis<"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected axis title %q", want)
+		}
+	}
+}
+
+// In horizontal layout, two bar series in the same category must
+// occupy non-overlapping y-slots.
+func TestRenderHorizontalMultiBarSlotSplit(t *testing.T) {
+	d := &diagram.XYChartDiagram{
+		Horizontal: true,
+		XAxis:      diagram.XYAxis{Categories: []string{"only"}},
+		YAxis:      diagram.XYAxis{HasRange: true, Min: 0, Max: 100},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{50}},
+			{Type: diagram.XYSeriesBar, Data: []float64{75}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	rectRe := regexp.MustCompile(`<rect[^>]*y="([0-9.]+)"[^>]*style="fill:(#[0-9a-fA-F]{6});`)
+	matches := rectRe.FindAllStringSubmatch(string(out), -1)
+	ys := map[string]string{}
+	for _, m := range matches {
+		// Skip the background rect (always #fff or theme background).
+		if m[2] == "#fff" || m[2] == "#FFF" {
+			continue
+		}
+		ys[m[1]] = m[2]
+	}
+	if len(ys) != 2 {
+		t.Errorf("expected 2 distinct bar y-coordinates (split slot), got %d (%v)", len(ys), ys)
 	}
 }
 
