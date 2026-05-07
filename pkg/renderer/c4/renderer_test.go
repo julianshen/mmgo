@@ -367,3 +367,64 @@ func TestRenderC4BoundaryFrame(t *testing.T) {
 		t.Errorf("expected boundary heading in:\n%s", raw)
 	}
 }
+
+// A boundary whose every child id misses the layout returns nil
+// — the renderer doesn't crash, just doesn't draw a frame.
+func TestRenderC4BoundaryEmptyChildren(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContext,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User"},
+		},
+		Boundaries: []*diagram.C4Boundary{
+			// Index 99 is out of range; renderer must skip
+			// without panicking and emit no boundary frame.
+			{ID: "ghost", Label: "Ghost", Kind: diagram.C4BoundaryGeneric, Elements: []int{99}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(string(out), "Ghost") {
+		t.Errorf("ghost boundary heading should not appear")
+	}
+}
+
+// Two-level nested boundaries each emit their own dashed frame
+// + heading; both headings appear in the rendered SVG.
+func TestRenderC4BoundaryNested(t *testing.T) {
+	inner := &diagram.C4Boundary{
+		ID: "in", Label: "Inner",
+		Kind: diagram.C4BoundarySystem, Elements: []int{0},
+	}
+	outer := &diagram.C4Boundary{
+		ID: "out", Label: "Outer",
+		Kind: diagram.C4BoundaryEnterprise,
+		Boundaries: []*diagram.C4Boundary{inner},
+	}
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContainer,
+		Elements: []diagram.C4Element{
+			{ID: "c", Kind: diagram.C4ElementContainer, Label: "App"},
+		},
+		Boundaries: []*diagram.C4Boundary{outer},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{
+		"Outer &lt;&lt;enterprise_boundary&gt;&gt;",
+		"Inner &lt;&lt;system_boundary&gt;&gt;",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected %q in nested-frame output", want)
+		}
+	}
+	// Two dashed frames means two `stroke-dasharray:6 4`.
+	if got := strings.Count(raw, "stroke-dasharray:6 4"); got != 2 {
+		t.Errorf("expected 2 dashed frames, got %d", got)
+	}
+}

@@ -87,11 +87,9 @@ func Render(d *diagram.C4Diagram, opts *Options) ([]byte, error) {
 		})
 	}
 
-	// Boundaries paint behind edges + elements so the dashed frame
-	// reads as a backdrop. Walk the tree depth-first so nested
-	// boundaries are emitted in source order — outermost first
-	// is fine since the inner frames sit inside the outer's bbox
-	// either way.
+	// Boundaries paint behind edges + elements so the dashed
+	// frame reads as a backdrop. Outermost-first emission is fine
+	// because every frame uses fill:none.
 	children = append(children, renderBoundaries(d, l, pad, titleOffset, fontSize, th)...)
 	children = append(children, renderEdges(d, l, pad, titleOffset, fontSize, th, ruler)...)
 	children = append(children, renderElements(d, l, pad, titleOffset, fontSize, th)...)
@@ -416,12 +414,12 @@ func buildArrowMarker(th Theme) marker {
 // small enough that nested boundaries still nest visibly.
 const boundaryPad = 18.0
 
-// renderBoundaries walks the diagram's Boundaries tree, computing
-// each boundary's bounding box from its element/sub-boundary
-// positions and emitting a dashed rect plus a stereotype + name
-// label aligned to the top-left corner. Boundaries with no
-// resolvable children (parser registered them but no children
-// landed in the layout result) are skipped silently.
+// renderBoundaries emits one frame per top-level boundary,
+// recursing into nested boundaries inside renderBoundary. A
+// boundary with no resolvable children (every id missed the
+// layout) is skipped silently — this is degenerate input that
+// shouldn't crash the render but doesn't have a sensible frame
+// to draw either.
 func renderBoundaries(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize float64, th Theme) []any {
 	var elems []any
 	for _, b := range d.Boundaries {
@@ -469,9 +467,9 @@ func renderBoundary(d *diagram.C4Diagram, b *diagram.C4Boundary, l *layout.Resul
 // has somewhere to sit without overlapping the children's bbox.
 const boundaryHeadingPad = 12.0
 
-// boundaryHeading composes the visible label: `Name <<kind>>`,
-// matching the `<<…>>` stereotype convention C4 element labels
-// already use (`kindDisplayLabel` in this file).
+// boundaryHeading uses the same `<<kind>>` stereotype style
+// element labels do (kindDisplayLabel) so the two read as one
+// vocabulary in the rendered SVG.
 func boundaryHeading(b *diagram.C4Boundary) string {
 	name := b.Label
 	if name == "" {
@@ -497,9 +495,10 @@ func boundaryBBox(d *diagram.C4Diagram, b *diagram.C4Boundary, l *layout.Result,
 		ids = append(ids, d.Elements[idx].ID)
 	}
 	bb := svgutil.BBoxOver(ids, l.Nodes, pad)
-	// titleOff shifts every node down by its constant. BBoxOver
-	// only takes a single `pad` so apply the title offset by
-	// translating the bbox after the union — equivalent.
+	// l.Nodes coordinates don't yet include the chart's titleOff
+	// — that's added at element-render time. Translate the bbox
+	// once so direct elements end up in the same coord space the
+	// recursive child boundaries already produce.
 	if !bb.Empty() {
 		bb.MinY += titleOff
 		bb.MaxY += titleOff

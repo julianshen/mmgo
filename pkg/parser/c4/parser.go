@@ -129,9 +129,9 @@ func Parse(r io.Reader) (*diagram.C4Diagram, error) {
 			stack = stack[:len(stack)-1]
 			continue
 		}
-		// Boundary opener: `Boundary(...) {`, `System_Boundary(...) {`, etc.
-		// The trailing `{` may live on the same line or be the only
-		// content of the next line.
+		// The trailing `{` may live on the same line or as the
+		// only content of the next line; pendingBrace handles
+		// the latter.
 		if kind, rest, ok := matchBoundaryKeyword(line); ok {
 			args, opened, err := splitBoundaryHead(rest)
 			if err != nil {
@@ -300,8 +300,10 @@ func splitArgs(s string) []string {
 
 
 // boundaryKeywords pairs each documented boundary keyword with
-// its kind. Ordered longest-first so `Container_Boundary(` wins
-// over `Boundary(`.
+// its kind. Order matters only insofar as any keyword that is a
+// prefix of another must come AFTER the longer one — here the
+// only such pair is `Boundary` (a suffix of every other entry),
+// which is listed last.
 var boundaryKeywords = []struct {
 	kw   string
 	kind diagram.C4BoundaryKind
@@ -327,36 +329,35 @@ func matchBoundaryKeyword(line string) (diagram.C4BoundaryKind, string, bool) {
 // line. A missing `{` is fine — the next non-blank line may carry
 // it standalone.
 func splitBoundaryHead(rest string) (args string, opened bool, err error) {
-	close := strings.LastIndex(rest, ")")
-	if close < 0 {
-		return "", false, fmt.Errorf("Boundary: missing closing ')'")
+	rparen := strings.LastIndex(rest, ")")
+	if rparen < 0 {
+		return "", false, fmt.Errorf("boundary: missing closing ')'")
 	}
-	args = rest[:close]
-	tail := strings.TrimSpace(rest[close+1:])
+	args = rest[:rparen]
+	tail := strings.TrimSpace(rest[rparen+1:])
 	switch tail {
 	case "":
 		return args, false, nil
 	case "{":
 		return args, true, nil
 	}
-	return "", false, fmt.Errorf("Boundary: unexpected trailing content after ')': %q", tail)
+	return "", false, fmt.Errorf("boundary: unexpected trailing content after ')': %q", tail)
 }
 
-// parseBoundary turns a `Boundary(alias, "label", ?type, ?tags, $link)`
-// argument list into a fresh C4Boundary. Today only the positional
-// alias / label / optional type are recognised; named-arg `$tags=` /
-// `$link=` parsing lands in Phase 3.
+// parseBoundary turns a `Boundary(alias, "label", ?typeHint)` arg
+// list into a fresh C4Boundary. Named-arg forms (`$tags=`,
+// `$link=`, `$sprite=`) aren't recognised yet.
 func parseBoundary(kind diagram.C4BoundaryKind, rest string) (*diagram.C4Boundary, error) {
 	args := splitArgs(rest)
 	if len(args) < 1 {
-		return nil, fmt.Errorf("Boundary: requires at least an alias")
+		return nil, fmt.Errorf("boundary: requires at least an alias")
 	}
 	b := &diagram.C4Boundary{Kind: kind, ID: args[0]}
 	if len(args) >= 2 {
 		b.Label = parserutil.Unquote(args[1])
 	}
 	if len(args) >= 3 {
-		b.Type = parserutil.Unquote(args[2])
+		b.TypeHint = parserutil.Unquote(args[2])
 	}
 	return b, nil
 }

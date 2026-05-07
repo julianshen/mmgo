@@ -86,9 +86,8 @@ type C4Relation struct {
 }
 
 // C4BoundaryKind discriminates among the documented boundary
-// container keywords. Each draws as a dashed outer rectangle with
-// a `<<kind>>` stereotype label; layout-aware renderers can use
-// the kind to pick a fill / heading style.
+// container keywords. Renderers consume it to pick the
+// stereotype label and any kind-specific styling.
 type C4BoundaryKind int8
 
 const (
@@ -102,18 +101,22 @@ var c4BoundaryKindNames = []string{"boundary", "system_boundary", "enterprise_bo
 
 func (k C4BoundaryKind) String() string { return enumString(k, c4BoundaryKindNames) }
 
-// C4Boundary is a `Boundary(...) { ... }` container. Children
-// indexes into the parent diagram's flat Elements slice (or, for
-// nested groups, into Boundaries). Tags / Type are reserved for
-// Phase 3 named-arg parsing.
+// C4Boundary is a `Boundary(...) { ... }` container. Elements
+// indexes into the parent diagram's flat Elements slice; nested
+// groups live in Boundaries.
+//
+// TypeHint stores the optional positional 3rd arg
+// (`Boundary(b, "Label", "system")`) — Mermaid uses it to
+// override the rendered stereotype on a generic Boundary. Named
+// arguments (`$tags=`, `$link=`, `$sprite=`) are not yet parsed;
+// fields will be added as their parse paths land so the public
+// API doesn't ship with empty placeholders.
 type C4Boundary struct {
 	ID         string
 	Label      string
-	Type       string
+	TypeHint   string
 	Kind       C4BoundaryKind
-	Tags       string
-	Link       string
-	Elements   []int        // indexes into C4Diagram.Elements
+	Elements   []int // indexes into C4Diagram.Elements
 	Boundaries []*C4Boundary
 }
 

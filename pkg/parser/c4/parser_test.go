@@ -442,3 +442,80 @@ Person(p, "Y")`))
 		t.Error("expected error for Boundary(...) without { before next line")
 	}
 }
+
+// `parseBoundary` accepts the alias-only / 2-arg / 3-arg
+// positional forms and rejects an empty argument list.
+func TestParseC4BoundaryArities(t *testing.T) {
+	cases := []struct {
+		input    string
+		wantID   string
+		wantLabel string
+		wantHint string
+	}{
+		{`Boundary(b) {`, "b", "", ""},
+		{`Boundary(b, "Bank") {`, "b", "Bank", ""},
+		{`Boundary(b, "Bank", "system") {`, "b", "Bank", "system"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("C4Context\n" + tc.input + "\n}\n"))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			b := d.Boundaries[0]
+			if b.ID != tc.wantID || b.Label != tc.wantLabel || b.TypeHint != tc.wantHint {
+				t.Errorf("got %+v", b)
+			}
+		})
+	}
+
+	// Empty argument list rejected.
+	if _, err := Parse(strings.NewReader("C4Context\nBoundary() {\n}\n")); err == nil {
+		t.Error("expected error for empty Boundary arg list")
+	}
+}
+
+// `splitBoundaryHead` rejects malformed headers — missing
+// closing paren and unexpected trailing content after `)`.
+func TestParseC4BoundaryHeaderErrors(t *testing.T) {
+	cases := []string{
+		`Boundary(b, "X"` + "\n", // missing `)`
+		`Boundary(b, "X") garbage`,
+	}
+	for _, head := range cases {
+		t.Run(head, func(t *testing.T) {
+			if _, err := Parse(strings.NewReader("C4Context\n" + head + "\n")); err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+// Elements OUTSIDE every boundary block stay on the flat
+// Elements list but DON'T appear in any boundary's child idx.
+func TestParseC4ElementsOutsideBoundaries(t *testing.T) {
+	d, err := Parse(strings.NewReader(`C4Context
+Person(outside, "Out")
+Boundary(b, "Inner") {
+  System(inside, "In")
+}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Elements) != 2 {
+		t.Fatalf("flat elements = %v", d.Elements)
+	}
+	b := d.Boundaries[0]
+	if len(b.Elements) != 1 {
+		t.Fatalf("boundary children = %v", b.Elements)
+	}
+	if d.Elements[b.Elements[0]].ID != "inside" {
+		t.Errorf("boundary should only own 'inside'")
+	}
+	// `outside` must be flat-indexed but NOT in b.Elements.
+	for _, idx := range b.Elements {
+		if d.Elements[idx].ID == "outside" {
+			t.Error("'outside' should not appear in boundary children")
+		}
+	}
+}
