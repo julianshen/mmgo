@@ -43,9 +43,8 @@ func Render(d *diagram.TimelineDiagram, opts *Options) ([]byte, error) {
 	if len(d.Sections) == 0 && len(d.Events) == 0 {
 		return renderEmpty(d, fontSize, th)
 	}
-	// Mermaid spec defaults timelines to LR (horizontal); only an
-	// explicit `direction TD` flips to the vertical layout this
-	// renderer originally shipped with.
+	// Mermaid spec defaults timelines to LR (horizontal); `direction TD`
+	// flips to the vertical layout.
 	if d.Direction == "TD" {
 		return renderTD(d, fontSize, th)
 	}
@@ -194,11 +193,8 @@ const (
 	lrSectionBandPad = 4.0
 )
 
-// renderLR draws the spec-default horizontal timeline layout:
-// section bands sit at the top spanning the columns they own,
-// period time labels run as a row beneath the bands, a single
-// horizontal axis cuts across all columns, and events stack
-// vertically below each period column.
+// renderLR is the spec-default horizontal layout; renderTD is opt-in
+// via `direction TD`.
 func renderLR(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, error) {
 	pad := defaultPadding
 
@@ -251,13 +247,10 @@ func renderLR(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, e
 		}
 	}
 	if len(cols) == 0 {
-		// Render dispatched here only when sections/events list
-		// existed but every section's Events slice was empty.
-		// Fall through to the empty-diagram chrome.
+		// Sections present but every Events slice empty — treat as empty diagram.
 		return renderEmpty(d, fontSize, th)
 	}
 
-	// Layout pass.
 	titleOffset := 0.0
 	if d.Title != "" {
 		titleOffset = titleH
@@ -266,7 +259,8 @@ func renderLR(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, e
 	if len(ranges) > 0 {
 		bandRowH = lrSectionBandH + lrSectionBandPad
 	}
-	if maxEvents == 0 {
+	// At least one row so a column with no events still draws an empty box.
+	if maxEvents < 1 {
 		maxEvents = 1
 	}
 	eventsRowH := float64(maxEvents) * (lrEventBoxH + lrEventGap)
@@ -285,8 +279,6 @@ func renderLR(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, e
 
 	children := emitChrome(d, viewW, viewH, fontSize, th)
 
-	// Section bands span their column range with a tinted rect
-	// and centered title.
 	for _, r := range ranges {
 		startX := pad + float64(r.startCol)*(lrColW+lrColGap)
 		endX := pad + float64(r.endCol)*(lrColW+lrColGap) + lrColW
@@ -307,13 +299,8 @@ func renderLR(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, e
 		}
 	}
 
-	// Horizontal axis: a single line across the entire column
-	// range; each column gets a dot at its center.
 	axisX1 := pad
 	axisX2 := pad + float64(len(cols))*(lrColW+lrColGap) - lrColGap
-	if axisX2 < axisX1 {
-		axisX2 = axisX1
-	}
 	children = append(children, &line{
 		X1: svgFloat(axisX1), Y1: svgFloat(axisY),
 		X2: svgFloat(axisX2), Y2: svgFloat(axisY),
@@ -322,14 +309,12 @@ func renderLR(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, e
 
 	for i, c := range cols {
 		cx := colCenterX(i)
-		// Time label sits just above the axis.
 		children = append(children, &text{
 			X: svgFloat(cx), Y: svgFloat(timeRowY + lrTimeRowH/2),
 			Anchor: "middle", Dominant: "central",
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.SectionText, fontSize),
 			Content: c.ev.Time,
 		})
-		// Axis dot anchors the column to the timeline.
 		children = append(children, &circle{
 			CX: svgFloat(cx), CY: svgFloat(axisY), R: svgFloat(lrAxisDotR),
 			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:2", c.color, th.Background),
@@ -360,10 +345,8 @@ func renderLR(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, e
 	return finalizeSVG(0, 0, viewW, viewH, children)
 }
 
-// renderEmpty draws a minimal placeholder when the diagram has
-// no periods at all — shared by both LR and TD dispatch paths
-// since neither layout has anything to draw without periods.
-// Title + accessibility are still honoured.
+// renderEmpty is the placeholder when there are no periods to draw.
+// Title + accessibility metadata are still honoured.
 func renderEmpty(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, error) {
 	pad := defaultPadding
 	w := 200.0
@@ -402,10 +385,7 @@ func emitChrome(d *diagram.TimelineDiagram, viewW, viewH, fontSize float64, th T
 	return children
 }
 
-// finalizeSVG marshals the root <svg> with the supplied viewBox
-// and prepends the XML declaration. The minX/minY parameters let
-// callers shift the origin (currently always 0) without further
-// cosmetics in the call site.
+// finalizeSVG marshals the root <svg> and prepends the XML declaration.
 func finalizeSVG(minX, minY, viewW, viewH float64, children []any) ([]byte, error) {
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
