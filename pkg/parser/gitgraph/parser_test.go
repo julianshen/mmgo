@@ -510,3 +510,43 @@ commit`))
 		t.Error("expected error for unterminated accDescr block")
 	}
 }
+
+func TestParseHeaderDirectionCaptured(t *testing.T) {
+	cases := map[string]diagram.GitGraphDirection{
+		"gitGraph":    "",
+		"gitGraph LR": diagram.GitGraphDirLR,
+		"gitGraph TB": diagram.GitGraphDirTB,
+		"gitGraph BT": diagram.GitGraphDirBT,
+	}
+	for header, want := range cases {
+		d, err := Parse(strings.NewReader(header + "\ncommit\n"))
+		if err != nil {
+			t.Errorf("Parse(%q): %v", header, err)
+			continue
+		}
+		if d.Direction != want {
+			t.Errorf("header %q: Direction = %q, want %q", header, d.Direction, want)
+		}
+	}
+}
+
+func TestParseBranchOrderRejectsNonNumeric(t *testing.T) {
+	cases := []struct {
+		input string
+		name  string
+	}{
+		{"gitGraph\nbranch foo order: -1\n", "negative order should not silently coerce to 0"},
+		{"gitGraph\nbranch foo order: abc\n", "non-numeric order should not silently coerce to 0"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d, err := Parse(strings.NewReader(c.input))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if _, has := d.BranchOrder["foo"]; has {
+				t.Errorf("malformed `order:` value must not be silently coerced to 0; BranchOrder=%v", d.BranchOrder)
+			}
+		})
+	}
+}

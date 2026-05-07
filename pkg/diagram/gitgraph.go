@@ -38,10 +38,21 @@ type GitCommit struct {
 	Parents []string
 }
 
+// GitGraphDirection is the orientation token after the `gitGraph`
+// header. Empty value falls back to LR.
+type GitGraphDirection string
+
+const (
+	GitGraphDirLR GitGraphDirection = "LR"
+	GitGraphDirTB GitGraphDirection = "TB"
+	GitGraphDirBT GitGraphDirection = "BT"
+)
+
 type GitGraphDiagram struct {
-	Title    string
-	AccTitle string
-	AccDescr string
+	Title     string
+	AccTitle  string
+	AccDescr  string
+	Direction GitGraphDirection
 	// MainBranchName overrides the default "main" branch when the
 	// frontmatter / init directive supplies an alternative name.
 	MainBranchName string

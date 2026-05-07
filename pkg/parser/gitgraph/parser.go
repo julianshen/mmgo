@@ -57,6 +57,9 @@ func Parse(r io.Reader) (*diagram.GitGraphDiagram, error) {
 			if !isHeader(line) {
 				return nil, fmt.Errorf("line %d: expected 'gitGraph' header, got %q", lineNum, line)
 			}
+			if dir := headerDirection(line); dir != "" {
+				p.diagram.Direction = dir
+			}
 			headerSeen = true
 			continue
 		}
@@ -98,16 +101,42 @@ func Parse(r io.Reader) (*diagram.GitGraphDiagram, error) {
 	return p.diagram, nil
 }
 
-// isHeader accepts `gitGraph`, `gitGraph:`, or `gitGraph <dir>` where
-// <dir> is LR/TB/BT — the forms Mermaid allows on this diagram.
-func isHeader(line string) bool {
+// headerResidue strips the `gitGraph` keyword (and optional trailing
+// colon) and returns the residual direction token. ok=false means
+// the line isn't a gitGraph header at all.
+func headerResidue(line string) (rest string, ok bool) {
 	if !parserutil.HasHeaderKeyword(line, "gitGraph") {
+		return "", false
+	}
+	rest = strings.TrimSpace(strings.TrimPrefix(line, "gitGraph"))
+	rest = strings.TrimSuffix(rest, ":")
+	return strings.TrimSpace(rest), true
+}
+
+func isHeader(line string) bool {
+	rest, ok := headerResidue(line)
+	if !ok {
 		return false
 	}
-	rest := strings.TrimSpace(strings.TrimPrefix(line, "gitGraph"))
-	rest = strings.TrimSuffix(rest, ":")
-	rest = strings.TrimSpace(rest)
 	return rest == "" || rest == "LR" || rest == "TB" || rest == "BT"
+}
+
+// headerDirection returns the direction token from `gitGraph LR`
+// (etc.). Empty means the bare-header form, leaving the AST default.
+func headerDirection(line string) diagram.GitGraphDirection {
+	rest, ok := headerResidue(line)
+	if !ok {
+		return ""
+	}
+	switch rest {
+	case "LR":
+		return diagram.GitGraphDirLR
+	case "TB":
+		return diagram.GitGraphDirTB
+	case "BT":
+		return diagram.GitGraphDirBT
+	}
+	return ""
 }
 
 type parser struct {
@@ -282,15 +311,15 @@ func extractOrder(s string) (int, bool) {
 	}
 	val := strings.TrimSpace(s[idx+len("order:"):])
 	val = strings.TrimSuffix(val, ",")
+	if val == "" || val[0] < '0' || val[0] > '9' {
+		return 0, false
+	}
 	n := 0
 	for _, r := range val {
 		if r < '0' || r > '9' {
 			break
 		}
 		n = n*10 + int(r-'0')
-	}
-	if val == "" {
-		return 0, false
 	}
 	return n, true
 }

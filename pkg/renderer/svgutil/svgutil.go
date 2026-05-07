@@ -626,3 +626,19 @@ func MergeBoolPtr(dst **bool, src *bool) {
 		*dst = src
 	}
 }
+
+// BoolPtr returns a *bool pointing at b. Needed for tri-state
+// Show*-style config flags whose default is non-zero (true), where
+// nil = "inherit default" and an explicit *bool distinguishes
+// "explicitly off" from "explicitly on".
+func BoolPtr(b bool) *bool { return &b }
+
+// BoolOr returns *p, or fallback when p is nil. Companion to BoolPtr
+// for unwrapping a tri-state Show* flag at the render-time
+// consumption site.
+func BoolOr(p *bool, fallback bool) bool {
+	if p == nil {
+		return fallback
+	}
+	return *p
+}
