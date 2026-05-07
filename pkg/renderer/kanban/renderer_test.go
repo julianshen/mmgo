@@ -301,3 +301,99 @@ func TestRenderKanbanHeader(t *testing.T) {
 		t.Errorf("expected diagram title rendered in:\n%s", raw)
 	}
 }
+
+// Each documented priority level paints a colored left-edge
+// stripe on the card.
+func TestRenderKanbanPriorityStripe(t *testing.T) {
+	cases := []struct {
+		level string
+		want  string
+	}{
+		{"Very High", DefaultTheme().PriorityVeryHigh},
+		{"High", DefaultTheme().PriorityHigh},
+		{"Low", DefaultTheme().PriorityLow},
+		{"Very Low", DefaultTheme().PriorityVeryLow},
+	}
+	for _, tc := range cases {
+		d := &diagram.KanbanDiagram{
+			Sections: []diagram.KanbanSection{
+				{Title: "Todo", Tasks: []diagram.KanbanTask{
+					{ID: "t1", Text: "Hot fix", Metadata: map[string]string{"priority": tc.level}},
+				}},
+			},
+		}
+		out, err := Render(d, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.level, err)
+		}
+		if !strings.Contains(string(out), "fill:"+tc.want) {
+			t.Errorf("priority %q: expected stripe fill %q in output", tc.level, tc.want)
+		}
+	}
+}
+
+// An unrecognised priority value silently falls through; the card
+// has no stripe but otherwise renders cleanly.
+func TestRenderKanbanPriorityUnknown(t *testing.T) {
+	d := &diagram.KanbanDiagram{
+		Sections: []diagram.KanbanSection{
+			{Title: "Todo", Tasks: []diagram.KanbanTask{
+				{ID: "t1", Text: "Maybe", Metadata: map[string]string{"priority": "Medium"}},
+			}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// None of the four priority colors should appear.
+	th := DefaultTheme()
+	for _, color := range []string{th.PriorityVeryHigh, th.PriorityHigh, th.PriorityLow, th.PriorityVeryLow} {
+		if strings.Contains(string(out), "fill:"+color) {
+			t.Errorf("unknown priority should not paint %q", color)
+		}
+	}
+}
+
+// When a diagram has TicketBaseURL set and a card carries a
+// `ticket:` metadata value, the card is wrapped in an <a href> with
+// `#TICKET#` substituted.
+func TestRenderKanbanTicketLink(t *testing.T) {
+	d := &diagram.KanbanDiagram{
+		TicketBaseURL: "https://example.com/issues/#TICKET#",
+		Sections: []diagram.KanbanSection{
+			{Title: "Todo", Tasks: []diagram.KanbanTask{
+				{ID: "t1", Text: "Linked", Metadata: map[string]string{"ticket": "MC-42"}},
+			}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), `href="https://example.com/issues/MC-42"`) {
+		t.Errorf("expected substituted ticket href in output:\n%s", out)
+	}
+}
+
+// Cards without a `ticket:` value or without TicketBaseURL stay
+// unwrapped — no <a> for that card.
+func TestRenderKanbanNoTicketLink(t *testing.T) {
+	for _, base := range []string{"", "https://x.example/#TICKET#"} {
+		d := &diagram.KanbanDiagram{
+			TicketBaseURL: base,
+			Sections: []diagram.KanbanSection{
+				{Title: "Todo", Tasks: []diagram.KanbanTask{
+					{ID: "t1", Text: "Plain"},
+				}},
+			},
+		}
+		out, err := Render(d, nil)
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if strings.Contains(string(out), "<a ") {
+			t.Errorf("no ticket = no <a> wrap, got:\n%s", out)
+		}
+	}
+}
