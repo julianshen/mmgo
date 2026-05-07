@@ -426,3 +426,31 @@ bar [1, 2]`))
 		t.Errorf("acc = %q / %q", d.AccTitle, d.AccDescr)
 	}
 }
+
+// Multi-line `accDescr { ... }` block accumulates body lines.
+func TestParseXYChartAccDescrBlock(t *testing.T) {
+	d, err := Parse(strings.NewReader(`xychart
+accDescr {
+  Quarterly revenue
+  across product lines
+}
+bar [1, 2]`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	want := "Quarterly revenue\nacross product lines"
+	if d.AccDescr != want {
+		t.Errorf("accDescr = %q, want %q", d.AccDescr, want)
+	}
+}
+
+// Unterminated `accDescr {` errors.
+func TestParseXYChartAccDescrUnterminated(t *testing.T) {
+	_, err := Parse(strings.NewReader(`xychart
+accDescr {
+  Open
+bar [1]`))
+	if err == nil {
+		t.Error("expected error for unterminated accDescr block")
+	}
+}

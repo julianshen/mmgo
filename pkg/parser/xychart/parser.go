@@ -50,6 +50,8 @@ func Parse(r io.Reader) (*diagram.XYChartDiagram, error) {
 
 	lineNum := 0
 	headerSeen := false
+	var accDescrLines []string
+	inAccDescrBlock := false
 	for scanner.Scan() {
 		lineNum++
 		line := strings.TrimSpace(parserutil.StripComment(scanner.Text()))
@@ -74,12 +76,29 @@ func Parse(r io.Reader) (*diagram.XYChartDiagram, error) {
 			headerSeen = true
 			continue
 		}
+		if inAccDescrBlock {
+			if line == "}" {
+				d.AccDescr = strings.Join(accDescrLines, "\n")
+				accDescrLines = accDescrLines[:0]
+				inAccDescrBlock = false
+				continue
+			}
+			accDescrLines = append(accDescrLines, line)
+			continue
+		}
+		if line == "accDescr {" || line == "accDescr{" {
+			inAccDescrBlock = true
+			continue
+		}
 		if err := parseLine(line, d); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("reading input: %w", err)
+	}
+	if inAccDescrBlock {
+		return nil, fmt.Errorf("unterminated accDescr { ... } block")
 	}
 	if !headerSeen {
 		return nil, fmt.Errorf("missing %s header", headerKeyword)
