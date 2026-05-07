@@ -35,10 +35,9 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	}
 	th := resolveTheme(opts)
 	cfg := resolveConfig(opts)
-	// Options.FontSize is the legacy "scale every label" knob —
-	// keep it working by deriving per-element sizes when callers
-	// haven't set the granular Config fields. Matches the original
-	// `fontSize+2 / fontSize-1 / fontSize-2` formulas.
+	// Options.FontSize remains the single-knob shorthand for
+	// callers that predate per-element Config fields; the
+	// granular Config values win when set.
 	if opts != nil && opts.FontSize > 0 && opts.FontSize != defaultFontSize {
 		if opts.Config.TitleFontSize == 0 {
 			cfg.TitleFontSize = opts.FontSize + 2
@@ -56,9 +55,9 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 			cfg.PointLabelFontSize = max(opts.FontSize-2, 1)
 		}
 	}
-	// Plot side: square of min(ChartWidth, ChartHeight) sans
-	// per-side padding so squashed configs still produce a
-	// proportional plot.
+	// Plot is always square; pick the smaller of the two
+	// configured dimensions so a non-square Config still produces
+	// a proportional plot rather than skewing.
 	plotSide := cfg.ChartWidth
 	if cfg.ChartHeight < plotSide {
 		plotSide = cfg.ChartHeight
@@ -68,8 +67,8 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	if d.Title != "" {
 		titleH = cfg.TitleFontSize + 2*cfg.TitlePadding
 	}
-	xAxisAtTop := cfg.XAxisPosition == AxisPositionTop || (cfg.XAxisPosition == AxisPositionAuto && onlyBottomQuadrantsPopulated(d))
-	yAxisAtRight := cfg.YAxisPosition == AxisPositionRight || (cfg.YAxisPosition == AxisPositionAuto && onlyRightQuadrantsPopulated(d))
+	xAxisAtTop := cfg.XAxisPosition == XAxisTop || (cfg.XAxisPosition == XAxisAuto && onlyBottomQuadrantsPopulated(d))
+	yAxisAtRight := cfg.YAxisPosition == YAxisRight || (cfg.YAxisPosition == YAxisAuto && onlyRightQuadrantsPopulated(d))
 
 	// Each axis has its own gap because the documented config
 	// supplies separate font-size + padding values for X and Y.
@@ -122,14 +121,13 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	// per-quadrant rects. Keeping the single-rect path preserves
 	// SVG output stability when callers don't override the
 	// quadrant palette.
-	// Per-quadrant rect bounds in math-convention order
-	// (Q1=top-right, Q2=top-left, Q3=bottom-left, Q4=bottom-right).
+	// Per-quadrant rect bounds in QuadrantQ1..Q4 order.
 	type quadRect struct{ x0, y0, x1, y1 float64 }
 	quadRects := [4]quadRect{
-		{midX, plotY0, plotX1, midY},   // Q1 top-right
-		{plotX0, plotY0, midX, midY},   // Q2 top-left
-		{plotX0, midY, midX, plotY1},   // Q3 bottom-left
-		{midX, midY, plotX1, plotY1},   // Q4 bottom-right
+		{midX, plotY0, plotX1, midY},
+		{plotX0, plotY0, midX, midY},
+		{plotX0, midY, midX, plotY1},
+		{midX, midY, plotX1, plotY1},
 	}
 	hasPerQuadrant := false
 	for _, q := range th.Quadrants {
@@ -189,20 +187,17 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		Style: dividerStyle,
 	})
 
-	// Quadrant labels — Mermaid uses math-convention numbering:
-	// Q1 top-right, Q2 top-left, Q3 bottom-left, Q4 bottom-right.
-	// Labels iterate over the 4 quadrants in the same index order
-	// as Theme.Quadrants so text color picks straight off the
-	// matching palette.
+	// Labels in QuadrantQ1..Q4 order so each Theme.Quadrants[i]
+	// text color lines up by index.
 	type qLabel struct {
 		text string
 		x, y float64 // 0 = left/top, 1 = right/bottom within its half
 	}
 	labels := [4]qLabel{
-		{d.Quadrant1, 1, 0}, // Q1 top-right
-		{d.Quadrant2, 0, 0}, // Q2 top-left
-		{d.Quadrant3, 0, 1}, // Q3 bottom-left
-		{d.Quadrant4, 1, 1}, // Q4 bottom-right
+		{d.Quadrant1, 1, 0},
+		{d.Quadrant2, 0, 0},
+		{d.Quadrant3, 0, 1},
+		{d.Quadrant4, 1, 1},
 	}
 	quadCenter := func(x, y float64) (float64, float64) {
 		return (plotX0+midX)/2 + x*(plotSide/2), (plotY0+midY)/2 + y*(plotSide/2)

@@ -1,14 +1,12 @@
 package quadrant
 
 // Config mirrors the `quadrantChart` block users can supply via
-// `%%{init: {quadrantChart: {...}}}%%`. Field names match the
-// documented config keys 1:1 so a future init-directive parser
-// can decode JSON straight into this struct.
+// `%%{init: {quadrantChart: {...}}}%%`.
 //
-// AxisPosition fields select which side of the plot each axis
-// label sits on. "auto" lets the renderer flip labels when only
-// the top/bottom (resp. left/right) quadrants carry data — the
-// behaviour the spec describes for sparsely populated charts.
+// XAxisPosition / YAxisPosition use distinct types so an X axis
+// can't be set to Left/Right and a Y axis can't be set to
+// Top/Bottom — the compiler rejects mismatched pairings rather
+// than the renderer silently ignoring them.
 type Config struct {
 	ChartWidth  float64
 	ChartHeight float64
@@ -22,27 +20,46 @@ type Config struct {
 
 	XAxisLabelPadding  float64
 	XAxisLabelFontSize float64
-	XAxisPosition      AxisPosition
+	XAxisPosition      XAxisPosition
 
 	YAxisLabelPadding  float64
 	YAxisLabelFontSize float64
-	YAxisPosition      AxisPosition
+	YAxisPosition      YAxisPosition
 
 	PointLabelFontSize float64
 	PointRadius        float64
 }
 
-// AxisPosition controls which edge of the plot an axis label
-// anchors to. Default is the auto-detect fallback (the renderer
-// picks based on which quadrants are populated).
-type AxisPosition int8
+// XAxisPosition selects which horizontal edge the X-axis labels
+// anchor to. The Auto default lets the renderer flip the labels
+// to the top when only the bottom-half quadrants carry data.
+type XAxisPosition int8
 
 const (
-	AxisPositionAuto AxisPosition = iota
-	AxisPositionTop
-	AxisPositionBottom
-	AxisPositionLeft
-	AxisPositionRight
+	XAxisAuto XAxisPosition = iota
+	XAxisTop
+	XAxisBottom
+)
+
+// YAxisPosition is the Y-axis counterpart to XAxisPosition. Auto
+// flips the rotated title to the right side when the left half
+// of the plot is empty.
+type YAxisPosition int8
+
+const (
+	YAxisAuto YAxisPosition = iota
+	YAxisLeft
+	YAxisRight
+)
+
+// QuadrantIndex names the math-convention indices into
+// Theme.Quadrants so callers don't have to remember which slot
+// corresponds to which quadrant.
+const (
+	QuadrantQ1 = 0 // top-right
+	QuadrantQ2 = 1 // top-left
+	QuadrantQ3 = 2 // bottom-left
+	QuadrantQ4 = 3 // bottom-right
 )
 
 // DefaultConfig returns the layout / typography knobs that
@@ -51,11 +68,10 @@ const (
 // resolveConfig fills the rest.
 func DefaultConfig() Config {
 	return Config{
-		// Mermaid spec defaults to 500×500; mmgo's pinned example
-		// snapshots assume 400×400, so the default stays here
-		// until we regenerate every quadrant snapshot.
-		ChartWidth:                   400,
-		ChartHeight:                  400,
+		// 400 (vs Mermaid's 500) keeps the existing example
+		// snapshots stable — most users don't override these.
+		ChartWidth:  400,
+		ChartHeight: 400,
 		TitleFontSize:                15,
 		TitlePadding:                 0,
 		QuadrantLabelFontSize:        13,
@@ -63,10 +79,10 @@ func DefaultConfig() Config {
 		QuadrantExternalBorderStroke: 1.5,
 		XAxisLabelPadding:            20,
 		XAxisLabelFontSize:           12,
-		XAxisPosition:                AxisPositionAuto,
+		XAxisPosition:                XAxisAuto,
 		YAxisLabelPadding:            20,
 		YAxisLabelFontSize:           12,
-		YAxisPosition:                AxisPositionAuto,
+		YAxisPosition:                YAxisAuto,
 		PointLabelFontSize:           11,
 		PointRadius:                  7,
 	}
@@ -99,10 +115,10 @@ func resolveConfig(opts *Options) Config {
 	mergeF(&c.YAxisLabelFontSize, o.YAxisLabelFontSize)
 	mergeF(&c.PointLabelFontSize, o.PointLabelFontSize)
 	mergeF(&c.PointRadius, o.PointRadius)
-	if o.XAxisPosition != AxisPositionAuto {
+	if o.XAxisPosition != XAxisAuto {
 		c.XAxisPosition = o.XAxisPosition
 	}
-	if o.YAxisPosition != AxisPositionAuto {
+	if o.YAxisPosition != YAxisAuto {
 		c.YAxisPosition = o.YAxisPosition
 	}
 	return c
