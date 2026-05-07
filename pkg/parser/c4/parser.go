@@ -66,6 +66,8 @@ func Parse(r io.Reader) (*diagram.C4Diagram, error) {
 	d := &diagram.C4Diagram{}
 	lineNum := 0
 	headerSeen := false
+	var accDescrLines []string
+	inAccDescrBlock := false
 
 	for scanner.Scan() {
 		lineNum++
@@ -82,12 +84,29 @@ func Parse(r io.Reader) (*diagram.C4Diagram, error) {
 			headerSeen = true
 			continue
 		}
+		if inAccDescrBlock {
+			if line == "}" {
+				d.AccDescr = strings.Join(accDescrLines, "\n")
+				accDescrLines = accDescrLines[:0]
+				inAccDescrBlock = false
+				continue
+			}
+			accDescrLines = append(accDescrLines, line)
+			continue
+		}
+		if line == "accDescr {" || line == "accDescr{" {
+			inAccDescrBlock = true
+			continue
+		}
 		if err := parseLine(d, line); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("reading input: %w", err)
+	}
+	if inAccDescrBlock {
+		return nil, fmt.Errorf("unterminated accDescr { ... } block")
 	}
 	if !headerSeen {
 		return nil, fmt.Errorf("missing C4 header")

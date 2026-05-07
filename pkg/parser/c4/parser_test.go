@@ -284,3 +284,31 @@ title Internet Banking`))
 		t.Errorf("title = %q", d.Title)
 	}
 }
+
+// Multi-line `accDescr { ... }` block accumulates body lines.
+func TestParseC4AccDescrBlock(t *testing.T) {
+	d, err := Parse(strings.NewReader(`C4Context
+accDescr {
+  Top-level system view
+  with external actors
+}
+System(s, "Banking")`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	want := "Top-level system view\nwith external actors"
+	if d.AccDescr != want {
+		t.Errorf("accDescr = %q, want %q", d.AccDescr, want)
+	}
+}
+
+// Unterminated `accDescr {` errors with a clear message.
+func TestParseC4AccDescrUnterminated(t *testing.T) {
+	_, err := Parse(strings.NewReader(`C4Context
+accDescr {
+  Open
+System(s, "X")`))
+	if err == nil {
+		t.Error("expected error for unterminated accDescr block")
+	}
+}
