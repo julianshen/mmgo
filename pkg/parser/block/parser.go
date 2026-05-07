@@ -15,7 +15,9 @@ import (
 func Parse(r io.Reader) (*diagram.BlockDiagram, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	d := &diagram.BlockDiagram{}
+	d := &diagram.BlockDiagram{
+		CSSClasses: make(map[string]string),
+	}
 	lineNum := 0
 	headerSeen := false
 	nodeIdx := make(map[string]int)
@@ -63,6 +65,46 @@ func Parse(r io.Reader) (*diagram.BlockDiagram, error) {
 			}
 			continue
 		}
+		if strings.HasPrefix(line, "classDef ") {
+			name, css, err := parserutil.ParseClassDefLine(line[len("classDef "):])
+			if err != nil {
+				return nil, fmt.Errorf("line %d: %w", lineNum, err)
+			}
+			d.CSSClasses[name] = css
+			continue
+		}
+		if rest, ok := strings.CutPrefix(line, "style "); ok {
+			parts := strings.SplitN(strings.TrimSpace(rest), " ", 2)
+			if len(parts) < 2 {
+				return nil, fmt.Errorf("line %d: style requires an ID and CSS", lineNum)
+			}
+			d.Styles = append(d.Styles, diagram.BlockStyleDef{
+				NodeID: strings.TrimSpace(parts[0]),
+				CSS:    parserutil.NormalizeCSS(strings.TrimSpace(parts[1])),
+			})
+			continue
+		}
+		if rest, ok := strings.CutPrefix(line, "class "); ok {
+			// `class id1,id2,... name [name2 ...]`. Comma list of
+			// targets, then space-separated class names.
+			fields := strings.SplitN(strings.TrimSpace(rest), " ", 2)
+			if len(fields) < 2 {
+				return nil, fmt.Errorf("line %d: class requires ids and a class name", lineNum)
+			}
+			classNames := strings.Fields(fields[1])
+			for _, id := range strings.Split(fields[0], ",") {
+				id = strings.TrimSpace(id)
+				if id == "" {
+					continue
+				}
+				idx, ok := nodeIdx[id]
+				if !ok {
+					return nil, fmt.Errorf("line %d: class binding references undefined node %q", lineNum, id)
+				}
+				d.Nodes[idx].CSSClasses = append(d.Nodes[idx].CSSClasses, classNames...)
+			}
+			continue
+		}
 		if line == "end" {
 			if len(stack) == 1 {
 				return nil, fmt.Errorf("line %d: 'end' with no matching 'block:' to close", lineNum)
@@ -94,7 +136,15 @@ func Parse(r io.Reader) (*diagram.BlockDiagram, error) {
 		// item in the current scope. `space` / `space:N` is a
 		// reserved name that emits a spacer instead of a node.
 		for _, tok := range tokenize(line) {
-			head, width := splitWidthSuffix(tok)
+			// `:::cssClass` shorthand peels first so a chained
+			// `id:::name:N` width suffix still applies to the
+			// node (`name` gets attached, then the remaining
+			// `id:N` flows through the rest of the pipeline).
+			head, cssClass, ok := parserutil.ExtractCSSClassShorthand(tok)
+			if !ok {
+				return nil, fmt.Errorf("line %d: only one `:::` shorthand allowed per token (%q)", lineNum, tok)
+			}
+			head, width := splitWidthSuffix(head)
 			if head == "space" {
 				cols := width
 				if cols <= 0 {
@@ -110,6 +160,9 @@ func Parse(r io.Reader) (*diagram.BlockDiagram, error) {
 				continue
 			}
 			ensureNode(d, nodeIdx, id, label, shape, width)
+			if cssClass != "" {
+				d.Nodes[nodeIdx[id]].CSSClasses = append(d.Nodes[nodeIdx[id]].CSSClasses, cssClass)
+			}
 			*current().items = append(*current().items, diagram.BlockItem{
 				Kind: diagram.BlockItemNodeRef, NodeID: id,
 			})

@@ -137,6 +137,12 @@ func renderNodes(d *diagram.BlockDiagram, l *layout.Result, pad, fontSize float6
 		y := cy - h/2
 
 		style := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.NodeFill, th.NodeStroke)
+		// classDef + per-node `style` overrides land last so author
+		// declarations win over the theme defaults; later
+		// declarations win over earlier ones.
+		if extra := mergeNodeCSS(d, n); extra != "" {
+			style += ";" + extra
+		}
 		switch n.Shape {
 		case diagram.BlockShapeDiamond:
 			pts := fmt.Sprintf("%.2f,%.2f %.2f,%.2f %.2f,%.2f %.2f,%.2f",
@@ -375,6 +381,25 @@ func buildArrowMarkers(th Theme) []marker {
 			},
 		},
 	}
+}
+
+// mergeNodeCSS returns the CSS string a node inherits from its
+// declared classes (looked up in d.CSSClasses) plus any per-node
+// `style id ...` override (the latest entry in d.Styles wins).
+// Result is "" when the node has no styling at all.
+func mergeNodeCSS(d *diagram.BlockDiagram, n diagram.BlockNode) string {
+	var parts []string
+	for _, name := range n.CSSClasses {
+		if css := d.CSSClasses[name]; css != "" {
+			parts = append(parts, css)
+		}
+	}
+	for _, s := range d.Styles {
+		if s.NodeID == n.ID && s.CSS != "" {
+			parts = append(parts, s.CSS)
+		}
+	}
+	return strings.Join(parts, ";")
 }
 
 // edgeStyle assembles the stroke-pattern CSS for a block edge from
