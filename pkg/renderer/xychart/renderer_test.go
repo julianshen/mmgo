@@ -631,6 +631,60 @@ func TestRenderHorizontalAxisCfgSwap(t *testing.T) {
 	}
 }
 
+// Bars whose values are negative or straddle zero must render with
+// non-negative width/height. Pre-fix, the renderer emitted rects with
+// negative Height (vertical) or negative Width (horizontal) when a
+// data point sat below the value-axis baseline, producing undefined
+// SVG that some rasterizers drop silently.
+func TestRenderBarsCrossingZero(t *testing.T) {
+	cases := []struct {
+		name string
+		d    *diagram.XYChartDiagram
+	}{
+		{
+			name: "vertical, range crosses zero, mixed signs",
+			d: &diagram.XYChartDiagram{
+				XAxis: diagram.XYAxis{Categories: []string{"a", "b", "c", "d"}},
+				YAxis: diagram.XYAxis{HasRange: true, Min: -10, Max: 10},
+				Series: []diagram.XYSeries{
+					{Type: diagram.XYSeriesBar, Data: []float64{-5, 3, -8, 6}},
+				},
+			},
+		},
+		{
+			name: "horizontal, range crosses zero, mixed signs",
+			d: &diagram.XYChartDiagram{
+				Horizontal: true,
+				XAxis:      diagram.XYAxis{Categories: []string{"a", "b", "c"}},
+				YAxis:      diagram.XYAxis{HasRange: true, Min: -10, Max: 10},
+				Series: []diagram.XYSeries{
+					{Type: diagram.XYSeriesBar, Data: []float64{-5, 3, -8}},
+				},
+			},
+		},
+	}
+	rectRe := regexp.MustCompile(`<rect[^>]*width="(-?[0-9.]+)"[^>]*height="(-?[0-9.]+)"`)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := Render(tc.d, nil)
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			matches := rectRe.FindAllStringSubmatch(string(out), -1)
+			if len(matches) == 0 {
+				t.Fatal("no rect elements found")
+			}
+			for _, m := range matches {
+				w, _ := strconv.ParseFloat(m[1], 64)
+				h, _ := strconv.ParseFloat(m[2], 64)
+				if w < 0 || h < 0 {
+					t.Errorf("rect with negative dimensions: width=%s height=%s", m[1], m[2])
+				}
+			}
+		})
+	}
+}
+
 // In horizontal layout, two bar series in the same category must
 // occupy non-overlapping y-slots.
 func TestRenderHorizontalMultiBarSlotSplit(t *testing.T) {

@@ -437,23 +437,37 @@ func renderSeriesVertical(d *diagram.XYChartDiagram, categories []string, yMin, 
 		color := th.SeriesColors[seriesIdx%len(th.SeriesColors)]
 		switch s.Type {
 		case diagram.XYSeriesBar:
+			// Bars grow from the value-axis baseline (the pixel at v=0
+			// on the y-axis, clamped into [yMin,yMax]). For ranges
+			// fully above or fully below zero the baseline lands at
+			// the plot edge and the bar reduces to the same shape it
+			// had before negative-value support; for ranges that
+			// straddle zero, positive values grow up from the baseline
+			// and negative values grow down.
+			baselineY := axisPos(0, yMin, yMax, y1, y0)
 			barSlot := barIndexes[seriesIdx]
 			for i := 0; i < len(s.Data) && i < nCols; i++ {
 				cx := x0 + slotW*(float64(i)+0.5)
 				bx := cx - bandW/2 + float64(barSlot)*bw
 				by := axisPos(s.Data[i], yMin, yMax, y1, y0)
+				topY := math.Min(by, baselineY)
+				height := math.Abs(by - baselineY)
 				elems = append(elems, &rect{
-					X: svgFloat(bx), Y: svgFloat(by),
+					X: svgFloat(bx), Y: svgFloat(topY),
 					Width:  svgFloat(bw),
-					Height: svgFloat(y1 - by),
+					Height: svgFloat(height),
 					Style:  fmt.Sprintf("fill:%s;stroke:none", color),
 				})
 				if showLabel {
-					ly := by - 2
-					dom := "auto"
-					if !outside {
-						ly = by + (y1-by)/2
-						dom = "central"
+					var ly float64
+					var dom string
+					switch {
+					case outside && s.Data[i] >= 0:
+						ly, dom = by-2, "auto"
+					case outside:
+						ly, dom = by+2+labelFontSize, "auto"
+					default:
+						ly, dom = topY+height/2, "central"
 					}
 					elems = append(elems, &text{
 						X:        svgFloat(bx + bw/2),
@@ -559,23 +573,33 @@ func renderSeriesHorizontal(d *diagram.XYChartDiagram, categories []string, vMin
 		color := th.SeriesColors[seriesIdx%len(th.SeriesColors)]
 		switch s.Type {
 		case diagram.XYSeriesBar:
+			// Mirror of the vertical baseline: bars grow rightward
+			// from the v=0 pixel for positive values, leftward for
+			// negative — relevant when the value range straddles zero.
+			baselineX := axisPos(0, vMin, vMax, x0, x1)
 			barSlot := barIndexes[seriesIdx]
 			for i := 0; i < len(s.Data) && i < nCats; i++ {
 				cy := y0 + slotH*(float64(i)+0.5)
 				by := cy - bandH/2 + float64(barSlot)*bh
 				bx := axisPos(s.Data[i], vMin, vMax, x0, x1)
+				leftX := math.Min(bx, baselineX)
+				width := math.Abs(bx - baselineX)
 				elems = append(elems, &rect{
-					X: svgFloat(x0), Y: svgFloat(by),
-					Width:  svgFloat(bx - x0),
+					X: svgFloat(leftX), Y: svgFloat(by),
+					Width:  svgFloat(width),
 					Height: svgFloat(bh),
 					Style:  fmt.Sprintf("fill:%s;stroke:none", color),
 				})
 				if showLabel {
-					lx := bx + 3
-					anchor := "start"
-					if !outside {
-						lx = (x0 + bx) / 2
-						anchor = "middle"
+					var lx float64
+					var anchor string
+					switch {
+					case outside && s.Data[i] >= 0:
+						lx, anchor = bx+3, "start"
+					case outside:
+						lx, anchor = bx-3, "end"
+					default:
+						lx, anchor = leftX+width/2, "middle"
 					}
 					elems = append(elems, &text{
 						X:        svgFloat(lx),
