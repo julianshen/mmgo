@@ -27,12 +27,11 @@ const (
 	LinkColorHex
 )
 
-// NodeAlignmentMode controls horizontal node placement. Justify
-// (the historical default) ranks by longest path from sources;
-// Right ranks by longest path from sinks; Center compromises;
-// Left mirrors Justify. Only Justify is fully implemented today —
-// the other values are accepted but currently fall through to
-// Justify until layout is rewritten.
+// NodeAlignmentMode picks one of the d3-sankey column-ranking
+// strategies. Left places each node as close to its sources as the
+// longest-path depth allows; Right places it as close to the sinks
+// (length-from-sinks); Center averages the two; Justify is Left
+// with sinks pinned to the rightmost column (the historical default).
 type NodeAlignmentMode int8
 
 const (
@@ -92,7 +91,11 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 		nodeIdx[n] = i
 	}
 
-	col, maxCol := assignColumns(nodes, d.Flows)
+	mode := NodeAlignJustify
+	if opts != nil {
+		mode = opts.NodeAlignment
+	}
+	col, maxCol := assignColumns(nodes, d.Flows, mode)
 
 	// Node height = max(sumIn, sumOut) so flow is visually conserved:
 	// a node that receives 10 and emits 10 has a bar tall enough for
@@ -316,21 +319,71 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), b...), nil
 }
 
-// assignColumns returns the column index per node plus the largest
-// assigned index. Uses longest-path rank from sources via a
-// fixed-point relaxation. The iteration is capped at len(nodes) so
-// pathological cyclic input terminates — the render may be wide but
-// does not hang.
-func assignColumns(nodes []string, flows []diagram.SankeyFlow) (map[string]int, int) {
-	col := make(map[string]int, len(nodes))
+// assignColumns returns each node's column index plus the largest
+// assigned index, dispatching on NodeAlignmentMode. The fixed-point
+// relaxation is capped at len(nodes) so cyclic input terminates —
+// the render may end up wide but does not hang.
+func assignColumns(nodes []string, flows []diagram.SankeyFlow, mode NodeAlignmentMode) (map[string]int, int) {
+	depth := longestFromSources(nodes, flows)
+	maxCol := 0
+	for _, c := range depth {
+		if c > maxCol {
+			maxCol = c
+		}
+	}
+	switch mode {
+	case NodeAlignLeft:
+		return depth, maxCol
+	case NodeAlignRight:
+		// Length-from-sinks: column = maxCol − heightFromSinks.
+		height := longestToSinks(nodes, flows)
+		col := make(map[string]int, len(nodes))
+		for _, n := range nodes {
+			col[n] = maxCol - height[n]
+		}
+		return col, maxCol
+	case NodeAlignCenter:
+		// Float each node midway between its Left and Right columns.
+		height := longestToSinks(nodes, flows)
+		col := make(map[string]int, len(nodes))
+		for _, n := range nodes {
+			left := depth[n]
+			right := maxCol - height[n]
+			col[n] = (left + right) / 2
+		}
+		return col, maxCol
+	default:
+		// Justify: Left assignment, but sinks (no outgoing flows)
+		// are pinned to maxCol so the right edge is filled.
+		hasOut := make(map[string]bool, len(nodes))
+		for _, f := range flows {
+			hasOut[f.Source] = true
+		}
+		col := make(map[string]int, len(nodes))
+		for _, n := range nodes {
+			c := depth[n]
+			if !hasOut[n] {
+				c = maxCol
+			}
+			col[n] = c
+		}
+		return col, maxCol
+	}
+}
+
+// longestFromSources returns the longest-path distance from any
+// source node to each node, by fixed-point relaxation along flow
+// direction. Sources end up at 0; downstream nodes accumulate.
+func longestFromSources(nodes []string, flows []diagram.SankeyFlow) map[string]int {
+	d := make(map[string]int, len(nodes))
 	for _, n := range nodes {
-		col[n] = 0
+		d[n] = 0
 	}
 	for iter := 0; iter < len(nodes); iter++ {
 		changed := false
 		for _, f := range flows {
-			if col[f.Target] < col[f.Source]+1 {
-				col[f.Target] = col[f.Source] + 1
+			if d[f.Target] < d[f.Source]+1 {
+				d[f.Target] = d[f.Source] + 1
 				changed = true
 			}
 		}
@@ -338,13 +391,30 @@ func assignColumns(nodes []string, flows []diagram.SankeyFlow) (map[string]int, 
 			break
 		}
 	}
-	maxCol := 0
-	for _, c := range col {
-		if c > maxCol {
-			maxCol = c
+	return d
+}
+
+// longestToSinks returns the longest-path distance from each node to
+// any sink — the same relaxation as longestFromSources but walking
+// flows in reverse. A pure sink ends up at 0.
+func longestToSinks(nodes []string, flows []diagram.SankeyFlow) map[string]int {
+	h := make(map[string]int, len(nodes))
+	for _, n := range nodes {
+		h[n] = 0
+	}
+	for iter := 0; iter < len(nodes); iter++ {
+		changed := false
+		for _, f := range flows {
+			if h[f.Source] < h[f.Target]+1 {
+				h[f.Source] = h[f.Target] + 1
+				changed = true
+			}
+		}
+		if !changed {
+			break
 		}
 	}
-	return col, maxCol
+	return h
 }
 
 // ribbonPath returns a filled SVG path describing the ribbon between
