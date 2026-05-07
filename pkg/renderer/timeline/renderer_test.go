@@ -211,3 +211,85 @@ func TestRenderMultiEventStacked(t *testing.T) {
 		t.Errorf("expected ≥2 rounded event boxes (rx=5), got %d", got)
 	}
 }
+
+// Default direction (unset) renders as LR per the Mermaid spec —
+// the horizontal axis line + vertically-stacked event boxes
+// under each period column.
+func TestRenderTimelineLRDefault(t *testing.T) {
+	d := &diagram.TimelineDiagram{
+		Events: []diagram.TimelineEvent{
+			{Time: "2000", Events: []string{"Web 1.0"}},
+			{Time: "2010", Events: []string{"Mobile"}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// LR axis runs across the chart — look for a <line> whose
+	// y1 and y2 attributes are equal (horizontal stroke).
+	if !strings.Contains(raw, "<line") {
+		t.Fatalf("expected axis <line> in:\n%s", raw)
+	}
+	// Both period times should appear.
+	for _, want := range []string{">2000<", ">2010<", ">Web 1.0<", ">Mobile<"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected %q in LR output", want)
+		}
+	}
+}
+
+// `direction TD` keeps the legacy vertical layout — the axis
+// runs top-to-bottom rather than left-to-right.
+func TestRenderTimelineTDExplicit(t *testing.T) {
+	d := &diagram.TimelineDiagram{
+		Direction: "TD",
+		Events: []diagram.TimelineEvent{
+			{Time: "2000", Events: []string{"Web 1.0"}},
+			{Time: "2010", Events: []string{"Mobile"}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// TD layout has the time labels on the LEFT of the axis with
+	// `text-anchor="end"` — LR has them centered above the
+	// column with `text-anchor="middle"`. Detect the TD signature.
+	if !strings.Contains(raw, `text-anchor="end"`) {
+		t.Errorf("explicit Direction=TD should produce end-anchored time labels")
+	}
+}
+
+// LR section bands span the columns they own, with the section
+// name centered above its period range.
+func TestRenderTimelineLRSectionBand(t *testing.T) {
+	d := &diagram.TimelineDiagram{
+		Sections: []diagram.TimelineSection{
+			{Name: "Education", Events: []diagram.TimelineEvent{
+				{Time: "2015", Events: []string{"Started"}},
+				{Time: "2019", Events: []string{"Graduated"}},
+			}},
+			{Name: "Career", Events: []diagram.TimelineEvent{
+				{Time: "2020", Events: []string{"First job"}},
+			}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// Each section name renders centered in its band.
+	for _, want := range []string{">Education<", ">Career<"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected section name %q in LR output", want)
+		}
+	}
+	// Two sections → two band rects with fill-opacity:0.18.
+	if got := strings.Count(raw, "fill-opacity:0.18"); got != 2 {
+		t.Errorf("expected 2 section bands (got %d)", got)
+	}
+}
