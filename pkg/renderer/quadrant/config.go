@@ -14,6 +14,13 @@ type Config struct {
 	TitleFontSize float64
 	TitlePadding  float64
 
+	// QuadrantPadding / QuadrantTextTopPadding mirror Mermaid's
+	// per-quadrant spacing knobs. Currently parsed onto the Config
+	// for spec parity but the renderer does not yet apply them —
+	// Phase C will wire them once the inner-quadrant layout pass
+	// lands.
+	QuadrantPadding              float64
+	QuadrantTextTopPadding       float64
 	QuadrantLabelFontSize        float64
 	QuadrantInternalBorderStroke float64
 	QuadrantExternalBorderStroke float64
@@ -26,9 +33,22 @@ type Config struct {
 	YAxisLabelFontSize float64
 	YAxisPosition      YAxisPosition
 
+	// PointTextPadding controls the gap between a point's circle
+	// edge and its label. Mirrors the Mermaid config knob.
+	PointTextPadding   float64
 	PointLabelFontSize float64
 	PointRadius        float64
 }
+
+// Note on zero values: numeric Config fields currently treat `0`
+// as "inherit default" via resolveConfig's merge-on-positive
+// rule. That means a caller can't explicitly request a zero
+// padding / radius / stroke width — the default wins. For most
+// of these fields zero is a degenerate value (invisible points,
+// no border) so the limitation is acceptable; if a caller needs
+// to override to zero, set the value to the smallest meaningful
+// positive number for now. A future API revision may switch to
+// pointer-typed fields to disambiguate.
 
 // XAxisPosition selects which horizontal edge the X-axis labels
 // anchor to. The Auto default lets the renderer flip the labels
@@ -70,10 +90,12 @@ func DefaultConfig() Config {
 	return Config{
 		// 400 (vs Mermaid's 500) keeps the existing example
 		// snapshots stable — most users don't override these.
-		ChartWidth:  400,
-		ChartHeight: 400,
+		ChartWidth:                   400,
+		ChartHeight:                  400,
 		TitleFontSize:                15,
 		TitlePadding:                 0,
+		QuadrantPadding:              5,
+		QuadrantTextTopPadding:       5,
 		QuadrantLabelFontSize:        13,
 		QuadrantInternalBorderStroke: 1,
 		QuadrantExternalBorderStroke: 1.5,
@@ -83,6 +105,7 @@ func DefaultConfig() Config {
 		YAxisLabelPadding:            20,
 		YAxisLabelFontSize:           12,
 		YAxisPosition:                YAxisAuto,
+		PointTextPadding:             4,
 		PointLabelFontSize:           11,
 		PointRadius:                  7,
 	}
@@ -106,6 +129,8 @@ func resolveConfig(opts *Options) Config {
 	mergeF(&c.ChartHeight, o.ChartHeight)
 	mergeF(&c.TitleFontSize, o.TitleFontSize)
 	mergeF(&c.TitlePadding, o.TitlePadding)
+	mergeF(&c.QuadrantPadding, o.QuadrantPadding)
+	mergeF(&c.QuadrantTextTopPadding, o.QuadrantTextTopPadding)
 	mergeF(&c.QuadrantLabelFontSize, o.QuadrantLabelFontSize)
 	mergeF(&c.QuadrantInternalBorderStroke, o.QuadrantInternalBorderStroke)
 	mergeF(&c.QuadrantExternalBorderStroke, o.QuadrantExternalBorderStroke)
@@ -113,6 +138,7 @@ func resolveConfig(opts *Options) Config {
 	mergeF(&c.XAxisLabelFontSize, o.XAxisLabelFontSize)
 	mergeF(&c.YAxisLabelPadding, o.YAxisLabelPadding)
 	mergeF(&c.YAxisLabelFontSize, o.YAxisLabelFontSize)
+	mergeF(&c.PointTextPadding, o.PointTextPadding)
 	mergeF(&c.PointLabelFontSize, o.PointLabelFontSize)
 	mergeF(&c.PointRadius, o.PointRadius)
 	if o.XAxisPosition != XAxisAuto {

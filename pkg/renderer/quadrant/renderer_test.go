@@ -623,29 +623,22 @@ func TestRenderQuadrantPerQuadrantTextFill(t *testing.T) {
 	}
 }
 
-// quadrantsPopulated treats coordinates exactly at 0.5 as "high"
-// on both axes — a point at (0.5, 0.5) marks top + right
-// populated. The X-axis flip only fires when the upper half is
-// empty, so a top-marked boundary point suppresses it. The
-// Y-axis flip is symmetric: an empty left half + populated
-// right (the boundary point counts as right) DOES trigger it.
-// This pins both behaviours so a future refactor that flips
-// either rule needs to update the test deliberately.
-func TestQuadrantsPopulatedBoundary(t *testing.T) {
+// Data points alone never trigger auto-flip — a chart with
+// only points (no labels) keeps the default axis positions
+// regardless of where the points land.
+func TestQuadrantsPopulatedPointsDoNotTriggerFlip(t *testing.T) {
 	d := &diagram.QuadrantChartDiagram{
-		Points: []diagram.QuadrantPoint{{Label: "C", X: 0.5, Y: 0.5}},
+		Points: []diagram.QuadrantPoint{
+			{Label: "Lo", X: 0.2, Y: 0.2},
+			{Label: "Hi", X: 0.8, Y: 0.8},
+		},
 	}
 	top, bottom, left, right := quadrantsPopulated(d)
-	if !top || !right {
-		t.Errorf("(0.5, 0.5) should mark top + right populated; got top=%v right=%v", top, right)
+	if top || bottom || left || right {
+		t.Errorf("points alone shouldn't mark any half populated; got top=%v bottom=%v left=%v right=%v",
+			top, bottom, left, right)
 	}
-	if bottom || left {
-		t.Errorf("(0.5, 0.5) should NOT mark bottom or left populated; got bottom=%v left=%v", bottom, left)
-	}
-	if onlyBottomQuadrantsPopulated(d) {
-		t.Error("X-axis auto-flip should NOT trigger: top is populated")
-	}
-	if !onlyRightQuadrantsPopulated(d) {
-		t.Error("Y-axis auto-flip SHOULD trigger: only right is populated")
+	if onlyBottomQuadrantsPopulated(d) || onlyRightQuadrantsPopulated(d) {
+		t.Error("auto-flip should never trigger on point presence alone")
 	}
 }

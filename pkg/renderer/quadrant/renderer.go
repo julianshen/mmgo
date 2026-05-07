@@ -26,7 +26,6 @@ const (
 	// plot rect.
 	pageMarginX = 60.0
 	pageMarginY = 40.0
-	pointLabelGap = 4.0
 )
 
 func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
@@ -295,7 +294,7 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		if p.Label != "" {
 			children = append(children, &text{
 				X:        svgFloat(px),
-				Y:        svgFloat(py - radius - pointLabelGap),
+				Y:        svgFloat(py - radius - cfg.PointTextPadding),
 				Anchor:   "middle",
 				Dominant: "baseline",
 				Style:    pointLabelStyle,
@@ -358,29 +357,17 @@ func resolvePointStyle(p diagram.QuadrantPoint, d *diagram.QuadrantChartDiagram,
 	return fill, stroke, width, radius
 }
 
-// quadrantsPopulated walks the diagram once and reports whether
-// the four "halves" (top / bottom / left / right) carry any
-// content — either a non-empty quadrant label or a data point on
-// that side. The boundary value 0.5 is treated as "high" on both
-// axes (point at exactly y=0.5 → top; x=0.5 → right) so the same
-// edge-case rule applies symmetrically.
+// quadrantsPopulated reports which "halves" (top / bottom /
+// left / right) carry quadrant LABELS. Data points are not
+// considered — Mermaid auto-flips axis labels only based on the
+// quadrant captions, since a chart with points is presumed to
+// have meaningful data on every side and shouldn't have its
+// axes rearranged by point placement.
 func quadrantsPopulated(d *diagram.QuadrantChartDiagram) (top, bottom, left, right bool) {
 	top = d.Quadrant1 != "" || d.Quadrant2 != ""
 	bottom = d.Quadrant3 != "" || d.Quadrant4 != ""
 	left = d.Quadrant2 != "" || d.Quadrant3 != ""
 	right = d.Quadrant1 != "" || d.Quadrant4 != ""
-	for _, p := range d.Points {
-		if p.Y >= 0.5 {
-			top = true
-		} else {
-			bottom = true
-		}
-		if p.X >= 0.5 {
-			right = true
-		} else {
-			left = true
-		}
-	}
 	return top, bottom, left, right
 }
 
