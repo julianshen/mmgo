@@ -64,6 +64,43 @@ func Render(d *diagram.C4Diagram, opts *Options) ([]byte, error) {
 	}
 	viewW := sanitize(l.Width) + 2*pad
 	viewH := sanitize(l.Height) + 2*pad + titleOffset
+	// Boundary frames extend beyond the layout's element bbox by
+	// boundaryPad + boundaryHeadingPad, so a frame around an
+	// element at (~0, ~0) would clip outside the SVG viewBox.
+	// Walk the top-level frames once to find the worst-case
+	// overflow on each side and grow the viewport (using negative
+	// origin where needed) so every frame stays inside.
+	viewMinX, viewMinY := 0.0, 0.0
+	for _, b := range d.Boundaries {
+		bb := boundaryBBox(d, b, l, pad, titleOffset)
+		if bb.Empty() {
+			continue
+		}
+		left := bb.MinX - boundaryPad
+		top := bb.MinY - boundaryPad - boundaryHeadingPad
+		right := bb.MaxX + boundaryPad
+		bottom := bb.MaxY + boundaryPad
+		if left < viewMinX {
+			viewMinX = left
+		}
+		if top < viewMinY {
+			viewMinY = top
+		}
+		if right+pad > viewW {
+			viewW = right + pad
+		}
+		if bottom+pad > viewH {
+			viewH = bottom + pad
+		}
+	}
+	// Translate negative origins into extra width/height so the
+	// background rect at (0,0) still covers the full viewBox.
+	if viewMinX < 0 {
+		viewW -= viewMinX
+	}
+	if viewMinY < 0 {
+		viewH -= viewMinY
+	}
 
 	var children []any
 	if d.AccTitle != "" {
@@ -74,7 +111,8 @@ func Render(d *diagram.C4Diagram, opts *Options) ([]byte, error) {
 	}
 	children = append(children, &defs{Markers: []marker{buildArrowMarker(th)}})
 	children = append(children, &rect{
-		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
+		X: svgFloat(viewMinX), Y: svgFloat(viewMinY),
+		Width: svgFloat(viewW), Height: svgFloat(viewH),
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 
@@ -87,12 +125,16 @@ func Render(d *diagram.C4Diagram, opts *Options) ([]byte, error) {
 		})
 	}
 
+	// Boundaries paint behind edges + elements so the dashed
+	// frame reads as a backdrop. Outermost-first emission is fine
+	// because every frame uses fill:none.
+	children = append(children, renderBoundaries(d, l, pad, titleOffset, fontSize, th)...)
 	children = append(children, renderEdges(d, l, pad, titleOffset, fontSize, th, ruler)...)
 	children = append(children, renderElements(d, l, pad, titleOffset, fontSize, th)...)
 
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
-		ViewBox:  fmt.Sprintf("0 0 %.2f %.2f", viewW, viewH),
+		ViewBox:  fmt.Sprintf("%.2f %.2f %.2f %.2f", viewMinX, viewMinY, viewW, viewH),
 		Children: children,
 	}
 	svgBytes, err := xml.Marshal(svg)
@@ -402,4 +444,124 @@ func buildArrowMarker(th Theme) marker {
 		RefX: 9, RefY: 5, Width: 12, Height: 12, Orient: "auto",
 		Children: []any{&polygon{Points: "0,0 10,5 0,10", Style: fmt.Sprintf("fill:%s", th.EdgeStroke)}},
 	}
+}
+
+// boundaryPad is the breathing room a boundary frame leaves around
+// its tightest child bounding box. Picked empirically — large
+// enough that the dashed border doesn't kiss the inner shapes,
+// small enough that nested boundaries still nest visibly.
+const boundaryPad = 18.0
+
+// renderBoundaries emits one frame per top-level boundary,
+// recursing into nested boundaries inside renderBoundary. A
+// boundary with no resolvable children (every id missed the
+// layout) is skipped silently — this is degenerate input that
+// shouldn't crash the render but doesn't have a sensible frame
+// to draw either.
+func renderBoundaries(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize float64, th Theme) []any {
+	var elems []any
+	for _, b := range d.Boundaries {
+		elems = append(elems, renderBoundary(d, b, l, pad, titleOff, fontSize, th)...)
+	}
+	return elems
+}
+
+func renderBoundary(d *diagram.C4Diagram, b *diagram.C4Boundary, l *layout.Result, pad, titleOff, fontSize float64, th Theme) []any {
+	bbox := boundaryBBox(d, b, l, pad, titleOff)
+	if bbox.Empty() {
+		return nil
+	}
+	x0 := bbox.MinX - boundaryPad
+	y0 := bbox.MinY - boundaryPad - boundaryHeadingPad
+	x1 := bbox.MaxX + boundaryPad
+	y1 := bbox.MaxY + boundaryPad
+	stroke := th.EdgeStroke
+	if stroke == "" {
+		stroke = "#666"
+	}
+	out := []any{
+		&rect{
+			X: svgFloat(x0), Y: svgFloat(y0),
+			Width:  svgFloat(x1 - x0),
+			Height: svgFloat(y1 - y0),
+			RX:     6, RY: 6,
+			Style: fmt.Sprintf("fill:none;stroke:%s;stroke-width:1.2;stroke-dasharray:6 4", stroke),
+		},
+		&text{
+			X: svgFloat(x0 + 8), Y: svgFloat(y0 + 6),
+			Anchor: "start", Dominant: "hanging",
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize-1),
+			Content: boundaryHeading(b),
+		},
+	}
+	for _, child := range b.Boundaries {
+		out = append(out, renderBoundary(d, child, l, pad, titleOff, fontSize, th)...)
+	}
+	return out
+}
+
+// boundaryHeadingPad is the extra vertical room reserved at the
+// top of a boundary frame so the `Name <<kind>>` stereotype label
+// has somewhere to sit without overlapping the children's bbox.
+const boundaryHeadingPad = 12.0
+
+// boundaryHeading uses the same `<<kind>>` stereotype style
+// element labels do (kindDisplayLabel) so the two read as one
+// vocabulary in the rendered SVG. A user-supplied TypeHint
+// (`Boundary(b, "Label", "service")`) overrides the kind-derived
+// stereotype on a generic Boundary — it doesn't override the
+// dedicated System_/Enterprise_/Container_Boundary keywords,
+// since those carry their stereotype in the keyword itself.
+func boundaryHeading(b *diagram.C4Boundary) string {
+	name := b.Label
+	if name == "" {
+		name = b.ID
+	}
+	stereotype := b.Kind.String()
+	if b.Kind == diagram.C4BoundaryGeneric && b.TypeHint != "" {
+		stereotype = b.TypeHint
+	}
+	return fmt.Sprintf("%s <<%s>>", name, stereotype)
+}
+
+// boundaryBBox unions every child element's and nested boundary's
+// rect into one bounding box, including the per-frame padding +
+// heading slot for nested frames. Returns an Empty() bbox when
+// no descendant resolves in the layout — that happens when a
+// Boundary( ) parses successfully but every child id failed
+// lookup, which is degenerate input we skip rather than crash.
+func boundaryBBox(d *diagram.C4Diagram, b *diagram.C4Boundary, l *layout.Result, pad, titleOff float64) svgutil.BBox {
+	// Resolve element indexes to ids once so we can reuse the
+	// shared BBoxOver helper for the leaf union.
+	ids := make([]string, 0, len(b.Elements))
+	for _, idx := range b.Elements {
+		if idx < 0 || idx >= len(d.Elements) {
+			continue
+		}
+		ids = append(ids, d.Elements[idx].ID)
+	}
+	bb := svgutil.BBoxOver(ids, l.Nodes, pad)
+	// l.Nodes coordinates don't yet include the chart's titleOff
+	// — that's added at element-render time. Translate the bbox
+	// once so direct elements end up in the same coord space the
+	// recursive child boundaries already produce.
+	if !bb.Empty() {
+		bb.MinY += titleOff
+		bb.MaxY += titleOff
+	}
+	for _, child := range b.Boundaries {
+		cb := boundaryBBox(d, child, l, pad, titleOff)
+		if cb.Empty() {
+			continue
+		}
+		// Union the child's *frame* rect (its own bbox grown by
+		// boundaryPad + heading slot) so the parent sits outside
+		// the child's drawn frame.
+		w := cb.MaxX - cb.MinX + 2*boundaryPad
+		h := cb.MaxY - cb.MinY + 2*boundaryPad + boundaryHeadingPad
+		cx := (cb.MinX + cb.MaxX) / 2
+		cy := (cb.MinY+cb.MaxY)/2 - boundaryHeadingPad/2
+		bb.Expand(cx, cy, w, h)
+	}
+	return bb
 }

@@ -339,3 +339,169 @@ func TestRenderC4DeploymentNodeDashed(t *testing.T) {
 		t.Errorf("Deployment_Node should render with dashed border")
 	}
 }
+
+// A boundary block emits a dashed-frame rect plus its `«kind»`
+// stereotype label behind the inner elements.
+func TestRenderC4BoundaryFrame(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContext,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User"},
+			{ID: "s", Kind: diagram.C4ElementSystem, Label: "App"},
+		},
+		Boundaries: []*diagram.C4Boundary{
+			{ID: "b", Label: "Bank", Kind: diagram.C4BoundarySystem, Elements: []int{0, 1}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "stroke-dasharray:6 4") {
+		t.Errorf("expected dashed boundary frame in:\n%s", raw)
+	}
+	// XML-escaped form of `Bank <<system_boundary>>` — renderer
+	// emits the raw `<<…>>` and the encoder escapes the chevrons.
+	if !strings.Contains(raw, "Bank &lt;&lt;system_boundary&gt;&gt;") {
+		t.Errorf("expected boundary heading in:\n%s", raw)
+	}
+}
+
+// A boundary whose every child id misses the layout returns nil
+// — the renderer doesn't crash, just doesn't draw a frame.
+func TestRenderC4BoundaryEmptyChildren(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContext,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User"},
+		},
+		Boundaries: []*diagram.C4Boundary{
+			// Index 99 is out of range; renderer must skip
+			// without panicking and emit no boundary frame.
+			{ID: "ghost", Label: "Ghost", Kind: diagram.C4BoundaryGeneric, Elements: []int{99}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(string(out), "Ghost") {
+		t.Errorf("ghost boundary heading should not appear")
+	}
+}
+
+// Two-level nested boundaries each emit their own dashed frame
+// + heading; both headings appear in the rendered SVG.
+func TestRenderC4BoundaryNested(t *testing.T) {
+	inner := &diagram.C4Boundary{
+		ID: "in", Label: "Inner",
+		Kind: diagram.C4BoundarySystem, Elements: []int{0},
+	}
+	outer := &diagram.C4Boundary{
+		ID: "out", Label: "Outer",
+		Kind: diagram.C4BoundaryEnterprise,
+		Boundaries: []*diagram.C4Boundary{inner},
+	}
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContainer,
+		Elements: []diagram.C4Element{
+			{ID: "c", Kind: diagram.C4ElementContainer, Label: "App"},
+		},
+		Boundaries: []*diagram.C4Boundary{outer},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{
+		"Outer &lt;&lt;enterprise_boundary&gt;&gt;",
+		"Inner &lt;&lt;system_boundary&gt;&gt;",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected %q in nested-frame output", want)
+		}
+	}
+	// Two dashed frames means two `stroke-dasharray:6 4`.
+	if got := strings.Count(raw, "stroke-dasharray:6 4"); got != 2 {
+		t.Errorf("expected 2 dashed frames, got %d", got)
+	}
+}
+
+// A boundary around top/left-most elements would clip past a
+// `0 0 W H` viewBox (its frame extends boundaryPad +
+// boundaryHeadingPad above/left of the layout's bbox). The
+// renderer must adjust the viewBox origin so the frame stays
+// visible.
+func TestRenderC4BoundaryViewportNoClip(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContext,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User"},
+		},
+		Boundaries: []*diagram.C4Boundary{
+			{ID: "b", Label: "Bank", Kind: diagram.C4BoundaryGeneric, Elements: []int{0}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// Extract the viewBox attribute value.
+	const marker = `viewBox="`
+	i := strings.Index(raw, marker)
+	if i < 0 {
+		t.Fatalf("viewBox missing")
+	}
+	rest := raw[i+len(marker):]
+	end := strings.Index(rest, `"`)
+	vb := rest[:end]
+	parts := strings.Fields(vb)
+	if len(parts) != 4 {
+		t.Fatalf("viewBox shape: %q", vb)
+	}
+	// minX / minY should be <= 0 — top-left boundary frame
+	// extends above and left of the layout's element bounds, so
+	// the viewBox origin must absorb that overhead.
+	if parts[0] == "0.00" && parts[1] == "0.00" {
+		t.Errorf("expected viewBox origin <0 to fit boundary frame, got %q", vb)
+	}
+}
+
+// `Boundary(b, "Label", "service")` — a generic Boundary with a
+// TypeHint third arg — renders that hint as the stereotype
+// instead of the default `<<boundary>>`. Dedicated boundary
+// kinds keep their own stereotype.
+func TestRenderC4BoundaryTypeHint(t *testing.T) {
+	cases := []struct {
+		kind diagram.C4BoundaryKind
+		hint string
+		want string
+	}{
+		{diagram.C4BoundaryGeneric, "service", "service"},
+		{diagram.C4BoundaryGeneric, "", "boundary"},
+		// System_Boundary keeps its stereotype even with a hint.
+		{diagram.C4BoundarySystem, "service", "system_boundary"},
+	}
+	for _, tc := range cases {
+		d := &diagram.C4Diagram{
+			Variant: diagram.C4VariantContext,
+			Elements: []diagram.C4Element{
+				{ID: "u", Kind: diagram.C4ElementPerson, Label: "User"},
+			},
+			Boundaries: []*diagram.C4Boundary{
+				{ID: "b", Label: "B", Kind: tc.kind, TypeHint: tc.hint, Elements: []int{0}},
+			},
+		}
+		out, err := Render(d, nil)
+		if err != nil {
+			t.Fatalf("kind %v hint %q: %v", tc.kind, tc.hint, err)
+		}
+		want := "B &lt;&lt;" + tc.want + "&gt;&gt;"
+		if !strings.Contains(string(out), want) {
+			t.Errorf("kind %v hint %q: expected %q in output", tc.kind, tc.hint, want)
+		}
+	}
+}

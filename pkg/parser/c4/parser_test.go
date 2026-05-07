@@ -312,3 +312,222 @@ System(s, "X")`))
 		t.Error("expected error for unterminated accDescr block")
 	}
 }
+
+// `Boundary( ... ) { ... }` opens a nested scope; elements inside
+// land in the flat Elements list AND the boundary's child slice.
+// The trailing `{` may be on the same line or the next.
+func TestParseC4BoundaryBlock(t *testing.T) {
+	d, err := Parse(strings.NewReader(`C4Context
+Boundary(b1, "Bank") {
+  System(s, "Internet Banking")
+  Person(u, "Customer")
+}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Boundaries) != 1 {
+		t.Fatalf("boundaries = %v", d.Boundaries)
+	}
+	b := d.Boundaries[0]
+	if b.ID != "b1" || b.Label != "Bank" || b.Kind != diagram.C4BoundaryGeneric {
+		t.Errorf("boundary = %+v", b)
+	}
+	if len(b.Elements) != 2 {
+		t.Errorf("boundary elements idx = %v, want 2", b.Elements)
+	}
+	// Flat Elements still has both entries.
+	if len(d.Elements) != 2 {
+		t.Errorf("flat Elements = %v", d.Elements)
+	}
+}
+
+// Each documented boundary keyword maps to its kind.
+func TestParseC4BoundaryKinds(t *testing.T) {
+	cases := []struct {
+		input string
+		want  diagram.C4BoundaryKind
+	}{
+		{`Boundary(b, "X") {`, diagram.C4BoundaryGeneric},
+		{`System_Boundary(b, "X") {`, diagram.C4BoundarySystem},
+		{`Enterprise_Boundary(b, "X") {`, diagram.C4BoundaryEnterprise},
+		{`Container_Boundary(b, "X") {`, diagram.C4BoundaryContainer},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("C4Context\n" + tc.input + "\n}\n"))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(d.Boundaries) != 1 {
+				t.Fatalf("boundaries = %v", d.Boundaries)
+			}
+			if d.Boundaries[0].Kind != tc.want {
+				t.Errorf("kind = %v, want %v", d.Boundaries[0].Kind, tc.want)
+			}
+		})
+	}
+}
+
+// Nested boundaries form a tree; inner element idx lands in the
+// inner boundary, NOT the outer.
+func TestParseC4BoundaryNested(t *testing.T) {
+	d, err := Parse(strings.NewReader(`C4Container
+Enterprise_Boundary(ent, "Enterprise") {
+  System_Boundary(sys, "System") {
+    Container(c, "App", "Go")
+  }
+}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Boundaries) != 1 {
+		t.Fatalf("boundaries = %v", d.Boundaries)
+	}
+	ent := d.Boundaries[0]
+	if len(ent.Boundaries) != 1 || len(ent.Elements) != 0 {
+		t.Errorf("ent = %+v", ent)
+	}
+	sys := ent.Boundaries[0]
+	if sys.Kind != diagram.C4BoundarySystem || len(sys.Elements) != 1 {
+		t.Errorf("sys = %+v", sys)
+	}
+	if d.Elements[sys.Elements[0]].ID != "c" {
+		t.Errorf("inner element id mismatch")
+	}
+}
+
+// A stray top-level `}` is silently skipped — it may belong to a
+// brace-delimited construct mmgo doesn't yet recognise (e.g. a
+// Deployment_Node block), and aborting the whole parse on a
+// trailing brace would regress accepted inputs.
+func TestParseC4BoundaryStrayCloseSkipped(t *testing.T) {
+	d, err := Parse(strings.NewReader(`C4Context
+Person(u, "X")
+}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Elements) != 1 || d.Elements[0].ID != "u" {
+		t.Errorf("element survived stray '}': %+v", d.Elements)
+	}
+}
+
+// A `Boundary(` without a closing `}` errors at EOF.
+func TestParseC4BoundaryUnterminated(t *testing.T) {
+	_, err := Parse(strings.NewReader(`C4Context
+Boundary(b, "X") {
+  Person(u, "Y")`))
+	if err == nil {
+		t.Error("expected error for unterminated boundary")
+	}
+}
+
+// The trailing `{` may live on its own line.
+func TestParseC4BoundaryBraceOnNextLine(t *testing.T) {
+	d, err := Parse(strings.NewReader(`C4Context
+Boundary(b, "X")
+{
+  Person(u, "Y")
+}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Boundaries) != 1 || len(d.Boundaries[0].Elements) != 1 {
+		t.Errorf("boundary = %+v", d.Boundaries[0])
+	}
+}
+
+// `Boundary(...)` without an eventual `{` (e.g., immediately
+// followed by an element line) is rejected — the silent-scope-
+// swallow path the simplify review flagged as critical.
+func TestParseC4BoundaryMissingBraceRejected(t *testing.T) {
+	_, err := Parse(strings.NewReader(`C4Context
+Boundary(b, "X")
+Person(p, "Y")`))
+	if err == nil {
+		t.Error("expected error for Boundary(...) without { before next line")
+	}
+}
+
+// `parseBoundary` accepts the alias-only / 2-arg / 3-arg
+// positional forms and rejects an empty argument list.
+func TestParseC4BoundaryArities(t *testing.T) {
+	cases := []struct {
+		input    string
+		wantID   string
+		wantLabel string
+		wantHint string
+	}{
+		{`Boundary(b) {`, "b", "", ""},
+		{`Boundary(b, "Bank") {`, "b", "Bank", ""},
+		{`Boundary(b, "Bank", "system") {`, "b", "Bank", "system"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("C4Context\n" + tc.input + "\n}\n"))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			b := d.Boundaries[0]
+			if b.ID != tc.wantID || b.Label != tc.wantLabel || b.TypeHint != tc.wantHint {
+				t.Errorf("got %+v", b)
+			}
+		})
+	}
+
+	// Empty argument list rejected.
+	if _, err := Parse(strings.NewReader("C4Context\nBoundary() {\n}\n")); err == nil {
+		t.Error("expected error for empty Boundary arg list")
+	}
+	// Empty first arg also rejected so a typo like `Boundary(, "X")`
+	// doesn't ship a boundary with ID="" (which would render as a
+	// bare ` <<boundary>>` heading).
+	if _, err := Parse(strings.NewReader("C4Context\nBoundary(, \"Bank\") {\n}\n")); err == nil {
+		t.Error("expected error for empty Boundary alias")
+	}
+}
+
+// `splitBoundaryHead` rejects malformed headers — missing
+// closing paren and unexpected trailing content after `)`.
+func TestParseC4BoundaryHeaderErrors(t *testing.T) {
+	cases := []string{
+		`Boundary(b, "X"` + "\n", // missing `)`
+		`Boundary(b, "X") garbage`,
+	}
+	for _, head := range cases {
+		t.Run(head, func(t *testing.T) {
+			if _, err := Parse(strings.NewReader("C4Context\n" + head + "\n")); err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+// Elements OUTSIDE every boundary block stay on the flat
+// Elements list but DON'T appear in any boundary's child idx.
+func TestParseC4ElementsOutsideBoundaries(t *testing.T) {
+	d, err := Parse(strings.NewReader(`C4Context
+Person(outside, "Out")
+Boundary(b, "Inner") {
+  System(inside, "In")
+}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Elements) != 2 {
+		t.Fatalf("flat elements = %v", d.Elements)
+	}
+	b := d.Boundaries[0]
+	if len(b.Elements) != 1 {
+		t.Fatalf("boundary children = %v", b.Elements)
+	}
+	if d.Elements[b.Elements[0]].ID != "inside" {
+		t.Errorf("boundary should only own 'inside'")
+	}
+	// `outside` must be flat-indexed but NOT in b.Elements.
+	for _, idx := range b.Elements {
+		if d.Elements[idx].ID == "outside" {
+			t.Error("'outside' should not appear in boundary children")
+		}
+	}
+}
