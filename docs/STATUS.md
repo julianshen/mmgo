@@ -4,13 +4,14 @@ Dashboard view of progress against [implementation-plan.md](implementation-plan.
 Updated at each step boundary and committed to git, so any client can read
 current state without relying on chat history.
 
-**Last updated:** 2026-05-07 (post C4 Phase 2 / Quadrant Phase B / Timeline Phase 2 / XY Phase B — PRs #186, #187, #188, #189; five v0.5.0 types now full-spec, two remain on Phase 2 follow-ups)
+**Last updated:** 2026-05-07 (post C4 Phase 2 / Quadrant Phase B / Timeline Phase 2 / XY Phase B — PRs #186, #187, #188, #189)
 
 ## Overall
 
 - **Current milestone:** v0.4.0 complete; working toward v0.5.0 (Gantt, mindmap, others)
 - **Current phase:** Phase 6 in progress
-- **Completed:** Block parity (Step 27); Class / State / ER / Gantt / Mindmap / **Timeline / Quadrant / C4 / XY** at full spec parity (modulo per-type follow-ups tracked in GitHub issues)
+- **At full spec parity:** Block (Step 27); Class / State / ER / Gantt / Mindmap; **Timeline (Step 25)** and **Quadrant (Step 28)** newly promoted after Phase 2 / Phase B
+- **Phase 2 / B landed but follow-ups still queued:** **C4** (phases 3–4: named-arg `$descr=`, `UpdateElementStyle`, `LAYOUT_*`, legend) and **XY** (negative-bar baseline, renderSeries unification — see #190 / #192)
 - **Next:** Per-type follow-up issues #190–#194 (xychart negative-bar baseline, quadrant inner-padding wiring, renderSeries unification, svgutil cross-cutting cleanup); Sankey full NodeAlignment layout; Kanban / GitGraph Phase 3
 
 ## Phase 0: Project Scaffold
