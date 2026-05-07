@@ -89,6 +89,12 @@ func Render(d *diagram.XYChartDiagram, opts *Options) ([]byte, error) {
 		}
 	}
 	children := make([]any, 0, size)
+	if d.AccTitle != "" {
+		children = append(children, &svgutil.Title{Content: d.AccTitle})
+	}
+	if d.AccDescr != "" {
+		children = append(children, &svgutil.Desc{Content: d.AccDescr})
+	}
 	children = append(children, &rect{
 		X: 0, Y: 0,
 		Width:  svgFloat(viewW),
