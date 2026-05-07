@@ -1,0 +1,21 @@
+quadrantChart
+    title Engineering Backlog Triage
+    accTitle: Engineering backlog by impact and urgency
+    accDescr: A quadrant chart showing tickets distributed across high/low impact and urgent/not-urgent axes, color-coded by team.
+    x-axis Not Urgent --> Urgent
+    y-axis Low Impact --> High Impact
+    quadrant-1 Do now
+    quadrant-2 Plan ahead
+    quadrant-3 Drop or defer
+    quadrant-4 Reactive
+    classDef platform color: #2563eb, radius: 9
+    classDef product color: #16a34a, radius: 9
+    classDef ops color: #dc2626, radius: 9, stroke-color: #7f1d1d
+    Auth migration:::platform: [0.85, 0.9]
+    Onboarding redesign:::product: [0.45, 0.7]
+    Pager rotation:::ops: [0.92, 0.45]
+    DB upgrade:::platform: [0.6, 0.85]
+    A/B framework:::product: [0.35, 0.6]
+    Status page:::ops: [0.78, 0.3]
+    Tech debt sweep: [0.2, 0.5]
+    Hackathon: [0.15, 0.2]

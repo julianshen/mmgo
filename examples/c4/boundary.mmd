@@ -1,0 +1,30 @@
+C4Container
+    title Container Diagram with Boundaries
+    Person(user, "Customer", "Browses the catalog and places orders")
+
+    Enterprise_Boundary(acme, "Acme Inc") {
+        System_Boundary(shop, "E-commerce Platform") {
+            Container(spa, "Single-Page App", "TypeScript / React", "Catalog UI")
+            Container(api, "API Gateway", "Go", "REST + GraphQL surface")
+            Container(orders, "Orders Service", "Go", "Order lifecycle")
+            ContainerDb(db, "Postgres", "RDS", "Order + customer data")
+            ContainerQueue(events, "Event Bus", "Kafka", "Domain events")
+        }
+        System_Boundary(billing, "Billing") {
+            Container(invoice, "Invoice Service", "Go", "Generates invoices")
+            ContainerDb(ledger, "Ledger", "Postgres", "Double-entry book")
+        }
+    }
+
+    System_Ext(stripe, "Stripe", "Card processing")
+    System_Ext(email, "SendGrid", "Transactional email")
+
+    Rel(user, spa, "Uses", "HTTPS")
+    Rel(spa, api, "Calls", "GraphQL")
+    Rel(api, orders, "Routes order requests to")
+    Rel(orders, db, "Reads / writes")
+    Rel(orders, events, "Publishes order events to")
+    Rel(invoice, events, "Subscribes to order events from")
+    Rel(invoice, ledger, "Records entries in")
+    Rel(invoice, stripe, "Charges via")
+    Rel(orders, email, "Sends order confirmations via")
