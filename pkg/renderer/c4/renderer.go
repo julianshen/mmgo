@@ -507,13 +507,21 @@ const boundaryHeadingPad = 12.0
 
 // boundaryHeading uses the same `<<kind>>` stereotype style
 // element labels do (kindDisplayLabel) so the two read as one
-// vocabulary in the rendered SVG.
+// vocabulary in the rendered SVG. A user-supplied TypeHint
+// (`Boundary(b, "Label", "service")`) overrides the kind-derived
+// stereotype on a generic Boundary — it doesn't override the
+// dedicated System_/Enterprise_/Container_Boundary keywords,
+// since those carry their stereotype in the keyword itself.
 func boundaryHeading(b *diagram.C4Boundary) string {
 	name := b.Label
 	if name == "" {
 		name = b.ID
 	}
-	return fmt.Sprintf("%s <<%s>>", name, b.Kind.String())
+	stereotype := b.Kind.String()
+	if b.Kind == diagram.C4BoundaryGeneric && b.TypeHint != "" {
+		stereotype = b.TypeHint
+	}
+	return fmt.Sprintf("%s <<%s>>", name, stereotype)
 }
 
 // boundaryBBox unions every child element's and nested boundary's

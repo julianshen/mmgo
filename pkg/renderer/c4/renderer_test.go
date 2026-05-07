@@ -469,3 +469,39 @@ func TestRenderC4BoundaryViewportNoClip(t *testing.T) {
 		t.Errorf("expected viewBox origin <0 to fit boundary frame, got %q", vb)
 	}
 }
+
+// `Boundary(b, "Label", "service")` — a generic Boundary with a
+// TypeHint third arg — renders that hint as the stereotype
+// instead of the default `<<boundary>>`. Dedicated boundary
+// kinds keep their own stereotype.
+func TestRenderC4BoundaryTypeHint(t *testing.T) {
+	cases := []struct {
+		kind diagram.C4BoundaryKind
+		hint string
+		want string
+	}{
+		{diagram.C4BoundaryGeneric, "service", "service"},
+		{diagram.C4BoundaryGeneric, "", "boundary"},
+		// System_Boundary keeps its stereotype even with a hint.
+		{diagram.C4BoundarySystem, "service", "system_boundary"},
+	}
+	for _, tc := range cases {
+		d := &diagram.C4Diagram{
+			Variant: diagram.C4VariantContext,
+			Elements: []diagram.C4Element{
+				{ID: "u", Kind: diagram.C4ElementPerson, Label: "User"},
+			},
+			Boundaries: []*diagram.C4Boundary{
+				{ID: "b", Label: "B", Kind: tc.kind, TypeHint: tc.hint, Elements: []int{0}},
+			},
+		}
+		out, err := Render(d, nil)
+		if err != nil {
+			t.Fatalf("kind %v hint %q: %v", tc.kind, tc.hint, err)
+		}
+		want := "B &lt;&lt;" + tc.want + "&gt;&gt;"
+		if !strings.Contains(string(out), want) {
+			t.Errorf("kind %v hint %q: expected %q in output", tc.kind, tc.hint, want)
+		}
+	}
+}
