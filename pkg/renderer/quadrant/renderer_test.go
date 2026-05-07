@@ -3,6 +3,7 @@ package quadrant
 import (
 	"bytes"
 	"encoding/xml"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -665,17 +666,21 @@ func TestResolveConfigSingleAxisDimension(t *testing.T) {
 
 // QuadrantPadding inserts a visible gap between adjacent per-quadrant
 // rects (and between the rects and the outer plot border) when
-// per-quadrant fills are supplied. With pad=0 the four rects share
-// edges; with pad>0 each rect's bounds shrink so the gap between
-// rects equals pad.
+// per-quadrant fills are supplied. The visible gap between adjacent
+// rects must equal pad exactly (½ pad contributed by each neighbour).
 func TestRenderQuadrantPaddingWired(t *testing.T) {
 	d := &diagram.QuadrantChartDiagram{
 		Title:     "padding test",
 		Quadrant1: "Q1", Quadrant2: "Q2", Quadrant3: "Q3", Quadrant4: "Q4",
-		Points: []diagram.QuadrantPoint{{Label: "p", X: 0.5, Y: 0.5}},
+		Points:    []diagram.QuadrantPoint{{Label: "p", X: 0.5, Y: 0.5}},
 	}
-	pal := [4]QuadrantPalette{{Fill: "#fee2e2"}, {Fill: "#dbeafe"}, {Fill: "#dcfce7"}, {Fill: "#fef3c7"}}
-	withPad := func(pad float64) string {
+	pal := [4]QuadrantPalette{
+		{Fill: "#fee2e2"}, // Q1 top-right
+		{Fill: "#dbeafe"}, // Q2 top-left
+		{Fill: "#dcfce7"}, // Q3 bottom-left
+		{Fill: "#fef3c7"}, // Q4 bottom-right
+	}
+	render := func(pad float64) string {
 		out, err := Render(d, &Options{
 			Theme:  Theme{Quadrants: pal},
 			Config: Config{QuadrantPadding: pad},
@@ -685,25 +690,28 @@ func TestRenderQuadrantPaddingWired(t *testing.T) {
 		}
 		return string(out)
 	}
-	zeroPad := withPad(0.001) // smallest positive that survives merge-on-positive
-	bigPad := withPad(20)
+	const small, big = 5.0, 25.0
 
-	// At zero padding two adjacent quadrant rects share an edge —
-	// the right edge of Q2 equals the left edge of Q1. At 20px
-	// padding they are 20px apart. We extract the first quadrant
-	// rect's `width` attribute and check it shrinks accordingly.
-	q1WidthZero := firstQuadrantWidth(t, zeroPad, "#fee2e2")
-	q1WidthBig := firstQuadrantWidth(t, bigPad, "#fee2e2")
-	// Big-pad rect is at least (1.5 * 20)px narrower (full pad on
-	// outer edge + half pad on inner edge = 1.5 * pad).
-	if q1WidthZero-q1WidthBig < 30 {
-		t.Errorf("expected Q1 width to shrink by ≥30px at pad=20 (was %v→%v)", q1WidthZero, q1WidthBig)
+	// Q1 width shrinks by 1.5×Δpad: full pad on the outer (right)
+	// edge plus half pad on the inner (left) edge.
+	wSmall := attrFloat(t, render(small), "fill:#fee2e2", "width")
+	wBig := attrFloat(t, render(big), "fill:#fee2e2", "width")
+	if want := 1.5 * (big - small); math.Abs((wSmall-wBig)-want) > 0.5 {
+		t.Errorf("expected Q1 width to shrink by ~%vpx (1.5*Δpad), got %v", want, wSmall-wBig)
+	}
+
+	// Pin the exact-gap promise: Q1 left edge − Q2 right edge == pad.
+	svg := render(big)
+	q1Left := attrFloat(t, svg, "fill:#fee2e2", "x")
+	q2Left := attrFloat(t, svg, "fill:#dbeafe", "x")
+	q2Width := attrFloat(t, svg, "fill:#dbeafe", "width")
+	if gap := q1Left - (q2Left + q2Width); math.Abs(gap-big) > 0.01 {
+		t.Errorf("expected exact gap of %v between Q2 right and Q1 left edges, got %v", big, gap)
 	}
 }
 
 // QuadrantTextTopPadding moves the quadrant title down from the top
-// of its rect. Doubling the padding must increase each label's `y`
-// attribute by the same delta.
+// of its rect. A 20px padding bump must shift each label's y by 20px.
 func TestRenderQuadrantTextTopPaddingWired(t *testing.T) {
 	d := &diagram.QuadrantChartDiagram{
 		Quadrant1: "Q1", Quadrant2: "Q2", Quadrant3: "Q3", Quadrant4: "Q4",
@@ -716,53 +724,37 @@ func TestRenderQuadrantTextTopPaddingWired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	q1Y5 := firstLabelY(t, string(out5), "Q1")
-	q1Y25 := firstLabelY(t, string(out25), "Q1")
-	if delta := q1Y25 - q1Y5; delta < 19 || delta > 21 {
-		t.Errorf("expected Q1 label y to shift by ~20px when padding goes 5→25, got delta=%v", delta)
+	q1Y5 := attrFloat(t, string(out5), ">Q1<", "y")
+	q1Y25 := attrFloat(t, string(out25), ">Q1<", "y")
+	if delta := q1Y25 - q1Y5; math.Abs(delta-20) > 0.01 {
+		t.Errorf("expected Q1 label y to shift by 20px when padding goes 5→25, got delta=%v", delta)
 	}
 }
 
-// firstQuadrantWidth pulls the `width` attribute of the first <rect>
-// whose fill matches `fillHex`. Used to measure post-padding rect
-// dimensions without relying on element ordering.
-func firstQuadrantWidth(t *testing.T, svg, fillHex string) float64 {
+// attrFloat scans `svg` forward to `marker`, walks back to the most
+// recent ` <attr>="<num>"`, and returns the parsed float. Lets a
+// caller pull any element's attribute without depending on element
+// ordering or tag layout.
+func attrFloat(t *testing.T, svg, marker, attr string) float64 {
 	t.Helper()
-	idx := strings.Index(svg, "fill:"+fillHex)
-	if idx < 0 {
-		t.Fatalf("missing rect with fill %s", fillHex)
-	}
-	head := svg[:idx]
-	wAt := strings.LastIndex(head, ` width="`)
-	if wAt < 0 {
-		t.Fatalf("could not locate width attribute for %s", fillHex)
-	}
-	wEnd := strings.Index(head[wAt+8:], `"`)
-	v, err := strconv.ParseFloat(head[wAt+8:wAt+8+wEnd], 64)
-	if err != nil {
-		t.Fatalf("malformed width %q: %v", head[wAt+8:wAt+8+wEnd], err)
-	}
-	return v
-}
-
-// firstLabelY returns the `y` attribute of the first <text> element
-// containing the given label string.
-func firstLabelY(t *testing.T, svg, label string) float64 {
-	t.Helper()
-	marker := ">" + label + "<"
 	idx := strings.Index(svg, marker)
 	if idx < 0 {
-		t.Fatalf("missing label %q", label)
+		t.Fatalf("attrFloat: marker %q not found", marker)
 	}
 	head := svg[:idx]
-	yAt := strings.LastIndex(head, ` y="`)
-	if yAt < 0 {
-		t.Fatalf("could not locate y attribute for %q", label)
+	needle := ` ` + attr + `="`
+	at := strings.LastIndex(head, needle)
+	if at < 0 {
+		t.Fatalf("attrFloat: %s attribute not found before marker %q", attr, marker)
 	}
-	yEnd := strings.Index(head[yAt+4:], `"`)
-	v, err := strconv.ParseFloat(head[yAt+4:yAt+4+yEnd], 64)
+	start := at + len(needle)
+	end := strings.Index(head[start:], `"`)
+	if end < 0 {
+		t.Fatalf("attrFloat: unterminated %s value before marker %q", attr, marker)
+	}
+	v, err := strconv.ParseFloat(head[start:start+end], 64)
 	if err != nil {
-		t.Fatalf("malformed y %q: %v", head[yAt+4:yAt+4+yEnd], err)
+		t.Fatalf("attrFloat: malformed %s=%q: %v", attr, head[start:start+end], err)
 	}
 	return v
 }

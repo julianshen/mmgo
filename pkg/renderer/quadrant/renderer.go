@@ -115,29 +115,21 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 
 	midX := (plotX0 + plotX1) / 2
 	midY := (plotY0 + plotY1) / 2
-	// Plot body: a single PlotFill rect when no per-quadrant
-	// fills are supplied (the typical case), else four
-	// per-quadrant rects. Keeping the single-rect path preserves
-	// SVG output stability when callers don't override the
-	// quadrant palette.
+	// Single PlotFill rect when no per-quadrant fills are supplied,
+	// else four per-quadrant rects. The single-rect path preserves
+	// SVG-output stability for callers that don't touch the quadrant
+	// palette.
 	//
-	// Per-quadrant rects honour cfg.QuadrantPadding by insetting
-	// each rect from shared/outer edges so the gap between adjacent
-	// rects (and between rects and the plot border) is exactly
-	// QuadrantPadding. Inner edges share the gap with the
-	// neighbouring quadrant (½ each); outer edges take the full
-	// padding from the plot border.
+	// Inner edges split QuadrantPadding (½ each) so the visible gap
+	// between adjacent rects equals pad; outer edges take the full
+	// pad against the plot border.
 	type quadRect struct{ x0, y0, x1, y1 float64 }
 	pad := cfg.QuadrantPadding
 	half := pad / 2
 	quadRects := [4]quadRect{
-		// Q1 top-right: inner edges shared with Q2 (left) and Q4 (bottom)
 		{midX + half, plotY0 + pad, plotX1 - pad, midY - half},
-		// Q2 top-left: inner edges shared with Q1 (right) and Q3 (bottom)
 		{plotX0 + pad, plotY0 + pad, midX - half, midY - half},
-		// Q3 bottom-left: inner edges shared with Q2 (top) and Q4 (right)
 		{plotX0 + pad, midY + half, midX - half, plotY1 - pad},
-		// Q4 bottom-right: inner edges shared with Q3 (left) and Q1 (top)
 		{midX + half, midY + half, plotX1 - pad, plotY1 - pad},
 	}
 	hasPerQuadrant := false
@@ -201,10 +193,8 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	// Labels render at the horizontal centre of each quadrant rect
 	// and inset cfg.QuadrantTextTopPadding from the top edge —
 	// matching Mermaid's "title sits at the top of its quadrant"
-	// convention rather than the geometric centre. Inner-edge
-	// (top edge of Q3/Q4) aligns to midY; outer-edge (top of Q1/Q2)
-	// aligns to plotY0.
-	for i, q := range []struct {
+	// convention rather than the geometric centre.
+	for i, q := range [4]struct {
 		text string
 		rect quadRect
 	}{
