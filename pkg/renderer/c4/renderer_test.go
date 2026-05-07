@@ -253,3 +253,89 @@ func TestDefaultThemeStable(t *testing.T) {
 		t.Errorf("chrome drifted: %+v", got)
 	}
 }
+
+// AccTitle/AccDescr emit as <title>/<desc> SVG children.
+func TestRenderC4Accessibility(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant:  diagram.C4VariantContext,
+		AccTitle: "System view",
+		AccDescr: "Top-level architecture",
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<title>System view</title>") {
+		t.Errorf("expected <title> in output:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<desc>Top-level architecture</desc>") {
+		t.Errorf("expected <desc> in output:\n%s", raw)
+	}
+}
+
+// BiRel emits both marker-end and marker-start so the edge reads
+// as bidirectional.
+func TestRenderC4BiRelMarkers(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContext,
+		Elements: []diagram.C4Element{
+			{ID: "a", Kind: diagram.C4ElementSystem, Label: "A"},
+			{ID: "b", Kind: diagram.C4ElementSystem, Label: "B"},
+		},
+		Relations: []diagram.C4Relation{
+			{From: "a", To: "b", Label: "talks to", Direction: diagram.C4RelBi},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, `marker-start="url(#c4-arrow)"`) {
+		t.Errorf("BiRel should emit marker-start:\n%s", raw)
+	}
+	if !strings.Contains(raw, `marker-end="url(#c4-arrow)"`) {
+		t.Errorf("BiRel should still emit marker-end:\n%s", raw)
+	}
+}
+
+// Queue elements render as a stadium pill (high border-radius rect).
+func TestRenderC4QueueShape(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContainer,
+		Elements: []diagram.C4Element{
+			{ID: "q", Kind: diagram.C4ElementContainerQueue, Label: "Events"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// Queue uses rx=h/2 (≥ ~25 typically), much larger than the
+	// default 0 — looking for a non-zero rx is enough to confirm.
+	if !strings.Contains(string(out), `rx="`) {
+		t.Errorf("expected rx attribute on queue rect")
+	}
+}
+
+// Deployment_Node renders with a dashed border so it visually
+// reads as a container of nested elements.
+func TestRenderC4DeploymentNodeDashed(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantDeployment,
+		Elements: []diagram.C4Element{
+			{ID: "web", Kind: diagram.C4ElementDeploymentNode, Label: "Web tier"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "stroke-dasharray:6 4") {
+		t.Errorf("Deployment_Node should render with dashed border")
+	}
+}

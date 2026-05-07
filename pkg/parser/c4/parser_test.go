@@ -196,3 +196,91 @@ func TestParseQuotedCommasInLabels(t *testing.T) {
 		t.Errorf("label = %q", d.Elements[0].Label)
 	}
 }
+
+// All new element kinds (queues, *_Ext variants, Deployment_Node)
+// parse to the matching C4ElementKind.
+func TestParseElementKindCompleteness(t *testing.T) {
+	cases := []struct {
+		input string
+		want  diagram.C4ElementKind
+	}{
+		{`SystemQueue(sq, "Q")`, diagram.C4ElementSystemQueue},
+		{`SystemQueue_Ext(sqe, "Q")`, diagram.C4ElementSystemQueueExt},
+		{`SystemDb_Ext(sde, "DB")`, diagram.C4ElementSystemDBExt},
+		{`Container_Ext(ce, "C")`, diagram.C4ElementContainerExt},
+		{`ContainerDb_Ext(cde, "CDB")`, diagram.C4ElementContainerDBExt},
+		{`ContainerQueue(cq, "CQ")`, diagram.C4ElementContainerQueue},
+		{`ContainerQueue_Ext(cqe, "CQ")`, diagram.C4ElementContainerQueueExt},
+		{`Component_Ext(coe, "C")`, diagram.C4ElementComponentExt},
+		{`ComponentDb(codb, "DB")`, diagram.C4ElementComponentDB},
+		{`ComponentDb_Ext(codbe, "DB")`, diagram.C4ElementComponentDBExt},
+		{`ComponentQueue(coq, "Q")`, diagram.C4ElementComponentQueue},
+		{`ComponentQueue_Ext(coqe, "Q")`, diagram.C4ElementComponentQueueExt},
+		{`Deployment_Node(dn, "Web tier")`, diagram.C4ElementDeploymentNode},
+		{`Node(n, "Box")`, diagram.C4ElementDeploymentNode},
+		{`Node_L(nl, "Left")`, diagram.C4ElementDeploymentNode},
+		{`Node_R(nr, "Right")`, diagram.C4ElementDeploymentNode},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("C4Container\n" + tc.input))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(d.Elements) != 1 {
+				t.Fatalf("elements = %v", d.Elements)
+			}
+			if d.Elements[0].Kind != tc.want {
+				t.Errorf("kind = %v, want %v", d.Elements[0].Kind, tc.want)
+			}
+		})
+	}
+}
+
+// Long-form `Rel_Up`/`Rel_Down`/`Rel_Left`/`Rel_Right` populate
+// the same Direction values the short forms produce.
+func TestParseLongFormRelations(t *testing.T) {
+	cases := []struct {
+		input string
+		want  diagram.C4RelDirection
+	}{
+		{`Rel_Up(a, b, "up")`, diagram.C4RelUp},
+		{`Rel_Down(a, b, "down")`, diagram.C4RelDown},
+		{`Rel_Left(a, b, "left")`, diagram.C4RelLeft},
+		{`Rel_Right(a, b, "right")`, diagram.C4RelRight},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			d, err := Parse(strings.NewReader("C4Context\n" + tc.input))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(d.Relations) != 1 {
+				t.Fatalf("relations = %v", d.Relations)
+			}
+			if d.Relations[0].Direction != tc.want {
+				t.Errorf("direction = %v, want %v", d.Relations[0].Direction, tc.want)
+			}
+		})
+	}
+}
+
+// accTitle / accDescr lines populate the matching AST fields.
+func TestParseC4Accessibility(t *testing.T) {
+	d, err := Parse(strings.NewReader(`C4Context
+accTitle: System Context
+accDescr: Top-level system view
+title Internet Banking`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.AccTitle != "System Context" {
+		t.Errorf("accTitle = %q", d.AccTitle)
+	}
+	if d.AccDescr != "Top-level system view" {
+		t.Errorf("accDescr = %q", d.AccDescr)
+	}
+	if d.Title != "Internet Banking" {
+		t.Errorf("title = %q", d.Title)
+	}
+}

@@ -66,6 +66,12 @@ func Render(d *diagram.C4Diagram, opts *Options) ([]byte, error) {
 	viewH := sanitize(l.Height) + 2*pad + titleOffset
 
 	var children []any
+	if d.AccTitle != "" {
+		children = append(children, &svgutil.Title{Content: d.AccTitle})
+	}
+	if d.AccDescr != "" {
+		children = append(children, &svgutil.Desc{Content: d.AccDescr})
+	}
 	children = append(children, &defs{Markers: []marker{buildArrowMarker(th)}})
 	children = append(children, &rect{
 		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
@@ -147,12 +153,23 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 		p := th.roleOf(e.Kind)
 		shapeStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", p.Fill, p.Stroke)
 
-		switch e.Kind {
-		case diagram.C4ElementSystemDB, diagram.C4ElementContainerDB:
+		switch {
+		case IsDBKind(e.Kind):
 			// Cylinder glyph signals "this is a datastore" — the
-			// shape mmdc uses for DB-kind C4 elements.
+			// shape mmdc uses for every DB-kind variant
+			// (system / container / component, plain or _Ext).
 			elems = append(elems, &path{D: svgutil.CylinderPath(cx, cy, w, h), Style: shapeStyle})
-		case diagram.C4ElementPerson, diagram.C4ElementPersonExt:
+		case IsQueueKind(e.Kind):
+			// Stadium pill — fully rounded ends — for every queue
+			// variant. The half-height radius matches mmdc's
+			// queue glyph.
+			rx := svgFloat(h / 2)
+			elems = append(elems, &rect{
+				X: svgFloat(x), Y: svgFloat(y),
+				Width: svgFloat(w), Height: svgFloat(h),
+				RX: rx, RY: rx, Style: shapeStyle,
+			})
+		case e.Kind == diagram.C4ElementPerson || e.Kind == diagram.C4ElementPersonExt:
 			// Strongly rounded corners hint at a "person" shape
 			// without requiring an embedded icon.
 			rx := svgFloat(h / 4)
@@ -160,6 +177,16 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 				X: svgFloat(x), Y: svgFloat(y),
 				Width: svgFloat(w), Height: svgFloat(h),
 				RX: rx, RY: rx, Style: shapeStyle,
+			})
+		case e.Kind == diagram.C4ElementDeploymentNode:
+			// Deployment_Node renders as a dashed-border rect so
+			// it reads as a container of nested elements rather
+			// than a leaf. (Phase 2 will populate the contents
+			// once boundary blocks land.)
+			elems = append(elems, &rect{
+				X: svgFloat(x), Y: svgFloat(y),
+				Width: svgFloat(w), Height: svgFloat(h),
+				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5;stroke-dasharray:6 4", p.Fill, p.Stroke),
 			})
 		default:
 			elems = append(elems, &rect{
@@ -222,12 +249,38 @@ func kindDisplayLabel(k diagram.C4ElementKind) string {
 		name = "external_system"
 	case diagram.C4ElementSystemDB:
 		name = "system_db"
+	case diagram.C4ElementSystemDBExt:
+		name = "external_system_db"
+	case diagram.C4ElementSystemQueue:
+		name = "system_queue"
+	case diagram.C4ElementSystemQueueExt:
+		name = "external_system_queue"
 	case diagram.C4ElementContainer:
 		name = "container"
+	case diagram.C4ElementContainerExt:
+		name = "external_container"
 	case diagram.C4ElementContainerDB:
 		name = "container_db"
+	case diagram.C4ElementContainerDBExt:
+		name = "external_container_db"
+	case diagram.C4ElementContainerQueue:
+		name = "container_queue"
+	case diagram.C4ElementContainerQueueExt:
+		name = "external_container_queue"
 	case diagram.C4ElementComponent:
 		name = "component"
+	case diagram.C4ElementComponentExt:
+		name = "external_component"
+	case diagram.C4ElementComponentDB:
+		name = "component_db"
+	case diagram.C4ElementComponentDBExt:
+		name = "external_component_db"
+	case diagram.C4ElementComponentQueue:
+		name = "component_queue"
+	case diagram.C4ElementComponentQueueExt:
+		name = "external_component_queue"
+	case diagram.C4ElementDeploymentNode:
+		name = "deployment_node"
 	default:
 		return ""
 	}
@@ -285,17 +338,25 @@ func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize
 		}
 
 		style := fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke)
+		// BiRel adds an arrowhead at the source side too so the
+		// edge reads as bidirectional. Other directions still get
+		// a single end-marker.
+		markerStart := ""
+		if rel.Direction == diagram.C4RelBi {
+			markerStart = "url(#c4-arrow)"
+		}
 		if len(pts) == 2 {
 			elems = append(elems, &line{
 				X1: svgFloat(pts[0].X), Y1: svgFloat(pts[0].Y),
 				X2: svgFloat(pts[1].X), Y2: svgFloat(pts[1].Y),
-				Style: style, MarkerEnd: "url(#c4-arrow)",
+				Style: style, MarkerEnd: "url(#c4-arrow)", MarkerStart: markerStart,
 			})
 		} else {
 			elems = append(elems, &path{
-				D:         svgutil.CatmullRomPath(pts, svgutil.CatmullRomTension),
-				Style:     style,
-				MarkerEnd: "url(#c4-arrow)",
+				D:           svgutil.CatmullRomPath(pts, svgutil.CatmullRomTension),
+				Style:       style,
+				MarkerEnd:   "url(#c4-arrow)",
+				MarkerStart: markerStart,
 			})
 		}
 
