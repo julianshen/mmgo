@@ -30,13 +30,13 @@ type Options struct {
 }
 
 type layoutNode struct {
-	node       *diagram.MindmapNode
-	x, y       float64
-	width      float64
-	height     float64
-	depth      int
-	section    int
-	leafCount  int
+	node      *diagram.MindmapNode
+	x, y      float64
+	width     float64
+	height    float64
+	depth     int
+	section   int
+	leafCount int
 	// segments holds every line's parsed markdown segments in
 	// document order. lineHeights holds the per-line vertical
 	// extent so the renderer can stack multi-line labels without
@@ -444,7 +444,7 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 		iconStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx;font-style:italic;opacity:0.7", textCol, fontSize-2)
 		children = append(children, &text{
 			X: 0, Y: svgutil.Float(-h/2 + iconRowH/2 + 2),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   iconStyle,
 			Content: n.node.Icon,
 		})
@@ -469,7 +469,7 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 		if len(segs) == 1 && !segs[0].bold && !segs[0].italic {
 			children = append(children, &text{
 				X: 0, Y: svgutil.Float(ly),
-				Anchor: "middle", Dominant: "central",
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 				Style:   textStyle,
 				Content: segs[0].text,
 			})
@@ -487,7 +487,7 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 			}
 			children = append(children, &svgText{
 				X: 0, Y: svgutil.Float(ly),
-				Anchor: "middle", Dominant: "central",
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 				Style:    textStyle,
 				Children: tspans,
 			})

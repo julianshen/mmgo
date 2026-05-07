@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 )
 
 type Options struct {
@@ -180,8 +181,8 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		children = append(children, &text{
 			X:        svgFloat((plotX0 + plotX1) / 2),
 			Y:        svgFloat(pageMarginY + titleH/2),
-			Anchor:   "middle",
-			Dominant: "central",
+			Anchor:   svgutil.AnchorMiddle,
+			Dominant: svgutil.BaselineCentral,
 			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleColor, cfg.TitleFontSize),
 			Content:  d.Title,
 		})
@@ -228,8 +229,8 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		children = append(children, &text{
 			X:        svgFloat(cx),
 			Y:        svgFloat(cy),
-			Anchor:   "middle",
-			Dominant: "hanging",
+			Anchor:   svgutil.AnchorMiddle,
+			Dominant: svgutil.BaselineHanging,
 			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", fill, cfg.QuadrantLabelFontSize),
 			Content:  q.text,
 		})
@@ -247,7 +248,7 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		children = append(children, &text{
 			X:        svgFloat(plotX0 + plotSide/4),
 			Y:        svgFloat(xAxisY),
-			Anchor:   "middle",
+			Anchor:   svgutil.AnchorMiddle,
 			Dominant: xAxisDom,
 			Style:    xAxisStyle,
 			Content:  d.XAxisLow,
@@ -257,7 +258,7 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		children = append(children, &text{
 			X:        svgFloat(plotX0 + 3*plotSide/4),
 			Y:        svgFloat(xAxisY),
-			Anchor:   "middle",
+			Anchor:   svgutil.AnchorMiddle,
 			Dominant: xAxisDom,
 			Style:    xAxisStyle,
 			Content:  d.XAxisHigh,
@@ -272,8 +273,8 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		children = append(children, &text{
 			X:         svgFloat(yAxisX),
 			Y:         svgFloat(cy),
-			Anchor:    "middle",
-			Dominant:  "central",
+			Anchor:    svgutil.AnchorMiddle,
+			Dominant:  svgutil.BaselineCentral,
 			Style:     yAxisStyle,
 			Transform: fmt.Sprintf("rotate(-90 %.2f %.2f)", yAxisX, cy),
 			Content:   d.YAxisLow,
@@ -284,8 +285,8 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		children = append(children, &text{
 			X:         svgFloat(yAxisX),
 			Y:         svgFloat(cy),
-			Anchor:    "middle",
-			Dominant:  "central",
+			Anchor:    svgutil.AnchorMiddle,
+			Dominant:  svgutil.BaselineCentral,
 			Style:     yAxisStyle,
 			Transform: fmt.Sprintf("rotate(-90 %.2f %.2f)", yAxisX, cy),
 			Content:   d.YAxisHigh,
@@ -310,7 +311,7 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 			children = append(children, &text{
 				X:        svgFloat(px),
 				Y:        svgFloat(py - radius - cfg.PointTextPadding),
-				Anchor:   "middle",
+				Anchor:   svgutil.AnchorMiddle,
 				Dominant: "baseline",
 				Style:    pointLabelStyle,
 				Content:  p.Label,
@@ -329,7 +330,6 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	}
 	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), b...), nil
 }
-
 
 // resolvePointStyle layers inline > class > theme defaults to
 // produce the final (fill, stroke, stroke-width, radius) for a

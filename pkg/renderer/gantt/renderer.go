@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -117,7 +118,7 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 	if d.Title != "" {
 		children = append(children, &text{
 			X: svgFloat(viewW / 2), Y: svgFloat(pad + titleH/2),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize+2),
 			Content: d.Title,
 		})
@@ -160,7 +161,7 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 		centerY := rowY(sp.start) + float64(sp.end-sp.start)*rowH/2
 		children = append(children, &text{
 			X: svgFloat(pad + sectionLabelW - 8), Y: svgFloat(centerY),
-			Anchor: "end", Dominant: "central",
+			Anchor: svgutil.AnchorEnd, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.SectionText, fontSize),
 			Content: sp.name,
 		})
@@ -200,7 +201,7 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 			})
 			taskBuf = append(taskBuf, &text{
 				X: svgFloat(cx + half + labelOutsideGap), Y: svgFloat(cy),
-				Anchor: "start", Dominant: "central",
+				Anchor: svgutil.AnchorStart, Dominant: svgutil.BaselineCentral,
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.OutsideBarText, fontSize-1),
 				Content: task.Name,
 			})
@@ -218,14 +219,14 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 			if taskLabelW[i]+labelInsideSlack > barW {
 				taskBuf = append(taskBuf, &text{
 					X: svgFloat(bx + barW + labelOutsideGap), Y: svgFloat(by + barH/2),
-					Anchor: "start", Dominant: "central",
+					Anchor: svgutil.AnchorStart, Dominant: svgutil.BaselineCentral,
 					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.OutsideBarText, fontSize-1),
 					Content: task.Name,
 				})
 			} else {
 				taskBuf = append(taskBuf, &text{
 					X: svgFloat(bx + barW/2), Y: svgFloat(by + barH/2),
-					Anchor: "middle", Dominant: "central",
+					Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.InsideBarText, fontSize-1),
 					Content: task.Name,
 				})
@@ -257,7 +258,7 @@ func Render(d *diagram.GanttDiagram, opts *Options) ([]byte, error) {
 		if v.Label != "" {
 			children = append(children, &text{
 				X: svgFloat(dx + 3), Y: svgFloat(axisY + axisH + 4),
-				Anchor: "start", Dominant: "hanging",
+				Anchor: svgutil.AnchorStart, Dominant: svgutil.BaselineHanging,
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.AxisLabel, fontSize-2),
 				Content: v.Label,
 			})
@@ -292,7 +293,7 @@ func renderEmpty(d *diagram.GanttDiagram, th Theme) ([]byte, error) {
 	if d.Title != "" {
 		children = append(children, &text{
 			X: svgFloat(w / 2), Y: svgFloat(pad + titleH/2),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:15px;font-weight:bold", th.TitleText),
 			Content: d.Title,
 		})
@@ -356,7 +357,7 @@ func axisTick(date time.Time, dx, y, bodyH, fontSize float64, layout, gridStyle 
 	return []any{
 		&text{
 			X: svgFloat(dx), Y: svgFloat(y + axisH - 6),
-			Anchor: "middle", Dominant: "auto",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineAuto,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.AxisLabel, fontSize-2),
 			Content: date.Format(layout),
 		},
@@ -473,5 +474,3 @@ func ganttClicksByID(clicks []diagram.GanttClickDef) map[string]diagram.GanttCli
 	}
 	return out
 }
-
-

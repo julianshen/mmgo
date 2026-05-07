@@ -272,7 +272,7 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 		})
 		elems = append(elems, &Text{
 			X: svgFloat(lx), Y: svgFloat(ly),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			FontSize: svgFloat(fontSize), Style: textStyle, Content: e.Label,
 		})
 	}

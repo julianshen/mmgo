@@ -208,7 +208,7 @@ func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float6
 		})
 		*buf = append(*buf, &text{
 			X: svgFloat(cx), Y: svgFloat(y + headerH/2),
-			Anchor: "middle", Dominant: "central",
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.EntityText, fontSize),
 			Content: entityTitle(e),
 		})
@@ -240,13 +240,13 @@ func renderEntities(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float6
 				rowMid := headerSepY + float64(i)*attrRowH + attrRowH/2
 				*buf = append(*buf, &text{
 					X: svgFloat(x + entityPadX), Y: svgFloat(rowMid),
-					Anchor: "start", Dominant: "central",
+					Anchor: svgutil.AnchorStart, Dominant: svgutil.BaselineCentral,
 					Style:   attrTextStyle,
 					Content: a.Type,
 				})
 				*buf = append(*buf, &text{
 					X: svgFloat(nameCellX), Y: svgFloat(rowMid),
-					Anchor: "start", Dominant: "central",
+					Anchor: svgutil.AnchorStart, Dominant: svgutil.BaselineCentral,
 					Style:   attrTextStyle,
 					Content: nameCellText(a),
 				})
@@ -385,7 +385,7 @@ func renderEdges(d *diagram.ERDiagram, l *layout.Result, pad, fontSize float64, 
 		if rel.Label != "" {
 			elems = append(elems, &text{
 				X: svgFloat(lx), Y: svgFloat(ly),
-				Anchor: "middle", Dominant: "central",
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, labelFont),
 				Content: rel.Label,
 			})

@@ -32,7 +32,6 @@ const (
 	cardRadius      = 6.0
 	lineHeight      = 18.0
 	metaLineHeight  = 15.0
-
 )
 
 func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
@@ -54,10 +53,10 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 	// Layout pass: compute per-card wrapped text and heights so the
 	// column heights can be determined before any drawing.
 	type cardLayout struct {
-		lines    []string
-		meta     []string
-		height   float64
-		task     diagram.KanbanTask
+		lines  []string
+		meta   []string
+		height float64
+		task   diagram.KanbanTask
 	}
 	type colLayout struct {
 		cards  []cardLayout
@@ -135,8 +134,8 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 		children = append(children, &text{
 			X:        svgFloat(viewW / 2),
 			Y:        svgFloat(marginY + titleBandH/2),
-			Anchor:   "middle",
-			Dominant: "central",
+			Anchor:   svgutil.AnchorMiddle,
+			Dominant: svgutil.BaselineCentral,
 			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.ColumnTitle, fontSize+3),
 			Content:  d.Title,
 		})
@@ -156,8 +155,8 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 		children = append(children, &text{
 			X:        svgFloat(colX + columnWidth/2),
 			Y:        svgFloat(columnsTopY + columnHeaderH/2),
-			Anchor:   "middle",
-			Dominant: "central",
+			Anchor:   svgutil.AnchorMiddle,
+			Dominant: svgutil.BaselineCentral,
 			Style: fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold",
 				th.ColumnTitle, titleSize),
 			Content: s.Title,
@@ -169,8 +168,8 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 			cardX := colX + cardGap/2
 			cardW := columnWidth - cardGap
 			cardBuf = append(cardBuf, &rect{
-				X: svgFloat(cardX),
-				Y: svgFloat(cardY),
+				X:      svgFloat(cardX),
+				Y:      svgFloat(cardY),
 				Width:  svgFloat(cardW),
 				Height: svgFloat(c.height),
 				RX:     svgFloat(cardRadius), RY: svgFloat(cardRadius),
@@ -183,8 +182,8 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 			if level := c.task.Metadata["priority"]; level != "" {
 				if color := th.priorityColor(level); color != "" {
 					cardBuf = append(cardBuf, &rect{
-						X: svgFloat(cardX),
-						Y: svgFloat(cardY),
+						X:      svgFloat(cardX),
+						Y:      svgFloat(cardY),
 						Width:  4,
 						Height: svgFloat(c.height),
 						RX:     svgFloat(cardRadius), RY: svgFloat(cardRadius),
@@ -197,7 +196,7 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 				cardBuf = append(cardBuf, &text{
 					X:        svgFloat(colX + cardGap/2 + cardPadding),
 					Y:        svgFloat(textY),
-					Dominant: "central",
+					Dominant: svgutil.BaselineCentral,
 					Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.CardText, fontSize),
 					Content:  ln,
 				})
@@ -208,7 +207,7 @@ func Render(d *diagram.KanbanDiagram, opts *Options) ([]byte, error) {
 				cardBuf = append(cardBuf, &text{
 					X:        svgFloat(colX + cardGap/2 + cardPadding),
 					Y:        svgFloat(metaY),
-					Dominant: "central",
+					Dominant: svgutil.BaselineCentral,
 					Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.MetaText, metaSize),
 					Content:  m,
 				})
@@ -324,4 +323,3 @@ func formatMetadata(m map[string]string) []string {
 	}
 	return out
 }
-

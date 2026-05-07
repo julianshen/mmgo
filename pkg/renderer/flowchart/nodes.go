@@ -265,7 +265,7 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 	for i, line := range lines {
 		elems = append(elems, &Text{
 			X: svgFloat(cx), Y: svgFloat(startY + float64(i)*lineHeight),
-			Anchor: "middle", Dominant: "central", FontSize: svgFloat(fontSize),
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral, FontSize: svgFloat(fontSize),
 			Style: textStyle, Content: line,
 		})
 	}
