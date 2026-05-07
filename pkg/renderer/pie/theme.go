@@ -1,18 +1,20 @@
 package pie
 
+import "github.com/julianshen/mmgo/pkg/renderer/svgutil"
+
 // Theme holds pie-chart color surfaces. SliceColors cycles by slice
 // order (and is mirrored into the legend swatches); InsideText is
 // painted over each slice so it should contrast with every palette
 // entry. TitleText and OutsideText cover the title and the leader-
 // line labels for thin outside slices.
 type Theme struct {
-	SliceColors []string
-	TitleText   string
-	InsideText  string
-	OutsideText string
+	SliceColors  []string
+	TitleText    string
+	InsideText   string
+	OutsideText  string
 	LeaderStroke string
-	LegendText  string
-	Background  string
+	LegendText   string
+	Background   string
 }
 
 func DefaultTheme() Theme {
@@ -39,23 +41,11 @@ func resolveTheme(opts *Options) Theme {
 	if len(opts.Theme.SliceColors) > 0 {
 		th.SliceColors = opts.Theme.SliceColors
 	}
-	if opts.Theme.TitleText != "" {
-		th.TitleText = opts.Theme.TitleText
-	}
-	if opts.Theme.InsideText != "" {
-		th.InsideText = opts.Theme.InsideText
-	}
-	if opts.Theme.OutsideText != "" {
-		th.OutsideText = opts.Theme.OutsideText
-	}
-	if opts.Theme.LeaderStroke != "" {
-		th.LeaderStroke = opts.Theme.LeaderStroke
-	}
-	if opts.Theme.LegendText != "" {
-		th.LegendText = opts.Theme.LegendText
-	}
-	if opts.Theme.Background != "" {
-		th.Background = opts.Theme.Background
-	}
+	svgutil.MergeStr(&th.TitleText, opts.Theme.TitleText)
+	svgutil.MergeStr(&th.InsideText, opts.Theme.InsideText)
+	svgutil.MergeStr(&th.OutsideText, opts.Theme.OutsideText)
+	svgutil.MergeStr(&th.LeaderStroke, opts.Theme.LeaderStroke)
+	svgutil.MergeStr(&th.LegendText, opts.Theme.LegendText)
+	svgutil.MergeStr(&th.Background, opts.Theme.Background)
 	return th
 }

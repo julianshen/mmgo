@@ -1,6 +1,9 @@
 package gantt
 
-import "github.com/julianshen/mmgo/pkg/diagram"
+import (
+	"github.com/julianshen/mmgo/pkg/diagram"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
+)
 
 // Theme holds gantt color surfaces. TaskColors maps task status to
 // its bar fill; a missing entry falls back to the Default entry.
@@ -78,35 +81,17 @@ func resolveTheme(opts *Options) Theme {
 			}
 		}
 	}
-	if opts.Theme.TitleText != "" {
-		th.TitleText = opts.Theme.TitleText
-	}
-	if opts.Theme.SectionText != "" {
-		th.SectionText = opts.Theme.SectionText
-	}
-	if opts.Theme.AxisStroke != "" {
-		th.AxisStroke = opts.Theme.AxisStroke
-	}
-	if opts.Theme.AxisLabel != "" {
-		th.AxisLabel = opts.Theme.AxisLabel
-	}
-	if opts.Theme.GridStroke != "" {
-		th.GridStroke = opts.Theme.GridStroke
-	}
-	if opts.Theme.CritStroke != "" {
-		th.CritStroke = opts.Theme.CritStroke
-	}
+	svgutil.MergeStr(&th.TitleText, opts.Theme.TitleText)
+	svgutil.MergeStr(&th.SectionText, opts.Theme.SectionText)
+	svgutil.MergeStr(&th.AxisStroke, opts.Theme.AxisStroke)
+	svgutil.MergeStr(&th.AxisLabel, opts.Theme.AxisLabel)
+	svgutil.MergeStr(&th.GridStroke, opts.Theme.GridStroke)
+	svgutil.MergeStr(&th.CritStroke, opts.Theme.CritStroke)
 	if len(opts.Theme.SectionBands) > 0 {
 		th.SectionBands = opts.Theme.SectionBands
 	}
-	if opts.Theme.InsideBarText != "" {
-		th.InsideBarText = opts.Theme.InsideBarText
-	}
-	if opts.Theme.OutsideBarText != "" {
-		th.OutsideBarText = opts.Theme.OutsideBarText
-	}
-	if opts.Theme.Background != "" {
-		th.Background = opts.Theme.Background
-	}
+	svgutil.MergeStr(&th.InsideBarText, opts.Theme.InsideBarText)
+	svgutil.MergeStr(&th.OutsideBarText, opts.Theme.OutsideBarText)
+	svgutil.MergeStr(&th.Background, opts.Theme.Background)
 	return th
 }

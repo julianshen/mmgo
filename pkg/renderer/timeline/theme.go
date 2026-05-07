@@ -1,5 +1,7 @@
 package timeline
 
+import "github.com/julianshen/mmgo/pkg/renderer/svgutil"
+
 // Theme holds color surfaces for the timeline renderer. SectionColors
 // cycles per section (or per event when no sections are declared);
 // it needs at least one entry. EventText is painted over a section
@@ -33,20 +35,10 @@ func resolveTheme(opts *Options) Theme {
 	if len(opts.Theme.SectionColors) > 0 {
 		th.SectionColors = opts.Theme.SectionColors
 	}
-	if opts.Theme.TitleText != "" {
-		th.TitleText = opts.Theme.TitleText
-	}
-	if opts.Theme.SectionText != "" {
-		th.SectionText = opts.Theme.SectionText
-	}
-	if opts.Theme.EventText != "" {
-		th.EventText = opts.Theme.EventText
-	}
-	if opts.Theme.AxisStroke != "" {
-		th.AxisStroke = opts.Theme.AxisStroke
-	}
-	if opts.Theme.Background != "" {
-		th.Background = opts.Theme.Background
-	}
+	svgutil.MergeStr(&th.TitleText, opts.Theme.TitleText)
+	svgutil.MergeStr(&th.SectionText, opts.Theme.SectionText)
+	svgutil.MergeStr(&th.EventText, opts.Theme.EventText)
+	svgutil.MergeStr(&th.AxisStroke, opts.Theme.AxisStroke)
+	svgutil.MergeStr(&th.Background, opts.Theme.Background)
 	return th
 }

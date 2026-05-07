@@ -1,5 +1,7 @@
 package sankey
 
+import "github.com/julianshen/mmgo/pkg/renderer/svgutil"
+
 // Theme holds sankey color surfaces. NodeColors cycles by first-
 // appearance index; the color of a ribbon matches its source node.
 type Theme struct {
@@ -27,11 +29,7 @@ func resolveTheme(opts *Options) Theme {
 	if len(opts.Theme.NodeColors) > 0 {
 		th.NodeColors = opts.Theme.NodeColors
 	}
-	if opts.Theme.LabelText != "" {
-		th.LabelText = opts.Theme.LabelText
-	}
-	if opts.Theme.Background != "" {
-		th.Background = opts.Theme.Background
-	}
+	svgutil.MergeStr(&th.LabelText, opts.Theme.LabelText)
+	svgutil.MergeStr(&th.Background, opts.Theme.Background)
 	return th
 }

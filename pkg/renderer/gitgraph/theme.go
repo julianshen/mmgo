@@ -1,5 +1,7 @@
 package gitgraph
 
+import "github.com/julianshen/mmgo/pkg/renderer/svgutil"
+
 // Theme holds gitgraph color surfaces. BranchColors cycles by branch
 // declaration order; lane 0 (main) picks the first entry.
 type Theme struct {
@@ -39,29 +41,13 @@ func resolveTheme(opts *Options) Theme {
 	if len(opts.Theme.BranchColors) > 0 {
 		th.BranchColors = opts.Theme.BranchColors
 	}
-	if opts.Theme.Text != "" {
-		th.Text = opts.Theme.Text
-	}
-	if opts.Theme.BranchLabelText != "" {
-		th.BranchLabelText = opts.Theme.BranchLabelText
-	}
-	if opts.Theme.DotStrokeFill != "" {
-		th.DotStrokeFill = opts.Theme.DotStrokeFill
-	}
-	if opts.Theme.LaneGuide != "" {
-		th.LaneGuide = opts.Theme.LaneGuide
-	}
-	if opts.Theme.TagFill != "" {
-		th.TagFill = opts.Theme.TagFill
-	}
-	if opts.Theme.TagText != "" {
-		th.TagText = opts.Theme.TagText
-	}
-	if opts.Theme.TagStroke != "" {
-		th.TagStroke = opts.Theme.TagStroke
-	}
-	if opts.Theme.Background != "" {
-		th.Background = opts.Theme.Background
-	}
+	svgutil.MergeStr(&th.Text, opts.Theme.Text)
+	svgutil.MergeStr(&th.BranchLabelText, opts.Theme.BranchLabelText)
+	svgutil.MergeStr(&th.DotStrokeFill, opts.Theme.DotStrokeFill)
+	svgutil.MergeStr(&th.LaneGuide, opts.Theme.LaneGuide)
+	svgutil.MergeStr(&th.TagFill, opts.Theme.TagFill)
+	svgutil.MergeStr(&th.TagText, opts.Theme.TagText)
+	svgutil.MergeStr(&th.TagStroke, opts.Theme.TagStroke)
+	svgutil.MergeStr(&th.Background, opts.Theme.Background)
 	return th
 }

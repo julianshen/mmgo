@@ -1,5 +1,7 @@
 package block
 
+import "github.com/julianshen/mmgo/pkg/renderer/svgutil"
+
 // Theme holds the color surfaces the block renderer consumes.
 // Mirrors class/er/state in shape for dispatcher uniformity.
 type Theme struct {
@@ -27,23 +29,11 @@ func resolveTheme(opts *Options) Theme {
 	if opts == nil {
 		return th
 	}
-	if opts.Theme.NodeFill != "" {
-		th.NodeFill = opts.Theme.NodeFill
-	}
-	if opts.Theme.NodeStroke != "" {
-		th.NodeStroke = opts.Theme.NodeStroke
-	}
-	if opts.Theme.NodeText != "" {
-		th.NodeText = opts.Theme.NodeText
-	}
-	if opts.Theme.EdgeStroke != "" {
-		th.EdgeStroke = opts.Theme.EdgeStroke
-	}
-	if opts.Theme.EdgeText != "" {
-		th.EdgeText = opts.Theme.EdgeText
-	}
-	if opts.Theme.Background != "" {
-		th.Background = opts.Theme.Background
-	}
+	svgutil.MergeStr(&th.NodeFill, opts.Theme.NodeFill)
+	svgutil.MergeStr(&th.NodeStroke, opts.Theme.NodeStroke)
+	svgutil.MergeStr(&th.NodeText, opts.Theme.NodeText)
+	svgutil.MergeStr(&th.EdgeStroke, opts.Theme.EdgeStroke)
+	svgutil.MergeStr(&th.EdgeText, opts.Theme.EdgeText)
+	svgutil.MergeStr(&th.Background, opts.Theme.Background)
 	return th
 }

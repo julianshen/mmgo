@@ -1,5 +1,7 @@
 package er
 
+import "github.com/julianshen/mmgo/pkg/renderer/svgutil"
+
 // Theme holds the color surfaces the ER renderer consumes. Shape
 // mirrors pkg/renderer/class/theme.go so the SVG dispatcher can map
 // config.ThemeColors uniformly across box-and-edge renderers. Unset
@@ -32,23 +34,11 @@ func resolveTheme(opts *Options) Theme {
 	if opts == nil {
 		return th
 	}
-	if opts.Theme.EntityFill != "" {
-		th.EntityFill = opts.Theme.EntityFill
-	}
-	if opts.Theme.EntityStroke != "" {
-		th.EntityStroke = opts.Theme.EntityStroke
-	}
-	if opts.Theme.EntityText != "" {
-		th.EntityText = opts.Theme.EntityText
-	}
-	if opts.Theme.EdgeStroke != "" {
-		th.EdgeStroke = opts.Theme.EdgeStroke
-	}
-	if opts.Theme.EdgeText != "" {
-		th.EdgeText = opts.Theme.EdgeText
-	}
-	if opts.Theme.Background != "" {
-		th.Background = opts.Theme.Background
-	}
+	svgutil.MergeStr(&th.EntityFill, opts.Theme.EntityFill)
+	svgutil.MergeStr(&th.EntityStroke, opts.Theme.EntityStroke)
+	svgutil.MergeStr(&th.EntityText, opts.Theme.EntityText)
+	svgutil.MergeStr(&th.EdgeStroke, opts.Theme.EdgeStroke)
+	svgutil.MergeStr(&th.EdgeText, opts.Theme.EdgeText)
+	svgutil.MergeStr(&th.Background, opts.Theme.Background)
 	return th
 }

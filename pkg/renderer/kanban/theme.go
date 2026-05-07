@@ -1,5 +1,7 @@
 package kanban
 
+import "github.com/julianshen/mmgo/pkg/renderer/svgutil"
+
 // Theme holds kanban color surfaces.
 //
 // Priority* fields drive the left-edge stripe drawn on cards
@@ -48,45 +50,19 @@ func resolveTheme(opts *Options) Theme {
 	if opts == nil {
 		return th
 	}
-	if opts.Theme.Background != "" {
-		th.Background = opts.Theme.Background
-	}
-	if opts.Theme.ColumnFill != "" {
-		th.ColumnFill = opts.Theme.ColumnFill
-	}
-	if opts.Theme.ColumnStroke != "" {
-		th.ColumnStroke = opts.Theme.ColumnStroke
-	}
-	if opts.Theme.ColumnTitle != "" {
-		th.ColumnTitle = opts.Theme.ColumnTitle
-	}
-	if opts.Theme.CardFill != "" {
-		th.CardFill = opts.Theme.CardFill
-	}
-	if opts.Theme.CardStroke != "" {
-		th.CardStroke = opts.Theme.CardStroke
-	}
-	if opts.Theme.CardText != "" {
-		th.CardText = opts.Theme.CardText
-	}
-	if opts.Theme.MetaText != "" {
-		th.MetaText = opts.Theme.MetaText
-	}
-	if opts.Theme.PriorityVeryHigh != "" {
-		th.PriorityVeryHigh = opts.Theme.PriorityVeryHigh
-	}
-	if opts.Theme.PriorityHigh != "" {
-		th.PriorityHigh = opts.Theme.PriorityHigh
-	}
-	if opts.Theme.PriorityLow != "" {
-		th.PriorityLow = opts.Theme.PriorityLow
-	}
-	if opts.Theme.PriorityVeryLow != "" {
-		th.PriorityVeryLow = opts.Theme.PriorityVeryLow
-	}
-	if opts.Theme.TicketLink != "" {
-		th.TicketLink = opts.Theme.TicketLink
-	}
+	svgutil.MergeStr(&th.Background, opts.Theme.Background)
+	svgutil.MergeStr(&th.ColumnFill, opts.Theme.ColumnFill)
+	svgutil.MergeStr(&th.ColumnStroke, opts.Theme.ColumnStroke)
+	svgutil.MergeStr(&th.ColumnTitle, opts.Theme.ColumnTitle)
+	svgutil.MergeStr(&th.CardFill, opts.Theme.CardFill)
+	svgutil.MergeStr(&th.CardStroke, opts.Theme.CardStroke)
+	svgutil.MergeStr(&th.CardText, opts.Theme.CardText)
+	svgutil.MergeStr(&th.MetaText, opts.Theme.MetaText)
+	svgutil.MergeStr(&th.PriorityVeryHigh, opts.Theme.PriorityVeryHigh)
+	svgutil.MergeStr(&th.PriorityHigh, opts.Theme.PriorityHigh)
+	svgutil.MergeStr(&th.PriorityLow, opts.Theme.PriorityLow)
+	svgutil.MergeStr(&th.PriorityVeryLow, opts.Theme.PriorityVeryLow)
+	svgutil.MergeStr(&th.TicketLink, opts.Theme.TicketLink)
 	return th
 }
 

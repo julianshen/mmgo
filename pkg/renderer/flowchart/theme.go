@@ -1,6 +1,9 @@
 package flowchart
 
-import "github.com/julianshen/mmgo/pkg/textmeasure"
+import (
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
+	"github.com/julianshen/mmgo/pkg/textmeasure"
+)
 
 const (
 	DefaultFontSize = 16.0
@@ -54,33 +57,15 @@ func resolveTheme(opts *Options) Theme {
 	if opts == nil {
 		return th
 	}
-	if opts.Theme.NodeFill != "" {
-		th.NodeFill = opts.Theme.NodeFill
-	}
-	if opts.Theme.NodeStroke != "" {
-		th.NodeStroke = opts.Theme.NodeStroke
-	}
-	if opts.Theme.NodeText != "" {
-		th.NodeText = opts.Theme.NodeText
-	}
-	if opts.Theme.EdgeStroke != "" {
-		th.EdgeStroke = opts.Theme.EdgeStroke
-	}
-	if opts.Theme.EdgeText != "" {
-		th.EdgeText = opts.Theme.EdgeText
-	}
-	if opts.Theme.SubgraphFill != "" {
-		th.SubgraphFill = opts.Theme.SubgraphFill
-	}
-	if opts.Theme.SubgraphStroke != "" {
-		th.SubgraphStroke = opts.Theme.SubgraphStroke
-	}
-	if opts.Theme.SubgraphText != "" {
-		th.SubgraphText = opts.Theme.SubgraphText
-	}
-	if opts.Theme.Background != "" {
-		th.Background = opts.Theme.Background
-	}
+	svgutil.MergeStr(&th.NodeFill, opts.Theme.NodeFill)
+	svgutil.MergeStr(&th.NodeStroke, opts.Theme.NodeStroke)
+	svgutil.MergeStr(&th.NodeText, opts.Theme.NodeText)
+	svgutil.MergeStr(&th.EdgeStroke, opts.Theme.EdgeStroke)
+	svgutil.MergeStr(&th.EdgeText, opts.Theme.EdgeText)
+	svgutil.MergeStr(&th.SubgraphFill, opts.Theme.SubgraphFill)
+	svgutil.MergeStr(&th.SubgraphStroke, opts.Theme.SubgraphStroke)
+	svgutil.MergeStr(&th.SubgraphText, opts.Theme.SubgraphText)
+	svgutil.MergeStr(&th.Background, opts.Theme.Background)
 	return th
 }
 

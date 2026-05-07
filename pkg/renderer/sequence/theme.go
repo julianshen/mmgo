@@ -1,5 +1,7 @@
 package sequence
 
+import "github.com/julianshen/mmgo/pkg/renderer/svgutil"
+
 const (
 	DefaultFontSize       = 14.0
 	defaultPadding        = 20.0
@@ -50,30 +52,14 @@ func resolveTheme(opts *Options) Theme {
 		return th
 	}
 	t := opts.Theme
-	if t.Background != "" {
-		th.Background = t.Background
-	}
-	if t.ParticipantFill != "" {
-		th.ParticipantFill = t.ParticipantFill
-	}
-	if t.ParticipantStroke != "" {
-		th.ParticipantStroke = t.ParticipantStroke
-	}
-	if t.ParticipantText != "" {
-		th.ParticipantText = t.ParticipantText
-	}
-	if t.LifelineStroke != "" {
-		th.LifelineStroke = t.LifelineStroke
-	}
-	if t.MessageStroke != "" {
-		th.MessageStroke = t.MessageStroke
-	}
-	if t.MessageText != "" {
-		th.MessageText = t.MessageText
-	}
-	if t.NoteFill != "" {
-		th.NoteFill = t.NoteFill
-	}
+	svgutil.MergeStr(&th.Background, t.Background)
+	svgutil.MergeStr(&th.ParticipantFill, t.ParticipantFill)
+	svgutil.MergeStr(&th.ParticipantStroke, t.ParticipantStroke)
+	svgutil.MergeStr(&th.ParticipantText, t.ParticipantText)
+	svgutil.MergeStr(&th.LifelineStroke, t.LifelineStroke)
+	svgutil.MergeStr(&th.MessageStroke, t.MessageStroke)
+	svgutil.MergeStr(&th.MessageText, t.MessageText)
+	svgutil.MergeStr(&th.NoteFill, t.NoteFill)
 	return th
 }
 
