@@ -372,3 +372,103 @@ func TestRenderAccessibility(t *testing.T) {
 		t.Errorf("expected <desc> in output:\n%s", raw)
 	}
 }
+
+// Per-quadrant fills paint each quarter with its theme-supplied
+// color and add an extra rect element when at least one is set.
+func TestRenderQuadrantPerQuadrantFills(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Quadrant1: "Q1", Quadrant2: "Q2",
+		Quadrant3: "Q3", Quadrant4: "Q4",
+	}
+	out, err := Render(d, &Options{Theme: Theme{
+		Quadrant1Fill: "#aabbcc",
+		Quadrant2Fill: "#ccbbaa",
+		Quadrant3Fill: "#ddeeff",
+		Quadrant4Fill: "#ffeedd",
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{
+		"fill:#aabbcc",
+		"fill:#ccbbaa",
+		"fill:#ddeeff",
+		"fill:#ffeedd",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected per-quadrant fill %q in output", want)
+		}
+	}
+}
+
+// Theme variables flow into the rendered SVG so callers can
+// recolor every surface without touching defaults for the rest.
+func TestRenderQuadrantThemeVariables(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Title:    "T",
+		XAxisLow: "Lo",
+		Points:   []diagram.QuadrantPoint{{Label: "P", X: 0.5, Y: 0.5}},
+	}
+	out, err := Render(d, &Options{Theme: Theme{
+		BackgroundColor: "#000",
+		TitleColor:      "#fff",
+		XAxisLabelColor: "#0f0",
+		QuadrantPointFill: "#f0f",
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{
+		"fill:#000",
+		"fill:#fff",
+		"fill:#0f0",
+		"fill:#f0f",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected themed color %q in output", want)
+		}
+	}
+}
+
+// Config knobs override the layout defaults — verify a custom
+// PointRadius reaches the rendered SVG.
+func TestRenderQuadrantConfigPointRadius(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Points: []diagram.QuadrantPoint{{Label: "P", X: 0.5, Y: 0.5}},
+	}
+	out, err := Render(d, &Options{Config: Config{PointRadius: 14}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), `r="14.00"`) {
+		t.Errorf("expected r=\"14.00\" from custom PointRadius")
+	}
+}
+
+// onlyBottomQuadrantsPopulated triggers the X-axis auto-flip so
+// the axis labels move to the top of the plot.
+func TestRenderQuadrantXAxisAutoFlip(t *testing.T) {
+	// Only Q3/Q4 have labels; X-axis label should auto-flip to top.
+	d := &diagram.QuadrantChartDiagram{
+		Quadrant3: "BL", Quadrant4: "BR",
+		XAxisLow:  "Lo",
+		XAxisHigh: "Hi",
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// `dominant-baseline="auto"` is the top-anchored variant the
+	// renderer switches to when the axis sits above the plot.
+	if !strings.Contains(raw, `dominant-baseline="auto"`) {
+		t.Errorf("expected dominant-baseline=\"auto\" for top-anchored X-axis")
+	}
+	// Explicit Bottom override defeats auto-flip.
+	out2, _ := Render(d, &Options{Config: Config{XAxisPosition: AxisPositionBottom}})
+	if !strings.Contains(string(out2), `dominant-baseline="hanging"`) {
+		t.Errorf("explicit XAxisPositionBottom should anchor labels below the plot")
+	}
+}

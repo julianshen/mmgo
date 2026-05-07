@@ -13,27 +13,20 @@ import (
 
 type Options struct {
 	FontSize float64
+	Theme    Theme
+	Config   Config
 }
 
 const (
 	defaultFontSize = 13.0
-	marginX         = 60.0
-	marginY         = 40.0
-	titleGap        = 28.0
-	axisLabelGap    = 20.0
-	plotSide        = 400.0
-	pointRadius     = 7.0
-	pointLabelGap   = 4.0
-
-	bgFill         = "#fff"
-	plotFill       = "#f7f7fa"
-	dividerStroke  = "#bbb"
-	borderStroke   = "#888"
-	quadrantFill   = "#555"
-	labelFill      = "#333"
-	pointFill      = "#5470c6"
-	pointStroke    = "#fff"
-	pointLabelFill = "#222"
+	// Outer page-margin around the chart area. These aren't part
+	// of the spec's quadrantChart config (which only governs
+	// inside-the-plot geometry); they live in the renderer so
+	// labels and titles always have breathing room outside the
+	// plot rect.
+	pageMarginX = 60.0
+	pageMarginY = 40.0
+	pointLabelGap = 4.0
 )
 
 func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
@@ -44,29 +37,73 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	if opts != nil && opts.FontSize > 0 {
 		fontSize = opts.FontSize
 	}
+	th := resolveTheme(opts)
+	cfg := resolveConfig(opts)
+	// Options.FontSize is the legacy "scale every label" knob —
+	// keep it working by deriving per-element sizes when callers
+	// haven't set the granular Config fields. Matches the original
+	// `fontSize+2 / fontSize-1 / fontSize-2` formulas.
+	if opts != nil && opts.FontSize > 0 && opts.FontSize != defaultFontSize {
+		if opts.Config.TitleFontSize == 0 {
+			cfg.TitleFontSize = opts.FontSize + 2
+		}
+		if opts.Config.QuadrantLabelFontSize == 0 {
+			cfg.QuadrantLabelFontSize = opts.FontSize
+		}
+		if opts.Config.XAxisLabelFontSize == 0 {
+			cfg.XAxisLabelFontSize = max(opts.FontSize-1, 1)
+		}
+		if opts.Config.YAxisLabelFontSize == 0 {
+			cfg.YAxisLabelFontSize = max(opts.FontSize-1, 1)
+		}
+		if opts.Config.PointLabelFontSize == 0 {
+			cfg.PointLabelFontSize = max(opts.FontSize-2, 1)
+		}
+	}
+	// Plot side: square of min(ChartWidth, ChartHeight) sans
+	// per-side padding so squashed configs still produce a
+	// proportional plot.
+	plotSide := cfg.ChartWidth
+	if cfg.ChartHeight < plotSide {
+		plotSide = cfg.ChartHeight
+	}
 
 	titleH := 0.0
 	if d.Title != "" {
-		titleH = titleGap
+		titleH = cfg.TitleFontSize + 2*cfg.TitlePadding
 	}
-	// Leave room for axis labels on the left and bottom.
-	leftPad := marginX + axisLabelGap
-	bottomPad := marginY + axisLabelGap
+	xAxisAtTop := cfg.XAxisPosition == AxisPositionTop || (cfg.XAxisPosition == AxisPositionAuto && onlyBottomQuadrantsPopulated(d))
+	yAxisAtRight := cfg.YAxisPosition == AxisPositionRight || (cfg.YAxisPosition == AxisPositionAuto && onlyRightQuadrantsPopulated(d))
+
+	// Leave room for axis labels on whichever side they sit.
+	axisGap := cfg.XAxisLabelFontSize + 2*cfg.XAxisLabelPadding
+	leftPad := pageMarginX
+	rightPad := pageMarginX
+	topPad := pageMarginY + titleH
+	bottomPad := pageMarginY
 	if d.YAxisLow != "" || d.YAxisHigh != "" {
-		leftPad += titleGap
+		if yAxisAtRight {
+			rightPad += axisGap
+		} else {
+			leftPad += axisGap
+		}
 	}
 	if d.XAxisLow != "" || d.XAxisHigh != "" {
-		bottomPad += titleGap
+		if xAxisAtTop {
+			topPad += axisGap
+		} else {
+			bottomPad += axisGap
+		}
 	}
 
 	plotX0 := leftPad
-	plotY0 := marginY + titleH
+	plotY0 := topPad
 	plotX1 := plotX0 + plotSide
 	plotY1 := plotY0 + plotSide
-	viewW := plotX1 + marginX
+	viewW := plotX1 + rightPad
 	viewH := plotY1 + bottomPad
 
-	children := make([]any, 0, 16+2*len(d.Points))
+	children := make([]any, 0, 20+2*len(d.Points))
 	if d.AccTitle != "" {
 		children = append(children, &svgTitle{Content: d.AccTitle})
 	}
@@ -77,37 +114,70 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		X: 0, Y: 0,
 		Width:  svgFloat(viewW),
 		Height: svgFloat(viewH),
-		Style:  fmt.Sprintf("fill:%s;stroke:none", bgFill),
+		Style:  fmt.Sprintf("fill:%s;stroke:none", th.BackgroundColor),
 	})
-	children = append(children, &rect{
-		X: svgFloat(plotX0), Y: svgFloat(plotY0),
-		Width:  svgFloat(plotSide),
-		Height: svgFloat(plotSide),
-		Style:  fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", plotFill, borderStroke),
-	})
+
+	midX := (plotX0 + plotX1) / 2
+	midY := (plotY0 + plotY1) / 2
+	// Plot body: a single PlotFill rect when no per-quadrant
+	// fills are supplied (the typical case), else four
+	// per-quadrant rects. Keeping the single-rect path preserves
+	// SVG output stability when callers don't override the
+	// quadrant palette.
+	hasPerQuadrant := th.Quadrant1Fill != "" || th.Quadrant2Fill != "" ||
+		th.Quadrant3Fill != "" || th.Quadrant4Fill != ""
+	if hasPerQuadrant {
+		quadrantRect := func(x0, y0, x1, y1 float64, fill string) {
+			if fill == "" {
+				fill = th.PlotFill
+			}
+			children = append(children, &rect{
+				X: svgFloat(x0), Y: svgFloat(y0),
+				Width: svgFloat(x1 - x0), Height: svgFloat(y1 - y0),
+				Style: fmt.Sprintf("fill:%s;stroke:none", fill),
+			})
+		}
+		quadrantRect(midX, plotY0, plotX1, midY, th.Quadrant1Fill) // top-right
+		quadrantRect(plotX0, plotY0, midX, midY, th.Quadrant2Fill) // top-left
+		quadrantRect(plotX0, midY, midX, plotY1, th.Quadrant3Fill) // bottom-left
+		quadrantRect(midX, midY, plotX1, plotY1, th.Quadrant4Fill) // bottom-right
+		// Outer border drawn on top of the four fills.
+		children = append(children, &rect{
+			X: svgFloat(plotX0), Y: svgFloat(plotY0),
+			Width:  svgFloat(plotSide),
+			Height: svgFloat(plotSide),
+			Style:  fmt.Sprintf("fill:none;stroke:%s;stroke-width:%g", th.QuadrantExternalBorderStrokeFill, cfg.QuadrantExternalBorderStroke),
+		})
+	} else {
+		children = append(children, &rect{
+			X: svgFloat(plotX0), Y: svgFloat(plotY0),
+			Width:  svgFloat(plotSide),
+			Height: svgFloat(plotSide),
+			Style:  fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%g", th.PlotFill, th.QuadrantExternalBorderStrokeFill, cfg.QuadrantExternalBorderStroke),
+		})
+	}
 
 	if d.Title != "" {
 		children = append(children, &text{
 			X:        svgFloat((plotX0 + plotX1) / 2),
-			Y:        svgFloat(marginY + titleH/2),
+			Y:        svgFloat(pageMarginY + titleH/2),
 			Anchor:   "middle",
 			Dominant: "central",
-			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", labelFill, fontSize+2),
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleColor, cfg.TitleFontSize),
 			Content:  d.Title,
 		})
 	}
 
-	midX := (plotX0 + plotX1) / 2
-	midY := (plotY0 + plotY1) / 2
+	dividerStyle := fmt.Sprintf("stroke:%s;stroke-width:%g;stroke-dasharray:4 3", th.QuadrantInternalBorderStrokeFill, cfg.QuadrantInternalBorderStroke)
 	children = append(children, &line{
 		X1: svgFloat(plotX0), Y1: svgFloat(midY),
 		X2: svgFloat(plotX1), Y2: svgFloat(midY),
-		Style: fmt.Sprintf("stroke:%s;stroke-width:1;stroke-dasharray:4 3", dividerStroke),
+		Style: dividerStyle,
 	})
 	children = append(children, &line{
 		X1: svgFloat(midX), Y1: svgFloat(plotY0),
 		X2: svgFloat(midX), Y2: svgFloat(plotY1),
-		Style: fmt.Sprintf("stroke:%s;stroke-width:1;stroke-dasharray:4 3", dividerStroke),
+		Style: dividerStyle,
 	})
 
 	// Quadrant labels — Mermaid uses math-convention numbering:
@@ -116,14 +186,21 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		return (plotX0+midX)/2 + x*(plotSide/2), (plotY0+midY)/2 + y*(plotSide/2)
 	}
 	type qLabel struct {
-		text string
-		x, y float64 // 0 = left/top, 1 = right/bottom within its half
+		text     string
+		fill     string
+		x, y     float64 // 0 = left/top, 1 = right/bottom within its half
+	}
+	pickFill := func(perQuad string) string {
+		if perQuad != "" {
+			return perQuad
+		}
+		return th.QuadrantTitleFill
 	}
 	labels := []qLabel{
-		{d.Quadrant2, 0, 0}, // top-left
-		{d.Quadrant1, 1, 0}, // top-right
-		{d.Quadrant3, 0, 1}, // bottom-left
-		{d.Quadrant4, 1, 1}, // bottom-right
+		{d.Quadrant2, pickFill(th.Quadrant2TextFill), 0, 0}, // top-left
+		{d.Quadrant1, pickFill(th.Quadrant1TextFill), 1, 0}, // top-right
+		{d.Quadrant3, pickFill(th.Quadrant3TextFill), 0, 1}, // bottom-left
+		{d.Quadrant4, pickFill(th.Quadrant4TextFill), 1, 1}, // bottom-right
 	}
 	for _, q := range labels {
 		if q.text == "" {
@@ -135,73 +212,78 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 			Y:        svgFloat(cy),
 			Anchor:   "middle",
 			Dominant: "central",
-			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", quadrantFill, fontSize),
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", q.fill, cfg.QuadrantLabelFontSize),
 			Content:  q.text,
 		})
 	}
 
-	// Clamp derived sizes so tiny custom FontSize values don't produce
-	// zero- or negative-pixel labels.
-	axisFontSize := max(fontSize-1, 1)
-	pointLabelFontSize := max(fontSize-2, 1)
-	axisFontStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", labelFill, axisFontSize)
+	xAxisStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", th.XAxisLabelColor, cfg.XAxisLabelFontSize)
+	yAxisStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", th.YAxisLabelColor, cfg.YAxisLabelFontSize)
+	xAxisY := plotY1 + cfg.XAxisLabelPadding
+	xAxisDom := "hanging"
+	if xAxisAtTop {
+		xAxisY = plotY0 - cfg.XAxisLabelPadding
+		xAxisDom = "auto"
+	}
 	if d.XAxisLow != "" {
 		children = append(children, &text{
 			X:        svgFloat(plotX0 + plotSide/4),
-			Y:        svgFloat(plotY1 + axisLabelGap),
+			Y:        svgFloat(xAxisY),
 			Anchor:   "middle",
-			Dominant: "hanging",
-			Style:    axisFontStyle,
+			Dominant: xAxisDom,
+			Style:    xAxisStyle,
 			Content:  d.XAxisLow,
 		})
 	}
 	if d.XAxisHigh != "" {
 		children = append(children, &text{
 			X:        svgFloat(plotX0 + 3*plotSide/4),
-			Y:        svgFloat(plotY1 + axisLabelGap),
+			Y:        svgFloat(xAxisY),
 			Anchor:   "middle",
-			Dominant: "hanging",
-			Style:    axisFontStyle,
+			Dominant: xAxisDom,
+			Style:    xAxisStyle,
 			Content:  d.XAxisHigh,
 		})
 	}
+	yAxisX := plotX0 - cfg.YAxisLabelPadding
+	if yAxisAtRight {
+		yAxisX = plotX1 + cfg.YAxisLabelPadding
+	}
 	if d.YAxisLow != "" {
-		cx := plotX0 - axisLabelGap
 		cy := plotY0 + 3*plotSide/4 // low end is bottom-quarter of the plot
 		children = append(children, &text{
-			X:         svgFloat(cx),
+			X:         svgFloat(yAxisX),
 			Y:         svgFloat(cy),
 			Anchor:    "middle",
 			Dominant:  "central",
-			Style:     axisFontStyle,
-			Transform: fmt.Sprintf("rotate(-90 %.2f %.2f)", cx, cy),
+			Style:     yAxisStyle,
+			Transform: fmt.Sprintf("rotate(-90 %.2f %.2f)", yAxisX, cy),
 			Content:   d.YAxisLow,
 		})
 	}
 	if d.YAxisHigh != "" {
-		cx := plotX0 - axisLabelGap
 		cy := plotY0 + plotSide/4 // high end is top-quarter of the plot
 		children = append(children, &text{
-			X:         svgFloat(cx),
+			X:         svgFloat(yAxisX),
 			Y:         svgFloat(cy),
 			Anchor:    "middle",
 			Dominant:  "central",
-			Style:     axisFontStyle,
-			Transform: fmt.Sprintf("rotate(-90 %.2f %.2f)", cx, cy),
+			Style:     yAxisStyle,
+			Transform: fmt.Sprintf("rotate(-90 %.2f %.2f)", yAxisX, cy),
 			Content:   d.YAxisHigh,
 		})
 	}
 
 	// Y is inverted: our coords put (0, 0) at bottom-left but SVG's
 	// origin is top-left.
-	pointLabelStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", pointLabelFill, pointLabelFontSize)
+	pointLabelStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", th.QuadrantPointTextFill, cfg.PointLabelFontSize)
 	for _, p := range d.Points {
 		px := plotX0 + p.X*plotSide
 		py := plotY1 - p.Y*plotSide
 		// Resolve point styling: inline `color: …` etc. wins over
 		// the referenced classDef, which wins over the theme
-		// defaults the constants supply.
-		fill, stroke, width, radius := resolvePointStyle(p, d)
+		// defaults Theme/Config supply.
+		fill, stroke, width, radius := resolvePointStyle(p, d, th, cfg)
 		children = append(children, &circle{
 			CX: svgFloat(px), CY: svgFloat(py), R: svgFloat(radius),
 			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%g", fill, stroke, width),
@@ -217,6 +299,7 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 			})
 		}
 	}
+	_ = fontSize
 
 	doc := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
@@ -235,11 +318,11 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 // produce the final (fill, stroke, stroke-width, radius) for a
 // quadrant point. Zero-valued numeric fields fall through to the
 // next layer rather than masking the theme as 0px circles.
-func resolvePointStyle(p diagram.QuadrantPoint, d *diagram.QuadrantChartDiagram) (fill, stroke string, width, radius float64) {
-	fill = pointFill
-	stroke = pointStroke
+func resolvePointStyle(p diagram.QuadrantPoint, d *diagram.QuadrantChartDiagram, th Theme, cfg Config) (fill, stroke string, width, radius float64) {
+	fill = th.QuadrantPointFill
+	stroke = th.QuadrantPointStroke
 	width = 2
-	radius = pointRadius
+	radius = cfg.PointRadius
 
 	if p.Class != "" {
 		if cls, ok := d.Classes[p.Class]; ok {
@@ -270,4 +353,36 @@ func resolvePointStyle(p diagram.QuadrantPoint, d *diagram.QuadrantChartDiagram)
 		width = p.Style.StrokeWidth
 	}
 	return fill, stroke, width, radius
+}
+
+// onlyBottomQuadrantsPopulated reports whether only Q3 / Q4 carry
+// either a label or a data point. Used to auto-flip the X-axis
+// title to the top of the plot when the lower half is dense.
+func onlyBottomQuadrantsPopulated(d *diagram.QuadrantChartDiagram) bool {
+	topPopulated := d.Quadrant1 != "" || d.Quadrant2 != ""
+	bottomPopulated := d.Quadrant3 != "" || d.Quadrant4 != ""
+	for _, p := range d.Points {
+		if p.Y >= 0.5 {
+			topPopulated = true
+		} else {
+			bottomPopulated = true
+		}
+	}
+	return bottomPopulated && !topPopulated
+}
+
+// onlyRightQuadrantsPopulated mirrors onlyBottomQuadrantsPopulated
+// for the X-axis: Y-axis title flips to the right when only Q1 / Q4
+// carry content.
+func onlyRightQuadrantsPopulated(d *diagram.QuadrantChartDiagram) bool {
+	leftPopulated := d.Quadrant2 != "" || d.Quadrant3 != ""
+	rightPopulated := d.Quadrant1 != "" || d.Quadrant4 != ""
+	for _, p := range d.Points {
+		if p.X < 0.5 {
+			leftPopulated = true
+		} else {
+			rightPopulated = true
+		}
+	}
+	return rightPopulated && !leftPopulated
 }
