@@ -99,6 +99,21 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 	viewW := plotX1 + rightPad
 	viewH := plotY1 + bottomPad
 
+	// QuadrantPadding is an outer margin around the quadrant area:
+	// shrink the inner plot rect uniformly so the fills, divider
+	// lines, points and axis labels all live inside the same
+	// padded region. Cap at plotSide/4 so the inner rect stays
+	// non-degenerate for misconfigured pad values.
+	quadrantPad := cfg.QuadrantPadding
+	if maxPad := plotSide / 4; quadrantPad > maxPad {
+		quadrantPad = maxPad
+	}
+	plotX0 += quadrantPad
+	plotY0 += quadrantPad
+	plotX1 -= quadrantPad
+	plotY1 -= quadrantPad
+	plotSide -= 2 * quadrantPad
+
 	children := make([]any, 0, 20+2*len(d.Points))
 	if d.AccTitle != "" {
 		children = append(children, &svgTitle{Content: d.AccTitle})
@@ -115,18 +130,16 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 
 	midX := (plotX0 + plotX1) / 2
 	midY := (plotY0 + plotY1) / 2
-	// Plot body: a single PlotFill rect when no per-quadrant
-	// fills are supplied (the typical case), else four
-	// per-quadrant rects. Keeping the single-rect path preserves
-	// SVG output stability when callers don't override the
-	// quadrant palette.
-	// Per-quadrant rect bounds in QuadrantQ1..Q4 order.
+
+	// All four quadrant rects share inner edges at midX/midY; the
+	// outer margin already lives in the padded plot rect computed
+	// above, so no per-rect inset is needed here.
 	type quadRect struct{ x0, y0, x1, y1 float64 }
 	quadRects := [4]quadRect{
-		{midX, plotY0, plotX1, midY},
-		{plotX0, plotY0, midX, midY},
-		{plotX0, midY, midX, plotY1},
-		{midX, midY, plotX1, plotY1},
+		{midX, plotY0, plotX1, midY}, // Q1 top-right
+		{plotX0, plotY0, midX, midY}, // Q2 top-left
+		{plotX0, midY, midX, plotY1}, // Q3 bottom-left
+		{midX, midY, plotX1, plotY1}, // Q4 bottom-right
 	}
 	hasPerQuadrant := false
 	for _, q := range th.Quadrants {
@@ -186,22 +199,19 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		Style: dividerStyle,
 	})
 
-	// Labels in QuadrantQ1..Q4 order so each Theme.Quadrants[i]
-	// text color lines up by index.
-	type qLabel struct {
+	// Top-anchored rather than centred so titles match Mermaid's
+	// title-at-top-of-quadrant convention. Cap the inset at half
+	// the rect height so a misconfigured padding can't push the
+	// text past the rect's bottom edge into the neighbour.
+	for i, q := range [4]struct {
 		text string
-		x, y float64 // 0 = left/top, 1 = right/bottom within its half
-	}
-	labels := [4]qLabel{
-		{d.Quadrant1, 1, 0},
-		{d.Quadrant2, 0, 0},
-		{d.Quadrant3, 0, 1},
-		{d.Quadrant4, 1, 1},
-	}
-	quadCenter := func(x, y float64) (float64, float64) {
-		return (plotX0+midX)/2 + x*(plotSide/2), (plotY0+midY)/2 + y*(plotSide/2)
-	}
-	for i, q := range labels {
+		rect quadRect
+	}{
+		{d.Quadrant1, quadRects[0]},
+		{d.Quadrant2, quadRects[1]},
+		{d.Quadrant3, quadRects[2]},
+		{d.Quadrant4, quadRects[3]},
+	} {
 		if q.text == "" {
 			continue
 		}
@@ -209,12 +219,17 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		if fill == "" {
 			fill = th.QuadrantTitleFill
 		}
-		cx, cy := quadCenter(q.x, q.y)
+		textTopPad := cfg.QuadrantTextTopPadding
+		if maxPad := (q.rect.y1 - q.rect.y0) / 2; textTopPad > maxPad {
+			textTopPad = maxPad
+		}
+		cx := (q.rect.x0 + q.rect.x1) / 2
+		cy := q.rect.y0 + textTopPad
 		children = append(children, &text{
 			X:        svgFloat(cx),
 			Y:        svgFloat(cy),
 			Anchor:   "middle",
-			Dominant: "central",
+			Dominant: "hanging",
 			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", fill, cfg.QuadrantLabelFontSize),
 			Content:  q.text,
 		})
