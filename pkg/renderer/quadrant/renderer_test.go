@@ -350,3 +350,25 @@ func TestRenderPointClassDef(t *testing.T) {
 		t.Errorf("expected classDef radius in output")
 	}
 }
+
+// AccTitle and AccDescr emit as <title>/<desc> SVG children.
+func TestRenderAccessibility(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		AccTitle: "Campaign matrix",
+		AccDescr: "Reach vs Engagement",
+		Points: []diagram.QuadrantPoint{
+			{Label: "A", X: 0.5, Y: 0.5},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<title>Campaign matrix</title>") {
+		t.Errorf("expected <title> in output:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<desc>Reach vs Engagement</desc>") {
+		t.Errorf("expected <desc> in output:\n%s", raw)
+	}
+}

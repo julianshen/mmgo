@@ -37,6 +37,11 @@ func Parse(r io.Reader) (*diagram.QuadrantChartDiagram, error) {
 
 	lineNum := 0
 	headerSeen := false
+	// inAccDescrBlock toggles when a `accDescr {` line opens a
+	// multi-line description; subsequent lines accumulate until
+	// the matching `}` line.
+	var accDescrLines []string
+	inAccDescrBlock := false
 	for scanner.Scan() {
 		lineNum++
 		line := strings.TrimSpace(parserutil.StripComment(scanner.Text()))
@@ -50,12 +55,37 @@ func Parse(r io.Reader) (*diagram.QuadrantChartDiagram, error) {
 			headerSeen = true
 			continue
 		}
+		if inAccDescrBlock {
+			if line == "}" {
+				d.AccDescr = strings.Join(accDescrLines, "\n")
+				accDescrLines = accDescrLines[:0]
+				inAccDescrBlock = false
+				continue
+			}
+			accDescrLines = append(accDescrLines, line)
+			continue
+		}
+		if line == "accDescr {" || line == "accDescr{" {
+			inAccDescrBlock = true
+			continue
+		}
+		if v, ok := parserutil.MatchKeywordValue(line, "accTitle"); ok {
+			d.AccTitle = v
+			continue
+		}
+		if v, ok := parserutil.MatchKeywordValue(line, "accDescr"); ok {
+			d.AccDescr = v
+			continue
+		}
 		if err := parseLine(line, d); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("reading input: %w", err)
+	}
+	if inAccDescrBlock {
+		return nil, fmt.Errorf("unterminated accDescr { ... } block")
 	}
 	if !headerSeen {
 		return nil, fmt.Errorf("missing %s header", headerKeyword)

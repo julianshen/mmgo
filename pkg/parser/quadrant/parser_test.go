@@ -391,3 +391,48 @@ func TestParseStyleListUnknownKey(t *testing.T) {
 		t.Error("expected error for unknown style key")
 	}
 }
+
+// accTitle / accDescr (single-line) populate the AST.
+func TestParseAccessibility(t *testing.T) {
+	d, err := Parse(strings.NewReader(`quadrantChart
+accTitle: Reach vs Engagement
+accDescr: Where each campaign sits
+A: [0.3, 0.6]`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.AccTitle != "Reach vs Engagement" {
+		t.Errorf("accTitle = %q", d.AccTitle)
+	}
+	if d.AccDescr != "Where each campaign sits" {
+		t.Errorf("accDescr = %q", d.AccDescr)
+	}
+}
+
+// Multi-line `accDescr { ... }` accumulates body lines.
+func TestParseAccDescrBlock(t *testing.T) {
+	d, err := Parse(strings.NewReader(`quadrantChart
+accDescr {
+  Reach across vertical
+  Engagement across horizontal
+}
+A: [0.3, 0.6]`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	want := "Reach across vertical\nEngagement across horizontal"
+	if d.AccDescr != want {
+		t.Errorf("accDescr = %q, want %q", d.AccDescr, want)
+	}
+}
+
+// Unterminated `accDescr {` block surfaces as an error.
+func TestParseAccDescrBlockUnterminated(t *testing.T) {
+	_, err := Parse(strings.NewReader(`quadrantChart
+accDescr {
+  Open
+A: [0.3, 0.6]`))
+	if err == nil {
+		t.Error("expected error for unterminated accDescr block")
+	}
+}
