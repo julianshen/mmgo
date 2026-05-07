@@ -13,9 +13,53 @@ import (
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
+// LinkColorMode controls how ribbon colors are picked. Source uses
+// the source node's palette color; Target uses the target's;
+// Gradient interpolates between the two via an SVG <linearGradient>;
+// Hex paints every ribbon a literal #rrggbb color from
+// Options.LinkColorHex. Source is the default.
+type LinkColorMode int8
+
+const (
+	LinkColorSource LinkColorMode = iota
+	LinkColorTarget
+	LinkColorGradient
+	LinkColorHex
+)
+
+// NodeAlignmentMode controls horizontal node placement. Justify
+// (the historical default) ranks by longest path from sources;
+// Right ranks by longest path from sinks; Center compromises;
+// Left mirrors Justify. Only Justify is fully implemented today —
+// the other values are accepted but currently fall through to
+// Justify until layout is rewritten.
+type NodeAlignmentMode int8
+
+const (
+	NodeAlignJustify NodeAlignmentMode = iota
+	NodeAlignLeft
+	NodeAlignRight
+	NodeAlignCenter
+)
+
 type Options struct {
 	FontSize float64
 	Theme    Theme
+	// LinkColor selects how ribbon fill is computed.
+	LinkColor LinkColorMode
+	// LinkColorHex supplies the literal color when LinkColor is
+	// LinkColorHex. Ignored otherwise.
+	LinkColorHex string
+	// NodeAlignment controls horizontal column ranking. See
+	// NodeAlignmentMode for caveats.
+	NodeAlignment NodeAlignmentMode
+	// ShowValues=false suppresses the magnitude appended to each
+	// node label (`Name 5` → `Name`). Default true.
+	ShowValues *bool
+	// Prefix and Suffix wrap the formatted value when ShowValues
+	// is on (e.g. Prefix="$", Suffix=" kW").
+	Prefix string
+	Suffix string
 }
 
 const (
@@ -87,12 +131,24 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 
 	// Compose "Name Value" labels so the total flow through each node
 	// is visible next to the name (matches Mermaid's default rendering).
+	// `showValues=false` suppresses the magnitude entirely; `prefix`/
+	// `suffix` wrap the formatted number so authors can render
+	// `$1.5M` or `5 kW`.
+	showValues := true
+	if opts != nil && opts.ShowValues != nil {
+		showValues = *opts.ShowValues
+	}
+	prefix := ""
+	suffix := ""
+	if opts != nil {
+		prefix, suffix = opts.Prefix, opts.Suffix
+	}
 	labelOf := func(n string) string {
 		m := magnitude[n]
-		if m <= 0 {
+		if !showValues || m <= 0 {
 			return n
 		}
-		return fmt.Sprintf("%s %s", n, svgutil.FormatNumber(m, 2))
+		return fmt.Sprintf("%s %s%s%s", n, prefix, svgutil.FormatNumber(m, 2), suffix)
 	}
 
 	// Labels anchor leftward (text-anchor=end) for every column except
@@ -165,8 +221,23 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 		})
 	}
 
+	// Resolve the link-color mode once so the ribbon loop stays
+	// branch-free. Gradient mode also needs a <defs> entry per
+	// flow; we collect them as we go and emit a single Defs
+	// element later.
+	linkMode := LinkColorSource
+	linkHex := ""
+	if opts != nil {
+		linkMode = opts.LinkColor
+		linkHex = opts.LinkColorHex
+	}
+	colorOf := func(idx int) string {
+		return th.NodeColors[idx%len(th.NodeColors)]
+	}
+	var gradientDefs []any
+
 	// Ribbons before bars so bars paint over the ribbon edges.
-	for _, f := range d.Flows {
+	for i, f := range d.Flows {
 		sx := nodeX[f.Source] + nodeW
 		tx := nodeX[f.Target]
 		syTop := nodeY[f.Source] + srcOffset[f.Source]
@@ -174,11 +245,38 @@ func Render(d *diagram.SankeyDiagram, opts *Options) ([]byte, error) {
 		srcOffset[f.Source] += f.Value
 		tgtOffset[f.Target] += f.Value
 
-		color := th.NodeColors[nodeIdx[f.Source]%len(th.NodeColors)]
+		var fill string
+		switch linkMode {
+		case LinkColorTarget:
+			fill = colorOf(nodeIdx[f.Target])
+		case LinkColorHex:
+			if linkHex != "" {
+				fill = linkHex
+			} else {
+				fill = colorOf(nodeIdx[f.Source])
+			}
+		case LinkColorGradient:
+			id := fmt.Sprintf("sankey-grad-%d", i)
+			srcCol := colorOf(nodeIdx[f.Source])
+			dstCol := colorOf(nodeIdx[f.Target])
+			gradientDefs = append(gradientDefs, &linearGradient{
+				ID: id, X1: "0%", Y1: "0%", X2: "100%", Y2: "0%",
+				Stops: []gradientStop{
+					{Offset: "0%", StopColor: srcCol},
+					{Offset: "100%", StopColor: dstCol},
+				},
+			})
+			fill = "url(#" + id + ")"
+		default: // LinkColorSource
+			fill = colorOf(nodeIdx[f.Source])
+		}
 		children = append(children, &path{
 			D:     ribbonPath(sx, syTop, tx, tyTop, f.Value),
-			Style: fmt.Sprintf("fill:%s;stroke:none;opacity:%.2f", color, ribbonOpacity),
+			Style: fmt.Sprintf("fill:%s;stroke:none;opacity:%.2f", fill, ribbonOpacity),
 		})
+	}
+	if len(gradientDefs) > 0 {
+		children = append(children, &sankeyDefs{Children: gradientDefs})
 	}
 
 	for _, n := range nodes {

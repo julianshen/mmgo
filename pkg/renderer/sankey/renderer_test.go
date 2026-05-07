@@ -295,3 +295,107 @@ func TestRenderSankeyHeader(t *testing.T) {
 		t.Errorf("expected diagram title rendered in:\n%s", raw)
 	}
 }
+
+// LinkColor=Target paints each ribbon with the target node's
+// palette color rather than the source's.
+func TestRenderSankeyLinkColorTarget(t *testing.T) {
+	d := &diagram.SankeyDiagram{
+		Flows: []diagram.SankeyFlow{
+			{Source: "A", Target: "B", Value: 5},
+			{Source: "A", Target: "C", Value: 3},
+		},
+	}
+	out, err := Render(d, &Options{LinkColor: LinkColorTarget})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// Source-mode would emit two ribbons with the same color
+	// (both flow from A); target-mode emits the colors of B and C
+	// — i.e. the second and third palette entries. Just confirm
+	// at least two distinct colors appear in ribbon fills.
+	raw := string(out)
+	th := DefaultTheme()
+	bColor := th.NodeColors[1]
+	cColor := th.NodeColors[2]
+	if !strings.Contains(raw, "fill:"+bColor) {
+		t.Errorf("expected target-color %s in output", bColor)
+	}
+	if !strings.Contains(raw, "fill:"+cColor) {
+		t.Errorf("expected target-color %s in output", cColor)
+	}
+}
+
+// LinkColor=Hex paints every ribbon with the literal hex.
+func TestRenderSankeyLinkColorHex(t *testing.T) {
+	d := &diagram.SankeyDiagram{
+		Flows: []diagram.SankeyFlow{
+			{Source: "A", Target: "B", Value: 5},
+		},
+	}
+	out, err := Render(d, &Options{LinkColor: LinkColorHex, LinkColorHex: "#abcdef"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "fill:#abcdef") {
+		t.Errorf("expected literal hex fill")
+	}
+}
+
+// LinkColor=Gradient emits a <linearGradient> def per flow and
+// references it via `url(#sankey-grad-N)`.
+func TestRenderSankeyLinkColorGradient(t *testing.T) {
+	d := &diagram.SankeyDiagram{
+		Flows: []diagram.SankeyFlow{
+			{Source: "A", Target: "B", Value: 5},
+		},
+	}
+	out, err := Render(d, &Options{LinkColor: LinkColorGradient})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, `<linearGradient id="sankey-grad-0"`) {
+		t.Errorf("expected gradient def in:\n%s", raw)
+	}
+	if !strings.Contains(raw, "url(#sankey-grad-0)") {
+		t.Errorf("expected gradient reference in:\n%s", raw)
+	}
+}
+
+// ShowValues=false suppresses the magnitude in node labels.
+func TestRenderSankeyShowValuesFalse(t *testing.T) {
+	d := &diagram.SankeyDiagram{
+		Flows: []diagram.SankeyFlow{
+			{Source: "Source", Target: "Sink", Value: 7},
+		},
+	}
+	no := false
+	out, err := Render(d, &Options{ShowValues: &no})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if strings.Contains(raw, ">Source 7") || strings.Contains(raw, ">Sink 7") {
+		t.Errorf("ShowValues=false should suppress magnitudes:\n%s", raw)
+	}
+	if !strings.Contains(raw, ">Source<") || !strings.Contains(raw, ">Sink<") {
+		t.Errorf("expected bare labels in:\n%s", raw)
+	}
+}
+
+// Prefix and Suffix wrap the formatted magnitude when ShowValues
+// is on.
+func TestRenderSankeyPrefixSuffix(t *testing.T) {
+	d := &diagram.SankeyDiagram{
+		Flows: []diagram.SankeyFlow{
+			{Source: "A", Target: "B", Value: 5},
+		},
+	}
+	out, err := Render(d, &Options{Prefix: "$", Suffix: "k"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "$5k") {
+		t.Errorf("expected prefix/suffix wrap in output:\n%s", out)
+	}
+}
