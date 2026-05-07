@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -664,10 +665,9 @@ func TestResolveConfigSingleAxisDimension(t *testing.T) {
 	}
 }
 
-// QuadrantPadding inserts a visible gap between adjacent per-quadrant
-// rects (and between the rects and the outer plot border) when
-// per-quadrant fills are supplied. The visible gap between adjacent
-// rects must equal pad exactly (½ pad contributed by each neighbour).
+// Visible gap between adjacent rects must equal pad exactly
+// (½ pad contributed by each neighbour). Asserts both axes plus
+// horizontal centring of the quadrant title.
 func TestRenderQuadrantPaddingWired(t *testing.T) {
 	d := &diagram.QuadrantChartDiagram{
 		Title:     "padding test",
@@ -675,10 +675,7 @@ func TestRenderQuadrantPaddingWired(t *testing.T) {
 		Points:    []diagram.QuadrantPoint{{Label: "p", X: 0.5, Y: 0.5}},
 	}
 	pal := [4]QuadrantPalette{
-		{Fill: "#fee2e2"}, // Q1 top-right
-		{Fill: "#dbeafe"}, // Q2 top-left
-		{Fill: "#dcfce7"}, // Q3 bottom-left
-		{Fill: "#fef3c7"}, // Q4 bottom-right
+		{Fill: "#fee2e2"}, {Fill: "#dbeafe"}, {Fill: "#dcfce7"}, {Fill: "#fef3c7"},
 	}
 	render := func(pad float64) string {
 		out, err := Render(d, &Options{
@@ -692,26 +689,121 @@ func TestRenderQuadrantPaddingWired(t *testing.T) {
 	}
 	const small, big = 5.0, 25.0
 
-	// Q1 width shrinks by 1.5×Δpad: full pad on the outer (right)
-	// edge plus half pad on the inner (left) edge.
 	wSmall := attrFloat(t, render(small), "fill:#fee2e2", "width")
 	wBig := attrFloat(t, render(big), "fill:#fee2e2", "width")
 	if want := 1.5 * (big - small); math.Abs((wSmall-wBig)-want) > 0.5 {
 		t.Errorf("expected Q1 width to shrink by ~%vpx (1.5*Δpad), got %v", want, wSmall-wBig)
 	}
 
-	// Pin the exact-gap promise: Q1 left edge − Q2 right edge == pad.
 	svg := render(big)
+	// Vertical inner edge: Q1 left − Q2 right == pad.
 	q1Left := attrFloat(t, svg, "fill:#fee2e2", "x")
 	q2Left := attrFloat(t, svg, "fill:#dbeafe", "x")
 	q2Width := attrFloat(t, svg, "fill:#dbeafe", "width")
 	if gap := q1Left - (q2Left + q2Width); math.Abs(gap-big) > 0.01 {
 		t.Errorf("expected exact gap of %v between Q2 right and Q1 left edges, got %v", big, gap)
 	}
+	// Horizontal inner edge: Q4 top − Q1 bottom == pad. Catches a
+	// transposed-axis regression that swaps the half/pad split on
+	// x vs y dimensions.
+	q1Top := attrFloat(t, svg, "fill:#fee2e2", "y")
+	q1Height := attrFloat(t, svg, "fill:#fee2e2", "height")
+	q4Top := attrFloat(t, svg, "fill:#fef3c7", "y")
+	if gap := q4Top - (q1Top + q1Height); math.Abs(gap-big) > 0.01 {
+		t.Errorf("expected exact gap of %v between Q1 bottom and Q4 top edges, got %v", big, gap)
+	}
+	// Title horizontal centring: Q1 label x must equal Q1 rect's
+	// x-centre.
+	q1Width := attrFloat(t, svg, "fill:#fee2e2", "width")
+	wantCx := q1Left + q1Width/2
+	gotCx := attrFloat(t, svg, ">Q1<", "x")
+	if math.Abs(gotCx-wantCx) > 0.01 {
+		t.Errorf("expected Q1 label centred at x=%v, got %v", wantCx, gotCx)
+	}
 }
 
-// QuadrantTextTopPadding moves the quadrant title down from the top
-// of its rect. A 20px padding bump must shift each label's y by 20px.
+// Single-rect path (no per-quadrant fills) must ignore
+// QuadrantPadding — the underlying plot rect spans plotX0..plotX1
+// regardless of the configured padding.
+func TestRenderQuadrantPaddingNoFillsUnaffected(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Quadrant1: "Q1", Quadrant2: "Q2", Quadrant3: "Q3", Quadrant4: "Q4",
+	}
+	out0, err := Render(d, &Options{Config: Config{QuadrantPadding: 0}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	out25, err := Render(d, &Options{Config: Config{QuadrantPadding: 25}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// The plot rect is the first style="fill:<PlotFill>". Strip the
+	// background rect by skipping the first occurrence of fill:#fff
+	// (default Background).
+	plotRectRe := regexp.MustCompile(`<rect[^>]*style="fill:#f7f7fa[^"]*"[^>]*>`)
+	r0 := plotRectRe.FindString(string(out0))
+	r25 := plotRectRe.FindString(string(out25))
+	if r0 == "" || r25 == "" {
+		t.Fatalf("missing plot rect in output (PlotFill=#f7f7fa)\nout0=%s\nout25=%s", out0, out25)
+	}
+	if r0 != r25 {
+		t.Errorf("single-rect path must ignore QuadrantPadding; got different rects:\n  pad=0:  %s\n  pad=25: %s", r0, r25)
+	}
+}
+
+// Pad larger than what the plot can absorb must not produce
+// inverted/zero-width rects. The renderer clamps cfg.QuadrantPadding
+// internally; this test pins that contract by rendering with an
+// extreme pad and checking every emitted rect has positive
+// dimensions.
+func TestRenderQuadrantPaddingClampedAtPlotSize(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Quadrant1: "Q1", Quadrant2: "Q2", Quadrant3: "Q3", Quadrant4: "Q4",
+	}
+	pal := [4]QuadrantPalette{
+		{Fill: "#fee2e2"}, {Fill: "#dbeafe"}, {Fill: "#dcfce7"}, {Fill: "#fef3c7"},
+	}
+	out, err := Render(d, &Options{
+		Theme:  Theme{Quadrants: pal},
+		Config: Config{QuadrantPadding: 10000}, // clearly larger than the 400px default plot
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	rectRe := regexp.MustCompile(`<rect[^>]*width="(-?[0-9.]+)"[^>]*height="(-?[0-9.]+)"`)
+	for _, m := range rectRe.FindAllStringSubmatch(string(out), -1) {
+		w, _ := strconv.ParseFloat(m[1], 64)
+		h, _ := strconv.ParseFloat(m[2], 64)
+		if w <= 0 || h <= 0 {
+			t.Errorf("rect with non-positive dims under extreme pad: w=%v h=%v", w, h)
+		}
+	}
+}
+
+// Default Config (zero value) must render with the spec-default 5px
+// gap. A regression that drops the default-resolution path would
+// silently produce a gap-less plot here.
+func TestRenderQuadrantPaddingDefault(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Quadrant1: "Q1", Quadrant2: "Q2", Quadrant3: "Q3", Quadrant4: "Q4",
+	}
+	pal := [4]QuadrantPalette{
+		{Fill: "#fee2e2"}, {Fill: "#dbeafe"}, {Fill: "#dcfce7"}, {Fill: "#fef3c7"},
+	}
+	out, err := Render(d, &Options{Theme: Theme{Quadrants: pal}}) // no Config.
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	q1Left := attrFloat(t, string(out), "fill:#fee2e2", "x")
+	q2Left := attrFloat(t, string(out), "fill:#dbeafe", "x")
+	q2Width := attrFloat(t, string(out), "fill:#dbeafe", "width")
+	const specDefault = 5.0
+	if gap := q1Left - (q2Left + q2Width); math.Abs(gap-specDefault) > 0.01 {
+		t.Errorf("expected spec-default gap of %v between adjacent quadrants, got %v", specDefault, gap)
+	}
+}
+
+// A 20px padding bump must shift each label's y by 20px.
 func TestRenderQuadrantTextTopPaddingWired(t *testing.T) {
 	d := &diagram.QuadrantChartDiagram{
 		Quadrant1: "Q1", Quadrant2: "Q2", Quadrant3: "Q3", Quadrant4: "Q4",

@@ -115,16 +115,18 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 
 	midX := (plotX0 + plotX1) / 2
 	midY := (plotY0 + plotY1) / 2
-	// Single PlotFill rect when no per-quadrant fills are supplied,
-	// else four per-quadrant rects. The single-rect path preserves
-	// SVG-output stability for callers that don't touch the quadrant
-	// palette.
-	//
+
 	// Inner edges split QuadrantPadding (½ each) so the visible gap
 	// between adjacent rects equals pad; outer edges take the full
-	// pad against the plot border.
+	// pad against the plot border. Each rect's width is therefore
+	// plotSide/2 − 1.5·pad; clamping at plotSide/4 keeps the rect
+	// at least plotSide/8 wide so a misconfigured pad can't degenerate
+	// the layout.
 	type quadRect struct{ x0, y0, x1, y1 float64 }
 	pad := cfg.QuadrantPadding
+	if maxPad := plotSide / 4; pad > maxPad {
+		pad = maxPad
+	}
 	half := pad / 2
 	quadRects := [4]quadRect{
 		{midX + half, plotY0 + pad, plotX1 - pad, midY - half},
@@ -190,10 +192,10 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		Style: dividerStyle,
 	})
 
-	// Labels render at the horizontal centre of each quadrant rect
-	// and inset cfg.QuadrantTextTopPadding from the top edge —
-	// matching Mermaid's "title sits at the top of its quadrant"
-	// convention rather than the geometric centre.
+	// Top-anchored rather than centred so titles match Mermaid's
+	// title-at-top-of-quadrant convention. Cap the inset at half
+	// the rect height so a misconfigured padding can't push the
+	// text past the rect's bottom edge into the neighbour.
 	for i, q := range [4]struct {
 		text string
 		rect quadRect
@@ -210,8 +212,12 @@ func Render(d *diagram.QuadrantChartDiagram, opts *Options) ([]byte, error) {
 		if fill == "" {
 			fill = th.QuadrantTitleFill
 		}
+		textTopPad := cfg.QuadrantTextTopPadding
+		if maxPad := (q.rect.y1 - q.rect.y0) / 2; textTopPad > maxPad {
+			textTopPad = maxPad
+		}
 		cx := (q.rect.x0 + q.rect.x1) / 2
-		cy := q.rect.y0 + cfg.QuadrantTextTopPadding
+		cy := q.rect.y0 + textTopPad
 		children = append(children, &text{
 			X:        svgFloat(cx),
 			Y:        svgFloat(cy),
