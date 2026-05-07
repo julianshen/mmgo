@@ -225,7 +225,7 @@ func TestWrapText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDefaultRuler: %v", err)
 	}
-	defer ruler.Close()
+	defer func() { _ = ruler.Close() }()
 
 	// Empty input still yields one (empty) line so cards have non-zero height.
 	if got := wrapText(ruler, "", 200, 13); len(got) != 1 || got[0] != "" {
@@ -253,7 +253,7 @@ func TestWrapTextRespectsGlyphWidth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDefaultRuler: %v", err)
 	}
-	defer ruler.Close()
+	defer func() { _ = ruler.Close() }()
 
 	const fontSize = 13.0
 	const width = 80.0
