@@ -306,3 +306,47 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 		t.Error("viewBox missing")
 	}
 }
+
+// Inline point styling reaches the rendered SVG.
+func TestRenderPointInlineStyle(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Points: []diagram.QuadrantPoint{
+			{Label: "A", X: 0.3, Y: 0.6, Style: diagram.QuadrantPointStyle{
+				Color: "#abcdef", Radius: 11, StrokeWidth: 4, StrokeColor: "#000",
+			}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{"fill:#abcdef", "stroke:#000", "stroke-width:4", `r="11.00"`} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected %q in output", want)
+		}
+	}
+}
+
+// classDef styling flows onto referenced points.
+func TestRenderPointClassDef(t *testing.T) {
+	d := &diagram.QuadrantChartDiagram{
+		Classes: map[string]diagram.QuadrantPointStyle{
+			"hot": {Color: "#f00", Radius: 14},
+		},
+		Points: []diagram.QuadrantPoint{
+			{Label: "A", X: 0.5, Y: 0.5, Class: "hot"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "fill:#f00") {
+		t.Errorf("expected classDef fill in output")
+	}
+	if !strings.Contains(raw, `r="14.00"`) {
+		t.Errorf("expected classDef radius in output")
+	}
+}
