@@ -37,16 +37,22 @@ func Render(d *diagram.TimelineDiagram, opts *Options) ([]byte, error) {
 		fontSize = opts.FontSize
 	}
 	th := resolveTheme(opts)
+	// An empty diagram (no sections, no events) renders a tiny
+	// placeholder regardless of direction — neither layout has
+	// columns or rows to draw, so dispatch is moot.
+	if len(d.Sections) == 0 && len(d.Events) == 0 {
+		return renderEmpty(d, fontSize, th)
+	}
 	// Mermaid spec defaults timelines to LR (horizontal); only an
 	// explicit `direction TD` flips to the vertical layout this
 	// renderer originally shipped with.
 	if d.Direction == "TD" {
-		return renderTD(d, opts, fontSize, th)
+		return renderTD(d, fontSize, th)
 	}
-	return renderLR(d, opts, fontSize, th)
+	return renderLR(d, fontSize, th)
 }
 
-func renderTD(d *diagram.TimelineDiagram, opts *Options, fontSize float64, th Theme) ([]byte, error) {
+func renderTD(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, error) {
 	pad := defaultPadding
 
 	rows := countRows(d)
@@ -57,26 +63,7 @@ func renderTD(d *diagram.TimelineDiagram, opts *Options, fontSize float64, th Th
 	totalH += rowGap + float64(rows)*(eventBoxH+rowGap) + float64(len(d.Sections))*sectionGap + pad
 	viewW := pad + axisX + axisW + 30 + eventBoxW + pad
 
-	var children []any
-	if d.AccTitle != "" {
-		children = append(children, &svgutil.Title{Content: d.AccTitle})
-	}
-	if d.AccDescr != "" {
-		children = append(children, &svgutil.Desc{Content: d.AccDescr})
-	}
-	children = append(children, &rect{
-		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(totalH),
-		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
-	})
-
-	if d.Title != "" {
-		children = append(children, &text{
-			X: svgFloat(viewW / 2), Y: svgFloat(pad + titleH/2),
-			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize+2),
-			Content: d.Title,
-		})
-	}
+	children := emitChrome(d, viewW, totalH, fontSize, th)
 
 	startY := pad
 	if d.Title != "" {
@@ -117,16 +104,7 @@ func renderTD(d *diagram.TimelineDiagram, opts *Options, fontSize float64, th Th
 		}
 	}
 
-	svg := svgDoc{
-		XMLNS:    "http://www.w3.org/2000/svg",
-		ViewBox:  fmt.Sprintf("0 0 %.2f %.2f", viewW, totalH),
-		Children: children,
-	}
-	svgBytes, err := xml.Marshal(svg)
-	if err != nil {
-		return nil, fmt.Errorf("timeline render: %w", err)
-	}
-	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), svgBytes...), nil
+	return finalizeSVG(0, 0, viewW, totalH, children)
 }
 
 func countRows(d *diagram.TimelineDiagram) int {
@@ -221,7 +199,7 @@ const (
 // period time labels run as a row beneath the bands, a single
 // horizontal axis cuts across all columns, and events stack
 // vertically below each period column.
-func renderLR(d *diagram.TimelineDiagram, opts *Options, fontSize float64, th Theme) ([]byte, error) {
+func renderLR(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, error) {
 	pad := defaultPadding
 
 	// Flatten section→period structure into a single column list
@@ -241,12 +219,19 @@ func renderLR(d *diagram.TimelineDiagram, opts *Options, fontSize float64, th Th
 		colorIndex int
 	}
 	var ranges []sectionRange
+	maxEvents := 0
+	tally := func(ev diagram.TimelineEvent) {
+		if n := len(ev.Events); n > maxEvents {
+			maxEvents = n
+		}
+	}
 	if len(d.Sections) > 0 {
 		for i, sec := range d.Sections {
 			color := th.SectionColors[i%len(th.SectionColors)]
 			startCol := len(cols)
 			for _, ev := range sec.Events {
 				cols = append(cols, col{ev: ev, section: i, color: color})
+				tally(ev)
 			}
 			endCol := len(cols) - 1
 			if endCol >= startCol {
@@ -262,10 +247,14 @@ func renderLR(d *diagram.TimelineDiagram, opts *Options, fontSize float64, th Th
 		color := th.SectionColors[0]
 		for _, ev := range d.Events {
 			cols = append(cols, col{ev: ev, section: -1, color: color})
+			tally(ev)
 		}
 	}
 	if len(cols) == 0 {
-		return renderEmptyLR(d, th)
+		// Render dispatched here only when sections/events list
+		// existed but every section's Events slice was empty.
+		// Fall through to the empty-diagram chrome.
+		return renderEmpty(d, fontSize, th)
 	}
 
 	// Layout pass.
@@ -276,12 +265,6 @@ func renderLR(d *diagram.TimelineDiagram, opts *Options, fontSize float64, th Th
 	bandRowH := 0.0
 	if len(ranges) > 0 {
 		bandRowH = lrSectionBandH + lrSectionBandPad
-	}
-	maxEvents := 0
-	for _, c := range cols {
-		if n := len(c.ev.Events); n > maxEvents {
-			maxEvents = n
-		}
 	}
 	if maxEvents == 0 {
 		maxEvents = 1
@@ -300,26 +283,7 @@ func renderLR(d *diagram.TimelineDiagram, opts *Options, fontSize float64, th Th
 		return pad + float64(i)*(lrColW+lrColGap) + lrColW/2
 	}
 
-	var children []any
-	if d.AccTitle != "" {
-		children = append(children, &svgutil.Title{Content: d.AccTitle})
-	}
-	if d.AccDescr != "" {
-		children = append(children, &svgutil.Desc{Content: d.AccDescr})
-	}
-	children = append(children, &rect{
-		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
-		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
-	})
-
-	if d.Title != "" {
-		children = append(children, &text{
-			X: svgFloat(viewW / 2), Y: svgFloat(pad + titleH/2),
-			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize+2),
-			Content: d.Title,
-		})
-	}
+	children := emitChrome(d, viewW, viewH, fontSize, th)
 
 	// Section bands span their column range with a tinted rect
 	// and centered title.
@@ -393,27 +357,29 @@ func renderLR(d *diagram.TimelineDiagram, opts *Options, fontSize float64, th Th
 		}
 	}
 
-	svg := svgDoc{
-		XMLNS:    "http://www.w3.org/2000/svg",
-		ViewBox:  fmt.Sprintf("0 0 %.2f %.2f", viewW, viewH),
-		Children: children,
-	}
-	out, err := xml.Marshal(svg)
-	if err != nil {
-		return nil, fmt.Errorf("timeline render: %w", err)
-	}
-	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), out...), nil
+	return finalizeSVG(0, 0, viewW, viewH, children)
 }
 
-// renderEmptyLR draws a minimal placeholder when the diagram has
-// no periods at all (still respects title + accessibility).
-func renderEmptyLR(d *diagram.TimelineDiagram, th Theme) ([]byte, error) {
+// renderEmpty draws a minimal placeholder when the diagram has
+// no periods at all — shared by both LR and TD dispatch paths
+// since neither layout has anything to draw without periods.
+// Title + accessibility are still honoured.
+func renderEmpty(d *diagram.TimelineDiagram, fontSize float64, th Theme) ([]byte, error) {
 	pad := defaultPadding
 	w := 200.0
 	h := 2 * pad
 	if d.Title != "" {
 		h += titleH
 	}
+	children := emitChrome(d, w, h, fontSize, th)
+	return finalizeSVG(0, 0, w, h, children)
+}
+
+// emitChrome builds the always-on opening SVG children every
+// timeline render shares: optional `<title>` / `<desc>` for
+// screen readers, the full-canvas background rect, and the
+// optional centered diagram title.
+func emitChrome(d *diagram.TimelineDiagram, viewW, viewH, fontSize float64, th Theme) []any {
 	var children []any
 	if d.AccTitle != "" {
 		children = append(children, &svgutil.Title{Content: d.AccTitle})
@@ -422,20 +388,28 @@ func renderEmptyLR(d *diagram.TimelineDiagram, th Theme) ([]byte, error) {
 		children = append(children, &svgutil.Desc{Content: d.AccDescr})
 	}
 	children = append(children, &rect{
-		X: 0, Y: 0, Width: svgFloat(w), Height: svgFloat(h),
+		X: 0, Y: 0, Width: svgFloat(viewW), Height: svgFloat(viewH),
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
 	if d.Title != "" {
 		children = append(children, &text{
-			X: svgFloat(w / 2), Y: svgFloat(pad + titleH/2),
+			X: svgFloat(viewW / 2), Y: svgFloat(defaultPadding + titleH/2),
 			Anchor: "middle", Dominant: "central",
-			Style:   fmt.Sprintf("fill:%s;font-size:15px;font-weight:bold", th.TitleText),
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize+2),
 			Content: d.Title,
 		})
 	}
+	return children
+}
+
+// finalizeSVG marshals the root <svg> with the supplied viewBox
+// and prepends the XML declaration. The minX/minY parameters let
+// callers shift the origin (currently always 0) without further
+// cosmetics in the call site.
+func finalizeSVG(minX, minY, viewW, viewH float64, children []any) ([]byte, error) {
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
-		ViewBox:  fmt.Sprintf("0 0 %.2f %.2f", w, h),
+		ViewBox:  fmt.Sprintf("%g %g %.2f %.2f", minX, minY, viewW, viewH),
 		Children: children,
 	}
 	out, err := xml.Marshal(svg)
