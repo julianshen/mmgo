@@ -355,7 +355,7 @@ func renderVertical(d *diagram.XYChartDiagram, categories []string, yMin, yMax, 
 
 	elems = append(elems, axisLinesOriented(x0, y0, x1, y1, cfg.XAxis, cfg.YAxis, th.XAxisLineColor, th.YAxisLineColor)...)
 	elems = append(elems, axisTitlesOriented(d.XAxis, d.YAxis, x0, y0, x1, y1, cfg.XAxis, cfg.YAxis, th.XAxisTitleColor, th.YAxisTitleColor)...)
-	elems = append(elems, renderSeriesVertical(d, categories, yMin, yMax, x0, y0, x1, y1, cfg, th)...)
+	elems = append(elems, renderSeries(d, len(categories), yMin, yMax, x0, y0, x1, y1, cfg, th, false)...)
 	return elems
 }
 
@@ -414,73 +414,152 @@ func axisTitlesOriented(bottomDef, leftDef diagram.XYAxis, x0, y0, x1, y1 float6
 	return elems
 }
 
-func renderSeriesVertical(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, y0, x1, y1 float64, cfg Config, th Theme) []any {
-	var elems []any
-	nCols := len(categories)
-	if nCols == 0 {
-		return elems
+// seriesLayout captures the orientation-dependent geometry shared by
+// the bar/line emit loops. Vertical mode places categories along x;
+// horizontal mode places them along y. The val-axis pixel range is
+// inverted for vertical (valLo=y1, valHi=y0) so that valMin maps to
+// the plot's bottom edge in both modes.
+type seriesLayout struct {
+	horizontal     bool
+	nCats          int
+	catLo, catHi   float64
+	valLo, valHi   float64
+	valMin, valMax float64
+	catSlot        float64
+	bandSize       float64
+	barBandSize    float64
+	baseline       float64
+}
+
+func newSeriesLayout(d *diagram.XYChartDiagram, nCats int, valMin, valMax, x0, y0, x1, y1 float64, horizontal bool) seriesLayout {
+	catLo, catHi := x0, x1
+	valLo, valHi := y1, y0
+	if horizontal {
+		catLo, catHi = y0, y1
+		valLo, valHi = x0, x1
 	}
-	slotW := (x1 - x0) / float64(nCols)
-	bandW := slotW * (1 - 2*barInsetRatio)
-	barIndexes, nBars := barSeriesIndexes(d.Series)
-	bw := bandW
+	slot := (catHi - catLo) / float64(nCats)
+	bandSize := slot * (1 - 2*barInsetRatio)
+	_, nBars := barSeriesIndexes(d.Series)
+	barBandSize := bandSize
 	if nBars > 1 {
-		bw = bandW / float64(nBars)
+		barBandSize = bandSize / float64(nBars)
 	}
+	return seriesLayout{
+		horizontal: horizontal, nCats: nCats,
+		catLo: catLo, catHi: catHi, valLo: valLo, valHi: valHi,
+		valMin: valMin, valMax: valMax,
+		catSlot: slot, bandSize: bandSize, barBandSize: barBandSize,
+		baseline: axisPos(0, valMin, valMax, valLo, valHi),
+	}
+}
+
+func (m seriesLayout) catCenter(i int) float64 {
+	return m.catLo + m.catSlot*(float64(i)+0.5)
+}
+
+func (m seriesLayout) valPx(v float64) float64 {
+	return axisPos(v, m.valMin, m.valMax, m.valLo, m.valHi)
+}
+
+// barRect places bar i of band-position bp at value v, returning the
+// SVG rect bounds. Bars grow from the value-axis baseline (v=0
+// pixel, clamped) toward the data point.
+func (m seriesLayout) barRect(i, bp int, v float64) (x, y, w, h float64) {
+	bandStart := m.catCenter(i) - m.bandSize/2 + float64(bp)*m.barBandSize
+	valP := m.valPx(v)
+	valStart := math.Min(valP, m.baseline)
+	valLen := math.Abs(valP - m.baseline)
+	if m.horizontal {
+		return valStart, bandStart, valLen, m.barBandSize
+	}
+	return bandStart, valStart, m.barBandSize, valLen
+}
+
+func (m seriesLayout) linePoint(i int, v float64) (px, py float64) {
+	c := m.catCenter(i)
+	v2 := m.valPx(v)
+	if m.horizontal {
+		return v2, c
+	}
+	return c, v2
+}
+
+// labelPlacement is the (x, y, text-anchor, dominant-baseline) tuple
+// for a data label.
+type labelPlacement struct {
+	x, y     float64
+	anchor   string
+	dominant string
+}
+
+// barLabel returns where to place a bar's data label. Inside placement
+// is always the bar's geometric centre. Outside placement anchors to
+// the bar's value-axis edge and follows the value's sign so labels
+// for negative bars sit on the correct side.
+func (m seriesLayout) barLabel(rx, ry, rw, rh, v float64, outside bool) labelPlacement {
+	if !outside {
+		return labelPlacement{x: rx + rw/2, y: ry + rh/2, anchor: "middle", dominant: "central"}
+	}
+	valP := m.valPx(v)
+	if m.horizontal {
+		anchor, x := "start", valP+3
+		if v < 0 {
+			anchor, x = "end", valP-3
+		}
+		return labelPlacement{x: x, y: ry + rh/2, anchor: anchor, dominant: "central"}
+	}
+	dom, y := "auto", valP-2
+	if v < 0 {
+		dom, y = "hanging", valP+2
+	}
+	return labelPlacement{x: rx + rw/2, y: y, anchor: "middle", dominant: dom}
+}
+
+// linePointLabel sits the label clear of the marker on the side
+// opposite the value axis: above in vertical, right in horizontal.
+func (m seriesLayout) linePointLabel(px, py float64) labelPlacement {
+	if m.horizontal {
+		return labelPlacement{x: px + 5, y: py, anchor: "start", dominant: "central"}
+	}
+	return labelPlacement{x: px, y: py - 6, anchor: "middle", dominant: "auto"}
+}
+
+func renderSeries(d *diagram.XYChartDiagram, nCats int, valMin, valMax, x0, y0, x1, y1 float64, cfg Config, th Theme, horizontal bool) []any {
+	if nCats == 0 {
+		return nil
+	}
+	m := newSeriesLayout(d, nCats, valMin, valMax, x0, y0, x1, y1, horizontal)
+	barIndexes, _ := barSeriesIndexes(d.Series)
 	showLabel := flag(cfg.ShowDataLabel, false)
 	outside := flag(cfg.ShowDataLabelOutsideBar, false)
-	// Vertical: values plot against the Y-axis; data labels carry the
-	// value, so derive their font from the Y-axis label size.
+	// Data labels describe value-axis quantities, so derive their
+	// font from the Y-axis label size in both orientations (the AST
+	// y-axis is the value axis even when drawn at the bottom in
+	// horizontal mode).
 	labelFontSize := cfg.YAxis.LabelFontSize - 2
 
-	// Bars grow from the v=0 pixel on the value axis, clamped into
-	// the plot range. When the range straddles zero, positive values
-	// grow toward yMax and negative toward yMin; otherwise the
-	// baseline lands at the plot edge and the bar fills from there.
-	baselineY := axisPos(0, yMin, yMax, y1, y0)
-
+	var elems []any
 	for seriesIdx, s := range d.Series {
 		color := th.SeriesColors[seriesIdx%len(th.SeriesColors)]
 		switch s.Type {
 		case diagram.XYSeriesBar:
 			barSlot := barIndexes[seriesIdx]
-			for i := 0; i < len(s.Data) && i < nCols; i++ {
-				cx := x0 + slotW*(float64(i)+0.5)
-				bx := cx - bandW/2 + float64(barSlot)*bw
-				by := axisPos(s.Data[i], yMin, yMax, y1, y0)
-				topY := math.Min(by, baselineY)
-				height := math.Abs(by - baselineY)
+			for i := 0; i < len(s.Data) && i < nCats; i++ {
+				rx, ry, rw, rh := m.barRect(i, barSlot, s.Data[i])
 				elems = append(elems, &rect{
-					X: svgFloat(bx), Y: svgFloat(topY),
-					Width:  svgFloat(bw),
-					Height: svgFloat(height),
+					X: svgFloat(rx), Y: svgFloat(ry),
+					Width:  svgFloat(rw),
+					Height: svgFloat(rh),
 					Style:  fmt.Sprintf("fill:%s;stroke:none", color),
 				})
 				if showLabel {
-					// Anchor the label to the bar's outer edge using
-					// dominant-baseline rather than offsetting by the
-					// font's em-height: "auto" sits the alphabetic
-					// baseline at y, "hanging" sits the cap at y, and
-					// "central" centres at y. Each picks the right
-					// anchor for its placement so we never rely on a
-					// font-size approximation.
-					var ly float64
-					var dom string
-					switch {
-					case outside && s.Data[i] >= 0:
-						ly, dom = by-2, "auto"
-					case outside:
-						ly, dom = by+2, "hanging"
-					default:
-						ly, dom = topY+height/2, "central"
-					}
+					p := m.barLabel(rx, ry, rw, rh, s.Data[i], outside)
 					elems = append(elems, &text{
-						X:        svgFloat(bx + bw/2),
-						Y:        svgFloat(ly),
-						Anchor:   "middle",
-						Dominant: dom,
-						Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.DataLabelColor, labelFontSize),
-						Content:  formatTick(s.Data[i]),
+						X: svgFloat(p.x), Y: svgFloat(p.y),
+						Anchor: p.anchor, Dominant: p.dominant,
+						Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.DataLabelColor, labelFontSize),
+						Content: formatTick(s.Data[i]),
 					})
 				}
 			}
@@ -489,33 +568,30 @@ func renderSeriesVertical(d *diagram.XYChartDiagram, categories []string, yMin, 
 				continue
 			}
 			var sb strings.Builder
-			for i := 0; i < len(s.Data) && i < nCols; i++ {
-				cx := x0 + slotW*(float64(i)+0.5)
-				py := axisPos(s.Data[i], yMin, yMax, y1, y0)
+			for i := 0; i < len(s.Data) && i < nCats; i++ {
+				px, py := m.linePoint(i, s.Data[i])
 				if i > 0 {
 					sb.WriteByte(' ')
 				}
-				fmt.Fprintf(&sb, "%.2f,%.2f", cx, py)
+				fmt.Fprintf(&sb, "%.2f,%.2f", px, py)
 			}
 			elems = append(elems, &polyline{
 				Points: sb.String(),
 				Style:  fmt.Sprintf("fill:none;stroke:%s;stroke-width:2", color),
 			})
-			for i := 0; i < len(s.Data) && i < nCols; i++ {
-				cx := x0 + slotW*(float64(i)+0.5)
-				py := axisPos(s.Data[i], yMin, yMax, y1, y0)
+			for i := 0; i < len(s.Data) && i < nCats; i++ {
+				px, py := m.linePoint(i, s.Data[i])
 				elems = append(elems, &circle{
-					CX: svgFloat(cx), CY: svgFloat(py), R: 3,
+					CX: svgFloat(px), CY: svgFloat(py), R: 3,
 					Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1", color, th.MarkerStroke),
 				})
 				if showLabel {
+					p := m.linePointLabel(px, py)
 					elems = append(elems, &text{
-						X:        svgFloat(cx),
-						Y:        svgFloat(py - 6),
-						Anchor:   "middle",
-						Dominant: "auto",
-						Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.DataLabelColor, labelFontSize),
-						Content:  formatTick(s.Data[i]),
+						X: svgFloat(p.x), Y: svgFloat(p.y),
+						Anchor: p.anchor, Dominant: p.dominant,
+						Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.DataLabelColor, labelFontSize),
+						Content: formatTick(s.Data[i]),
 					})
 				}
 			}
@@ -551,110 +627,7 @@ func renderHorizontal(d *diagram.XYChartDiagram, categories []string, vMin, vMax
 
 	elems = append(elems, axisLinesOriented(x0, y0, x1, y1, cfg.YAxis, cfg.XAxis, th.YAxisLineColor, th.XAxisLineColor)...)
 	elems = append(elems, axisTitlesOriented(d.YAxis, d.XAxis, x0, y0, x1, y1, cfg.YAxis, cfg.XAxis, th.YAxisTitleColor, th.XAxisTitleColor)...)
-	elems = append(elems, renderSeriesHorizontal(d, categories, vMin, vMax, x0, y0, x1, y1, cfg, th)...)
-	return elems
-}
-
-func renderSeriesHorizontal(d *diagram.XYChartDiagram, categories []string, vMin, vMax, x0, y0, x1, y1 float64, cfg Config, th Theme) []any {
-	var elems []any
-	nCats := len(categories)
-	if nCats == 0 {
-		return elems
-	}
-	slotH := (y1 - y0) / float64(nCats)
-	bandH := slotH * (1 - 2*barInsetRatio)
-	barIndexes, nBars := barSeriesIndexes(d.Series)
-	bh := bandH
-	if nBars > 1 {
-		bh = bandH / float64(nBars)
-	}
-	showLabel := flag(cfg.ShowDataLabel, false)
-	outside := flag(cfg.ShowDataLabelOutsideBar, false)
-	// Horizontal: values plot against the AST y-axis (bottom edge);
-	// data labels match that font.
-	labelFontSize := cfg.YAxis.LabelFontSize - 2
-
-	// Bars grow from the v=0 pixel on the value axis, clamped into
-	// the plot range. Positive values grow toward vMax (rightward),
-	// negative toward vMin (leftward); otherwise the baseline lands
-	// at the plot edge and the bar fills from there.
-	baselineX := axisPos(0, vMin, vMax, x0, x1)
-
-	for seriesIdx, s := range d.Series {
-		color := th.SeriesColors[seriesIdx%len(th.SeriesColors)]
-		switch s.Type {
-		case diagram.XYSeriesBar:
-			barSlot := barIndexes[seriesIdx]
-			for i := 0; i < len(s.Data) && i < nCats; i++ {
-				cy := y0 + slotH*(float64(i)+0.5)
-				by := cy - bandH/2 + float64(barSlot)*bh
-				bx := axisPos(s.Data[i], vMin, vMax, x0, x1)
-				leftX := math.Min(bx, baselineX)
-				width := math.Abs(bx - baselineX)
-				elems = append(elems, &rect{
-					X: svgFloat(leftX), Y: svgFloat(by),
-					Width:  svgFloat(width),
-					Height: svgFloat(bh),
-					Style:  fmt.Sprintf("fill:%s;stroke:none", color),
-				})
-				if showLabel {
-					var lx float64
-					var anchor string
-					switch {
-					case outside && s.Data[i] >= 0:
-						lx, anchor = bx+3, "start"
-					case outside:
-						lx, anchor = bx-3, "end"
-					default:
-						lx, anchor = leftX+width/2, "middle"
-					}
-					elems = append(elems, &text{
-						X:        svgFloat(lx),
-						Y:        svgFloat(by + bh/2),
-						Anchor:   anchor,
-						Dominant: "central",
-						Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.DataLabelColor, labelFontSize),
-						Content:  formatTick(s.Data[i]),
-					})
-				}
-			}
-		case diagram.XYSeriesLine:
-			if len(s.Data) == 0 {
-				continue
-			}
-			var sb strings.Builder
-			for i := 0; i < len(s.Data) && i < nCats; i++ {
-				cy := y0 + slotH*(float64(i)+0.5)
-				px := axisPos(s.Data[i], vMin, vMax, x0, x1)
-				if i > 0 {
-					sb.WriteByte(' ')
-				}
-				fmt.Fprintf(&sb, "%.2f,%.2f", px, cy)
-			}
-			elems = append(elems, &polyline{
-				Points: sb.String(),
-				Style:  fmt.Sprintf("fill:none;stroke:%s;stroke-width:2", color),
-			})
-			for i := 0; i < len(s.Data) && i < nCats; i++ {
-				cy := y0 + slotH*(float64(i)+0.5)
-				px := axisPos(s.Data[i], vMin, vMax, x0, x1)
-				elems = append(elems, &circle{
-					CX: svgFloat(px), CY: svgFloat(cy), R: 3,
-					Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1", color, th.MarkerStroke),
-				})
-				if showLabel {
-					elems = append(elems, &text{
-						X:        svgFloat(px + 5),
-						Y:        svgFloat(cy),
-						Anchor:   "start",
-						Dominant: "central",
-						Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.DataLabelColor, labelFontSize),
-						Content:  formatTick(s.Data[i]),
-					})
-				}
-			}
-		}
-	}
+	elems = append(elems, renderSeries(d, len(categories), vMin, vMax, x0, y0, x1, y1, cfg, th, true)...)
 	return elems
 }
 
