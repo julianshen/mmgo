@@ -578,3 +578,31 @@ func MarshalSVG(doc Doc) ([]byte, error) {
 	}
 	return append([]byte(xmlDecl), raw...), nil
 }
+
+// MergeStr writes src into *dst when src is non-empty. Centralises
+// the "override on explicit set, inherit on zero" pattern shared by
+// every renderer's resolveTheme.
+func MergeStr(dst *string, src string) {
+	if src != "" {
+		*dst = src
+	}
+}
+
+// MergeFloat writes src into *dst when src is positive. Mirrors
+// MergeStr for numeric Config fields where the float zero value
+// signals "inherit default" (so a caller can't explicitly request
+// 0; that's the documented contract everywhere it's used).
+func MergeFloat(dst *float64, src float64) {
+	if src > 0 {
+		*dst = src
+	}
+}
+
+// MergeBoolPtr writes src into *dst when src is non-nil. Used for
+// tri-state Show* config flags where nil = "inherit default" and
+// &false vs &true distinguishes "explicitly off" from "explicitly on".
+func MergeBoolPtr(dst **bool, src *bool) {
+	if src != nil {
+		*dst = src
+	}
+}

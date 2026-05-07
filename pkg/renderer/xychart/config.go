@@ -1,5 +1,7 @@
 package xychart
 
+import "github.com/julianshen/mmgo/pkg/renderer/svgutil"
+
 // ChartOrientation selects vertical vs. horizontal layout. The Auto
 // default lets the renderer follow the AST's `Horizontal` flag (set
 // by `xychart-beta horizontal` at the source level) and only switches
@@ -106,53 +108,33 @@ func resolveConfig(opts *Options) Config {
 		c.YAxis.TitleFontSize = opts.FontSize
 	}
 	o := opts.Config
-	mergeF := func(dst *float64, src float64) {
-		if src > 0 {
-			*dst = src
-		}
-	}
-	mergeB := func(dst **bool, src *bool) {
-		if src != nil {
-			*dst = src
-		}
-	}
-	mergeF(&c.Width, o.Width)
-	mergeF(&c.Height, o.Height)
-	mergeF(&c.TitlePadding, o.TitlePadding)
-	mergeF(&c.TitleFontSize, o.TitleFontSize)
-	mergeB(&c.ShowTitle, o.ShowTitle)
+	svgutil.MergeFloat(&c.Width, o.Width)
+	svgutil.MergeFloat(&c.Height, o.Height)
+	svgutil.MergeFloat(&c.TitlePadding, o.TitlePadding)
+	svgutil.MergeFloat(&c.TitleFontSize, o.TitleFontSize)
+	svgutil.MergeBoolPtr(&c.ShowTitle, o.ShowTitle)
 	if o.ChartOrientation != OrientationAuto {
 		c.ChartOrientation = o.ChartOrientation
 	}
-	mergeB(&c.ShowDataLabel, o.ShowDataLabel)
-	mergeB(&c.ShowDataLabelOutsideBar, o.ShowDataLabelOutsideBar)
+	svgutil.MergeBoolPtr(&c.ShowDataLabel, o.ShowDataLabel)
+	svgutil.MergeBoolPtr(&c.ShowDataLabelOutsideBar, o.ShowDataLabelOutsideBar)
 	c.XAxis = mergeAxis(c.XAxis, o.XAxis)
 	c.YAxis = mergeAxis(c.YAxis, o.YAxis)
 	return c
 }
 
 func mergeAxis(dst, src AxisConfig) AxisConfig {
-	mergeF := func(d *float64, s float64) {
-		if s > 0 {
-			*d = s
-		}
-	}
-	mergeB := func(d **bool, s *bool) {
-		if s != nil {
-			*d = s
-		}
-	}
-	mergeB(&dst.ShowLabel, src.ShowLabel)
-	mergeF(&dst.LabelFontSize, src.LabelFontSize)
-	mergeF(&dst.LabelPadding, src.LabelPadding)
-	mergeB(&dst.ShowTitle, src.ShowTitle)
-	mergeF(&dst.TitleFontSize, src.TitleFontSize)
-	mergeF(&dst.TitlePadding, src.TitlePadding)
-	mergeB(&dst.ShowTick, src.ShowTick)
-	mergeF(&dst.TickLength, src.TickLength)
-	mergeF(&dst.TickWidth, src.TickWidth)
-	mergeB(&dst.ShowAxisLine, src.ShowAxisLine)
-	mergeF(&dst.AxisLineWidth, src.AxisLineWidth)
+	svgutil.MergeBoolPtr(&dst.ShowLabel, src.ShowLabel)
+	svgutil.MergeFloat(&dst.LabelFontSize, src.LabelFontSize)
+	svgutil.MergeFloat(&dst.LabelPadding, src.LabelPadding)
+	svgutil.MergeBoolPtr(&dst.ShowTitle, src.ShowTitle)
+	svgutil.MergeFloat(&dst.TitleFontSize, src.TitleFontSize)
+	svgutil.MergeFloat(&dst.TitlePadding, src.TitlePadding)
+	svgutil.MergeBoolPtr(&dst.ShowTick, src.ShowTick)
+	svgutil.MergeFloat(&dst.TickLength, src.TickLength)
+	svgutil.MergeFloat(&dst.TickWidth, src.TickWidth)
+	svgutil.MergeBoolPtr(&dst.ShowAxisLine, src.ShowAxisLine)
+	svgutil.MergeFloat(&dst.AxisLineWidth, src.AxisLineWidth)
 	return dst
 }
 

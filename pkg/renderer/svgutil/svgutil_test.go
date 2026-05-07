@@ -328,3 +328,48 @@ func TestFormatNumber(t *testing.T) {
 		t.Errorf("FormatNumber(NaN, 2) = %q, want %q", s, "0")
 	}
 }
+
+func TestMergeStr(t *testing.T) {
+	dst := "default"
+	MergeStr(&dst, "")
+	if dst != "default" {
+		t.Errorf("empty src must not overwrite, got %q", dst)
+	}
+	MergeStr(&dst, "override")
+	if dst != "override" {
+		t.Errorf("non-empty src must overwrite, got %q", dst)
+	}
+}
+
+func TestMergeFloat(t *testing.T) {
+	dst := 5.0
+	MergeFloat(&dst, 0)
+	if dst != 5 {
+		t.Errorf("zero src must not overwrite, got %v", dst)
+	}
+	MergeFloat(&dst, -3)
+	if dst != 5 {
+		t.Errorf("negative src must not overwrite, got %v", dst)
+	}
+	MergeFloat(&dst, 12)
+	if dst != 12 {
+		t.Errorf("positive src must overwrite, got %v", dst)
+	}
+}
+
+func TestMergeBoolPtr(t *testing.T) {
+	dflt := true
+	dst := &dflt
+	MergeBoolPtr(&dst, nil)
+	if dst != &dflt {
+		t.Error("nil src must not overwrite")
+	}
+	off := false
+	MergeBoolPtr(&dst, &off)
+	if dst != &off {
+		t.Error("non-nil src must overwrite")
+	}
+	if *dst {
+		t.Error("expected dst to point at false after merge")
+	}
+}
