@@ -399,3 +399,81 @@ func TestRenderSankeyPrefixSuffix(t *testing.T) {
 		t.Errorf("expected prefix/suffix wrap in output:\n%s", out)
 	}
 }
+
+// Each NodeAlignmentMode is verified directly against assignColumns:
+// for the 3-node graph A→B→C and a fanout A→D, the four strategies
+// should put each node in a known column.
+//
+//	A → B → C
+//	A → D       (D is a sink; B is intermediate; C is a sink)
+//
+// Left:    A=0, B=1, D=1, C=2
+// Right:   A=0, B=1, D=2, C=2  (D pulled to maxCol — it's a sink)
+// Center:  A=0, B=1, D=1, C=2  (avg of left/right)
+// Justify: A=0, B=1, D=2, C=2  (sinks pinned right; D and C are sinks)
+func TestAssignColumnsByMode(t *testing.T) {
+	nodes := []string{"A", "B", "C", "D"}
+	flows := []diagram.SankeyFlow{
+		{Source: "A", Target: "B", Value: 1},
+		{Source: "B", Target: "C", Value: 1},
+		{Source: "A", Target: "D", Value: 1},
+	}
+	cases := []struct {
+		mode NodeAlignmentMode
+		want map[string]int
+	}{
+		{NodeAlignLeft, map[string]int{"A": 0, "B": 1, "D": 1, "C": 2}},
+		{NodeAlignRight, map[string]int{"A": 0, "B": 1, "D": 2, "C": 2}},
+		{NodeAlignCenter, map[string]int{"A": 0, "B": 1, "D": 1, "C": 2}},
+		{NodeAlignJustify, map[string]int{"A": 0, "B": 1, "D": 2, "C": 2}},
+	}
+	for _, tc := range cases {
+		t.Run(modeName(tc.mode), func(t *testing.T) {
+			got, _ := assignColumns(nodes, flows, tc.mode)
+			for n, want := range tc.want {
+				if got[n] != want {
+					t.Errorf("mode=%v node %q col=%d, want %d (got=%v)", tc.mode, n, got[n], want, got)
+				}
+			}
+		})
+	}
+}
+
+func modeName(m NodeAlignmentMode) string {
+	switch m {
+	case NodeAlignLeft:
+		return "Left"
+	case NodeAlignRight:
+		return "Right"
+	case NodeAlignCenter:
+		return "Center"
+	case NodeAlignJustify:
+		return "Justify"
+	}
+	return "?"
+}
+
+// End-to-end: changing NodeAlignment changes the rendered SVG.
+// Graph: A→B→C→D and B→E, where E is a depth-2 sink (maxCol=3).
+// Left leaves E at col 2; Justify pins it to maxCol=3. An inert
+// dispatch would emit identical output for both modes.
+func TestRenderNodeAlignmentDispatchesToLayout(t *testing.T) {
+	d := &diagram.SankeyDiagram{
+		Flows: []diagram.SankeyFlow{
+			{Source: "A", Target: "B", Value: 1},
+			{Source: "B", Target: "C", Value: 1},
+			{Source: "C", Target: "D", Value: 1},
+			{Source: "B", Target: "E", Value: 1},
+		},
+	}
+	render := func(mode NodeAlignmentMode) string {
+		out, err := Render(d, &Options{NodeAlignment: mode})
+		if err != nil {
+			t.Fatalf("Render(%v): %v", mode, err)
+		}
+		return string(out)
+	}
+	if render(NodeAlignLeft) == render(NodeAlignJustify) {
+		t.Errorf("Left and Justify must produce different SVG when a non-max-depth sink exists")
+	}
+}
