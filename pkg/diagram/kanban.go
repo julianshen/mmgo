@@ -25,7 +25,15 @@ type KanbanSection struct {
 // KanbanDiagram is the AST for a Mermaid kanban diagram. Sections are
 // rendered as columns left-to-right in declaration order.
 type KanbanDiagram struct {
-	Sections []KanbanSection
+	Title    string
+	AccTitle string
+	AccDescr string
+	// TicketBaseURL is sourced from frontmatter
+	// `config.kanban.ticketBaseUrl`. Renderers that consume the
+	// `ticket` task metadata key wrap the card in `<a href>` after
+	// substituting `#TICKET#` with the ticket id (Phase 2).
+	TicketBaseURL string
+	Sections      []KanbanSection
 }
 
 func (*KanbanDiagram) Type() DiagramType { return Kanban }

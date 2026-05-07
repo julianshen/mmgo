@@ -28,8 +28,24 @@ import (
 const headerKeyword = "kanban"
 
 func Parse(r io.Reader) (*diagram.KanbanDiagram, error) {
+	src, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading input: %w", err)
+	}
 	d := &diagram.KanbanDiagram{}
-	scanner := bufio.NewScanner(r)
+	// Optional `---\n…\n---` frontmatter at the top supplies the
+	// diagram title and (for Kanban) the `config.kanban.ticketBaseUrl`
+	// referenced by Phase 2 ticket-link rendering.
+	front, body := parserutil.SplitFrontmatter(src)
+	if len(front) > 0 {
+		if t := parserutil.FrontmatterValue(front, "title"); t != "" {
+			d.Title = t
+		}
+		if u := parserutil.FrontmatterValue(front, "ticketBaseUrl"); u != "" {
+			d.TicketBaseURL = u
+		}
+	}
+	scanner := bufio.NewScanner(strings.NewReader(string(body)))
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 
 	lineNum := 0
@@ -40,6 +56,11 @@ func Parse(r io.Reader) (*diagram.KanbanDiagram, error) {
 	sectionIndent := -1
 	currentSection := -1
 	taskSeq := 0
+	// inAccDescrBlock toggles when an `accDescr {` line opens a
+	// multi-line description; subsequent lines accumulate until
+	// the matching `}` line.
+	var accDescrLines []string
+	inAccDescrBlock := false
 
 	for scanner.Scan() {
 		lineNum++
@@ -53,6 +74,28 @@ func Parse(r io.Reader) (*diagram.KanbanDiagram, error) {
 				return nil, fmt.Errorf("line %d: expected '%s' header, got %q", lineNum, headerKeyword, trimmed)
 			}
 			headerSeen = true
+			continue
+		}
+		if inAccDescrBlock {
+			if trimmed == "}" {
+				d.AccDescr = strings.Join(accDescrLines, "\n")
+				accDescrLines = accDescrLines[:0]
+				inAccDescrBlock = false
+				continue
+			}
+			accDescrLines = append(accDescrLines, trimmed)
+			continue
+		}
+		if trimmed == "accDescr {" || trimmed == "accDescr{" {
+			inAccDescrBlock = true
+			continue
+		}
+		if v, ok := parserutil.MatchKeywordValue(trimmed, "accTitle"); ok {
+			d.AccTitle = v
+			continue
+		}
+		if v, ok := parserutil.MatchKeywordValue(trimmed, "accDescr"); ok {
+			d.AccDescr = v
 			continue
 		}
 		indent := parserutil.IndentWidth(raw)
@@ -94,6 +137,9 @@ func Parse(r io.Reader) (*diagram.KanbanDiagram, error) {
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("reading input: %w", err)
+	}
+	if inAccDescrBlock {
+		return nil, fmt.Errorf("unterminated accDescr { ... } block")
 	}
 	if !headerSeen {
 		return nil, fmt.Errorf("missing %s header", headerKeyword)

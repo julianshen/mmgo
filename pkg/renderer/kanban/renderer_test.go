@@ -274,3 +274,30 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 		t.Error("viewBox missing")
 	}
 }
+
+// AccTitle/AccDescr emit as <title>/<desc> SVG children; Title
+// renders as a centered caption above the columns.
+func TestRenderKanbanHeader(t *testing.T) {
+	d := &diagram.KanbanDiagram{
+		Title:    "Sprint 12",
+		AccTitle: "Sprint board",
+		AccDescr: "Tasks across the sprint",
+		Sections: []diagram.KanbanSection{
+			{Title: "Todo", Tasks: []diagram.KanbanTask{{ID: "t1", Text: "Write tests"}}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<title>Sprint board</title>") {
+		t.Errorf("expected accTitle <title> in:\n%s", raw)
+	}
+	if !strings.Contains(raw, "<desc>Tasks across the sprint</desc>") {
+		t.Errorf("expected accDescr <desc> in:\n%s", raw)
+	}
+	if !strings.Contains(raw, ">Sprint 12<") {
+		t.Errorf("expected diagram title rendered in:\n%s", raw)
+	}
+}
