@@ -62,13 +62,22 @@ func Render(d *diagram.XYChartDiagram, opts *Options) ([]byte, error) {
 	if d.Title != "" && flag(cfg.ShowTitle, true) {
 		titleH = cfg.TitlePadding + cfg.TitleFontSize + cfg.TitlePadding
 	}
-	leftAxisPad := axisLabelGap(cfg.YAxis)
-	if d.YAxis.Title != "" && flag(cfg.YAxis.ShowTitle, true) {
-		leftAxisPad += cfg.YAxis.TitleFontSize + cfg.YAxis.TitlePadding
+	// Which axis ends up on which edge depends on orientation. cfg.XAxis
+	// always describes the AST x-axis (categories in standard usage);
+	// in horizontal mode that axis appears on the left of the canvas.
+	leftAxisCfg, bottomAxisCfg := cfg.YAxis, cfg.XAxis
+	leftAxisDef, bottomAxisDef := d.YAxis, d.XAxis
+	if horizontal {
+		leftAxisCfg, bottomAxisCfg = cfg.XAxis, cfg.YAxis
+		leftAxisDef, bottomAxisDef = d.XAxis, d.YAxis
 	}
-	bottomAxisPad := axisLabelGap(cfg.XAxis)
-	if d.XAxis.Title != "" && flag(cfg.XAxis.ShowTitle, true) {
-		bottomAxisPad += cfg.XAxis.TitleFontSize + cfg.XAxis.TitlePadding
+	leftAxisPad := axisLabelGap(leftAxisCfg)
+	if leftAxisDef.Title != "" && flag(leftAxisCfg.ShowTitle, true) {
+		leftAxisPad += leftAxisCfg.TitleFontSize + leftAxisCfg.TitlePadding
+	}
+	bottomAxisPad := axisLabelGap(bottomAxisCfg)
+	if bottomAxisDef.Title != "" && flag(bottomAxisCfg.ShowTitle, true) {
+		bottomAxisPad += bottomAxisCfg.TitleFontSize + bottomAxisCfg.TitlePadding
 	}
 
 	plotX0 := marginX + leftAxisPad
@@ -109,10 +118,11 @@ func Render(d *diagram.XYChartDiagram, opts *Options) ([]byte, error) {
 		})
 	}
 
+	_ = fontSize // FontSize broadcasts via resolveConfig; not needed here.
 	if horizontal {
-		children = append(children, renderHorizontal(d, categories, yMin, yMax, plotX0, plotY0, plotX1, plotY1, fontSize, cfg, th)...)
+		children = append(children, renderHorizontal(d, categories, yMin, yMax, plotX0, plotY0, plotX1, plotY1, cfg, th)...)
 	} else {
-		children = append(children, renderVertical(d, categories, yMin, yMax, plotX0, plotY0, plotX1, plotY1, fontSize, cfg, th)...)
+		children = append(children, renderVertical(d, categories, yMin, yMax, plotX0, plotY0, plotX1, plotY1, cfg, th)...)
 	}
 
 	doc := svgDoc{
@@ -315,7 +325,7 @@ func categoricalTicks(categories []string, pxLo, pxHi float64) []tickItem {
 	return items
 }
 
-func renderVertical(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, y0, x1, y1, fontSize float64, cfg Config, th Theme) []any {
+func renderVertical(d *diagram.XYChartDiagram, categories []string, yMin, yMax, x0, y0, x1, y1 float64, cfg Config, th Theme) []any {
 	var elems []any
 
 	elems = append(elems, renderTickRow(tickRow{
@@ -343,57 +353,62 @@ func renderVertical(d *diagram.XYChartDiagram, categories []string, yMin, yMax, 
 		labelColor: th.XAxisLabelColor,
 	})...)
 
-	elems = append(elems, axisLines(x0, y0, x1, y1, cfg, th)...)
-	elems = append(elems, axisTitles(d, x0, y0, x1, y1, fontSize, cfg, th)...)
+	elems = append(elems, axisLinesOriented(x0, y0, x1, y1, cfg.XAxis, cfg.YAxis, th.XAxisLineColor, th.YAxisLineColor)...)
+	elems = append(elems, axisTitlesOriented(d.XAxis, d.YAxis, x0, y0, x1, y1, cfg.XAxis, cfg.YAxis, th.XAxisTitleColor, th.YAxisTitleColor)...)
 	elems = append(elems, renderSeriesVertical(d, categories, yMin, yMax, x0, y0, x1, y1, cfg, th)...)
 	return elems
 }
 
-func axisLines(x0, y0, x1, y1 float64, cfg Config, th Theme) []any {
+// axisLinesOriented draws the bottom + left axis lines using the
+// AxisConfig that describes each visible edge. Vertical mode passes
+// (XAxis, YAxis); horizontal mode passes (YAxis, XAxis) since the
+// AST roles of each edge are swapped.
+func axisLinesOriented(x0, y0, x1, y1 float64, bottomCfg, leftCfg AxisConfig, bottomColor, leftColor string) []any {
 	var elems []any
-	if flag(cfg.XAxis.ShowAxisLine, true) {
+	if flag(bottomCfg.ShowAxisLine, true) {
 		elems = append(elems, &line{
 			X1: svgFloat(x0), Y1: svgFloat(y1),
 			X2: svgFloat(x1), Y2: svgFloat(y1),
-			Style: fmt.Sprintf("stroke:%s;stroke-width:%g", th.XAxisLineColor, cfg.XAxis.AxisLineWidth),
+			Style: fmt.Sprintf("stroke:%s;stroke-width:%g", bottomColor, bottomCfg.AxisLineWidth),
 		})
 	}
-	if flag(cfg.YAxis.ShowAxisLine, true) {
+	if flag(leftCfg.ShowAxisLine, true) {
 		elems = append(elems, &line{
 			X1: svgFloat(x0), Y1: svgFloat(y0),
 			X2: svgFloat(x0), Y2: svgFloat(y1),
-			Style: fmt.Sprintf("stroke:%s;stroke-width:%g", th.YAxisLineColor, cfg.YAxis.AxisLineWidth),
+			Style: fmt.Sprintf("stroke:%s;stroke-width:%g", leftColor, leftCfg.AxisLineWidth),
 		})
 	}
 	return elems
 }
 
-func axisTitles(d *diagram.XYChartDiagram, x0, y0, x1, y1, _ float64, cfg Config, th Theme) []any {
+// axisTitlesOriented places the bottom axis title centred below the
+// plot and the left axis title rotated -90 to the left. The
+// presentation `transform` attribute (not CSS) is used so the
+// rotation renders in non-browser SVG consumers like tdewolff/canvas.
+func axisTitlesOriented(bottomDef, leftDef diagram.XYAxis, x0, y0, x1, y1 float64, bottomCfg, leftCfg AxisConfig, bottomColor, leftColor string) []any {
 	var elems []any
-	if d.XAxis.Title != "" && flag(cfg.XAxis.ShowTitle, true) {
+	if bottomDef.Title != "" && flag(bottomCfg.ShowTitle, true) {
 		elems = append(elems, &text{
 			X:        svgFloat((x0 + x1) / 2),
-			Y:        svgFloat(y1 + axisLabelGap(cfg.XAxis) + cfg.XAxis.TitlePadding + cfg.XAxis.TitleFontSize/2),
+			Y:        svgFloat(y1 + axisLabelGap(bottomCfg) + bottomCfg.TitlePadding + bottomCfg.TitleFontSize/2),
 			Anchor:   "middle",
 			Dominant: "central",
-			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.XAxisTitleColor, cfg.XAxis.TitleFontSize),
-			Content:  d.XAxis.Title,
+			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", bottomColor, bottomCfg.TitleFontSize),
+			Content:  bottomDef.Title,
 		})
 	}
-	if d.YAxis.Title != "" && flag(cfg.YAxis.ShowTitle, true) {
-		// SVG `transform` (presentation attribute, not CSS) so the
-		// rotation renders in non-browser SVG consumers like
-		// tdewolff/canvas (used for our PNG/PDF output).
+	if leftDef.Title != "" && flag(leftCfg.ShowTitle, true) {
 		midY := (y0 + y1) / 2
-		tx := x0 - axisLabelGap(cfg.YAxis) - cfg.YAxis.TitlePadding - cfg.YAxis.TitleFontSize/2
+		tx := x0 - axisLabelGap(leftCfg) - leftCfg.TitlePadding - leftCfg.TitleFontSize/2
 		elems = append(elems, &text{
 			X:         svgFloat(tx),
 			Y:         svgFloat(midY),
 			Anchor:    "middle",
 			Dominant:  "central",
-			Style:     fmt.Sprintf("fill:%s;font-size:%.0fpx", th.YAxisTitleColor, cfg.YAxis.TitleFontSize),
+			Style:     fmt.Sprintf("fill:%s;font-size:%.0fpx", leftColor, leftCfg.TitleFontSize),
 			Transform: fmt.Sprintf("rotate(-90 %.2f %.2f)", tx, midY),
-			Content:   d.YAxis.Title,
+			Content:   leftDef.Title,
 		})
 	}
 	return elems
@@ -414,7 +429,9 @@ func renderSeriesVertical(d *diagram.XYChartDiagram, categories []string, yMin, 
 	}
 	showLabel := flag(cfg.ShowDataLabel, false)
 	outside := flag(cfg.ShowDataLabelOutsideBar, false)
-	labelFontSize := cfg.XAxis.LabelFontSize - 2
+	// Vertical: values plot against the Y-axis; data labels carry the
+	// value, so derive their font from the Y-axis label size.
+	labelFontSize := cfg.YAxis.LabelFontSize - 2
 
 	for seriesIdx, s := range d.Series {
 		color := th.SeriesColors[seriesIdx%len(th.SeriesColors)]
@@ -488,29 +505,33 @@ func renderSeriesVertical(d *diagram.XYChartDiagram, categories []string, yMin, 
 	return elems
 }
 
-func renderHorizontal(d *diagram.XYChartDiagram, categories []string, vMin, vMax, x0, y0, x1, y1, fontSize float64, cfg Config, th Theme) []any {
+func renderHorizontal(d *diagram.XYChartDiagram, categories []string, vMin, vMax, x0, y0, x1, y1 float64, cfg Config, th Theme) []any {
 	var elems []any
 
+	// In horizontal mode the AST y-axis (values, range) is the bottom
+	// axis and the AST x-axis (categories) is the left axis. Cfg/theme
+	// fields named after each AST axis still apply to that axis — only
+	// its visual position has changed.
 	elems = append(elems, renderTickRow(tickRow{
 		edge:       edgeBottom,
 		items:      continuousTicks(vMin, vMax, x0, x1),
 		axisOrigin: y1,
 		grid:       gridSpec{lo: y0, hi: y1, stroke: th.GridStroke},
-		axisCfg:    cfg.XAxis,
-		tickColor:  th.XAxisTickColor,
-		labelColor: th.XAxisLabelColor,
+		axisCfg:    cfg.YAxis,
+		tickColor:  th.YAxisTickColor,
+		labelColor: th.YAxisLabelColor,
 	})...)
 	elems = append(elems, renderTickRow(tickRow{
 		edge:       edgeLeft,
 		items:      categoricalTicks(categories, y0, y1),
 		axisOrigin: x0,
-		axisCfg:    cfg.YAxis,
-		tickColor:  th.YAxisTickColor,
-		labelColor: th.YAxisLabelColor,
+		axisCfg:    cfg.XAxis,
+		tickColor:  th.XAxisTickColor,
+		labelColor: th.XAxisLabelColor,
 	})...)
 
-	elems = append(elems, axisLines(x0, y0, x1, y1, cfg, th)...)
-	elems = append(elems, axisTitles(d, x0, y0, x1, y1, fontSize, cfg, th)...)
+	elems = append(elems, axisLinesOriented(x0, y0, x1, y1, cfg.YAxis, cfg.XAxis, th.YAxisLineColor, th.XAxisLineColor)...)
+	elems = append(elems, axisTitlesOriented(d.YAxis, d.XAxis, x0, y0, x1, y1, cfg.YAxis, cfg.XAxis, th.YAxisTitleColor, th.XAxisTitleColor)...)
 	elems = append(elems, renderSeriesHorizontal(d, categories, vMin, vMax, x0, y0, x1, y1, cfg, th)...)
 	return elems
 }
@@ -530,7 +551,9 @@ func renderSeriesHorizontal(d *diagram.XYChartDiagram, categories []string, vMin
 	}
 	showLabel := flag(cfg.ShowDataLabel, false)
 	outside := flag(cfg.ShowDataLabelOutsideBar, false)
-	labelFontSize := cfg.XAxis.LabelFontSize - 2
+	// Horizontal: values plot against the AST y-axis (bottom edge);
+	// data labels match that font.
+	labelFontSize := cfg.YAxis.LabelFontSize - 2
 
 	for seriesIdx, s := range d.Series {
 		color := th.SeriesColors[seriesIdx%len(th.SeriesColors)]

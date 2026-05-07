@@ -581,6 +581,56 @@ func TestRenderContinuousXAxisClampsOutOfRange(t *testing.T) {
 	}
 }
 
+// In horizontal mode, cfg/theme keyed to the AST x-axis (which carries
+// categories) must apply to the visible LEFT axis, not to the bottom.
+// Regression for the axis-swap bug surfaced in PR review.
+func TestRenderHorizontalAxisCfgSwap(t *testing.T) {
+	d := &diagram.XYChartDiagram{
+		Horizontal: true,
+		XAxis:      diagram.XYAxis{Title: "CategoryAxis", Categories: []string{"a", "b"}},
+		YAxis:      diagram.XYAxis{Title: "ValueAxis", HasRange: true, Min: 0, Max: 10},
+		Series: []diagram.XYSeries{
+			{Type: diagram.XYSeriesBar, Data: []float64{1, 2}},
+		},
+	}
+	out, err := Render(d, &Options{Config: Config{
+		// Make the X-axis label font distinctly larger than Y so we
+		// can tell which one ended up where.
+		XAxis: AxisConfig{LabelFontSize: 24, TitleFontSize: 28},
+		YAxis: AxisConfig{LabelFontSize: 10, TitleFontSize: 12},
+	}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// Categories ("a", "b") should render at 24px (XAxis font),
+	// because in horizontal mode the X-axis (categorical) is on the
+	// left. Find an "a" label and verify its preceding font-size.
+	aIdx := strings.Index(raw, ">a<")
+	if aIdx < 0 {
+		t.Fatalf("missing category label 'a'")
+	}
+	prelude := raw[:aIdx]
+	fsIdx := strings.LastIndex(prelude, "font-size:")
+	if fsIdx < 0 {
+		t.Fatalf("could not locate font-size for category label")
+	}
+	fsEnd := strings.Index(prelude[fsIdx:], "px")
+	if !strings.Contains(prelude[fsIdx:fsIdx+fsEnd], "24") {
+		t.Errorf("expected category label at XAxis font (24px), got: %q", prelude[fsIdx:fsIdx+fsEnd+2])
+	}
+	// Bottom value-axis labels ("0", "2", ...) should be at YAxis 10px.
+	if !strings.Contains(raw, "font-size:10px") {
+		t.Errorf("expected value-axis labels at YAxis font (10px)")
+	}
+	// Title text colors shouldn't matter, just verify both titles render.
+	for _, want := range []string{">CategoryAxis<", ">ValueAxis<"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected axis title %q", want)
+		}
+	}
+}
+
 // In horizontal layout, two bar series in the same category must
 // occupy non-overlapping y-slots.
 func TestRenderHorizontalMultiBarSlotSplit(t *testing.T) {
