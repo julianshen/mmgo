@@ -60,14 +60,13 @@ type C4Element struct {
 	Technology  string
 	Description string
 	// Tags is a comma-separated list of stereotype names from the
-	// `$tags=` named arg. Mermaid does not currently render tags;
-	// we capture them so downstream consumers can.
+	// `$tags=` named arg. Captured for downstream consumers; Mermaid
+	// itself does not paint anything from it.
 	Tags string
-	// Link is the URL from the `$link=` named arg. The renderer
-	// wraps the element's SVG group in `<a href>` when set.
+	// Link is the URL from the `$link=` named arg.
 	Link string
-	// Sprite is the icon name from the `$sprite=` named arg. Mermaid
-	// does not currently render sprites; captured for parity.
+	// Sprite is the icon name from the `$sprite=` named arg.
+	// Captured for downstream consumers; not painted today.
 	Sprite string
 }
 
@@ -97,9 +96,9 @@ type C4Relation struct {
 	Tags   string
 	Link   string
 	Sprite string
-	// OffsetX / OffsetY shift the relation's label and curve midpoint
-	// from `$offsetX=` / `$offsetY=`. Useful for nudging crowded labels
-	// off neighbouring lines.
+	// OffsetX / OffsetY are the `$offsetX=` / `$offsetY=` named args.
+	// Captured on the AST; rendering is deferred — the values do
+	// not currently shift the label or curve midpoint.
 	OffsetX float64
 	OffsetY float64
 }
@@ -134,8 +133,9 @@ type C4Boundary struct {
 	Kind       C4BoundaryKind
 	Elements   []int // indexes into C4Diagram.Elements
 	Boundaries []*C4Boundary
-	// Tags / Link / Sprite mirror the named-arg surface; only Link
-	// is rendered today (clickable boundary frame).
+	// Tags / Link / Sprite mirror the named-arg surface. The
+	// renderer wraps the boundary frame in `<a href>` when Link is
+	// set; Tags and Sprite are captured but unrendered.
 	Tags   string
 	Link   string
 	Sprite string

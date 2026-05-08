@@ -656,3 +656,57 @@ Rel(u, s, "x", $offsetX="not-a-number")
 		t.Errorf("malformed offset should be 0, got %v", d.Relations[0].OffsetX)
 	}
 }
+
+// Interleaved positional + named args parse correctly: the named
+// entry doesn't consume a positional slot, so positional indices
+// still address the surrounding fields.
+func TestParseElementInterleavedNamedAndPositional(t *testing.T) {
+	input := `C4Context
+Person(u, $tags="external", "User", $descr="From outside")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	e := d.Elements[0]
+	if e.ID != "u" || e.Label != "User" {
+		t.Errorf("positional fields wrong: ID=%q Label=%q", e.ID, e.Label)
+	}
+	if e.Tags != "external" {
+		t.Errorf("Tags = %q", e.Tags)
+	}
+	if e.Description != "From outside" {
+		t.Errorf("Description = %q", e.Description)
+	}
+}
+
+// Empty-value named args (`$descr=`) must not silently clobber a
+// positional value with "" — splitNamed rejects them so the
+// override loop's comma-ok branch never fires.
+func TestParseElementEmptyNamedArgPreservesPositional(t *testing.T) {
+	input := `C4Context
+Person(u, "User", "positional descr", $descr="")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if d.Elements[0].Description != "positional descr" {
+		t.Errorf("empty $descr= must not clobber positional, got %q", d.Elements[0].Description)
+	}
+}
+
+// Duplicate named keys: last wins via map assignment. Pin so a
+// future refactor to multi-value slices doesn't silently change it.
+func TestParseElementDuplicateNamedKeyLastWins(t *testing.T) {
+	input := `C4Context
+Person(u, "User", $tags="first", $tags="second")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if d.Elements[0].Tags != "second" {
+		t.Errorf("duplicate $tags=: last must win, got %q", d.Elements[0].Tags)
+	}
+}

@@ -311,10 +311,7 @@ func parseElement(kind diagram.C4ElementKind, rest string) (diagram.C4Element, b
 		elem.Description = parserutil.Unquote(pos[2])
 	}
 	// Named args override positional when both are present — matches
-	// Mermaid's precedence. descr/techn use the comma-ok form so an
-	// absent named arg leaves the positional value intact; tags/link/
-	// sprite have no positional counterpart, so the zero-value
-	// assignment via map indexing is harmless and terser.
+	// Mermaid's precedence rule.
 	if v, ok := named["descr"]; ok {
 		elem.Description = v
 	}
@@ -339,10 +336,9 @@ func splitArgs(s string) []string {
 	return raw
 }
 
-// splitPositionalAndNamed walks a parsed argument list and partitions
-// each entry into either a positional value or a named `$key=val` /
-// `?key=val` pair. Named-arg keys are returned without the leading
-// `$` / `?` so callers can switch on a flat key string.
+// splitPositionalAndNamed partitions a parsed arg list into
+// positional values and named `$key=val` / `?key=val` pairs. Keys
+// drop the sigil so callers can switch on a flat string.
 func splitPositionalAndNamed(args []string) (positional []string, named map[string]string) {
 	for _, a := range args {
 		if k, v, ok := splitNamed(a); ok {
@@ -358,8 +354,9 @@ func splitPositionalAndNamed(args []string) (positional []string, named map[stri
 }
 
 // splitNamed returns (key, value, true) when arg looks like
-// `$key="val"` or `?key=val` — the two named-arg sigils Mermaid uses
-// on C4 element / Rel calls. Quotes around the value are stripped.
+// `$key="val"` or `?key=val`. An empty value (`$key=`) is rejected
+// so it can't silently clobber a positional value via the
+// named-overrides-positional rule.
 func splitNamed(arg string) (key, value string, ok bool) {
 	rest, found := strings.CutPrefix(arg, "$")
 	if !found {
@@ -371,7 +368,11 @@ func splitNamed(arg string) (key, value string, ok bool) {
 	if !found || k == "" {
 		return "", "", false
 	}
-	return k, parserutil.Unquote(strings.TrimSpace(v)), true
+	v = parserutil.Unquote(strings.TrimSpace(v))
+	if v == "" {
+		return "", "", false
+	}
+	return k, v, true
 }
 
 // boundaryKeywords pairs each documented boundary keyword with

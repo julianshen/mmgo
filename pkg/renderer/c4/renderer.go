@@ -194,6 +194,9 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 
 		p := th.roleOf(e.Kind)
 		shapeStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", p.Fill, p.Stroke)
+		// Collect per-element children so a single <a href> can wrap
+		// the whole group when $link= is set; otherwise they flatten
+		// into elems directly.
 		var node []any
 
 		switch {
@@ -270,8 +273,6 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 				Content: e.Description,
 			})
 		}
-		// $link= wraps the whole element group in <a href>; without
-		// it the children flatten into elems directly.
 		if e.Link != "" {
 			elems = append(elems, &svgutil.Anchor{Href: e.Link, Children: node})
 		} else {
@@ -486,7 +487,7 @@ func renderBoundary(d *diagram.C4Diagram, b *diagram.C4Boundary, l *layout.Resul
 	if stroke == "" {
 		stroke = "#666"
 	}
-	out := []any{
+	frame := []any{
 		&rect{
 			X: svgFloat(x0), Y: svgFloat(y0),
 			Width:  svgFloat(x1 - x0),
@@ -500,6 +501,12 @@ func renderBoundary(d *diagram.C4Diagram, b *diagram.C4Boundary, l *layout.Resul
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize-1),
 			Content: boundaryHeading(b),
 		},
+	}
+	var out []any
+	if b.Link != "" {
+		out = append(out, &svgutil.Anchor{Href: b.Link, Children: frame})
+	} else {
+		out = append(out, frame...)
 	}
 	for _, child := range b.Boundaries {
 		out = append(out, renderBoundary(d, child, l, pad, titleOff, fontSize, th)...)
