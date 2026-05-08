@@ -57,14 +57,20 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		laneOf[b] = i
 	}
 
-	// `2*branchLabelPadX` covers the pill's own horizontal padding;
-	// `commitRadius` keeps the first commit's dot clear of the pill
-	// even when that commit sits on the branch with the longest name.
-	gutter := branchGutterW(lanes, fontSize) + 2*branchLabelPadX
+	// LR's gutter is the leftmost pill column (label width + pill
+	// padding); TB/BT put the gutter at the top, where the relevant
+	// dimension is pill height (one line of text + vertical pad).
+	maxPillW := branchGutterW(lanes, fontSize) + 2*branchLabelPadX
+	pillH := fontSize + 2*branchLabelPadY
+	gutter := maxPillW
+	if d.Direction == diagram.GitGraphDirTB || d.Direction == diagram.GitGraphDirBT {
+		gutter = pillH
+	}
 	if !svgutil.BoolOr(cfg.ShowBranches, true) {
 		gutter = 0
 	}
 	g := newGeom(d.Direction, len(lanes), len(d.Commits), gutter)
+	g.maxPillW = maxPillW
 
 	cx := make(map[string]float64, len(d.Commits))
 	cy := make(map[string]float64, len(d.Commits))
@@ -182,7 +188,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 				continue
 			}
 			children = append(children, &path{
-				D:     curvePath(px, py, childX, childY),
+				D:     curvePath(px, py, childX, childY, g.isVertical()),
 				Style: fmt.Sprintf("stroke:%s;stroke-width:2;fill:none;opacity:0.8", color),
 			})
 		}
@@ -207,7 +213,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 			if c.Type == diagram.GitCommitHighlight {
 				gap = highlightRadius + labelGap
 			}
-			children = append(children, tagCallout(c.Tag, x, y, gap, fontSize, th)...)
+			children = append(children, tagCallout(c.Tag, x, y, gap, fontSize, th, g.isVertical())...)
 		} else if c.ID != "" && svgutil.BoolOr(cfg.ShowCommitLabel, true) {
 			// In vertical layouts the label sits to the right of the
 			// dot (free space is along the cross axis, not above);
@@ -263,12 +269,17 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 // vertically; BT additionally inverts so commit 0 sits at the
 // bottom and the latest commit at the top.
 type geom struct {
-	dir       diagram.GitGraphDirection
-	nLanes    int
-	nCommits  int
-	gutter    float64
+	dir         diagram.GitGraphDirection
+	nLanes      int
+	nCommits    int
+	gutter      float64
 	originMain  float64 // start position along the commit axis
 	originCross float64 // start position along the lane axis
+	// maxPillW is the widest branch pill in pixels — relevant in
+	// vertical layouts because the pill, centred on its lane, can
+	// extend past the lane spacing into the chart's left/right
+	// margins. Used when sizing the viewport.
+	maxPillW float64
 }
 
 func newGeom(dir diagram.GitGraphDirection, nLanes, nCommits int, gutter float64) geom {
@@ -318,6 +329,11 @@ func (g geom) isVertical() bool {
 // viewSize returns the SVG viewBox width and height. Commit axis
 // extends nCommits-1 strides past origin; lane axis extends
 // nLanes laneHeight units. Both axes get marginX/Y on the far edge.
+//
+// Vertical layouts have two extra concerns: the half-pill on either
+// side of the leftmost / rightmost lane (since pills are centred on
+// their lane column), and commit-id labels that sit to the right of
+// each dot — both can spill past the lane-spacing extent.
 func (g geom) viewSize() (w, h float64) {
 	cols := g.nCommits
 	if cols > 0 {
@@ -326,10 +342,26 @@ func (g geom) viewSize() (w, h float64) {
 	mainExtent := g.originMain + float64(cols)*commitStride
 	crossExtent := float64(max(g.nLanes, 1)) * laneHeight
 	if g.isVertical() {
-		return g.originCross + crossExtent + marginX, mainExtent + marginY
+		// The rightmost lane sits at originCross + (nLanes-1)*laneHeight;
+		// allow half-pill on its right edge plus right-of-dot label
+		// budget for commit ids. The left half-pill is absorbed by
+		// marginX (the canvas's natural left padding).
+		halfPill := g.maxPillW / 2
+		extraRight := halfPill
+		if commitLabelBudget > extraRight {
+			extraRight = commitLabelBudget
+		}
+		return g.originCross + crossExtent + extraRight + marginX,
+			mainExtent + marginY
 	}
 	return mainExtent + marginX, g.originCross + crossExtent + marginY
 }
+
+// commitLabelBudget reserves room for the commit-id text in vertical
+// layouts (where labels sit to the right of the dot). Conservative
+// 80px covers most short ids without measuring each one — exact
+// measurement would require threading the ruler through geom.
+const commitLabelBudget = 80.0
 
 // pillTopLeft returns the pill rect's top-left for branch lane idx.
 // Width / height come from the caller.
@@ -486,13 +518,26 @@ func commitDot(c diagram.GitCommit, x, y float64, color string, th Theme) []any 
 // tagCallout draws a small rounded rect above (x,y) filled with the
 // theme's tag color, containing the tag text. mmdc shows the tag as a
 // floating callout distinct from the plain commit-id text.
-func tagCallout(tag string, x, y, gap, fontSize float64, th Theme) []any {
+// tagCallout places the rounded callout above the dot in LR layouts
+// and to the right in TB/BT — putting it above in vertical mode
+// would land it inside the previous commit's lane.
+func tagCallout(tag string, x, y, gap, fontSize float64, th Theme, vertical bool) []any {
 	tagFont := fontSize - 2
 	tw := textmeasure.EstimateWidth(tag, tagFont)
 	w := tw + 2*tagPadX
 	h := tagFont + 2*tagPadY
-	bx := x - w/2
-	by := y - gap - h
+	var bx, by, textX, textY float64
+	if vertical {
+		bx = x + gap
+		by = y - h/2
+		textX = bx + w/2
+		textY = y
+	} else {
+		bx = x - w/2
+		by = y - gap - h
+		textX = x
+		textY = by + h/2
+	}
 	return []any{
 		&rect{
 			X: svgFloat(bx), Y: svgFloat(by),
@@ -501,8 +546,8 @@ func tagCallout(tag string, x, y, gap, fontSize float64, th Theme) []any {
 			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1", th.TagFill, th.TagStroke),
 		},
 		&text{
-			X:        svgFloat(x),
-			Y:        svgFloat(by + h/2),
+			X:        svgFloat(textX),
+			Y:        svgFloat(textY),
 			Anchor:   svgutil.AnchorMiddle,
 			Dominant: svgutil.BaselineCentral,
 			Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.TagText, tagFont),
@@ -511,9 +556,17 @@ func tagCallout(tag string, x, y, gap, fontSize float64, th Theme) []any {
 	}
 }
 
-// curvePath draws a cubic Bezier that leaves parent (x1,y1) horizontal
-// and arrives at child (x2,y2) vertical — the Mermaid gitgraph style.
-func curvePath(x1, y1, x2, y2 float64) string {
+// curvePath draws a cubic Bezier from parent (x1,y1) to child
+// (x2,y2). In LR layouts the curve leaves horizontally and arrives
+// vertically; vertical layouts swap so the curve leaves vertically
+// and arrives horizontally — matches mmdc's branch-into-lane glyph
+// in either orientation.
+func curvePath(x1, y1, x2, y2 float64, vertical bool) string {
+	if vertical {
+		midY := (y1 + y2) / 2
+		return fmt.Sprintf("M%.2f,%.2f C%.2f,%.2f %.2f,%.2f %.2f,%.2f",
+			x1, y1, x1, midY, x2, midY, x2, y2)
+	}
 	midX := (x1 + x2) / 2
 	return fmt.Sprintf("M%.2f,%.2f C%.2f,%.2f %.2f,%.2f %.2f,%.2f",
 		x1, y1, midX, y1, midX, y2, x2, y2)
