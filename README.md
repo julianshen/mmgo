@@ -25,44 +25,51 @@ go build -o mmgo ./cmd/mmgo
 ## CLI usage
 
 ```bash
-# Markdown / .mmd file → SVG (format inferred from extension)
+# .mmd file → SVG (format inferred from output extension)
 mmgo -i diagram.mmd -o diagram.svg
 
-# Stdin → stdout
-cat diagram.mmd | mmgo -i - -o -
+# Stdin → stdout (omit -o to write to stdout)
+cat diagram.mmd | mmgo -i - > diagram.svg
 
-# PNG with custom theme + background
-mmgo -i diagram.mmd -o diagram.png -t dark -b transparent
-
-# Markdown rewriter (replace ```mermaid blocks with image refs)
-mmgo -i README.md -o README.rendered.md
+# PNG with custom theme
+mmgo -i diagram.mmd -o diagram.png -t dark
 ```
 
 ### Flags
 
 | Flag | Short | Default | Description |
 |---|---|---|---|
-| `--input` | `-i` | — | Input file (`.mmd`, `.md`, or `-` for stdin) |
-| `--output` | `-o` | — | Output file (format inferred from extension; defaults to stdout) |
+| `--input` | `-i` | — | Input file (`.mmd`) or `-` for stdin |
+| `--output` | `-o` | — | Output file (`.svg` / `.png` / `.pdf`; omit for stdout SVG) |
 | `--theme` | `-t` | `default` | Mermaid theme: `default`, `dark`, `forest`, `neutral` |
-| `--backgroundColor` | `-b` | (theme default) | `transparent`, `white`, `#hex` |
 | `--configFile` | `-c` | — | Path to JSON config file |
 | `--quiet` | `-q` | false | Suppress non-error output |
+
+Markdown rewriting (replacing ```` ```mermaid ```` blocks with rendered image references) is available via the `pkg/output/markdown` Go API; it isn't exposed on the CLI yet.
 
 ## Programmatic use
 
 ```go
 import (
+    "log"
     "os"
+
     svg "github.com/julianshen/mmgo/pkg/output/svg"
 )
 
 func main() {
-    f, _ := os.Open("diagram.mmd")
+    f, err := os.Open("diagram.mmd")
+    if err != nil {
+        log.Fatal(err)
+    }
     defer f.Close()
     out, err := svg.Render(f, nil)
-    if err != nil { panic(err) }
-    os.Stdout.Write(out)
+    if err != nil {
+        log.Fatal(err)
+    }
+    if _, err := os.Stdout.Write(out); err != nil {
+        log.Fatal(err)
+    }
 }
 ```
 
