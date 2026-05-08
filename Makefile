@@ -2,7 +2,7 @@
 
 # Build the CLI binary
 build:
-	go build -o mmdc ./cmd/mmdc
+	go build -o mmgo ./cmd/mmgo
 
 # Run all tests with race detection and coverage
 test:
@@ -20,4 +20,4 @@ cover:
 
 # Remove build artifacts
 clean:
-	rm -f mmdc coverage.out coverage.html
+	rm -f mmgo coverage.out coverage.html
