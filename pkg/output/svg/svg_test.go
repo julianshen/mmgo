@@ -994,3 +994,27 @@ func TestRenderBackgroundOverrideAlongsideTheme(t *testing.T) {
 		t.Errorf("expected fill:#112233 to override the dark theme bg")
 	}
 }
+
+// Caller-supplied custom per-renderer themes survive a Background
+// override — applyBackgroundOverride patches the .Background field
+// only, leaving the rest of the caller's theme intact. Codex
+// regression pin.
+func TestRenderBackgroundOverridePreservesCustomRendererTheme(t *testing.T) {
+	src := strings.NewReader("flowchart LR\n  A --> B\n")
+	custom := flowchartrenderer.DefaultTheme()
+	custom.NodeFill = "#abc123" // sentinel value the user wants preserved
+	out, err := Render(src, &Options{
+		Background: "transparent",
+		Flowchart:  &flowchartrenderer.Options{Theme: custom},
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "fill:transparent") {
+		t.Error("Background override didn't reach the Flowchart renderer")
+	}
+	if !strings.Contains(raw, "#abc123") {
+		t.Errorf("custom NodeFill must survive the background override, got:\n%s", raw)
+	}
+}

@@ -117,6 +117,7 @@ func Render(r io.Reader, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
+	opts = applyBackgroundOverride(opts)
 
 	kind, err := detectDiagramKind(src)
 	if err != nil {
@@ -330,14 +331,82 @@ func extractInitDirective(src []byte) ([]byte, *config.Config, error) {
 	return cleaned, cfg, nil
 }
 
-func mergeInitTheme(opts *Options, initCfg *config.Config) (*Options, error) {
-	// Continue when the caller supplied any theme-affecting input —
-	// init directive, named theme, or a background-color override.
-	bg := ""
-	if opts != nil {
-		bg = opts.Background
+// applyBackgroundOverride patches the Background field on every
+// per-renderer theme. Caller-supplied custom theme fields are
+// preserved (only Background is touched); a renderer that has no
+// per-renderer Options yet gets one created from its package
+// DefaultTheme so the override still lands when the diagram type
+// happens to be that renderer.
+func applyBackgroundOverride(opts *Options) *Options {
+	if opts == nil || opts.Background == "" {
+		return opts
 	}
-	if initCfg == nil && (opts == nil || (opts.Theme == "" && bg == "")) {
+	bg := opts.Background
+	if opts.Flowchart == nil {
+		opts.Flowchart = &flowchartrenderer.Options{Theme: flowchartrenderer.DefaultTheme()}
+	}
+	opts.Flowchart.Theme.Background = bg
+	if opts.Sequence == nil {
+		opts.Sequence = &sequencerenderer.Options{Theme: sequencerenderer.DefaultTheme()}
+	}
+	opts.Sequence.Theme.Background = bg
+	if opts.Pie == nil {
+		opts.Pie = &pierenderer.Options{Theme: pierenderer.DefaultTheme()}
+	}
+	opts.Pie.Theme.Background = bg
+	if opts.Class == nil {
+		opts.Class = &classrenderer.Options{Theme: classrenderer.DefaultTheme()}
+	}
+	opts.Class.Theme.Background = bg
+	if opts.ER == nil {
+		opts.ER = &errenderer.Options{Theme: errenderer.DefaultTheme()}
+	}
+	opts.ER.Theme.Background = bg
+	if opts.State == nil {
+		opts.State = &staterenderer.Options{Theme: staterenderer.DefaultTheme()}
+	}
+	opts.State.Theme.Background = bg
+	if opts.Mindmap == nil {
+		opts.Mindmap = &mindmaprenderer.Options{Theme: mindmaprenderer.DefaultTheme()}
+	}
+	opts.Mindmap.Theme.Background = bg
+	if opts.Timeline == nil {
+		opts.Timeline = &timelinerenderer.Options{Theme: timelinerenderer.DefaultTheme()}
+	}
+	opts.Timeline.Theme.Background = bg
+	if opts.Block == nil {
+		opts.Block = &blockrenderer.Options{Theme: blockrenderer.DefaultTheme()}
+	}
+	opts.Block.Theme.Background = bg
+	if opts.C4 == nil {
+		opts.C4 = &c4renderer.Options{Theme: c4renderer.DefaultTheme()}
+	}
+	opts.C4.Theme.Background = bg
+	if opts.GitGraph == nil {
+		opts.GitGraph = &gitgraphrenderer.Options{Theme: gitgraphrenderer.DefaultTheme()}
+	}
+	opts.GitGraph.Theme.Background = bg
+	if opts.Sankey == nil {
+		opts.Sankey = &sankeyrenderer.Options{Theme: sankeyrenderer.DefaultTheme()}
+	}
+	opts.Sankey.Theme.Background = bg
+	if opts.Gantt == nil {
+		opts.Gantt = &ganttrenderer.Options{Theme: ganttrenderer.DefaultTheme()}
+	}
+	opts.Gantt.Theme.Background = bg
+	if opts.XYChart == nil {
+		opts.XYChart = &xychartrenderer.Options{Theme: xychartrenderer.DefaultTheme()}
+	}
+	opts.XYChart.Theme.Background = bg
+	if opts.Kanban == nil {
+		opts.Kanban = &kanbanrenderer.Options{Theme: kanbanrenderer.DefaultTheme()}
+	}
+	opts.Kanban.Theme.Background = bg
+	return opts
+}
+
+func mergeInitTheme(opts *Options, initCfg *config.Config) (*Options, error) {
+	if initCfg == nil && (opts == nil || opts.Theme == "") {
 		return opts, nil
 	}
 	theme := config.ThemeDefault
@@ -350,9 +419,6 @@ func mergeInitTheme(opts *Options, initCfg *config.Config) (*Options, error) {
 	tc, err := config.BuiltInTheme(theme)
 	if err != nil {
 		return nil, fmt.Errorf("unknown theme %q: %w", theme, err)
-	}
-	if bg != "" {
-		tc.Background = bg
 	}
 	merged := &Options{}
 	if opts != nil {
