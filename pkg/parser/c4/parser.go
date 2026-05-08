@@ -265,7 +265,7 @@ func parseRelation(rest string) (diagram.C4Relation, bool) {
 	if len(pos) >= 4 {
 		rel.Technology = parserutil.Unquote(pos[3])
 	}
-	if v, ok := named["techn"]; ok {
+	if v, ok := named["techn"]; ok && v != "" {
 		rel.Technology = v
 	}
 	rel.Tags = named["tags"]
@@ -304,16 +304,26 @@ func parseElement(kind diagram.C4ElementKind, rest string) (diagram.C4Element, b
 	// `$descr=` consumes its slot, the positional cursor advances —
 	// otherwise `Container(id, "L", ?techn="x", "descr")` would
 	// silently drop the description.
+	// nonEmpty: an empty named value (`$descr=""`) must not clobber
+	// the positional fallback — it's the user signalling "no override"
+	// rather than "set to empty".
+	nonEmpty := func(key string) (string, bool) {
+		v, ok := named[key]
+		if !ok || v == "" {
+			return "", false
+		}
+		return v, true
+	}
 	cursor := 2
 	if takesTechnology(kind) {
-		if v, ok := named["techn"]; ok {
+		if v, ok := nonEmpty("techn"); ok {
 			elem.Technology = v
 		} else if cursor < len(pos) {
 			elem.Technology = parserutil.Unquote(pos[cursor])
 			cursor++
 		}
 	}
-	if v, ok := named["descr"]; ok {
+	if v, ok := nonEmpty("descr"); ok {
 		elem.Description = v
 	} else if cursor < len(pos) {
 		elem.Description = parserutil.Unquote(pos[cursor])
@@ -372,9 +382,11 @@ func splitPositionalAndNamed(args []string) (positional []string, named map[stri
 }
 
 // splitNamed returns (key, value, true) when arg looks like
-// `$key="val"` or `?key=val`. An empty value (`$key=`) is rejected
-// so it can't silently clobber a positional value via the
-// named-overrides-positional rule.
+// `$key="val"` or `?key=val`. An empty assignment (`$key=`) is still
+// recognised as named — leaking the literal `$key=""` token into
+// positional slots would shift downstream positional indices and
+// break semantic fields. Override sites guard against an empty
+// value clobbering a positional value via a non-empty check there.
 func splitNamed(arg string) (key, value string, ok bool) {
 	rest, found := strings.CutPrefix(arg, "$")
 	if !found {
@@ -386,11 +398,7 @@ func splitNamed(arg string) (key, value string, ok bool) {
 	if !found || k == "" {
 		return "", "", false
 	}
-	v = parserutil.Unquote(strings.TrimSpace(v))
-	if v == "" {
-		return "", "", false
-	}
-	return k, v, true
+	return k, parserutil.Unquote(strings.TrimSpace(v)), true
 }
 
 // boundaryKeywords pairs each documented boundary keyword with

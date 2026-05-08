@@ -770,3 +770,29 @@ func TestParseAllContainerComponentVariantsTakeTechnology(t *testing.T) {
 		})
 	}
 }
+
+// `$descr=""` is recognised as a named arg with empty value (not
+// reclassified as positional input), so the literal token doesn't
+// leak into the Label or Description field. Codex regression pin.
+func TestParseElementEmptyNamedArgDoesNotLeakAsPositional(t *testing.T) {
+	input := `C4Context
+Person(u, "User", $descr="")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	e := d.Elements[0]
+	if e.ID != "u" || e.Label != "User" {
+		t.Errorf("positional fields wrong: ID=%q Label=%q", e.ID, e.Label)
+	}
+	if e.Description != "" {
+		t.Errorf("Description must be empty (no positional fallback, empty named): got %q", e.Description)
+	}
+	// Critically: the literal token must not appear anywhere.
+	for _, field := range []string{e.ID, e.Label, e.Description, e.Technology, e.Tags, e.Sprite, e.Link} {
+		if strings.Contains(field, "$descr=") {
+			t.Errorf("named-arg sigil leaked into a semantic field: %q", field)
+		}
+	}
+}
