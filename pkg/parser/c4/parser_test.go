@@ -796,3 +796,78 @@ Person(u, "User", $descr="")
 		}
 	}
 }
+
+func TestParseUpdateElementStyle(t *testing.T) {
+	input := `C4Context
+Person(u, "User")
+UpdateElementStyle(person, $bgColor="#ffeeaa", $fontColor="#001122", $borderColor="#cc0000")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	o, ok := d.ElementStyles["person"]
+	if !ok {
+		t.Fatalf("ElementStyles missing 'person': %v", d.ElementStyles)
+	}
+	if o.BgColor != "#ffeeaa" || o.FontColor != "#001122" || o.BorderColor != "#cc0000" {
+		t.Errorf("override fields wrong: %+v", o)
+	}
+}
+
+func TestParseUpdateRelStyle(t *testing.T) {
+	input := `C4Context
+Person(u, "User")
+System(s, "System")
+Rel(u, s, "uses")
+UpdateRelStyle(u, s, $textColor="#005577", $lineColor="#aa0099", $offsetX="20", $offsetY="-10")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	o, ok := d.RelStyles["u->s"]
+	if !ok {
+		t.Fatalf("RelStyles missing 'u->s': %v", d.RelStyles)
+	}
+	if o.TextColor != "#005577" || o.LineColor != "#aa0099" {
+		t.Errorf("colors wrong: %+v", o)
+	}
+	if o.OffsetX != 20 || o.OffsetY != -10 {
+		t.Errorf("offsets wrong: %+v", o)
+	}
+}
+
+func TestParseLayoutDirective(t *testing.T) {
+	cases := map[string]diagram.C4LayoutDirection{
+		"LAYOUT_TOP_DOWN":   diagram.C4LayoutTopDown,
+		"LAYOUT_LEFT_RIGHT": diagram.C4LayoutLeftRight,
+	}
+	for directive, want := range cases {
+		d, err := Parse(strings.NewReader("C4Context\n" + directive + "\nPerson(u, \"User\")\n"))
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", directive, err)
+		}
+		if d.Direction != want {
+			t.Errorf("directive %q: Direction=%q want %q", directive, d.Direction, want)
+		}
+	}
+}
+
+// Multiple UpdateElementStyle calls for the same kind merge — empty
+// fields don't clobber a previously-set value.
+func TestParseUpdateElementStyleMerges(t *testing.T) {
+	input := `C4Context
+Person(u, "User")
+UpdateElementStyle(person, $bgColor="#aaa")
+UpdateElementStyle(person, $fontColor="#bbb")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	o := d.ElementStyles["person"]
+	if o.BgColor != "#aaa" || o.FontColor != "#bbb" {
+		t.Errorf("merge dropped a value: %+v", o)
+	}
+}

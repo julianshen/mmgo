@@ -193,6 +193,19 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 		y := cy - h/2
 
 		p := th.roleOf(e.Kind)
+		// UpdateElementStyle layered on top of the resolved theme
+		// palette. Empty fields fall through.
+		if ov, ok := d.ElementStyles[e.Kind.String()]; ok {
+			if ov.BgColor != "" {
+				p.Fill = ov.BgColor
+			}
+			if ov.BorderColor != "" {
+				p.Stroke = ov.BorderColor
+			}
+			if ov.FontColor != "" {
+				p.Text = ov.FontColor
+			}
+		}
 		shapeStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", p.Fill, p.Stroke)
 		// Collect per-element children so a single <a href> can wrap
 		// the whole group when $link= is set; otherwise they flatten
@@ -387,7 +400,18 @@ func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize
 			pts[len(pts)-1] = layout.Point{X: x, Y: y}
 		}
 
-		style := fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke)
+		// UpdateRelStyle override (per from->to pair). Empty fields
+		// fall through to the resolved theme.
+		relStyle := d.RelStyles[eid.From+"->"+eid.To]
+		lineColor := th.EdgeStroke
+		if relStyle.LineColor != "" {
+			lineColor = relStyle.LineColor
+		}
+		textColor := th.EdgeText
+		if relStyle.TextColor != "" {
+			textColor = relStyle.TextColor
+		}
+		style := fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", lineColor)
 		// BiRel adds an arrowhead at the source side too so the
 		// edge reads as bidirectional. Other directions still get
 		// a single end-marker.
@@ -413,6 +437,11 @@ func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize
 		if rel.Label != "" {
 			lx := el.LabelPos.X + pad
 			ly := el.LabelPos.Y + pad + titleOff
+			// $offsetX/Y on the rel itself plus any UpdateRelStyle
+			// override stack additively — both shift the label off
+			// the default mid-curve anchor.
+			lx += rel.OffsetX + relStyle.OffsetX
+			ly += rel.OffsetY + relStyle.OffsetY
 			labelFont := fontSize - 2
 			// Label on first line, optional [technology] on the second
 			// — matches how mmdc breaks long edge captions.
@@ -435,7 +464,7 @@ func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize
 				elems = append(elems, &text{
 					X: svgFloat(lx), Y: svgFloat(startY + float64(i)*lineH),
 					Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
-					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.EdgeText, labelFont),
+					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", textColor, labelFont),
 					Content: ln,
 				})
 			}

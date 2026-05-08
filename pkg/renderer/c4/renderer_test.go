@@ -601,10 +601,10 @@ func TestRenderEmptyLinkProducesNoWrap(t *testing.T) {
 	}
 }
 
-// Relation OffsetX/OffsetY are captured on the AST but currently
-// inert — the renderer ignores them. Pin the parity-only contract
-// so a future Phase 4 wiring is the only flip that changes output.
-func TestRenderRelationOffsetIsCurrentlyInert(t *testing.T) {
+// Relation OffsetX/OffsetY shift the label position relative to its
+// default mid-curve anchor. A non-zero offset must produce different
+// SVG output.
+func TestRenderRelationOffsetShiftsLabel(t *testing.T) {
 	build := func(ox, oy float64) []byte {
 		d := &diagram.C4Diagram{
 			Variant: diagram.C4VariantContext,
@@ -622,7 +622,57 @@ func TestRenderRelationOffsetIsCurrentlyInert(t *testing.T) {
 		}
 		return out
 	}
-	if string(build(0, 0)) != string(build(50, -25)) {
-		t.Error("OffsetX/OffsetY are documented as currently inert; rendering must not yet depend on them")
+	if string(build(0, 0)) == string(build(50, -25)) {
+		t.Error("non-zero OffsetX/OffsetY must shift the rendered label")
+	}
+}
+
+// UpdateElementStyle on a kind recolors every element of that kind.
+func TestRenderUpdateElementStyle(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContext,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User"},
+		},
+		ElementStyles: map[string]diagram.C4ElementStyleOverride{
+			"person": {BgColor: "#ffeeaa", BorderColor: "#cc0000", FontColor: "#001122"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{"#ffeeaa", "#cc0000", "#001122"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("UpdateElementStyle override %q missing in:\n%s", want, raw)
+		}
+	}
+}
+
+// UpdateRelStyle on a from->to pair recolors that edge plus its label.
+func TestRenderUpdateRelStyle(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContext,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User"},
+			{ID: "s", Kind: diagram.C4ElementSystem, Label: "System"},
+		},
+		Relations: []diagram.C4Relation{
+			{From: "u", To: "s", Label: "uses"},
+		},
+		RelStyles: map[string]diagram.C4RelStyleOverride{
+			"u->s": {LineColor: "#aa0099", TextColor: "#005577"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	for _, want := range []string{"stroke:#aa0099", "fill:#005577"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("UpdateRelStyle override %q missing in:\n%s", want, raw)
+		}
 	}
 }
