@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
@@ -252,44 +253,103 @@ func matchElementKeyword(line string) (diagram.C4ElementKind, string, bool) {
 
 func parseRelation(rest string) (diagram.C4Relation, bool) {
 	rest = strings.TrimSuffix(rest, ")")
-	args := splitArgs(rest)
-	if len(args) < 3 {
+	pos, named := splitPositionalAndNamed(splitArgs(rest))
+	if len(pos) < 3 {
 		return diagram.C4Relation{}, false
 	}
 	rel := diagram.C4Relation{
-		From:  args[0],
-		To:    args[1],
-		Label: parserutil.Unquote(args[2]),
+		From:  pos[0],
+		To:    pos[1],
+		Label: parserutil.Unquote(pos[2]),
 	}
-	if len(args) >= 4 {
-		rel.Technology = parserutil.Unquote(args[3])
+	if len(pos) >= 4 {
+		rel.Technology = parserutil.Unquote(pos[3])
+	}
+	if v, ok := named["techn"]; ok && v != "" {
+		rel.Technology = v
+	}
+	rel.Tags = named["tags"]
+	rel.Link = named["link"]
+	rel.Sprite = named["sprite"]
+	if v, ok := named["offsetX"]; ok {
+		rel.OffsetX = parseFloatOrZero(v)
+	}
+	if v, ok := named["offsetY"]; ok {
+		rel.OffsetY = parseFloatOrZero(v)
 	}
 	return rel, true
 }
 
+// parseFloatOrZero accepts the documented numeric forms ("12", "-5",
+// "1.5") and returns 0 on anything malformed — Mermaid's equivalent
+// silently no-ops the offset rather than rejecting the whole line.
+func parseFloatOrZero(s string) float64 {
+	f, _ := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	return f
+}
+
 func parseElement(kind diagram.C4ElementKind, rest string) (diagram.C4Element, bool) {
 	rest = strings.TrimSuffix(rest, ")")
-	args := splitArgs(rest)
-	if len(args) < 2 {
+	pos, named := splitPositionalAndNamed(splitArgs(rest))
+	if len(pos) < 2 {
 		return diagram.C4Element{}, false
 	}
 	elem := diagram.C4Element{
-		ID:    args[0],
+		ID:    pos[0],
 		Kind:  kind,
-		Label: parserutil.Unquote(args[1]),
+		Label: parserutil.Unquote(pos[1]),
 	}
-	if kind == diagram.C4ElementContainer || kind == diagram.C4ElementContainerDB ||
-		kind == diagram.C4ElementComponent {
-		if len(args) >= 3 {
-			elem.Technology = parserutil.Unquote(args[2])
+	// Container / Component / their _Ext / DB / Queue variants put
+	// technology at positional 2, description at 3. When `?techn=` /
+	// `$descr=` consumes its slot, the positional cursor advances —
+	// otherwise `Container(id, "L", ?techn="x", "descr")` would
+	// silently drop the description.
+	// nonEmpty: an empty named value (`$descr=""`) must not clobber
+	// the positional fallback — it's the user signalling "no override"
+	// rather than "set to empty".
+	nonEmpty := func(key string) (string, bool) {
+		v, ok := named[key]
+		if !ok || v == "" {
+			return "", false
 		}
-		if len(args) >= 4 {
-			elem.Description = parserutil.Unquote(args[3])
-		}
-	} else if len(args) >= 3 {
-		elem.Description = parserutil.Unquote(args[2])
+		return v, true
 	}
+	cursor := 2
+	if takesTechnology(kind) {
+		if v, ok := nonEmpty("techn"); ok {
+			elem.Technology = v
+		} else if cursor < len(pos) {
+			elem.Technology = parserutil.Unquote(pos[cursor])
+			cursor++
+		}
+	}
+	if v, ok := nonEmpty("descr"); ok {
+		elem.Description = v
+	} else if cursor < len(pos) {
+		elem.Description = parserutil.Unquote(pos[cursor])
+	}
+	elem.Tags = named["tags"]
+	elem.Link = named["link"]
+	elem.Sprite = named["sprite"]
 	return elem, true
+}
+
+// takesTechnology reports whether the kind's call signature reserves
+// a positional slot for technology. Mermaid's spec covers Container /
+// Component plus all their _Ext / DB / Queue variants; everything
+// else (Person, System, Boundary aliases, Deployment_Node) jumps
+// straight from label to description.
+func takesTechnology(kind diagram.C4ElementKind) bool {
+	switch kind {
+	case diagram.C4ElementContainer, diagram.C4ElementContainerExt,
+		diagram.C4ElementContainerDB, diagram.C4ElementContainerDBExt,
+		diagram.C4ElementContainerQueue, diagram.C4ElementContainerQueueExt,
+		diagram.C4ElementComponent, diagram.C4ElementComponentExt,
+		diagram.C4ElementComponentDB, diagram.C4ElementComponentDBExt,
+		diagram.C4ElementComponentQueue, diagram.C4ElementComponentQueueExt:
+		return true
+	}
+	return false
 }
 
 // splitArgs splits a parenthesized argument list on commas outside
@@ -304,6 +364,42 @@ func splitArgs(s string) []string {
 	return raw
 }
 
+// splitPositionalAndNamed partitions a parsed arg list into
+// positional values and named `$key=val` / `?key=val` pairs. Keys
+// drop the sigil so callers can switch on a flat string.
+func splitPositionalAndNamed(args []string) (positional []string, named map[string]string) {
+	for _, a := range args {
+		if k, v, ok := splitNamed(a); ok {
+			if named == nil {
+				named = make(map[string]string)
+			}
+			named[k] = v
+			continue
+		}
+		positional = append(positional, a)
+	}
+	return positional, named
+}
+
+// splitNamed returns (key, value, true) when arg looks like
+// `$key="val"` or `?key=val`. An empty assignment (`$key=`) is still
+// recognised as named — leaking the literal `$key=""` token into
+// positional slots would shift downstream positional indices and
+// break semantic fields. Override sites guard against an empty
+// value clobbering a positional value via a non-empty check there.
+func splitNamed(arg string) (key, value string, ok bool) {
+	rest, found := strings.CutPrefix(arg, "$")
+	if !found {
+		if rest, found = strings.CutPrefix(arg, "?"); !found {
+			return "", "", false
+		}
+	}
+	k, v, found := strings.Cut(rest, "=")
+	if !found || k == "" {
+		return "", "", false
+	}
+	return k, parserutil.Unquote(strings.TrimSpace(v)), true
+}
 
 // boundaryKeywords pairs each documented boundary keyword with
 // its kind. Order matters only insofar as any keyword that is a
@@ -350,20 +446,23 @@ func splitBoundaryHead(rest string) (args string, opened bool, err error) {
 	return "", false, fmt.Errorf("boundary: unexpected trailing content after ')': %q", tail)
 }
 
-// parseBoundary turns a `Boundary(alias, "label", ?typeHint)` arg
-// list into a fresh C4Boundary. Named-arg forms (`$tags=`,
-// `$link=`, `$sprite=`) aren't recognised yet.
+// parseBoundary turns a `Boundary(alias, "label", ?typeHint, …)` arg
+// list into a fresh C4Boundary. Named-arg forms (`$tags=`, `$link=`,
+// `$sprite=`) layer on top of the positional triple.
 func parseBoundary(kind diagram.C4BoundaryKind, rest string) (*diagram.C4Boundary, error) {
-	args := splitArgs(rest)
-	if len(args) < 1 || args[0] == "" {
+	pos, named := splitPositionalAndNamed(splitArgs(rest))
+	if len(pos) < 1 || pos[0] == "" {
 		return nil, fmt.Errorf("boundary: requires a non-empty alias")
 	}
-	b := &diagram.C4Boundary{Kind: kind, ID: args[0]}
-	if len(args) >= 2 {
-		b.Label = parserutil.Unquote(args[1])
+	b := &diagram.C4Boundary{Kind: kind, ID: pos[0]}
+	if len(pos) >= 2 {
+		b.Label = parserutil.Unquote(pos[1])
 	}
-	if len(args) >= 3 {
-		b.TypeHint = parserutil.Unquote(args[2])
+	if len(pos) >= 3 {
+		b.TypeHint = parserutil.Unquote(pos[2])
 	}
+	b.Tags = named["tags"]
+	b.Link = named["link"]
+	b.Sprite = named["sprite"]
 	return b, nil
 }

@@ -194,19 +194,23 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 
 		p := th.roleOf(e.Kind)
 		shapeStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", p.Fill, p.Stroke)
+		// Collect per-element children so a single <a href> can wrap
+		// the whole group when $link= is set; otherwise they flatten
+		// into elems directly.
+		var node []any
 
 		switch {
 		case IsDBKind(e.Kind):
 			// Cylinder glyph signals "this is a datastore" — the
 			// shape mmdc uses for every DB-kind variant
 			// (system / container / component, plain or _Ext).
-			elems = append(elems, &path{D: svgutil.CylinderPath(cx, cy, w, h), Style: shapeStyle})
+			node = append(node, &path{D: svgutil.CylinderPath(cx, cy, w, h), Style: shapeStyle})
 		case IsQueueKind(e.Kind):
 			// Stadium pill — fully rounded ends — for every queue
 			// variant. The half-height radius matches mmdc's
 			// queue glyph.
 			rx := svgFloat(h / 2)
-			elems = append(elems, &rect{
+			node = append(node, &rect{
 				X: svgFloat(x), Y: svgFloat(y),
 				Width: svgFloat(w), Height: svgFloat(h),
 				RX: rx, RY: rx, Style: shapeStyle,
@@ -215,7 +219,7 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 			// Strongly rounded corners hint at a "person" shape
 			// without requiring an embedded icon.
 			rx := svgFloat(h / 4)
-			elems = append(elems, &rect{
+			node = append(node, &rect{
 				X: svgFloat(x), Y: svgFloat(y),
 				Width: svgFloat(w), Height: svgFloat(h),
 				RX: rx, RY: rx, Style: shapeStyle,
@@ -223,15 +227,14 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 		case e.Kind == diagram.C4ElementDeploymentNode:
 			// Deployment_Node renders as a dashed-border rect so
 			// it reads as a container of nested elements rather
-			// than a leaf. (Phase 2 will populate the contents
-			// once boundary blocks land.)
-			elems = append(elems, &rect{
+			// than a leaf.
+			node = append(node, &rect{
 				X: svgFloat(x), Y: svgFloat(y),
 				Width: svgFloat(w), Height: svgFloat(h),
 				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5;stroke-dasharray:6 4", p.Fill, p.Stroke),
 			})
 		default:
-			elems = append(elems, &rect{
+			node = append(node, &rect{
 				X: svgFloat(x), Y: svgFloat(y),
 				Width: svgFloat(w), Height: svgFloat(h),
 				Style: shapeStyle,
@@ -240,13 +243,13 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 
 		curY := y + kindLabelH
 		kindLabel := kindDisplayLabel(e.Kind)
-		elems = append(elems, &text{
+		node = append(node, &text{
 			X: svgFloat(cx), Y: svgFloat(y + kindLabelH/2 + 2),
 			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-style:italic;opacity:0.85", p.Text, fontSize-3),
 			Content: kindLabel,
 		})
-		elems = append(elems, &text{
+		node = append(node, &text{
 			X: svgFloat(cx), Y: svgFloat(curY + fontSize/2),
 			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", p.Text, fontSize),
@@ -254,7 +257,7 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 		})
 		curY += fontSize + 4
 		if e.Technology != "" {
-			elems = append(elems, &text{
+			node = append(node, &text{
 				X: svgFloat(cx), Y: svgFloat(curY),
 				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", p.Text, fontSize-2),
@@ -263,12 +266,17 @@ func renderElements(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontS
 			curY += fontSize - 2
 		}
 		if e.Description != "" {
-			elems = append(elems, &text{
+			node = append(node, &text{
 				X: svgFloat(cx), Y: svgFloat(curY),
 				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;opacity:0.9", p.Text, fontSize-2),
 				Content: e.Description,
 			})
+		}
+		if e.Link != "" {
+			elems = append(elems, &svgutil.Anchor{Href: e.Link, Children: node})
+		} else {
+			elems = append(elems, node...)
 		}
 	}
 	return elems
@@ -479,7 +487,7 @@ func renderBoundary(d *diagram.C4Diagram, b *diagram.C4Boundary, l *layout.Resul
 	if stroke == "" {
 		stroke = "#666"
 	}
-	out := []any{
+	frame := []any{
 		&rect{
 			X: svgFloat(x0), Y: svgFloat(y0),
 			Width:  svgFloat(x1 - x0),
@@ -493,6 +501,12 @@ func renderBoundary(d *diagram.C4Diagram, b *diagram.C4Boundary, l *layout.Resul
 			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize-1),
 			Content: boundaryHeading(b),
 		},
+	}
+	var out []any
+	if b.Link != "" {
+		out = append(out, &svgutil.Anchor{Href: b.Link, Children: frame})
+	} else {
+		out = append(out, frame...)
 	}
 	for _, child := range b.Boundaries {
 		out = append(out, renderBoundary(d, child, l, pad, titleOff, fontSize, th)...)

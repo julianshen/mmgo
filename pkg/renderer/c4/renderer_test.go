@@ -505,3 +505,124 @@ func TestRenderC4BoundaryTypeHint(t *testing.T) {
 		}
 	}
 }
+
+// $link= on an element wraps its SVG group in an <a href> so the
+// rendered diagram is clickable. Untagged elements stay flat.
+func TestRenderElementLinkWrapsInAnchor(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContext,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User",
+				Link: "https://example.com/user"},
+			{ID: "s", Kind: diagram.C4ElementSystem, Label: "System"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, `<a href="https://example.com/user">`) {
+		t.Errorf("expected <a href> wrap for linked element, got:\n%s", raw)
+	}
+	// The other element has no Link, so the system rect must NOT be
+	// wrapped — count <a> openers.
+	if strings.Count(raw, "<a ") != 1 {
+		t.Errorf("expected exactly one <a> wrap (only u has Link), got %d", strings.Count(raw, "<a "))
+	}
+}
+
+// All four named-arg surfaces parsed in Phase 3 round-trip through
+// the AST: $tags=, $sprite=, $link= populate fields even though tags
+// and sprite aren't visually rendered yet (parity with mmdc which
+// also doesn't render them but accepts the input).
+func TestRenderElementNamedArgsRoundTrip(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContext,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User",
+				Description: "Customer",
+				Tags:        "external,vip",
+				Sprite:      "user_icon",
+			},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// Description renders.
+	if !strings.Contains(string(out), ">Customer<") {
+		t.Error("$descr=-equivalent description should render")
+	}
+}
+
+// Boundary $link= wraps the boundary frame (rect + heading text) in
+// <a href>; child elements/boundaries render outside the wrap.
+func TestRenderBoundaryLinkWrapsFrame(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContainer,
+		Boundaries: []*diagram.C4Boundary{
+			{
+				ID: "shop", Label: "Shop", Kind: diagram.C4BoundarySystem,
+				Link:     "https://ops.example.com",
+				Elements: []int{0},
+			},
+		},
+		Elements: []diagram.C4Element{
+			{ID: "api", Kind: diagram.C4ElementContainer, Label: "API"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, `<a href="https://ops.example.com">`) {
+		t.Errorf("expected <a href> wrap on boundary frame, got:\n%s", raw)
+	}
+}
+
+// Empty-string Link must not produce a wrap. Guards against a future
+// regression that swaps `if Link != ""` for a truthier check.
+func TestRenderEmptyLinkProducesNoWrap(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContext,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User", Link: ""},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(string(out), "<a ") {
+		t.Errorf("empty Link must not produce <a> wrap, got:\n%s", out)
+	}
+}
+
+// Relation OffsetX/OffsetY are captured on the AST but currently
+// inert — the renderer ignores them. Pin the parity-only contract
+// so a future Phase 4 wiring is the only flip that changes output.
+func TestRenderRelationOffsetIsCurrentlyInert(t *testing.T) {
+	build := func(ox, oy float64) []byte {
+		d := &diagram.C4Diagram{
+			Variant: diagram.C4VariantContext,
+			Elements: []diagram.C4Element{
+				{ID: "u", Kind: diagram.C4ElementPerson, Label: "User"},
+				{ID: "s", Kind: diagram.C4ElementSystem, Label: "System"},
+			},
+			Relations: []diagram.C4Relation{
+				{From: "u", To: "s", Label: "uses", OffsetX: ox, OffsetY: oy},
+			},
+		}
+		out, err := Render(d, nil)
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		return out
+	}
+	if string(build(0, 0)) != string(build(50, -25)) {
+		t.Error("OffsetX/OffsetY are documented as currently inert; rendering must not yet depend on them")
+	}
+}
