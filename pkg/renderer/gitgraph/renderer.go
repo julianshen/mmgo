@@ -59,37 +59,36 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 
 	// `2*branchLabelPadX` covers the pill's own horizontal padding;
 	// `commitRadius` keeps the first commit's dot clear of the pill
-	// even when that commit sits on the branch with the longest name
-	// (otherwise the dot's left edge would overlap the pill's right).
+	// even when that commit sits on the branch with the longest name.
 	gutter := branchGutterW(lanes, fontSize) + 2*branchLabelPadX
 	if !svgutil.BoolOr(cfg.ShowBranches, true) {
 		gutter = 0
 	}
-	originX := marginX + gutter + commitRadius
+	g := newGeom(d.Direction, len(lanes), len(d.Commits), gutter)
 
 	cx := make(map[string]float64, len(d.Commits))
 	cy := make(map[string]float64, len(d.Commits))
-	// x is monotonic in commit index, so only the first and last x per
-	// branch are ever needed; no min/max reduction required.
 	branchRange := make(map[string][2]float64, len(lanes))
 	for i, c := range d.Commits {
-		x := originX + float64(i)*commitStride
+		x, y := g.commitXY(i, laneOf[c.Branch])
 		cx[c.ID] = x
-		cy[c.ID] = laneY(laneOf[c.Branch])
+		cy[c.ID] = y
+		// branchRange records the min/max along the commit axis only.
+		mainPx := g.commitMain(i)
 		if r, ok := branchRange[c.Branch]; ok {
-			r[1] = x
+			if mainPx < r[0] {
+				r[0] = mainPx
+			}
+			if mainPx > r[1] {
+				r[1] = mainPx
+			}
 			branchRange[c.Branch] = r
 		} else {
-			branchRange[c.Branch] = [2]float64{x, x}
+			branchRange[c.Branch] = [2]float64{mainPx, mainPx}
 		}
 	}
 
-	cols := len(d.Commits)
-	if cols > 0 {
-		cols--
-	}
-	viewW := originX + float64(cols)*commitStride + marginX
-	viewH := marginY + float64(max(len(lanes), 1))*laneHeight + marginY
+	viewW, viewH := g.viewSize()
 
 	var children []any
 	if d.AccTitle != "" {
@@ -116,15 +115,13 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 	}
 
 	// Swimlane baselines drawn first so colored branch paths and
-	// commit dots paint on top. Dashed neutral line runs full-width
-	// across each lane, matching mmdc's faint lane guide.
-	baselineX1 := originX - commitStride/2
-	baselineX2 := viewW - marginX
+	// commit dots paint on top. Dashed neutral line spans the full
+	// commit-axis range of the diagram.
 	for i := range lanes {
-		y := laneY(i)
+		x1, y1, x2, y2 := g.laneGuide(i, viewW, viewH)
 		children = append(children, &line{
-			X1: svgFloat(baselineX1), Y1: svgFloat(y),
-			X2: svgFloat(baselineX2), Y2: svgFloat(y),
+			X1: svgFloat(x1), Y1: svgFloat(y1),
+			X2: svgFloat(x2), Y2: svgFloat(y2),
 			Style: fmt.Sprintf("stroke:%s;stroke-width:1;stroke-dasharray:4,4;fill:none", th.LaneGuide),
 		})
 	}
@@ -132,24 +129,23 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 	showBranches := svgutil.BoolOr(cfg.ShowBranches, true)
 	for i, b := range lanes {
 		color := colorFor(th, i)
-		y := laneY(i)
 		if showBranches {
-			// Pill label: rounded rect filled with the branch color, white
-			// text centered inside — matches mmdc's branch-tag affordance.
 			labelW := textmeasure.EstimateWidth(b, fontSize)
 			pillW := labelW + 2*branchLabelPadX
 			pillH := fontSize + 2*branchLabelPadY
+			pillX, pillY := g.pillTopLeft(i, pillW, pillH)
+			textX, textY := g.pillTextXY(i, pillW, pillH)
 			children = append(children, &rect{
-				X:      svgFloat(marginX),
-				Y:      svgFloat(y - pillH/2),
+				X:      svgFloat(pillX),
+				Y:      svgFloat(pillY),
 				Width:  svgFloat(pillW),
 				Height: svgFloat(pillH),
 				RX:     svgFloat(branchLabelR), RY: svgFloat(branchLabelR),
 				Style: fmt.Sprintf("fill:%s;stroke:none", color),
 			})
 			children = append(children, &text{
-				X:        svgFloat(marginX + pillW/2),
-				Y:        svgFloat(y),
+				X:        svgFloat(textX),
+				Y:        svgFloat(textY),
 				Anchor:   svgutil.AnchorMiddle,
 				Dominant: svgutil.BaselineCentral,
 				Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.BranchLabelText, fontSize),
@@ -157,9 +153,10 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 			})
 		}
 		if r, ok := branchRange[b]; ok && showBranches {
+			x1, y1, x2, y2 := g.branchPath(i, r[0], r[1])
 			children = append(children, &line{
-				X1: svgFloat(r[0]), Y1: svgFloat(y),
-				X2: svgFloat(r[1]), Y2: svgFloat(y),
+				X1: svgFloat(x1), Y1: svgFloat(y1),
+				X2: svgFloat(x2), Y2: svgFloat(y2),
 				Style: fmt.Sprintf("stroke:%s;stroke-width:%g;fill:none;opacity:%g", color, branchPathW, branchPathOp),
 			})
 		}
@@ -174,8 +171,15 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 				continue
 			}
 			py := cy[pid]
-			if py == childY {
-				continue // same-branch link is covered by the branch line
+			// Same-lane parents are already covered by the colored
+			// branch path line; skip drawing a redundant connector
+			// over them. Compare on the lane axis (y for LR, x for
+			// TB/BT) rather than equality of both coords.
+			if g.isVertical() && px == childX {
+				continue
+			}
+			if !g.isVertical() && py == childY {
+				continue
 			}
 			children = append(children, &path{
 				D:     curvePath(px, py, childX, childY),
@@ -205,20 +209,37 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 			}
 			children = append(children, tagCallout(c.Tag, x, y, gap, fontSize, th)...)
 		} else if c.ID != "" && svgutil.BoolOr(cfg.ShowCommitLabel, true) {
-			labelY := y - commitRadius - labelGap
+			// In vertical layouts the label sits to the right of the
+			// dot (free space is along the cross axis, not above);
+			// LR's "above the dot" position would push into the
+			// neighbouring lane.
+			var labelX, labelY float64
+			anchor := svgutil.AnchorMiddle
+			dom := svgutil.BaselineBaseline
+			if g.isVertical() {
+				labelX = x + commitRadius + labelGap
+				labelY = y
+				anchor = svgutil.AnchorStart
+				dom = svgutil.BaselineCentral
+			} else {
+				labelX = x
+				labelY = y - commitRadius - labelGap
+			}
 			t := &text{
-				X:        svgFloat(x),
+				X:        svgFloat(labelX),
 				Y:        svgFloat(labelY),
-				Anchor:   svgutil.AnchorMiddle,
-				Dominant: svgutil.BaselineBaseline,
+				Anchor:   anchor,
+				Dominant: dom,
 				Style:    fmt.Sprintf("fill:%s;font-size:%.0fpx", th.Text, fontSize-2),
 				Content:  c.ID,
 			}
-			if svgutil.BoolOr(cfg.RotateCommitLabel, true) {
-				// Rotation prevents long ids from overlapping adjacent
-				// commits along the lane.
+			if svgutil.BoolOr(cfg.RotateCommitLabel, true) && !g.isVertical() {
+				// LR-only rotation: long ids would overlap the next
+				// commit along the same lane. In TB/BT the cross axis
+				// already gives the label room, so rotation hurts more
+				// than it helps.
 				t.Anchor = svgutil.AnchorStart
-				t.Transform = fmt.Sprintf("rotate(-45 %.2f %.2f)", x, labelY)
+				t.Transform = fmt.Sprintf("rotate(-45 %.2f %.2f)", labelX, labelY)
 			}
 			children = append(children, t)
 		}
@@ -236,7 +257,117 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 	return append([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"), b...), nil
 }
 
-func laneY(lane int) float64 { return marginY + float64(lane)*laneHeight }
+// geom encapsulates the orientation-dependent coordinate math.
+// Direction LR (default) keeps the historical "commits along x,
+// lanes along y" layout. TB / BT swap the roles so commits flow
+// vertically; BT additionally inverts so commit 0 sits at the
+// bottom and the latest commit at the top.
+type geom struct {
+	dir       diagram.GitGraphDirection
+	nLanes    int
+	nCommits  int
+	gutter    float64
+	originMain  float64 // start position along the commit axis
+	originCross float64 // start position along the lane axis
+}
+
+func newGeom(dir diagram.GitGraphDirection, nLanes, nCommits int, gutter float64) geom {
+	g := geom{dir: dir, nLanes: nLanes, nCommits: nCommits, gutter: gutter}
+	switch dir {
+	case diagram.GitGraphDirTB, diagram.GitGraphDirBT:
+		// Commits flow along Y, lanes along X. The pill gutter sits
+		// at the top so commitRadius keeps the first commit clear.
+		g.originMain = marginY + gutter + commitRadius
+		g.originCross = marginX
+	default:
+		g.originMain = marginX + gutter + commitRadius
+		g.originCross = marginY
+	}
+	return g
+}
+
+// commitMain returns the pixel coord along the commit axis for index i,
+// honoring BT inversion.
+func (g geom) commitMain(i int) float64 {
+	idx := i
+	if g.dir == diagram.GitGraphDirBT {
+		idx = g.nCommits - 1 - i
+	}
+	return g.originMain + float64(idx)*commitStride
+}
+
+// laneCross returns the pixel coord along the lane axis for lane idx.
+func (g geom) laneCross(lane int) float64 {
+	return g.originCross + float64(lane)*laneHeight
+}
+
+// commitXY maps (commitIdx, laneIdx) to (x, y) in the rendered SVG.
+func (g geom) commitXY(i, lane int) (x, y float64) {
+	main := g.commitMain(i)
+	cross := g.laneCross(lane)
+	if g.isVertical() {
+		return cross, main
+	}
+	return main, cross
+}
+
+func (g geom) isVertical() bool {
+	return g.dir == diagram.GitGraphDirTB || g.dir == diagram.GitGraphDirBT
+}
+
+// viewSize returns the SVG viewBox width and height. Commit axis
+// extends nCommits-1 strides past origin; lane axis extends
+// nLanes laneHeight units. Both axes get marginX/Y on the far edge.
+func (g geom) viewSize() (w, h float64) {
+	cols := g.nCommits
+	if cols > 0 {
+		cols--
+	}
+	mainExtent := g.originMain + float64(cols)*commitStride
+	crossExtent := float64(max(g.nLanes, 1)) * laneHeight
+	if g.isVertical() {
+		return g.originCross + crossExtent + marginX, mainExtent + marginY
+	}
+	return mainExtent + marginX, g.originCross + crossExtent + marginY
+}
+
+// pillTopLeft returns the pill rect's top-left for branch lane idx.
+// Width / height come from the caller.
+func (g geom) pillTopLeft(lane int, pillW, pillH float64) (x, y float64) {
+	cross := g.laneCross(lane)
+	if g.isVertical() {
+		// Pill sits in the top gutter, centred horizontally on the
+		// lane's commit column.
+		return cross - pillW/2, marginY + (g.gutter-pillH)/2
+	}
+	return marginX, cross - pillH/2
+}
+
+// pillTextXY returns (x, y) for the centred text inside the pill.
+func (g geom) pillTextXY(lane int, pillW, pillH float64) (x, y float64) {
+	px, py := g.pillTopLeft(lane, pillW, pillH)
+	return px + pillW/2, py + pillH/2
+}
+
+// laneGuide returns the two endpoints of the dashed lane guide for
+// lane idx. The guide spans the full commit range of the diagram.
+func (g geom) laneGuide(lane int, viewW, viewH float64) (x1, y1, x2, y2 float64) {
+	cross := g.laneCross(lane)
+	if g.isVertical() {
+		return cross, g.originMain - commitStride/2, cross, viewH - marginY
+	}
+	return g.originMain - commitStride/2, cross, viewW - marginX, cross
+}
+
+// branchPath returns the two endpoints of the colored thick line
+// connecting a branch's first and last commit.
+func (g geom) branchPath(lane int, mainLo, mainHi float64) (x1, y1, x2, y2 float64) {
+	cross := g.laneCross(lane)
+	if g.isVertical() {
+		return cross, mainLo, cross, mainHi
+	}
+	return mainLo, cross, mainHi, cross
+}
 
 // orderedLanes returns the branch list sorted by BranchOrder ascending.
 // SliceStable is required so two branches at the same order keep the
