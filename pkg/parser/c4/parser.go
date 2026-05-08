@@ -189,6 +189,22 @@ func parseLine(d *diagram.C4Diagram, line string, scope *diagram.C4Boundary) err
 		d.AccDescr = v
 		return nil
 	}
+	switch line {
+	case "LAYOUT_TOP_DOWN", "LAYOUT_TOP_DOWN()":
+		d.Direction = diagram.C4LayoutTopDown
+		return nil
+	case "LAYOUT_LEFT_RIGHT", "LAYOUT_LEFT_RIGHT()":
+		d.Direction = diagram.C4LayoutLeftRight
+		return nil
+	}
+	if rest, ok := strings.CutPrefix(line, "UpdateElementStyle("); ok {
+		parseUpdateElementStyle(d, strings.TrimSuffix(rest, ")"))
+		return nil
+	}
+	if rest, ok := strings.CutPrefix(line, "UpdateRelStyle("); ok {
+		parseUpdateRelStyle(d, strings.TrimSuffix(rest, ")"))
+		return nil
+	}
 	if dir, args, ok := matchRelation(line); ok {
 		rel, ok := parseRelation(args)
 		if !ok {
@@ -332,6 +348,63 @@ func parseElement(kind diagram.C4ElementKind, rest string) (diagram.C4Element, b
 	elem.Link = named["link"]
 	elem.Sprite = named["sprite"]
 	return elem, true
+}
+
+// parseUpdateElementStyle parses
+// `UpdateElementStyle(kind, $bgColor=…, $fontColor=…, $borderColor=…)`
+// into d.ElementStyles[kind]. Multiple calls for the same kind merge
+// — empty fields don't clobber a prior non-empty.
+func parseUpdateElementStyle(d *diagram.C4Diagram, rest string) {
+	pos, named := splitPositionalAndNamed(splitArgs(rest))
+	if len(pos) < 1 || pos[0] == "" {
+		return
+	}
+	if d.ElementStyles == nil {
+		d.ElementStyles = make(map[string]diagram.C4ElementStyleOverride)
+	}
+	cur := d.ElementStyles[pos[0]]
+	if v := named["bgColor"]; v != "" {
+		cur.BgColor = v
+	}
+	if v := named["fontColor"]; v != "" {
+		cur.FontColor = v
+	}
+	if v := named["borderColor"]; v != "" {
+		cur.BorderColor = v
+	}
+	d.ElementStyles[pos[0]] = cur
+}
+
+// parseUpdateRelStyle parses
+// `UpdateRelStyle(from, to, $textColor=…, $lineColor=…, $offsetX=…,
+// $offsetY=…)` into d.RelStyles["from->to"].
+func parseUpdateRelStyle(d *diagram.C4Diagram, rest string) {
+	pos, named := splitPositionalAndNamed(splitArgs(rest))
+	if len(pos) < 2 {
+		return
+	}
+	key := pos[0] + "->" + pos[1]
+	if d.RelStyles == nil {
+		d.RelStyles = make(map[string]diagram.C4RelStyleOverride)
+	}
+	cur := d.RelStyles[key]
+	if v := named["textColor"]; v != "" {
+		cur.TextColor = v
+	}
+	if v := named["lineColor"]; v != "" {
+		cur.LineColor = v
+	}
+	if v, ok := named["offsetX"]; ok {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cur.OffsetX = f
+		}
+	}
+	if v, ok := named["offsetY"]; ok {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cur.OffsetY = f
+		}
+	}
+	d.RelStyles[key] = cur
 }
 
 // takesTechnology reports whether the kind's call signature reserves

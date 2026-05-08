@@ -96,9 +96,9 @@ type C4Relation struct {
 	Tags   string
 	Link   string
 	Sprite string
-	// OffsetX / OffsetY are the `$offsetX=` / `$offsetY=` named args.
-	// Captured on the AST; rendering is deferred — the values do
-	// not currently shift the label or curve midpoint.
+	// OffsetX / OffsetY shift the label from the default mid-curve
+	// anchor. Useful for nudging crowded labels off neighbouring
+	// lines.
 	OffsetX float64
 	OffsetY float64
 }
@@ -141,11 +141,41 @@ type C4Boundary struct {
 	Sprite string
 }
 
+// C4LayoutDirection mirrors the LAYOUT_TOP_DOWN /
+// LAYOUT_LEFT_RIGHT directives that override the variant's default
+// flow. Empty value means "inherit the variant default".
+type C4LayoutDirection string
+
+const (
+	C4LayoutTopDown   C4LayoutDirection = "TB"
+	C4LayoutLeftRight C4LayoutDirection = "LR"
+)
+
+// C4ElementStyleOverride captures the per-kind theme override from
+// `UpdateElementStyle(kind, $bgColor=…, $fontColor=…, $borderColor=…)`.
+// Empty fields fall through to the resolved theme palette.
+type C4ElementStyleOverride struct {
+	BgColor     string
+	FontColor   string
+	BorderColor string
+}
+
+// C4RelStyleOverride captures `UpdateRelStyle(from, to, $textColor=…,
+// $lineColor=…, $offsetX=…, $offsetY=…)`. Empty / zero fields fall
+// through.
+type C4RelStyleOverride struct {
+	TextColor string
+	LineColor string
+	OffsetX   float64
+	OffsetY   float64
+}
+
 type C4Diagram struct {
 	Variant   C4Variant
 	Title     string
 	AccTitle  string
 	AccDescr  string
+	Direction C4LayoutDirection
 	Elements  []C4Element
 	Relations []C4Relation
 	// Boundaries are top-level boundary blocks parsed from the
@@ -155,6 +185,13 @@ type C4Diagram struct {
 	// lookups keep working) AND has its index appended to the
 	// surrounding boundary's Elements slice.
 	Boundaries []*C4Boundary
+	// ElementStyles maps a C4ElementKind to its per-kind override.
+	// Indexed by Kind.String() so source authors don't have to
+	// match a typed enum.
+	ElementStyles map[string]C4ElementStyleOverride
+	// RelStyles maps "from->to" to a per-edge override. Multiple
+	// `UpdateRelStyle` calls on the same pair last-wins.
+	RelStyles map[string]C4RelStyleOverride
 }
 
 func (*C4Diagram) Type() DiagramType { return C4 }
