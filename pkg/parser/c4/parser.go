@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
@@ -283,10 +284,7 @@ func parseRelation(rest string) (diagram.C4Relation, bool) {
 // "1.5") and returns 0 on anything malformed — Mermaid's equivalent
 // silently no-ops the offset rather than rejecting the whole line.
 func parseFloatOrZero(s string) float64 {
-	var f float64
-	if _, err := fmt.Sscanf(s, "%f", &f); err != nil {
-		return 0
-	}
+	f, _ := strconv.ParseFloat(strings.TrimSpace(s), 64)
 	return f
 }
 
@@ -313,7 +311,10 @@ func parseElement(kind diagram.C4ElementKind, rest string) (diagram.C4Element, b
 		elem.Description = parserutil.Unquote(pos[2])
 	}
 	// Named args override positional when both are present — matches
-	// Mermaid's precedence and the standard "explicit beats implicit".
+	// Mermaid's precedence. descr/techn use the comma-ok form so an
+	// absent named arg leaves the positional value intact; tags/link/
+	// sprite have no positional counterpart, so the zero-value
+	// assignment via map indexing is harmless and terser.
 	if v, ok := named["descr"]; ok {
 		elem.Description = v
 	}
@@ -360,16 +361,18 @@ func splitPositionalAndNamed(args []string) (positional []string, named map[stri
 // `$key="val"` or `?key=val` — the two named-arg sigils Mermaid uses
 // on C4 element / Rel calls. Quotes around the value are stripped.
 func splitNamed(arg string) (key, value string, ok bool) {
-	if !strings.HasPrefix(arg, "$") && !strings.HasPrefix(arg, "?") {
+	rest, found := strings.CutPrefix(arg, "$")
+	if !found {
+		if rest, found = strings.CutPrefix(arg, "?"); !found {
+			return "", "", false
+		}
+	}
+	k, v, found := strings.Cut(rest, "=")
+	if !found || k == "" {
 		return "", "", false
 	}
-	eq := strings.Index(arg, "=")
-	if eq <= 1 {
-		return "", "", false
-	}
-	return arg[1:eq], parserutil.Unquote(strings.TrimSpace(arg[eq+1:])), true
+	return k, parserutil.Unquote(strings.TrimSpace(v)), true
 }
-
 
 // boundaryKeywords pairs each documented boundary keyword with
 // its kind. Order matters only insofar as any keyword that is a
