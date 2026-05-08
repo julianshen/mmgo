@@ -710,3 +710,63 @@ Person(u, "User", $tags="first", $tags="second")
 		t.Errorf("duplicate $tags=: last must win, got %q", d.Elements[0].Tags)
 	}
 }
+
+// `?techn=` consumes the technology slot, so the next positional arg
+// is description (not silently treated as technology and shadowed by
+// the named override).
+func TestParseContainerNamedTechnShiftsPositional(t *testing.T) {
+	input := `C4Container
+Container(api, "API", ?techn="Rust", "REST surface")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	e := d.Elements[0]
+	if e.Technology != "Rust" {
+		t.Errorf("Technology = %q, want Rust", e.Technology)
+	}
+	if e.Description != "REST surface" {
+		t.Errorf("Description = %q, want REST surface", e.Description)
+	}
+}
+
+// Every Container/Component variant — including _Ext / DB / Queue —
+// must accept the technology positional slot. A coverage gap would
+// silently route technology into description on those kinds.
+func TestParseAllContainerComponentVariantsTakeTechnology(t *testing.T) {
+	cases := []struct {
+		header string
+		line   string
+	}{
+		{"C4Container", `ContainerDb(db, "DB", "Postgres", "stores X")`},
+		{"C4Container", `ContainerQueue(q, "Q", "Kafka", "events")`},
+		{"C4Container", `Container_Ext(api, "API", "Go", "external")`},
+		{"C4Container", `ContainerDb_Ext(db, "DB", "Postgres", "external")`},
+		{"C4Container", `ContainerQueue_Ext(q, "Q", "Kafka", "external")`},
+		{"C4Component", `Component(c, "Comp", "Go", "logic")`},
+		{"C4Component", `Component_Ext(c, "Comp", "Go", "external")`},
+		{"C4Component", `ComponentDb(c, "Comp", "SQLite", "local")`},
+		{"C4Component", `ComponentDb_Ext(c, "Comp", "SQLite", "external")`},
+		{"C4Component", `ComponentQueue(c, "Comp", "RabbitMQ", "queue")`},
+		{"C4Component", `ComponentQueue_Ext(c, "Comp", "RabbitMQ", "external")`},
+	}
+	for _, c := range cases {
+		t.Run(c.line, func(t *testing.T) {
+			d, err := Parse(strings.NewReader(c.header + "\n" + c.line + "\n"))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if len(d.Elements) != 1 {
+				t.Fatalf("got %d elements", len(d.Elements))
+			}
+			e := d.Elements[0]
+			if e.Technology == "" {
+				t.Errorf("expected non-empty Technology, got Description=%q (slot likely misrouted)", e.Description)
+			}
+			if e.Description == "" {
+				t.Errorf("expected non-empty Description")
+			}
+		})
+	}
+}

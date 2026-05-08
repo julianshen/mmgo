@@ -299,29 +299,47 @@ func parseElement(kind diagram.C4ElementKind, rest string) (diagram.C4Element, b
 		Kind:  kind,
 		Label: parserutil.Unquote(pos[1]),
 	}
-	if kind == diagram.C4ElementContainer || kind == diagram.C4ElementContainerDB ||
-		kind == diagram.C4ElementComponent {
-		if len(pos) >= 3 {
-			elem.Technology = parserutil.Unquote(pos[2])
+	// Container / Component / their _Ext / DB / Queue variants put
+	// technology at positional 2, description at 3. When `?techn=` /
+	// `$descr=` consumes its slot, the positional cursor advances —
+	// otherwise `Container(id, "L", ?techn="x", "descr")` would
+	// silently drop the description.
+	cursor := 2
+	if takesTechnology(kind) {
+		if v, ok := named["techn"]; ok {
+			elem.Technology = v
+		} else if cursor < len(pos) {
+			elem.Technology = parserutil.Unquote(pos[cursor])
+			cursor++
 		}
-		if len(pos) >= 4 {
-			elem.Description = parserutil.Unquote(pos[3])
-		}
-	} else if len(pos) >= 3 {
-		elem.Description = parserutil.Unquote(pos[2])
 	}
-	// Named args override positional when both are present — matches
-	// Mermaid's precedence rule.
 	if v, ok := named["descr"]; ok {
 		elem.Description = v
-	}
-	if v, ok := named["techn"]; ok {
-		elem.Technology = v
+	} else if cursor < len(pos) {
+		elem.Description = parserutil.Unquote(pos[cursor])
 	}
 	elem.Tags = named["tags"]
 	elem.Link = named["link"]
 	elem.Sprite = named["sprite"]
 	return elem, true
+}
+
+// takesTechnology reports whether the kind's call signature reserves
+// a positional slot for technology. Mermaid's spec covers Container /
+// Component plus all their _Ext / DB / Queue variants; everything
+// else (Person, System, Boundary aliases, Deployment_Node) jumps
+// straight from label to description.
+func takesTechnology(kind diagram.C4ElementKind) bool {
+	switch kind {
+	case diagram.C4ElementContainer, diagram.C4ElementContainerExt,
+		diagram.C4ElementContainerDB, diagram.C4ElementContainerDBExt,
+		diagram.C4ElementContainerQueue, diagram.C4ElementContainerQueueExt,
+		diagram.C4ElementComponent, diagram.C4ElementComponentExt,
+		diagram.C4ElementComponentDB, diagram.C4ElementComponentDBExt,
+		diagram.C4ElementComponentQueue, diagram.C4ElementComponentQueueExt:
+		return true
+	}
+	return false
 }
 
 // splitArgs splits a parenthesized argument list on commas outside
