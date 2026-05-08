@@ -68,6 +68,7 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 	}
 	if !svgutil.BoolOr(cfg.ShowBranches, true) {
 		gutter = 0
+		maxPillW = 0 // pills aren't drawn, so they shouldn't reserve viewport room
 	}
 	g := newGeom(d.Direction, len(lanes), len(d.Commits), gutter)
 	g.maxPillW = maxPillW
