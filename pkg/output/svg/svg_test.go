@@ -964,3 +964,33 @@ func viewBoxWH(t *testing.T, svgBytes []byte) (w, h float64) {
 	}
 	return pw, ph
 }
+
+// Background overrides the active theme's background color across
+// every renderer, regardless of whether a named theme is set.
+func TestRenderBackgroundOverride(t *testing.T) {
+	src := strings.NewReader("flowchart LR\n  A --> B\n")
+	out, err := Render(src, &Options{Background: "transparent"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "fill:transparent") {
+		t.Errorf("expected fill:transparent in output:\n%s", out)
+	}
+	// Default theme background (#fff) must not appear once the
+	// override is applied.
+	if strings.Contains(string(out), "fill:#fff;stroke:none") {
+		t.Errorf("expected default #fff background to be overridden")
+	}
+}
+
+// Background works alongside a named theme — the override wins.
+func TestRenderBackgroundOverrideAlongsideTheme(t *testing.T) {
+	src := strings.NewReader("flowchart LR\n  A --> B\n")
+	out, err := Render(src, &Options{Theme: "dark", Background: "#112233"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "fill:#112233") {
+		t.Errorf("expected fill:#112233 to override the dark theme bg")
+	}
+}

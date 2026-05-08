@@ -42,6 +42,7 @@ mmgo -i diagram.mmd -o diagram.png -t dark
 | `--input` | `-i` | — | Input file (`.mmd`) or `-` for stdin |
 | `--output` | `-o` | — | Output file (`.svg` / `.png` / `.pdf`; omit for stdout SVG) |
 | `--theme` | `-t` | `default` | Mermaid theme: `default`, `dark`, `forest`, `neutral` |
+| `--backgroundColor` | `-b` | (theme default) | CSS color to override the theme's background (`transparent`, `#hex`, `white`, …) |
 | `--configFile` | `-c` | — | Path to JSON config file |
 | `--quiet` | `-q` | false | Suppress non-error output |
 

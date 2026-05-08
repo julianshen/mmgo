@@ -60,8 +60,13 @@ import (
 type Options struct {
 	// Layout.RankDir is intentionally ignored — direction comes from
 	// the diagram header.
-	Layout    layout.Options
-	Theme     config.ThemeName
+	Layout layout.Options
+	Theme  config.ThemeName
+	// Background overrides the active theme's background color when
+	// non-empty. Accepts any CSS color string (`transparent`,
+	// `#rrggbb`, `white`, …). Threaded into every per-renderer
+	// theme so it overrides regardless of which diagram type renders.
+	Background string
 	Flowchart *flowchartrenderer.Options
 	Sequence  *sequencerenderer.Options
 	Pie       *pierenderer.Options
@@ -326,7 +331,13 @@ func extractInitDirective(src []byte) ([]byte, *config.Config, error) {
 }
 
 func mergeInitTheme(opts *Options, initCfg *config.Config) (*Options, error) {
-	if initCfg == nil && (opts == nil || opts.Theme == "") {
+	// Continue when the caller supplied any theme-affecting input —
+	// init directive, named theme, or a background-color override.
+	bg := ""
+	if opts != nil {
+		bg = opts.Background
+	}
+	if initCfg == nil && (opts == nil || (opts.Theme == "" && bg == "")) {
 		return opts, nil
 	}
 	theme := config.ThemeDefault
@@ -339,6 +350,9 @@ func mergeInitTheme(opts *Options, initCfg *config.Config) (*Options, error) {
 	tc, err := config.BuiltInTheme(theme)
 	if err != nil {
 		return nil, fmt.Errorf("unknown theme %q: %w", theme, err)
+	}
+	if bg != "" {
+		tc.Background = bg
 	}
 	merged := &Options{}
 	if opts != nil {
