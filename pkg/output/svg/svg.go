@@ -60,8 +60,13 @@ import (
 type Options struct {
 	// Layout.RankDir is intentionally ignored — direction comes from
 	// the diagram header.
-	Layout    layout.Options
-	Theme     config.ThemeName
+	Layout layout.Options
+	Theme  config.ThemeName
+	// Background overrides the active theme's background color when
+	// non-empty. Accepts any CSS color string (`transparent`,
+	// `#rrggbb`, `white`, …). Threaded into every per-renderer
+	// theme so it overrides regardless of which diagram type renders.
+	Background string
 	Flowchart *flowchartrenderer.Options
 	Sequence  *sequencerenderer.Options
 	Pie       *pierenderer.Options
@@ -75,8 +80,9 @@ type Options struct {
 	GitGraph  *gitgraphrenderer.Options
 	Sankey    *sankeyrenderer.Options
 	Gantt     *ganttrenderer.Options
-	XYChart   *xychartrenderer.Options
-	Kanban    *kanbanrenderer.Options
+	XYChart  *xychartrenderer.Options
+	Kanban   *kanbanrenderer.Options
+	Quadrant *quadrantrenderer.Options
 }
 
 // Sizing constants for nodes when no caller-specified theme overrides
@@ -112,6 +118,7 @@ func Render(r io.Reader, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
+	opts = applyBackgroundOverride(opts)
 
 	kind, err := detectDiagramKind(src)
 	if err != nil {
@@ -323,6 +330,173 @@ func extractInitDirective(src []byte) ([]byte, *config.Config, error) {
 		return src, nil, err
 	}
 	return cleaned, cfg, nil
+}
+
+// applyBackgroundOverride returns a copy of opts with the Background
+// override applied to every per-renderer theme. Caller-supplied custom
+// theme fields are preserved (only the Background field is touched).
+// Renderers that have no per-renderer Options on the input get one
+// created from their package DefaultTheme so the override lands no
+// matter which diagram type ends up rendering.
+//
+// Mutates only the returned copy — never the caller's struct or the
+// per-renderer Options the caller hung off it. Safe to reuse the same
+// *svg.Options across multiple Render calls.
+func applyBackgroundOverride(opts *Options) *Options {
+	if opts == nil || opts.Background == "" {
+		return opts
+	}
+	bg := opts.Background
+	out := *opts // shallow copy of the top-level Options
+
+	// Inline per-renderer clone-and-patch — a closure per type would
+	// require generics over heterogeneous Options types.
+	if out.Flowchart == nil {
+		t := flowchartrenderer.DefaultTheme()
+		t.Background = bg
+		out.Flowchart = &flowchartrenderer.Options{Theme: t}
+	} else {
+		c := *out.Flowchart
+		c.Theme.Background = bg
+		out.Flowchart = &c
+	}
+	if out.Sequence == nil {
+		t := sequencerenderer.DefaultTheme()
+		t.Background = bg
+		out.Sequence = &sequencerenderer.Options{Theme: t}
+	} else {
+		c := *out.Sequence
+		c.Theme.Background = bg
+		out.Sequence = &c
+	}
+	if out.Pie == nil {
+		t := pierenderer.DefaultTheme()
+		t.Background = bg
+		out.Pie = &pierenderer.Options{Theme: t}
+	} else {
+		c := *out.Pie
+		c.Theme.Background = bg
+		out.Pie = &c
+	}
+	if out.Class == nil {
+		t := classrenderer.DefaultTheme()
+		t.Background = bg
+		out.Class = &classrenderer.Options{Theme: t}
+	} else {
+		c := *out.Class
+		c.Theme.Background = bg
+		out.Class = &c
+	}
+	if out.ER == nil {
+		t := errenderer.DefaultTheme()
+		t.Background = bg
+		out.ER = &errenderer.Options{Theme: t}
+	} else {
+		c := *out.ER
+		c.Theme.Background = bg
+		out.ER = &c
+	}
+	if out.State == nil {
+		t := staterenderer.DefaultTheme()
+		t.Background = bg
+		out.State = &staterenderer.Options{Theme: t}
+	} else {
+		c := *out.State
+		c.Theme.Background = bg
+		out.State = &c
+	}
+	if out.Mindmap == nil {
+		t := mindmaprenderer.DefaultTheme()
+		t.Background = bg
+		out.Mindmap = &mindmaprenderer.Options{Theme: t}
+	} else {
+		c := *out.Mindmap
+		c.Theme.Background = bg
+		out.Mindmap = &c
+	}
+	if out.Timeline == nil {
+		t := timelinerenderer.DefaultTheme()
+		t.Background = bg
+		out.Timeline = &timelinerenderer.Options{Theme: t}
+	} else {
+		c := *out.Timeline
+		c.Theme.Background = bg
+		out.Timeline = &c
+	}
+	if out.Block == nil {
+		t := blockrenderer.DefaultTheme()
+		t.Background = bg
+		out.Block = &blockrenderer.Options{Theme: t}
+	} else {
+		c := *out.Block
+		c.Theme.Background = bg
+		out.Block = &c
+	}
+	if out.C4 == nil {
+		t := c4renderer.DefaultTheme()
+		t.Background = bg
+		out.C4 = &c4renderer.Options{Theme: t}
+	} else {
+		c := *out.C4
+		c.Theme.Background = bg
+		out.C4 = &c
+	}
+	if out.GitGraph == nil {
+		t := gitgraphrenderer.DefaultTheme()
+		t.Background = bg
+		out.GitGraph = &gitgraphrenderer.Options{Theme: t}
+	} else {
+		c := *out.GitGraph
+		c.Theme.Background = bg
+		out.GitGraph = &c
+	}
+	if out.Sankey == nil {
+		t := sankeyrenderer.DefaultTheme()
+		t.Background = bg
+		out.Sankey = &sankeyrenderer.Options{Theme: t}
+	} else {
+		c := *out.Sankey
+		c.Theme.Background = bg
+		out.Sankey = &c
+	}
+	if out.Gantt == nil {
+		t := ganttrenderer.DefaultTheme()
+		t.Background = bg
+		out.Gantt = &ganttrenderer.Options{Theme: t}
+	} else {
+		c := *out.Gantt
+		c.Theme.Background = bg
+		out.Gantt = &c
+	}
+	if out.XYChart == nil {
+		t := xychartrenderer.DefaultTheme()
+		t.Background = bg
+		out.XYChart = &xychartrenderer.Options{Theme: t}
+	} else {
+		c := *out.XYChart
+		c.Theme.Background = bg
+		out.XYChart = &c
+	}
+	if out.Kanban == nil {
+		t := kanbanrenderer.DefaultTheme()
+		t.Background = bg
+		out.Kanban = &kanbanrenderer.Options{Theme: t}
+	} else {
+		c := *out.Kanban
+		c.Theme.Background = bg
+		out.Kanban = &c
+	}
+	// Quadrant uses BackgroundColor on its theme rather than Background.
+	if out.Quadrant == nil {
+		t := quadrantrenderer.DefaultTheme()
+		t.BackgroundColor = bg
+		out.Quadrant = &quadrantrenderer.Options{Theme: t}
+	} else {
+		c := *out.Quadrant
+		c.Theme.BackgroundColor = bg
+		out.Quadrant = &c
+	}
+	return &out
 }
 
 func mergeInitTheme(opts *Options, initCfg *config.Config) (*Options, error) {
@@ -831,7 +1005,11 @@ func renderQuadrant(src []byte, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
-	out, err := quadrantrenderer.Render(d, nil)
+	var qOpts *quadrantrenderer.Options
+	if opts != nil {
+		qOpts = opts.Quadrant
+	}
+	out, err := quadrantrenderer.Render(d, qOpts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}

@@ -90,6 +90,9 @@ func run(opts cliOptions) error {
 	if opts.Theme != "" {
 		svgOpts.Theme = config.ThemeName(opts.Theme)
 	}
+	if opts.BackgroundColor != "" {
+		svgOpts.Background = opts.BackgroundColor
+	}
 
 	svgBytes, err := svg.Render(r, svgOpts)
 	if err != nil {

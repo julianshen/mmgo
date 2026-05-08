@@ -964,3 +964,108 @@ func viewBoxWH(t *testing.T, svgBytes []byte) (w, h float64) {
 	}
 	return pw, ph
 }
+
+// Background overrides the active theme's background color across
+// every renderer, regardless of whether a named theme is set.
+func TestRenderBackgroundOverride(t *testing.T) {
+	src := strings.NewReader("flowchart LR\n  A --> B\n")
+	out, err := Render(src, &Options{Background: "transparent"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "fill:transparent") {
+		t.Errorf("expected fill:transparent in output:\n%s", out)
+	}
+	// Default theme background (#fff) must not appear once the
+	// override is applied.
+	if strings.Contains(string(out), "fill:#fff;stroke:none") {
+		t.Errorf("expected default #fff background to be overridden")
+	}
+}
+
+// Background works alongside a named theme — the override wins.
+func TestRenderBackgroundOverrideAlongsideTheme(t *testing.T) {
+	src := strings.NewReader("flowchart LR\n  A --> B\n")
+	out, err := Render(src, &Options{Theme: "dark", Background: "#112233"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "fill:#112233") {
+		t.Errorf("expected fill:#112233 to override the dark theme bg")
+	}
+}
+
+// Caller-supplied custom per-renderer themes survive a Background
+// override — applyBackgroundOverride patches the .Background field
+// only, leaving the rest of the caller's theme intact. Codex
+// regression pin.
+func TestRenderBackgroundOverridePreservesCustomRendererTheme(t *testing.T) {
+	src := strings.NewReader("flowchart LR\n  A --> B\n")
+	custom := flowchartrenderer.DefaultTheme()
+	custom.NodeFill = "#abc123" // sentinel value the user wants preserved
+	out, err := Render(src, &Options{
+		Background: "transparent",
+		Flowchart:  &flowchartrenderer.Options{Theme: custom},
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "fill:transparent") {
+		t.Error("Background override didn't reach the Flowchart renderer")
+	}
+	if !strings.Contains(raw, "#abc123") {
+		t.Errorf("custom NodeFill must survive the background override, got:\n%s", raw)
+	}
+}
+
+// applyBackgroundOverride must not mutate the caller's *Options. A
+// caller that reuses the same Options across renders — once with
+// Background and once without — must see the second render fall
+// back to defaults, not inherit the first render's overrides.
+func TestRenderBackgroundOverrideDoesNotMutateCaller(t *testing.T) {
+	shared := &Options{Background: "#aabbcc"}
+	src1 := strings.NewReader("flowchart LR\n  A --> B\n")
+	if _, err := Render(src1, shared); err != nil {
+		t.Fatalf("Render 1: %v", err)
+	}
+	// Caller's struct must be untouched.
+	if shared.Flowchart != nil {
+		t.Errorf("shared opts mutated: Flowchart should still be nil, got %+v", shared.Flowchart)
+	}
+	if shared.Background != "#aabbcc" {
+		t.Errorf("shared.Background mutated: got %q", shared.Background)
+	}
+	// Second render with Background cleared must NOT inherit the
+	// first render's per-renderer Options pointers.
+	shared.Background = ""
+	src2 := strings.NewReader("flowchart LR\n  C --> D\n")
+	out2, err := Render(src2, shared)
+	if err != nil {
+		t.Fatalf("Render 2: %v", err)
+	}
+	if strings.Contains(string(out2), "fill:#aabbcc") {
+		t.Errorf("second render inherited first render's background; cross-call leak")
+	}
+}
+
+// Quadrant chart honours --backgroundColor end-to-end (its theme
+// uses BackgroundColor, not Background — separate field name).
+func TestRenderBackgroundOverrideAppliesToQuadrant(t *testing.T) {
+	src := strings.NewReader(`quadrantChart
+  title q
+  x-axis Low --> High
+  y-axis Low --> High
+  quadrant-1 a
+  quadrant-2 b
+  quadrant-3 c
+  quadrant-4 d
+`)
+	out, err := Render(src, &Options{Background: "#deadbe"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "fill:#deadbe") {
+		t.Errorf("quadrant background override not applied:\n%s", out)
+	}
+}
