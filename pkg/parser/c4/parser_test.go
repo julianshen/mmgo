@@ -531,3 +531,128 @@ Boundary(b, "Inner") {
 		}
 	}
 }
+
+func TestParseElementNamedArgs(t *testing.T) {
+	input := `C4Context
+Person(u, "User", $descr="A user with very long description", $link="https://example.com", $tags="external,vip", $sprite="users")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Elements) != 1 {
+		t.Fatalf("got %d elements, want 1", len(d.Elements))
+	}
+	e := d.Elements[0]
+	if e.Description != "A user with very long description" {
+		t.Errorf("Description = %q", e.Description)
+	}
+	if e.Link != "https://example.com" {
+		t.Errorf("Link = %q", e.Link)
+	}
+	if e.Tags != "external,vip" {
+		t.Errorf("Tags = %q", e.Tags)
+	}
+	if e.Sprite != "users" {
+		t.Errorf("Sprite = %q", e.Sprite)
+	}
+}
+
+// Named `$descr=` overrides the positional description when both are
+// present — Mermaid precedence rule.
+func TestParseElementNamedDescrOverridesPositional(t *testing.T) {
+	input := `C4Context
+Person(u, "User", "positional descr", $descr="named descr wins")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if d.Elements[0].Description != "named descr wins" {
+		t.Errorf("named $descr= should win, got %q", d.Elements[0].Description)
+	}
+}
+
+// Container's positional 3rd-arg is technology, but a `?techn=` named
+// arg should also work and override it.
+func TestParseContainerTechnologyNamedArg(t *testing.T) {
+	input := `C4Container
+Container(api, "API", "Go", "REST surface", ?techn="Rust")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if d.Elements[0].Technology != "Rust" {
+		t.Errorf("?techn= should override positional, got %q", d.Elements[0].Technology)
+	}
+}
+
+func TestParseRelationNamedArgs(t *testing.T) {
+	input := `C4Context
+Person(u, "User")
+System(s, "System")
+Rel(u, s, "uses", $tags="async", $offsetX="10", $offsetY="-5", $link="https://docs.example.com")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Relations) != 1 {
+		t.Fatalf("got %d relations, want 1", len(d.Relations))
+	}
+	r := d.Relations[0]
+	if r.Tags != "async" {
+		t.Errorf("Tags = %q", r.Tags)
+	}
+	if r.Link != "https://docs.example.com" {
+		t.Errorf("Link = %q", r.Link)
+	}
+	if r.OffsetX != 10 {
+		t.Errorf("OffsetX = %v, want 10", r.OffsetX)
+	}
+	if r.OffsetY != -5 {
+		t.Errorf("OffsetY = %v, want -5", r.OffsetY)
+	}
+}
+
+// Boundary inherits the same named-arg surface; $link= wraps the
+// boundary frame in a clickable anchor.
+func TestParseBoundaryNamedArgs(t *testing.T) {
+	input := `C4Container
+System_Boundary(b, "Backend", $link="https://ops.example.com", $tags="prod") {
+  Container(api, "API", "Go")
+}
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Boundaries) != 1 {
+		t.Fatalf("got %d boundaries, want 1", len(d.Boundaries))
+	}
+	b := d.Boundaries[0]
+	if b.Link != "https://ops.example.com" {
+		t.Errorf("Boundary Link = %q", b.Link)
+	}
+	if b.Tags != "prod" {
+		t.Errorf("Boundary Tags = %q", b.Tags)
+	}
+}
+
+// Malformed numeric offsets should silently no-op (return 0) rather
+// than reject the whole line.
+func TestParseRelationOffsetMalformed(t *testing.T) {
+	input := `C4Context
+Person(u, "User")
+System(s, "S")
+Rel(u, s, "x", $offsetX="not-a-number")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if d.Relations[0].OffsetX != 0 {
+		t.Errorf("malformed offset should be 0, got %v", d.Relations[0].OffsetX)
+	}
+}

@@ -505,3 +505,54 @@ func TestRenderC4BoundaryTypeHint(t *testing.T) {
 		}
 	}
 }
+
+// $link= on an element wraps its SVG group in an <a href> so the
+// rendered diagram is clickable. Untagged elements stay flat.
+func TestRenderElementLinkWrapsInAnchor(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContext,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User",
+				Link: "https://example.com/user"},
+			{ID: "s", Kind: diagram.C4ElementSystem, Label: "System"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, `<a href="https://example.com/user">`) {
+		t.Errorf("expected <a href> wrap for linked element, got:\n%s", raw)
+	}
+	// The other element has no Link, so the system rect must NOT be
+	// wrapped — count <a> openers.
+	if strings.Count(raw, "<a ") != 1 {
+		t.Errorf("expected exactly one <a> wrap (only u has Link), got %d", strings.Count(raw, "<a "))
+	}
+}
+
+// All four named-arg surfaces parsed in Phase 3 round-trip through
+// the AST: $tags=, $sprite=, $link= populate fields even though tags
+// and sprite aren't visually rendered yet (parity with mmdc which
+// also doesn't render them but accepts the input).
+func TestRenderElementNamedArgsRoundTrip(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContext,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User",
+				Description: "Customer",
+				Tags:        "external,vip",
+				Sprite:      "user_icon",
+			},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// Description renders.
+	if !strings.Contains(string(out), ">Customer<") {
+		t.Error("$descr=-equivalent description should render")
+	}
+}

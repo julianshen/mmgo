@@ -59,6 +59,16 @@ type C4Element struct {
 	Label       string
 	Technology  string
 	Description string
+	// Tags is a comma-separated list of stereotype names from the
+	// `$tags=` named arg. Mermaid does not currently render tags;
+	// we capture them so downstream consumers can.
+	Tags string
+	// Link is the URL from the `$link=` named arg. The renderer
+	// wraps the element's SVG group in `<a href>` when set.
+	Link string
+	// Sprite is the icon name from the `$sprite=` named arg. Mermaid
+	// does not currently render sprites; captured for parity.
+	Sprite string
 }
 
 type C4RelDirection int8
@@ -83,6 +93,15 @@ type C4Relation struct {
 	Label      string
 	Technology string
 	Direction  C4RelDirection
+	// Tags / Link / Sprite mirror the named-arg surface on elements.
+	Tags   string
+	Link   string
+	Sprite string
+	// OffsetX / OffsetY shift the relation's label and curve midpoint
+	// from `$offsetX=` / `$offsetY=`. Useful for nudging crowded labels
+	// off neighbouring lines.
+	OffsetX float64
+	OffsetY float64
 }
 
 // C4BoundaryKind discriminates among the documented boundary
@@ -107,10 +126,7 @@ func (k C4BoundaryKind) String() string { return enumString(k, c4BoundaryKindNam
 //
 // TypeHint stores the optional positional 3rd arg
 // (`Boundary(b, "Label", "system")`) — Mermaid uses it to
-// override the rendered stereotype on a generic Boundary. Named
-// arguments (`$tags=`, `$link=`, `$sprite=`) are not yet parsed;
-// fields will be added as their parse paths land so the public
-// API doesn't ship with empty placeholders.
+// override the rendered stereotype on a generic Boundary.
 type C4Boundary struct {
 	ID         string
 	Label      string
@@ -118,6 +134,11 @@ type C4Boundary struct {
 	Kind       C4BoundaryKind
 	Elements   []int // indexes into C4Diagram.Elements
 	Boundaries []*C4Boundary
+	// Tags / Link / Sprite mirror the named-arg surface; only Link
+	// is rendered today (clickable boundary frame).
+	Tags   string
+	Link   string
+	Sprite string
 }
 
 type C4Diagram struct {
