@@ -80,8 +80,9 @@ type Options struct {
 	GitGraph  *gitgraphrenderer.Options
 	Sankey    *sankeyrenderer.Options
 	Gantt     *ganttrenderer.Options
-	XYChart   *xychartrenderer.Options
-	Kanban    *kanbanrenderer.Options
+	XYChart  *xychartrenderer.Options
+	Kanban   *kanbanrenderer.Options
+	Quadrant *quadrantrenderer.Options
 }
 
 // Sizing constants for nodes when no caller-specified theme overrides
@@ -331,78 +332,171 @@ func extractInitDirective(src []byte) ([]byte, *config.Config, error) {
 	return cleaned, cfg, nil
 }
 
-// applyBackgroundOverride patches the Background field on every
-// per-renderer theme. Caller-supplied custom theme fields are
-// preserved (only Background is touched); a renderer that has no
-// per-renderer Options yet gets one created from its package
-// DefaultTheme so the override still lands when the diagram type
-// happens to be that renderer.
+// applyBackgroundOverride returns a copy of opts with the Background
+// override applied to every per-renderer theme. Caller-supplied custom
+// theme fields are preserved (only the Background field is touched).
+// Renderers that have no per-renderer Options on the input get one
+// created from their package DefaultTheme so the override lands no
+// matter which diagram type ends up rendering.
+//
+// Mutates only the returned copy — never the caller's struct or the
+// per-renderer Options the caller hung off it. Safe to reuse the same
+// *svg.Options across multiple Render calls.
 func applyBackgroundOverride(opts *Options) *Options {
 	if opts == nil || opts.Background == "" {
 		return opts
 	}
 	bg := opts.Background
-	if opts.Flowchart == nil {
-		opts.Flowchart = &flowchartrenderer.Options{Theme: flowchartrenderer.DefaultTheme()}
+	out := *opts // shallow copy of the top-level Options
+
+	// Inline per-renderer clone-and-patch — a closure per type would
+	// require generics over heterogeneous Options types.
+	if out.Flowchart == nil {
+		t := flowchartrenderer.DefaultTheme()
+		t.Background = bg
+		out.Flowchart = &flowchartrenderer.Options{Theme: t}
+	} else {
+		c := *out.Flowchart
+		c.Theme.Background = bg
+		out.Flowchart = &c
 	}
-	opts.Flowchart.Theme.Background = bg
-	if opts.Sequence == nil {
-		opts.Sequence = &sequencerenderer.Options{Theme: sequencerenderer.DefaultTheme()}
+	if out.Sequence == nil {
+		t := sequencerenderer.DefaultTheme()
+		t.Background = bg
+		out.Sequence = &sequencerenderer.Options{Theme: t}
+	} else {
+		c := *out.Sequence
+		c.Theme.Background = bg
+		out.Sequence = &c
 	}
-	opts.Sequence.Theme.Background = bg
-	if opts.Pie == nil {
-		opts.Pie = &pierenderer.Options{Theme: pierenderer.DefaultTheme()}
+	if out.Pie == nil {
+		t := pierenderer.DefaultTheme()
+		t.Background = bg
+		out.Pie = &pierenderer.Options{Theme: t}
+	} else {
+		c := *out.Pie
+		c.Theme.Background = bg
+		out.Pie = &c
 	}
-	opts.Pie.Theme.Background = bg
-	if opts.Class == nil {
-		opts.Class = &classrenderer.Options{Theme: classrenderer.DefaultTheme()}
+	if out.Class == nil {
+		t := classrenderer.DefaultTheme()
+		t.Background = bg
+		out.Class = &classrenderer.Options{Theme: t}
+	} else {
+		c := *out.Class
+		c.Theme.Background = bg
+		out.Class = &c
 	}
-	opts.Class.Theme.Background = bg
-	if opts.ER == nil {
-		opts.ER = &errenderer.Options{Theme: errenderer.DefaultTheme()}
+	if out.ER == nil {
+		t := errenderer.DefaultTheme()
+		t.Background = bg
+		out.ER = &errenderer.Options{Theme: t}
+	} else {
+		c := *out.ER
+		c.Theme.Background = bg
+		out.ER = &c
 	}
-	opts.ER.Theme.Background = bg
-	if opts.State == nil {
-		opts.State = &staterenderer.Options{Theme: staterenderer.DefaultTheme()}
+	if out.State == nil {
+		t := staterenderer.DefaultTheme()
+		t.Background = bg
+		out.State = &staterenderer.Options{Theme: t}
+	} else {
+		c := *out.State
+		c.Theme.Background = bg
+		out.State = &c
 	}
-	opts.State.Theme.Background = bg
-	if opts.Mindmap == nil {
-		opts.Mindmap = &mindmaprenderer.Options{Theme: mindmaprenderer.DefaultTheme()}
+	if out.Mindmap == nil {
+		t := mindmaprenderer.DefaultTheme()
+		t.Background = bg
+		out.Mindmap = &mindmaprenderer.Options{Theme: t}
+	} else {
+		c := *out.Mindmap
+		c.Theme.Background = bg
+		out.Mindmap = &c
 	}
-	opts.Mindmap.Theme.Background = bg
-	if opts.Timeline == nil {
-		opts.Timeline = &timelinerenderer.Options{Theme: timelinerenderer.DefaultTheme()}
+	if out.Timeline == nil {
+		t := timelinerenderer.DefaultTheme()
+		t.Background = bg
+		out.Timeline = &timelinerenderer.Options{Theme: t}
+	} else {
+		c := *out.Timeline
+		c.Theme.Background = bg
+		out.Timeline = &c
 	}
-	opts.Timeline.Theme.Background = bg
-	if opts.Block == nil {
-		opts.Block = &blockrenderer.Options{Theme: blockrenderer.DefaultTheme()}
+	if out.Block == nil {
+		t := blockrenderer.DefaultTheme()
+		t.Background = bg
+		out.Block = &blockrenderer.Options{Theme: t}
+	} else {
+		c := *out.Block
+		c.Theme.Background = bg
+		out.Block = &c
 	}
-	opts.Block.Theme.Background = bg
-	if opts.C4 == nil {
-		opts.C4 = &c4renderer.Options{Theme: c4renderer.DefaultTheme()}
+	if out.C4 == nil {
+		t := c4renderer.DefaultTheme()
+		t.Background = bg
+		out.C4 = &c4renderer.Options{Theme: t}
+	} else {
+		c := *out.C4
+		c.Theme.Background = bg
+		out.C4 = &c
 	}
-	opts.C4.Theme.Background = bg
-	if opts.GitGraph == nil {
-		opts.GitGraph = &gitgraphrenderer.Options{Theme: gitgraphrenderer.DefaultTheme()}
+	if out.GitGraph == nil {
+		t := gitgraphrenderer.DefaultTheme()
+		t.Background = bg
+		out.GitGraph = &gitgraphrenderer.Options{Theme: t}
+	} else {
+		c := *out.GitGraph
+		c.Theme.Background = bg
+		out.GitGraph = &c
 	}
-	opts.GitGraph.Theme.Background = bg
-	if opts.Sankey == nil {
-		opts.Sankey = &sankeyrenderer.Options{Theme: sankeyrenderer.DefaultTheme()}
+	if out.Sankey == nil {
+		t := sankeyrenderer.DefaultTheme()
+		t.Background = bg
+		out.Sankey = &sankeyrenderer.Options{Theme: t}
+	} else {
+		c := *out.Sankey
+		c.Theme.Background = bg
+		out.Sankey = &c
 	}
-	opts.Sankey.Theme.Background = bg
-	if opts.Gantt == nil {
-		opts.Gantt = &ganttrenderer.Options{Theme: ganttrenderer.DefaultTheme()}
+	if out.Gantt == nil {
+		t := ganttrenderer.DefaultTheme()
+		t.Background = bg
+		out.Gantt = &ganttrenderer.Options{Theme: t}
+	} else {
+		c := *out.Gantt
+		c.Theme.Background = bg
+		out.Gantt = &c
 	}
-	opts.Gantt.Theme.Background = bg
-	if opts.XYChart == nil {
-		opts.XYChart = &xychartrenderer.Options{Theme: xychartrenderer.DefaultTheme()}
+	if out.XYChart == nil {
+		t := xychartrenderer.DefaultTheme()
+		t.Background = bg
+		out.XYChart = &xychartrenderer.Options{Theme: t}
+	} else {
+		c := *out.XYChart
+		c.Theme.Background = bg
+		out.XYChart = &c
 	}
-	opts.XYChart.Theme.Background = bg
-	if opts.Kanban == nil {
-		opts.Kanban = &kanbanrenderer.Options{Theme: kanbanrenderer.DefaultTheme()}
+	if out.Kanban == nil {
+		t := kanbanrenderer.DefaultTheme()
+		t.Background = bg
+		out.Kanban = &kanbanrenderer.Options{Theme: t}
+	} else {
+		c := *out.Kanban
+		c.Theme.Background = bg
+		out.Kanban = &c
 	}
-	opts.Kanban.Theme.Background = bg
-	return opts
+	// Quadrant uses BackgroundColor on its theme rather than Background.
+	if out.Quadrant == nil {
+		t := quadrantrenderer.DefaultTheme()
+		t.BackgroundColor = bg
+		out.Quadrant = &quadrantrenderer.Options{Theme: t}
+	} else {
+		c := *out.Quadrant
+		c.Theme.BackgroundColor = bg
+		out.Quadrant = &c
+	}
+	return &out
 }
 
 func mergeInitTheme(opts *Options, initCfg *config.Config) (*Options, error) {
@@ -911,7 +1005,11 @@ func renderQuadrant(src []byte, opts *Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svg render: parse: %w", err)
 	}
-	out, err := quadrantrenderer.Render(d, nil)
+	var qOpts *quadrantrenderer.Options
+	if opts != nil {
+		qOpts = opts.Quadrant
+	}
+	out, err := quadrantrenderer.Render(d, qOpts)
 	if err != nil {
 		return nil, fmt.Errorf("svg render: %w", err)
 	}
