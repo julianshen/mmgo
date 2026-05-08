@@ -449,19 +449,18 @@ func TestRenderMainBranchOrder(t *testing.T) {
 	}
 }
 
-// All four header forms (bare, LR, TB, BT) must produce the same SVG
-// today — Direction is captured on the AST but the renderer doesn't
-// yet act on it. Phase 4's TB/BT wiring needs a clean before/after
-// delta, and a stray dependency on `d.Direction` would silently
-// regress LR output without this pin.
-func TestRenderDirectionInvariantUntilPhase4(t *testing.T) {
+// LR (and the empty-default LR) produce one layout; TB/BT produce
+// distinct vertical layouts. Pin the dispatch so a regression that
+// dropped Direction reads would surface here.
+func TestRenderDirectionDispatches(t *testing.T) {
 	build := func(dir diagram.GitGraphDirection) []byte {
 		d := &diagram.GitGraphDiagram{
 			Direction: dir,
-			Branches:  []string{"main"},
+			Branches:  []string{"main", "feat"},
 			Commits: []diagram.GitCommit{
 				{ID: "a", Branch: "main"},
-				{ID: "b", Branch: "main", Parents: []string{"a"}},
+				{ID: "b", Branch: "feat", Parents: []string{"a"}},
+				{ID: "c", Branch: "main", Parents: []string{"a"}},
 			},
 		}
 		out, err := Render(d, nil)
@@ -471,14 +470,17 @@ func TestRenderDirectionInvariantUntilPhase4(t *testing.T) {
 		return out
 	}
 	bare := string(build(""))
-	for _, dir := range []diagram.GitGraphDirection{
-		diagram.GitGraphDirLR,
-		diagram.GitGraphDirTB,
-		diagram.GitGraphDirBT,
-	} {
-		if string(build(dir)) != bare {
-			t.Errorf("renderer must ignore Direction=%q until Phase 4 wires TB/BT", dir)
-		}
+	lr := string(build(diagram.GitGraphDirLR))
+	tb := string(build(diagram.GitGraphDirTB))
+	bt := string(build(diagram.GitGraphDirBT))
+	if bare != lr {
+		t.Error("empty Direction must default to LR")
+	}
+	if lr == tb {
+		t.Error("TB must produce a different layout than LR")
+	}
+	if tb == bt {
+		t.Error("BT must produce a different layout than TB (commit order inverted)")
 	}
 }
 
