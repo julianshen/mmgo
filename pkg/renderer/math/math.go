@@ -107,6 +107,12 @@ const (
 	// ordinary 16px text; a modest 1.2x bump brings the math to roughly
 	// the same x-height as adjacent text without overshadowing it.
 	displayScale = 1.2
+	// trackingScale stretches glyph and rect x-positions horizontally.
+	// mtex's stock spacing between binary operators (≈ 0.2 em) renders
+	// quite tight against Noto Sans Math glyphs, so we space everything
+	// out by 12% — readable without distorting glyph shapes (the glyph
+	// path coordinates themselves are not scaled, only the placement).
+	trackingScale = 1.12
 )
 
 // svgRenderer implements mtex.Renderer by converting drawtex
@@ -143,7 +149,7 @@ func (r *svgRenderer) Render(w, h, dpi float64, cnv *drawtex.Canvas) error {
 	// mtex.Render passes w and h in inches (box width/height divided by 72),
 	// but canvas operations (GlyphOp.X/Y, RectOp coordinates) are in points.
 	// Convert to points so the Y-flip in renderGlyph uses the same unit.
-	r.w = w * 72
+	r.w = w * 72 * trackingScale
 	r.h = h * 72
 	r.dpi = dpi
 	var buf sfnt.Buffer
@@ -168,6 +174,9 @@ func (r *svgRenderer) renderGlyph(buf *sfnt.Buffer, op drawtex.GlyphOp) {
 	if g.Font == nil {
 		return
 	}
+	// Stretch the glyph's anchor x-position to add inter-glyph breathing
+	// room without distorting glyph shapes themselves.
+	op.X *= trackingScale
 	ppem := fixed.I(int(g.Size * r.dpi / 72))
 	segs, err := g.Font.LoadGlyph(buf, g.Num, ppem, nil)
 	if err != nil {
@@ -229,10 +238,13 @@ func (r *svgRenderer) renderGlyph(buf *sfnt.Buffer, op drawtex.GlyphOp) {
 }
 
 func (r *svgRenderer) renderRect(op drawtex.RectOp) {
-	x := op.X1
+	// Stretch x-positions for tracking, mirroring renderGlyph. Width is
+	// scaled too so vinculum bars (over \sqrt) keep covering the
+	// radicand even after glyph anchors shift right.
+	x := op.X1 * trackingScale
 	// Canvas and SVG both use y-down: Y1 is the top edge.
 	y := op.Y1
-	w := op.X2 - op.X1
+	w := (op.X2 - op.X1) * trackingScale
 	h := op.Y2 - op.Y1
 	r.noteY(y)
 	r.noteY(y + h)
