@@ -1177,6 +1177,52 @@ func TestRenderMessageArrow(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+// TestRenderLongMessageLabelExpandsGap guards that a cross-participant
+// message with a label wider than the default participant gap widens the
+// gap so the label fits between the lifelines instead of overflowing
+// them. Regression for the case where 3 long L→V messages all rendered
+// with text spilling past both lifelines.
+func TestRenderLongMessageLabelExpandsGap(t *testing.T) {
+	const longLabel = "layout change #2 (>300ms gap on e-ink) → cancel + reschedule"
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{
+				From: "A", To: "B", Label: longLabel,
+				ArrowType: diagram.ArrowTypeSolid,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// Pull the two lifeline x-coords (vertical lines drawn at participantX).
+	lineRe := regexp.MustCompile(`<line x1="([\d.]+)" y1="[\d.]+" x2="[\d.]+" y2="[\d.]+" style="stroke:#9370DB`)
+	matches := lineRe.FindAllStringSubmatch(raw, -1)
+	if len(matches) < 2 {
+		t.Fatalf("expected at least 2 lifelines, got %d", len(matches))
+	}
+	parse := func(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v }
+	x0 := parse(matches[0][1])
+	x1 := parse(matches[1][1])
+	gap := x1 - x0
+	// Use the ruler the renderer uses so the assertion matches the real
+	// label width (EstimateWidth's overestimate would mark a correctly-
+	// sized gap as failing).
+	r, _ := textmeasure.NewDefaultRuler()
+	defer func() { _ = r.Close() }()
+	labelW, _ := r.Measure(longLabel, 14)
+	if gap < labelW {
+		t.Errorf("lifeline gap = %.1f, want >= label width %.1f so the label fits between lifelines", gap, labelW)
+	}
+	assertValidSVG(t, out)
+}
+
 func TestRenderAllArrowTypes(t *testing.T) {
 	types := []diagram.ArrowType{
 		diagram.ArrowTypeSolid,
