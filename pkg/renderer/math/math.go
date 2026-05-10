@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/go-latex/latex/drawtex"
-	"github.com/go-latex/latex/font/lm"
 	"github.com/go-latex/latex/mtex"
 	"golang.org/x/image/font/sfnt"
 	"golang.org/x/image/math/fixed"
@@ -21,7 +20,17 @@ func Render(expr string, fontSize float64) (svg string, w, h float64, err error)
 	if fontSize <= 0 {
 		fontSize = defaultFontSize
 	}
-	fonts := lm.Fonts()
+	// go-latex/mtex only resolves Greek letters and math operators
+	// when the parser is in math mode.  Bare expressions like \alpha
+	// are parsed in text mode and fall back to the backslash glyph.
+	// Wrapping in $...$ activates math mode for the whole expression.
+	if !strings.HasPrefix(expr, "$") {
+		expr = "$" + expr + "$"
+	}
+	fonts, err := MathFonts()
+	if err != nil {
+		return "", 0, 0, fmt.Errorf("math render: %w", err)
+	}
 	r := &svgRenderer{}
 	err = mtex.Render(r, expr, fontSize, defaultDPI, fonts)
 	if err != nil {

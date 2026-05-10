@@ -39,11 +39,9 @@ func TestRenderFraction(t *testing.T) {
 }
 
 func TestRenderGreek(t *testing.T) {
-	// go-latex/mtex doesn't have Greek glyphs; it renders the backslash
-	// literally.  We let mtex attempt the render and rely on the caller
-	// (text.RenderMath) to fall back to plain text when the result is
-	// indistinguishable from the input.
-	svg, w, h, err := Render("\\alpha + \\beta", 14)
+	// go-latex/mtex requires math mode ($...$) to resolve Greek letters
+	// and operators.  Render automatically wraps bare expressions.
+	svg, w, h, err := Render(`\alpha + \beta`, 14)
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -52,6 +50,11 @@ func TestRenderGreek(t *testing.T) {
 	}
 	if !strings.Contains(svg, "path") {
 		t.Error("expected path elements in output")
+	}
+	// In text mode the backslash glyph would be rendered; in math mode
+	// we should see distinct paths for alpha and beta.
+	if strings.Count(svg, "<path") < 2 {
+		t.Error("expected at least two distinct path elements for alpha and beta")
 	}
 }
 
