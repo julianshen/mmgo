@@ -139,23 +139,25 @@ func (r *svgRenderer) renderGlyph(buf *sfnt.Buffer, op drawtex.GlyphOp) {
 		case sfnt.SegmentOpMoveTo:
 			p := seg.Args[0]
 			x := op.X + float64(p.X)/64
-			// TrueType y-positive is UP; SVG is DOWN.
-			ty := op.Y - float64(p.Y)/64
+			// sfnt.LoadGlyph already returns segment coordinates in
+			// y-down (origin at the glyph's baseline reference point);
+			// add directly without flipping.
+			ty := op.Y + float64(p.Y)/64
 			r.noteY(ty)
 			fmt.Fprintf(&d, "M%.3f %.3f ", x, ty)
 		case sfnt.SegmentOpLineTo:
 			p := seg.Args[0]
 			x := op.X + float64(p.X)/64
-			ty := op.Y - float64(p.Y)/64
+			ty := op.Y + float64(p.Y)/64
 			r.noteY(ty)
 			fmt.Fprintf(&d, "L%.3f %.3f ", x, ty)
 		case sfnt.SegmentOpQuadTo:
 			p1 := seg.Args[0]
 			p2 := seg.Args[1]
 			x1 := op.X + float64(p1.X)/64
-			y1 := op.Y - float64(p1.Y)/64
+			y1 := op.Y + float64(p1.Y)/64
 			x2 := op.X + float64(p2.X)/64
-			y2 := op.Y - float64(p2.Y)/64
+			y2 := op.Y + float64(p2.Y)/64
 			r.noteY(y1)
 			r.noteY(y2)
 			fmt.Fprintf(&d, "Q%.3f %.3f %.3f %.3f ", x1, y1, x2, y2)
@@ -164,11 +166,11 @@ func (r *svgRenderer) renderGlyph(buf *sfnt.Buffer, op drawtex.GlyphOp) {
 			p2 := seg.Args[1]
 			p3 := seg.Args[2]
 			x1 := op.X + float64(p1.X)/64
-			y1 := op.Y - float64(p1.Y)/64
+			y1 := op.Y + float64(p1.Y)/64
 			x2 := op.X + float64(p2.X)/64
-			y2 := op.Y - float64(p2.Y)/64
+			y2 := op.Y + float64(p2.Y)/64
 			x3 := op.X + float64(p3.X)/64
-			y3 := op.Y - float64(p3.Y)/64
+			y3 := op.Y + float64(p3.Y)/64
 			r.noteY(y1)
 			r.noteY(y2)
 			r.noteY(y3)

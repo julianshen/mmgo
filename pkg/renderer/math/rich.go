@@ -288,24 +288,24 @@ func renderCharGlyph(r rune, fontSize float64) (advance float64, svg string, err
 		switch seg.Op {
 		case sfnt.SegmentOpMoveTo:
 			p := seg.Args[0]
-			fmt.Fprintf(&d, "M%.3f %.3f ", float64(p.X)/64, -float64(p.Y)/64)
+			fmt.Fprintf(&d, "M%.3f %.3f ", float64(p.X)/64, float64(p.Y)/64)
 		case sfnt.SegmentOpLineTo:
 			p := seg.Args[0]
-			fmt.Fprintf(&d, "L%.3f %.3f ", float64(p.X)/64, -float64(p.Y)/64)
+			fmt.Fprintf(&d, "L%.3f %.3f ", float64(p.X)/64, float64(p.Y)/64)
 		case sfnt.SegmentOpQuadTo:
 			p1 := seg.Args[0]
 			p2 := seg.Args[1]
 			fmt.Fprintf(&d, "Q%.3f %.3f %.3f %.3f ",
-				float64(p1.X)/64, -float64(p1.Y)/64,
-				float64(p2.X)/64, -float64(p2.Y)/64)
+				float64(p1.X)/64, float64(p1.Y)/64,
+				float64(p2.X)/64, float64(p2.Y)/64)
 		case sfnt.SegmentOpCubeTo:
 			p1 := seg.Args[0]
 			p2 := seg.Args[1]
 			p3 := seg.Args[2]
 			fmt.Fprintf(&d, "C%.3f %.3f %.3f %.3f %.3f %.3f ",
-				float64(p1.X)/64, -float64(p1.Y)/64,
-				float64(p2.X)/64, -float64(p2.Y)/64,
-				float64(p3.X)/64, -float64(p3.Y)/64)
+				float64(p1.X)/64, float64(p1.Y)/64,
+				float64(p2.X)/64, float64(p2.Y)/64,
+				float64(p3.X)/64, float64(p3.Y)/64)
 		}
 	}
 	if d.Len() == 0 {
