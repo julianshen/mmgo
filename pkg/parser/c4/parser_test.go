@@ -871,3 +871,85 @@ UpdateElementStyle(person, $fontColor="#bbb")
 		t.Errorf("merge dropped a value: %+v", o)
 	}
 }
+
+func TestParseRelIndex(t *testing.T) {
+	input := `C4Dynamic
+Person(u, "User")
+System(s, "System")
+RelIndex(1, u, s, "step one", "HTTP")
+RelIndex(2, s, u, "step two")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Relations) != 2 {
+		t.Fatalf("got %d relations, want 2", len(d.Relations))
+	}
+	if d.Relations[0].Index != 1 || d.Relations[0].Label != "step one" || d.Relations[0].Technology != "HTTP" {
+		t.Errorf("rel 0 wrong: %+v", d.Relations[0])
+	}
+	if d.Relations[1].Index != 2 || d.Relations[1].Label != "step two" {
+		t.Errorf("rel 1 wrong: %+v", d.Relations[1])
+	}
+}
+
+func TestParseRelIndexRejectsNonNumeric(t *testing.T) {
+	input := `C4Dynamic
+Person(u, "User")
+System(s, "System")
+RelIndex(abc, u, s, "x")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	// Malformed index → relation skipped silently.
+	if len(d.Relations) != 0 {
+		t.Errorf("non-numeric index should drop the relation; got %v", d.Relations)
+	}
+}
+
+func TestParseShowLegend(t *testing.T) {
+	for _, line := range []string{"SHOW_LEGEND", "SHOW_LEGEND()"} {
+		d, err := Parse(strings.NewReader("C4Context\nPerson(u, \"User\")\n" + line + "\n"))
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", line, err)
+		}
+		if !d.ShowLegend {
+			t.Errorf("%q must set ShowLegend=true", line)
+		}
+	}
+}
+
+func TestParseUpdateLayoutConfig(t *testing.T) {
+	input := `C4Container
+Container(api, "API")
+UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="2")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if d.LayoutConfig.ShapesInRow != 3 {
+		t.Errorf("ShapesInRow = %v, want 3", d.LayoutConfig.ShapesInRow)
+	}
+	if d.LayoutConfig.BoundariesInRow != 2 {
+		t.Errorf("BoundariesInRow = %v, want 2", d.LayoutConfig.BoundariesInRow)
+	}
+}
+
+// Negative / zero / non-numeric values must not be silently coerced
+// into 0-with-true-set: parser only writes when it sees a positive int.
+func TestParseUpdateLayoutConfigRejectsBadValues(t *testing.T) {
+	input := `C4Context
+UpdateLayoutConfig($c4ShapeInRow="-1", $c4BoundaryInRow="abc")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if d.LayoutConfig.ShapesInRow != 0 || d.LayoutConfig.BoundariesInRow != 0 {
+		t.Errorf("malformed values must coerce to 0, got %+v", d.LayoutConfig)
+	}
+}

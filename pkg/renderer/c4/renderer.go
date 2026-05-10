@@ -132,6 +132,12 @@ func Render(d *diagram.C4Diagram, opts *Options) ([]byte, error) {
 	children = append(children, renderEdges(d, l, pad, titleOffset, fontSize, th, ruler)...)
 	children = append(children, renderElements(d, l, pad, titleOffset, fontSize, th)...)
 
+	if d.ShowLegend {
+		legendChildren, legendH := renderLegend(d, viewMinX, viewH, fontSize, th)
+		children = append(children, legendChildren...)
+		viewH += legendH
+	}
+
 	svg := svgDoc{
 		XMLNS:    "http://www.w3.org/2000/svg",
 		ViewBox:  fmt.Sprintf("%.2f %.2f %.2f %.2f", viewMinX, viewMinY, viewW, viewH),
@@ -434,6 +440,23 @@ func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize
 			})
 		}
 
+		// RelIndex marker: a small circled number near the source
+		// end of the curve, ~25% in. Skipped when Index==0 (the
+		// default for plain Rel(...) entries).
+		if rel.Index > 0 {
+			ix, iy := interpolate(pts, 0.25)
+			elems = append(elems, &circle{
+				CX: svgFloat(ix), CY: svgFloat(iy), R: 9,
+				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1", th.Background, lineColor),
+			})
+			elems = append(elems, &text{
+				X: svgFloat(ix), Y: svgFloat(iy),
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", textColor, fontSize-3),
+				Content: fmt.Sprintf("%d", rel.Index),
+			})
+		}
+
 		if rel.Label != "" {
 			lx := el.LabelPos.X + pad
 			ly := el.LabelPos.Y + pad + titleOff
@@ -471,6 +494,102 @@ func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize
 		}
 	}
 	return elems
+}
+
+// renderLegend emits a key for every distinct C4ElementKind that
+// appears in the diagram, sized so the renderer can grow viewH
+// accordingly. Each row shows a color swatch matched to the kind's
+// theme palette plus the human-readable label (matching the
+// stereotype tag drawn above each element).
+func renderLegend(d *diagram.C4Diagram, originX, topY, fontSize float64, th Theme) ([]any, float64) {
+	// Gather distinct kinds in declaration order so the legend
+	// orders the same way the source listed elements.
+	seen := make(map[diagram.C4ElementKind]bool)
+	var kinds []diagram.C4ElementKind
+	for _, e := range d.Elements {
+		if seen[e.Kind] {
+			continue
+		}
+		seen[e.Kind] = true
+		kinds = append(kinds, e.Kind)
+	}
+	if len(kinds) == 0 {
+		return nil, 0
+	}
+	const (
+		legendPad      = 12.0
+		swatchSize     = 14.0
+		rowGap         = 6.0
+		legendHeaderH  = 22.0
+	)
+	rowH := fontSize + rowGap
+	totalH := legendHeaderH + float64(len(kinds))*rowH + legendPad
+	x0 := originX + legendPad
+	y0 := topY + legendPad/2
+	out := []any{
+		&text{
+			X: svgFloat(x0), Y: svgFloat(y0 + legendHeaderH/2),
+			Anchor: svgutil.AnchorStart, Dominant: svgutil.BaselineCentral,
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.TitleText, fontSize),
+			Content: "Legend",
+		},
+	}
+	for i, k := range kinds {
+		rowY := y0 + legendHeaderH + float64(i)*rowH + (rowH-swatchSize)/2
+		p := th.roleOf(k)
+		out = append(out, &rect{
+			X: svgFloat(x0), Y: svgFloat(rowY),
+			Width:  svgFloat(swatchSize),
+			Height: svgFloat(swatchSize),
+			Style:  fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1", p.Fill, p.Stroke),
+		})
+		out = append(out, &text{
+			X: svgFloat(x0 + swatchSize + 8),
+			Y: svgFloat(rowY + swatchSize/2),
+			Anchor: svgutil.AnchorStart, Dominant: svgutil.BaselineCentral,
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.TitleText, fontSize-1),
+			Content: kindDisplayLabel(k),
+		})
+	}
+	return out, totalH
+}
+
+// interpolate returns a point along the polyline pts at parameter
+// t∈[0,1] measured by linear segment lengths. Used by RelIndex to
+// place its circled number a quarter of the way along the curve.
+func interpolate(pts []layout.Point, t float64) (float64, float64) {
+	if len(pts) == 0 {
+		return 0, 0
+	}
+	if len(pts) == 1 || t <= 0 {
+		return pts[0].X, pts[0].Y
+	}
+	if t >= 1 {
+		last := pts[len(pts)-1]
+		return last.X, last.Y
+	}
+	total := 0.0
+	for i := 1; i < len(pts); i++ {
+		dx := pts[i].X - pts[i-1].X
+		dy := pts[i].Y - pts[i-1].Y
+		total += math.Hypot(dx, dy)
+	}
+	target := total * t
+	for i := 1; i < len(pts); i++ {
+		dx := pts[i].X - pts[i-1].X
+		dy := pts[i].Y - pts[i-1].Y
+		seg := math.Hypot(dx, dy)
+		if target <= seg {
+			frac := 0.0
+			if seg > 0 {
+				frac = target / seg
+			}
+			return pts[i-1].X + dx*frac, pts[i-1].Y + dy*frac
+		}
+		target -= seg
+	}
+	last := pts[len(pts)-1]
+	return last.X, last.Y
 }
 
 // buildArrowMarker — width/height 12 matches state, class, ER. The

@@ -101,6 +101,11 @@ type C4Relation struct {
 	// lines.
 	OffsetX float64
 	OffsetY float64
+	// Index is the sequence number from `RelIndex(N, from, to, …)`.
+	// Zero means "no index" — relations parsed via plain Rel(...)
+	// don't get one. Renderers draw it as a small circled number
+	// near the source endpoint of the curve.
+	Index int
 }
 
 // C4BoundaryKind discriminates among the documented boundary
@@ -170,6 +175,19 @@ type C4RelStyleOverride struct {
 	OffsetY   float64
 }
 
+// C4LayoutConfig captures `UpdateLayoutConfig($c4ShapeInRow=N,
+// $c4BoundaryInRow=M)`. Mermaid uses these to lay out elements in a
+// grid of the specified row width. Zero means "no override".
+//
+// The parser populates the values; the layout engine doesn't yet
+// translate them into a row-bounded grid (still uses dagre's
+// natural rank assignment). Captured for downstream consumers and
+// to keep the directive recognised at parse time.
+type C4LayoutConfig struct {
+	ShapesInRow     int
+	BoundariesInRow int
+}
+
 type C4Diagram struct {
 	Variant   C4Variant
 	Title     string
@@ -192,6 +210,13 @@ type C4Diagram struct {
 	// RelStyles maps "from->to" to a per-edge override. Multiple
 	// `UpdateRelStyle` calls on the same pair last-wins.
 	RelStyles map[string]C4RelStyleOverride
+	// LayoutConfig captures UpdateLayoutConfig knobs. Renderers
+	// honour them when sizing and arranging the element grid.
+	LayoutConfig C4LayoutConfig
+	// ShowLegend, set by the SHOW_LEGEND() directive, asks the
+	// renderer to emit a key listing every distinct element kind
+	// appearing in the diagram with its theme color.
+	ShowLegend bool
 }
 
 func (*C4Diagram) Type() DiagramType { return C4 }

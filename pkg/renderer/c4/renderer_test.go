@@ -676,3 +676,79 @@ func TestRenderUpdateRelStyle(t *testing.T) {
 		}
 	}
 }
+
+// RelIndex draws a small circled number near the source end of the
+// curve. Plain Rel(...) entries (Index==0) skip the marker.
+func TestRenderRelIndexDrawsCircledNumber(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantDynamic,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User"},
+			{ID: "s", Kind: diagram.C4ElementSystem, Label: "System"},
+		},
+		Relations: []diagram.C4Relation{
+			{From: "u", To: "s", Label: "step one", Index: 1},
+			{From: "s", To: "u", Label: "step two", Index: 2},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// Two RelIndex circles (r=9 in the renderer) + their digits.
+	if got := strings.Count(raw, `r="9.00"`); got < 2 {
+		t.Errorf("expected 2 RelIndex circles, got %d", got)
+	}
+	for _, want := range []string{">1<", ">2<"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("expected RelIndex digit %q in output", want)
+		}
+	}
+}
+
+// SHOW_LEGEND emits a "Legend" header plus a swatch + name row
+// for each distinct element kind in the diagram.
+func TestRenderShowLegend(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant:    diagram.C4VariantContext,
+		ShowLegend: true,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User"},
+			{ID: "s", Kind: diagram.C4ElementSystem, Label: "System"},
+			{ID: "u2", Kind: diagram.C4ElementPerson, Label: "Other"}, // dup kind
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">Legend<") {
+		t.Error("expected Legend header")
+	}
+	// Distinct kinds appear once, not duplicated for repeated elements.
+	if got := strings.Count(raw, "&lt;&lt;person&gt;&gt;"); got < 1 {
+		t.Errorf("expected one legend row for person kind")
+	}
+	if !strings.Contains(raw, "&lt;&lt;system&gt;&gt;") {
+		t.Error("expected legend row for system kind")
+	}
+}
+
+// ShowLegend=false is the default — no Legend header in the output.
+func TestRenderHidesLegendByDefault(t *testing.T) {
+	d := &diagram.C4Diagram{
+		Variant: diagram.C4VariantContext,
+		Elements: []diagram.C4Element{
+			{ID: "u", Kind: diagram.C4ElementPerson, Label: "User"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(string(out), ">Legend<") {
+		t.Error("Legend must be hidden when ShowLegend=false")
+	}
+}
