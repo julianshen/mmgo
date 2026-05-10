@@ -1613,6 +1613,147 @@ func TestRenderNoteOverTwo(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
+// TestRenderNoteOverEdgeParticipantNoClip guards that a long "Note over"
+// anchored at an edge participant doesn't clip past the viewBox.
+// noteBleed used to handle only NotePositionLeft/Right; once renderNote
+// started growing rect width with text, edge "Note over" started
+// rendering at negative x (or past totalW).
+func TestRenderNoteOverEdgeParticipantNoClip(t *testing.T) {
+	const longNote = "this is a much longer note than the participant box width"
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewNoteItem(diagram.Note{
+				Participants: []string{"A"},
+				Text:         longNote,
+				Position:     diagram.NotePositionOver,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	vbRe := regexp.MustCompile(`viewBox="0 0 ([\d.]+) [\d.]+"`)
+	vbMatch := vbRe.FindStringSubmatch(raw)
+	if vbMatch == nil {
+		t.Fatal("viewBox not found")
+	}
+	totalW, _ := strconv.ParseFloat(vbMatch[1], 64)
+	noteRe := regexp.MustCompile(`<rect x="(-?[\d.]+)" y="-?[\d.]+" width="([\d.]+)" height="[\d.]+"[^>]*fill:` + regexp.QuoteMeta(DefaultTheme().NoteFill))
+	m := noteRe.FindStringSubmatch(raw)
+	if m == nil {
+		t.Fatal("note rect not found")
+	}
+	x, _ := strconv.ParseFloat(m[1], 64)
+	w, _ := strconv.ParseFloat(m[2], 64)
+	if x < 0 {
+		t.Errorf("note rect left edge x=%.2f is past viewBox left (0); noteBleed must reserve space for Note over on edge participant", x)
+	}
+	if x+w > totalW {
+		t.Errorf("note rect right edge %.2f exceeds viewBox width %.2f", x+w, totalW)
+	}
+	assertValidSVG(t, out)
+}
+
+// TestRenderNoteLargeFontReservesRowHeight guards that a note rendered
+// at a large fontSize (where the rect grows past defaultRowHeight)
+// reserves enough row clearance so the rect doesn't bleed into the
+// next item below. Regression for the case where noteHeight scaled
+// with fontSize but the per-note row advance still added only
+// extraLinesHeight (=0 for single-line text).
+func TestRenderNoteLargeFontReservesRowHeight(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewNoteItem(diagram.Note{
+				Participants: []string{"A"},
+				Text:         "single line",
+				Position:     diagram.NotePositionOver,
+			}),
+			diagram.NewNoteItem(diagram.Note{
+				Participants: []string{"A"},
+				Text:         "another single line",
+				Position:     diagram.NotePositionOver,
+			}),
+		},
+	}
+	out, err := Render(d, &Options{FontSize: 40})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	noteRe := regexp.MustCompile(`<rect x="-?[\d.]+" y="(-?[\d.]+)" width="[\d.]+" height="([\d.]+)"[^>]*fill:` + regexp.QuoteMeta(DefaultTheme().NoteFill))
+	matches := noteRe.FindAllStringSubmatch(raw, -1)
+	if len(matches) != 2 {
+		t.Fatalf("expected 2 note rects, got %d", len(matches))
+	}
+	parse := func(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v }
+	y0, h0 := parse(matches[0][1]), parse(matches[0][2])
+	y1 := parse(matches[1][1])
+	// Second rect's top must sit below the first rect's bottom.
+	if y1 < y0+h0 {
+		t.Errorf("second note (y=%.1f) overlaps first (y=%.1f, h=%.1f); row advance must accommodate noteHeight at fontSize=40", y1, y0, h0)
+	}
+	assertValidSVG(t, out)
+}
+
+// TestRenderNoteSizesToContent guards that note rectangles grow to fit
+// long single-line text and multi-line (<br/>) content, instead of
+// using the fixed 120x30 default that clipped wider notes.
+func TestRenderNoteSizesToContent(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewNoteItem(diagram.Note{
+				Participants: []string{"A"},
+				Text:         "ViewModel emits new items;<br/>key() rebuilds grid",
+				Position:     diagram.NotePositionOver,
+			}),
+			diagram.NewNoteItem(diagram.Note{
+				Participants: []string{"A"},
+				Text:         "showRunnable never fires; alpha stays 0",
+				Position:     diagram.NotePositionOver,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	noteRe := regexp.MustCompile(`<rect x="-?[\d.]+" y="-?[\d.]+" width="([\d.]+)" height="([\d.]+)"[^>]*fill:` + regexp.QuoteMeta(DefaultTheme().NoteFill))
+	matches := noteRe.FindAllStringSubmatch(raw, -1)
+	if len(matches) != 2 {
+		t.Fatalf("expected 2 note rects, got %d", len(matches))
+	}
+	parse := func(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v }
+	// Multi-line note: width must exceed default 120 to fit the longest
+	// line, and height must exceed default 30 to fit a second line.
+	if w := parse(matches[0][1]); w <= 120 {
+		t.Errorf("multi-line note width = %v; want > 120 to fit text", w)
+	}
+	if h := parse(matches[0][2]); h <= 30 {
+		t.Errorf("multi-line note height = %v; want > 30 to fit two lines", h)
+	}
+	// Long single-line note: width grows, height stays at default.
+	if w := parse(matches[1][1]); w <= 120 {
+		t.Errorf("long single-line note width = %v; want > 120 to fit text", w)
+	}
+	if h := parse(matches[1][2]); h != 30 {
+		t.Errorf("single-line note height = %v; want 30", h)
+	}
+	assertValidSVG(t, out)
+}
+
 func TestRenderBlockRegion(t *testing.T) {
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
