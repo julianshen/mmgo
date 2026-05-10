@@ -491,7 +491,7 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 							X: svgutil.Float(xOff + seg.Width/2), Y: svgutil.Float(ly),
 							Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 							Style:   textStyle,
-							Content: seg.Math,
+							Content: richtext.CleanMathFallback(seg.Math),
 						})
 					} else {
 						scaledW := res.Width

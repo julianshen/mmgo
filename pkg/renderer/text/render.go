@@ -84,7 +84,7 @@ func LabelElements(label string, cx, cy, fontSize float64, anchor, textStyle str
 						Anchor:   fanchor,
 						Dominant: svgutil.BaselineCentral,
 						Style:    textStyle,
-						Content:  seg.Math,
+						Content:  CleanMathFallback(seg.Math),
 					})
 				} else {
 					_, origH := MathSize(seg.Math, fontSize)

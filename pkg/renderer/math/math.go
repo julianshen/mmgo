@@ -12,20 +12,22 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-var cmdRe = regexp.MustCompile(`\\([a-zA-Z]+)`)
+var mathCmdRe = regexp.MustCompile(`\\([a-zA-Z]+)`)
 
 var supportedCmds = map[string]bool{
 	"frac": true,
 	"sqrt": true,
 }
 
-func hasUnsupportedCmd(expr string) bool {
-	for _, m := range cmdRe.FindAllStringSubmatch(expr, -1) {
+// CanRender reports whether expr contains only commands that go-latex/mtex
+// supports.  When false, math.Render will fall back to plain text.
+func CanRender(expr string) bool {
+	for _, m := range mathCmdRe.FindAllStringSubmatch(expr, -1) {
 		if !supportedCmds[m[1]] {
-			return true
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 // Render renders a LaTeX math expression to an SVG fragment.
@@ -38,8 +40,8 @@ func Render(expr string, fontSize float64) (svg string, w, h float64, err error)
 	if fontSize <= 0 {
 		fontSize = defaultFontSize
 	}
-	if hasUnsupportedCmd(expr) {
-		return "", 0, 0, fmt.Errorf("math render: unsupported command in expression")
+	if !CanRender(expr) {
+		return "", 0, 0, fmt.Errorf("math render: unsupported command")
 	}
 	fonts := lm.Fonts()
 	r := &svgRenderer{}
@@ -105,36 +107,41 @@ func (r *svgRenderer) renderGlyph(buf *sfnt.Buffer, op drawtex.GlyphOp) {
 	}
 
 	var d strings.Builder
-	for _, seg := range segs {
+	for i, seg := range segs {
+		if seg.Op == sfnt.SegmentOpMoveTo && i > 0 {
+			// Close the previous contour before starting a new one.
+			fmt.Fprintf(&d, "Z ")
+		}
 		switch seg.Op {
 		case sfnt.SegmentOpMoveTo:
 			p := seg.Args[0]
 			x := op.X + float64(p.X)/64
-			y := r.h - (op.Y + float64(p.Y)/64)
-			fmt.Fprintf(&d, "M%.3f %.3f ", x, y)
+			// TrueType y-positive is UP; SVG is DOWN.
+			ty := op.Y - float64(p.Y)/64
+			fmt.Fprintf(&d, "M%.3f %.3f ", x, ty)
 		case sfnt.SegmentOpLineTo:
 			p := seg.Args[0]
 			x := op.X + float64(p.X)/64
-			y := r.h - (op.Y + float64(p.Y)/64)
-			fmt.Fprintf(&d, "L%.3f %.3f ", x, y)
+			ty := op.Y - float64(p.Y)/64
+			fmt.Fprintf(&d, "L%.3f %.3f ", x, ty)
 		case sfnt.SegmentOpQuadTo:
 			p1 := seg.Args[0]
 			p2 := seg.Args[1]
 			x1 := op.X + float64(p1.X)/64
-			y1 := r.h - (op.Y + float64(p1.Y)/64)
+			y1 := op.Y - float64(p1.Y)/64
 			x2 := op.X + float64(p2.X)/64
-			y2 := r.h - (op.Y + float64(p2.Y)/64)
+			y2 := op.Y - float64(p2.Y)/64
 			fmt.Fprintf(&d, "Q%.3f %.3f %.3f %.3f ", x1, y1, x2, y2)
 		case sfnt.SegmentOpCubeTo:
 			p1 := seg.Args[0]
 			p2 := seg.Args[1]
 			p3 := seg.Args[2]
 			x1 := op.X + float64(p1.X)/64
-			y1 := r.h - (op.Y + float64(p1.Y)/64)
+			y1 := op.Y - float64(p1.Y)/64
 			x2 := op.X + float64(p2.X)/64
-			y2 := r.h - (op.Y + float64(p2.Y)/64)
+			y2 := op.Y - float64(p2.Y)/64
 			x3 := op.X + float64(p3.X)/64
-			y3 := r.h - (op.Y + float64(p3.Y)/64)
+			y3 := op.Y - float64(p3.Y)/64
 			fmt.Fprintf(&d, "C%.3f %.3f %.3f %.3f %.3f %.3f ", x1, y1, x2, y2, x3, y3)
 		}
 	}
@@ -146,7 +153,8 @@ func (r *svgRenderer) renderGlyph(buf *sfnt.Buffer, op drawtex.GlyphOp) {
 
 func (r *svgRenderer) renderRect(op drawtex.RectOp) {
 	x := op.X1
-	y := r.h - op.Y2
+	// Canvas and SVG both use y-down: Y1 is the top edge.
+	y := op.Y1
 	w := op.X2 - op.X1
 	h := op.Y2 - op.Y1
 	fmt.Fprintf(&r.sb, `<rect x="%.3f" y="%.3f" width="%.3f" height="%.3f"/>`, x, y, w, h)

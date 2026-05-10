@@ -382,3 +382,19 @@ func RenderMath(expr string, fontSize, targetH float64, fill string) *MathRender
 		OrigHeight: mh,
 	}
 }
+
+// CleanMathFallback strips backslashes from a math expression so it
+// reads as plain text when math rendering fails.  E.g. \alpha + \beta
+// becomes "alpha + beta".
+func CleanMathFallback(expr string) string {
+	var sb strings.Builder
+	for i := 0; i < len(expr); i++ {
+		if expr[i] == '\\' && i+1 < len(expr) && isAlpha(expr[i+1]) {
+			i++ // skip backslash, keep the letter
+		}
+		sb.WriteByte(expr[i])
+	}
+	return sb.String()
+}
+
+func isAlpha(b byte) bool { return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') }
