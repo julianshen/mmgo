@@ -68,7 +68,7 @@ func LabelElements(label string, cx, cy, fontSize float64, anchor, textStyle str
 		fill := extractFill(textStyle)
 		for _, seg := range segs {
 			if seg.Math != "" {
-				res := RenderMath(seg.Math, fontSize, lineHeight)
+				res := RenderMath(seg.Math, fontSize, lineHeight, fill)
 				if res == nil {
 					// Fallback to plain text.
 					fx, fanchor := xOff, svgutil.AnchorStart

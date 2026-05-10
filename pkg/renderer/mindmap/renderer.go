@@ -483,7 +483,8 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 			xOff := -totalSegW / 2
 			for _, seg := range segs {
 				if seg.Math != "" {
-					res := richtext.RenderMath(seg.Math, fontSize, lh)
+					fill := extractFill(textStyle)
+					res := richtext.RenderMath(seg.Math, fontSize, lh, fill)
 					if res == nil {
 						// Fallback to plain text on error.
 						children = append(children, &text{
@@ -501,14 +502,10 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 						if res.OrigHeight > lh {
 							scale = lh / res.OrigHeight
 						}
-						g := &group{
+						children = append(children, &group{
 							Transform: fmt.Sprintf("translate(%.2f,%.2f) scale(%.3f)", mx, my, scale),
 							Children:  res.Elements,
-						}
-						if fill := extractFill(textStyle); fill != "" {
-							g.Style = "fill:" + fill
-						}
-						children = append(children, g)
+						})
 					}
 				} else {
 					segStyle := textStyle

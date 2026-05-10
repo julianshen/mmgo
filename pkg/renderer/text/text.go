@@ -47,7 +47,7 @@ func Parse(s string) []Segment {
 			break
 		}
 
-		expr := after[:mathEnd]
+		expr := normalizeMathExpr(after[:mathEnd])
 		result = append(result, Segment{Math: expr})
 		remaining = after[mathEnd+2:]
 	}
@@ -56,6 +56,13 @@ func Parse(s string) []Segment {
 		result = append(result, Segment{Text: s})
 	}
 	return result
+}
+
+// normalizeMathExpr cleans up common escaping issues in math expressions
+// copied from Mermaid sources. Mermaid users often write \\frac when
+// they mean \frac because of Markdown/JSON escaping layers.
+func normalizeMathExpr(expr string) string {
+	return strings.ReplaceAll(expr, `\\`, `\`)
 }
 
 func parseMarkdown(s string) []Segment {
@@ -162,13 +169,18 @@ var (
 	mathSizeCacheMu sync.RWMutex
 )
 
+func mathCacheKey(expr string, fontSize float64) string {
+	return fmt.Sprintf("%s|%.2f", expr, fontSize)
+}
+
 // MathSize returns the rendered width and height of a LaTeX math
 // expression at the given font size, using a package-level cache to
 // avoid re-rendering. On panic or error it falls back to a text-based
 // estimate.
 func MathSize(expr string, fontSize float64) (w, h float64) {
+	key := mathCacheKey(expr, fontSize)
 	mathSizeCacheMu.RLock()
-	if cached, ok := mathSizeCache[expr]; ok {
+	if cached, ok := mathSizeCache[key]; ok {
 		mathSizeCacheMu.RUnlock()
 		return cached.w, cached.h
 	}
@@ -178,7 +190,7 @@ func MathSize(expr string, fontSize float64) (w, h float64) {
 		if r := recover(); r != nil {
 			w = float64(len(expr)) * 7
 			h = 16
-			setMathSizeCache(expr, w, h)
+			setMathSizeCache(key, w, h)
 		}
 	}()
 
@@ -187,17 +199,17 @@ func MathSize(expr string, fontSize float64) (w, h float64) {
 		w = float64(len(expr)) * 7
 		h = 16
 	}
-	setMathSizeCache(expr, w, h)
+	setMathSizeCache(key, w, h)
 	return w, h
 }
 
-func setMathSizeCache(expr string, w, h float64) {
+func setMathSizeCache(key string, w, h float64) {
 	mathSizeCacheMu.Lock()
 	defer mathSizeCacheMu.Unlock()
 	if len(mathSizeCache) >= mathSizeCacheMax {
 		mathSizeCache = make(map[string]struct{ w, h float64 })
 	}
-	mathSizeCache[expr] = struct{ w, h float64 }{w, h}
+	mathSizeCache[key] = struct{ w, h float64 }{w, h}
 }
 
 // ------------------------------------------------------------------
@@ -320,7 +332,10 @@ type MathRenderResult struct {
 
 // RenderMath renders a math expression to SVG elements with optional
 // scaling to fit a target height. Returns nil elements on error.
-func RenderMath(expr string, fontSize, targetH float64) *MathRenderResult {
+// When fill is non-empty it is applied directly to every path and
+// rect element so the output works in renderers (e.g. tdewolff/canvas)
+// that do not support CSS style inheritance from parent <g> nodes.
+func RenderMath(expr string, fontSize, targetH float64, fill string) *MathRenderResult {
 	var svgMath string
 	var mw, mh float64
 	var err error
@@ -339,6 +354,19 @@ func RenderMath(expr string, fontSize, targetH float64) *MathRenderResult {
 	elems := ParseMathSVG(svgMath)
 	if len(elems) == 0 {
 		return nil
+	}
+
+	if fill != "" {
+		style := "fill:" + fill
+		for i, el := range elems {
+			switch e := el.(type) {
+			case *svgutil.Path:
+				e.Style = style
+			case *svgutil.Rect:
+				e.Style = style
+			}
+			elems[i] = el
+		}
 	}
 
 	scale := 1.0

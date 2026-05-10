@@ -2,6 +2,7 @@ package math
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/go-latex/latex/drawtex"
@@ -10,6 +11,22 @@ import (
 	"golang.org/x/image/font/sfnt"
 	"golang.org/x/image/math/fixed"
 )
+
+var cmdRe = regexp.MustCompile(`\\([a-zA-Z]+)`)
+
+var supportedCmds = map[string]bool{
+	"frac": true,
+	"sqrt": true,
+}
+
+func hasUnsupportedCmd(expr string) bool {
+	for _, m := range cmdRe.FindAllStringSubmatch(expr, -1) {
+		if !supportedCmds[m[1]] {
+			return true
+		}
+	}
+	return false
+}
 
 // Render renders a LaTeX math expression to an SVG fragment.
 // It returns the SVG content (a sequence of <path> and <rect> elements),
@@ -20,6 +37,9 @@ func Render(expr string, fontSize float64) (svg string, w, h float64, err error)
 	expr = normalizeMathExpr(expr)
 	if fontSize <= 0 {
 		fontSize = defaultFontSize
+	}
+	if hasUnsupportedCmd(expr) {
+		return "", 0, 0, fmt.Errorf("math render: unsupported command in expression")
 	}
 	fonts := lm.Fonts()
 	r := &svgRenderer{}
@@ -51,8 +71,11 @@ type svgRenderer struct {
 }
 
 func (r *svgRenderer) Render(w, h, dpi float64, cnv *drawtex.Canvas) error {
-	r.w = w
-	r.h = h
+	// mtex.Render passes w and h in inches (box width/height divided by 72),
+	// but canvas operations (GlyphOp.X/Y, RectOp coordinates) are in points.
+	// Convert to points so the Y-flip in renderGlyph uses the same unit.
+	r.w = w * 72
+	r.h = h * 72
 	r.dpi = dpi
 	var buf sfnt.Buffer
 	for _, op := range cnv.Ops() {
@@ -80,46 +103,43 @@ func (r *svgRenderer) renderGlyph(buf *sfnt.Buffer, op drawtex.GlyphOp) {
 	if err != nil {
 		return
 	}
-	// Convert font units (26.6 fixed point) to SVG coordinates.
-	em := float64(ppem) / 64.0
-	upem := float64(g.Font.UnitsPerEm())
-	scale := em / upem
 
 	var d strings.Builder
 	for _, seg := range segs {
 		switch seg.Op {
 		case sfnt.SegmentOpMoveTo:
 			p := seg.Args[0]
-			x := op.X + float64(p.X)/64*scale
-			y := r.h - (op.Y + float64(p.Y)/64*scale)
+			x := op.X + float64(p.X)/64
+			y := r.h - (op.Y + float64(p.Y)/64)
 			fmt.Fprintf(&d, "M%.3f %.3f ", x, y)
 		case sfnt.SegmentOpLineTo:
 			p := seg.Args[0]
-			x := op.X + float64(p.X)/64*scale
-			y := r.h - (op.Y + float64(p.Y)/64*scale)
+			x := op.X + float64(p.X)/64
+			y := r.h - (op.Y + float64(p.Y)/64)
 			fmt.Fprintf(&d, "L%.3f %.3f ", x, y)
 		case sfnt.SegmentOpQuadTo:
 			p1 := seg.Args[0]
 			p2 := seg.Args[1]
-			x1 := op.X + float64(p1.X)/64*scale
-			y1 := r.h - (op.Y + float64(p1.Y)/64*scale)
-			x2 := op.X + float64(p2.X)/64*scale
-			y2 := r.h - (op.Y + float64(p2.Y)/64*scale)
+			x1 := op.X + float64(p1.X)/64
+			y1 := r.h - (op.Y + float64(p1.Y)/64)
+			x2 := op.X + float64(p2.X)/64
+			y2 := r.h - (op.Y + float64(p2.Y)/64)
 			fmt.Fprintf(&d, "Q%.3f %.3f %.3f %.3f ", x1, y1, x2, y2)
 		case sfnt.SegmentOpCubeTo:
 			p1 := seg.Args[0]
 			p2 := seg.Args[1]
 			p3 := seg.Args[2]
-			x1 := op.X + float64(p1.X)/64*scale
-			y1 := r.h - (op.Y + float64(p1.Y)/64*scale)
-			x2 := op.X + float64(p2.X)/64*scale
-			y2 := r.h - (op.Y + float64(p2.Y)/64*scale)
-			x3 := op.X + float64(p3.X)/64*scale
-			y3 := r.h - (op.Y + float64(p3.Y)/64*scale)
+			x1 := op.X + float64(p1.X)/64
+			y1 := r.h - (op.Y + float64(p1.Y)/64)
+			x2 := op.X + float64(p2.X)/64
+			y2 := r.h - (op.Y + float64(p2.Y)/64)
+			x3 := op.X + float64(p3.X)/64
+			y3 := r.h - (op.Y + float64(p3.Y)/64)
 			fmt.Fprintf(&d, "C%.3f %.3f %.3f %.3f %.3f %.3f ", x1, y1, x2, y2, x3, y3)
 		}
 	}
 	if d.Len() > 0 {
+		fmt.Fprintf(&d, "Z")
 		fmt.Fprintf(&r.sb, `<path d="%s"/>`, d.String())
 	}
 }
