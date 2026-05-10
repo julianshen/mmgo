@@ -786,13 +786,28 @@ func TestRenderSelfMessageLabelAboveArc(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	re := regexp.MustCompile(`<text[^>]*text-anchor="(\w+)"[^>]*>Recursive step</text>`)
-	m := re.FindStringSubmatch(raw)
-	if m == nil {
+	textRE := regexp.MustCompile(`<text[^>]*\bx="([0-9.]+)"[^>]*\btext-anchor="(\w+)"[^>]*>Recursive step</text>`)
+	tm := textRE.FindStringSubmatch(raw)
+	if tm == nil {
 		t.Fatalf("did not find self-message label; raw: %s", raw)
 	}
-	if m[1] != "middle" {
-		t.Errorf("self-message label should be middle-anchored above arc, got text-anchor=%q", m[1])
+	labelX, _ := strconv.ParseFloat(tm[1], 64)
+	if tm[2] != "middle" {
+		t.Errorf("self-message label should be middle-anchored above arc, got text-anchor=%q", tm[2])
+	}
+
+	// The arc's first MoveTo coordinate is the lifeline x; assert the
+	// label sits at that x + selfLoopW/2 (the arc's horizontal midpoint).
+	pathRE := regexp.MustCompile(`<path d="M([0-9.]+),[0-9.]+ C`)
+	pm := pathRE.FindStringSubmatch(raw)
+	if pm == nil {
+		t.Fatalf("did not find self-message arc path; raw: %s", raw)
+	}
+	lifelineX, _ := strconv.ParseFloat(pm[1], 64)
+	wantX := lifelineX + 25.0 // selfLoopW/2 = 50/2
+	if diff := labelX - wantX; diff < -0.5 || diff > 0.5 {
+		t.Errorf("self-message label x = %v; want ~%v (lifelineX %v + selfLoopW/2)",
+			labelX, wantX, lifelineX)
 	}
 }
 

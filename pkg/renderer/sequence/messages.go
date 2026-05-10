@@ -231,6 +231,11 @@ func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagra
 	return elems
 }
 
+// renderSelfMessage renders a self-message — a curved arc that leaves the
+// lifeline at (x, y), bulges selfLoopW px to the right, and re-enters the
+// lifeline at (x, y+selfLoopH). The label, when present, is drawn centered
+// above the arc; row-height clearance for that label is reserved by the
+// caller via selfLoopRowExtra.
 func (mr *messageRenderer) renderSelfMessage(x, y float64, m diagram.Message) []any {
 	style := mr.messageLineStyle(m.ArrowType)
 	// Symmetric control points keep the curve's end tangent
