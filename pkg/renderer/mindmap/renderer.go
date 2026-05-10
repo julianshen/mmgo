@@ -1,7 +1,6 @@
 package mindmap
 
 import (
-	"encoding/xml"
 	"fmt"
 	"math"
 	"strings"
@@ -18,9 +17,8 @@ const (
 	nodePadY        = 10.0
 	minNodeW        = 80.0
 	minNodeH        = 35.0
-	levelSpacing    = 120.0
-	boldWidthFactor = 1.1
-	iconRowH        = 14.0
+	levelSpacing    = 150.0
+	boldWidthFactor = 1.2
 )
 
 type Options struct {
@@ -50,22 +48,6 @@ type layoutNode struct {
 	// up on the rendered shape.
 	extraCSS string
 	children []*layoutNode
-}
-
-type svgText struct {
-	XMLName  xml.Name `xml:"text"`
-	X        svgFloat `xml:"x,attr"`
-	Y        svgFloat `xml:"y,attr"`
-	Anchor   string   `xml:"text-anchor,attr,omitempty"`
-	Dominant string   `xml:"dominant-baseline,attr,omitempty"`
-	Style    string   `xml:"style,attr,omitempty"`
-	Children []any    `xml:",any"`
-}
-
-type svgTspan struct {
-	XMLName xml.Name `xml:"tspan"`
-	Style   string   `xml:"style,attr,omitempty"`
-	Content string   `xml:",chardata"`
 }
 
 func Render(d *diagram.MindmapDiagram, opts *Options) ([]byte, error) {
@@ -164,23 +146,22 @@ func buildTree(n *diagram.MindmapNode, ruler *textmeasure.Ruler, fontSize float6
 	for i, line := range lines {
 		segs := parseMarkdown(line)
 		segments[i] = segs
-		plain := stripMarkdownFromSegments(segs)
-		tw, lh := ruler.Measure(plain, fontSize)
-		hasBold := false
-		for _, seg := range segs {
+		lineW := 0.0
+		for j, seg := range segs {
+			sw, lh := ruler.Measure(seg.text, fontSize)
 			if seg.bold {
-				hasBold = true
-				break
+				sw *= boldWidthFactor
+			}
+			segs[j].width = sw
+			lineW += sw
+			if j == 0 {
+				lineHeights[i] = lh
 			}
 		}
-		if hasBold {
-			tw = tw * boldWidthFactor
+		if lineW > maxLineW {
+			maxLineW = lineW
 		}
-		if tw > maxLineW {
-			maxLineW = tw
-		}
-		lineHeights[i] = lh
-		totalH += lh
+		totalH += lineHeights[i]
 	}
 
 	w := maxLineW + 2*nodePadX
@@ -190,12 +171,6 @@ func buildTree(n *diagram.MindmapNode, ruler *textmeasure.Ruler, fontSize float6
 	}
 	if h < minNodeH {
 		h = minNodeH
-	}
-	// Reserve a small slot at the top of the node for the icon
-	// caption when one is present. Phase B renders the icon as a
-	// muted text glyph; Phase C may promote to a real font glyph.
-	if n.Icon != "" {
-		h += iconRowH
 	}
 
 	ln := &layoutNode{
@@ -221,32 +196,22 @@ func buildTree(n *diagram.MindmapNode, ruler *textmeasure.Ruler, fontSize float6
 	return ln
 }
 
-func stripMarkdownFromSegments(segs []textSegment) string {
-	var sb strings.Builder
-	for _, seg := range segs {
-		sb.WriteString(seg.text)
-	}
-	return sb.String()
-}
-
 func layoutRadial(root *layoutNode, spacing float64) {
 	root.x = 0
 	root.y = 0
 	if len(root.children) == 0 {
 		return
 	}
-
-	totalLeaves := root.leafCount
-
+	angles := allocateAngles(root.children, 2*math.Pi, spacing)
 	startAngle := -math.Pi / 2
 	for i, child := range root.children {
 		child.section = i
 		assignSectionRecursive(child, i)
-		angleSpan := 2 * math.Pi * float64(child.leafCount) / float64(totalLeaves)
+		angleSpan := angles[i]
 		mid := startAngle + angleSpan/2
 		child.x = root.x + spacing*math.Cos(mid)
 		child.y = root.y + spacing*math.Sin(mid)
-		layoutRadialSubtree(child, startAngle, angleSpan, spacing)
+		layoutRadialSubtree(child, startAngle, angleSpan, spacing, 1)
 		startAngle += angleSpan
 	}
 }
@@ -258,22 +223,64 @@ func assignSectionRecursive(n *layoutNode, section int) {
 	}
 }
 
-func layoutRadialSubtree(n *layoutNode, startAngle, angleSpan, spacing float64) {
+func layoutRadialSubtree(n *layoutNode, startAngle, angleSpan, spacing float64, depth int) {
 	if len(n.children) == 0 {
 		return
 	}
-
-	totalLeaves := n.leafCount
-
+	// Increase spacing with depth so deeper nodes have more angular
+	// room (smaller asin(halfW / spacing) → smaller minimum angles).
+	effectiveSpacing := spacing * (1 + 0.25*float64(depth))
+	angles := allocateAngles(n.children, angleSpan, effectiveSpacing)
 	childStart := startAngle
-	for _, child := range n.children {
-		childSpan := angleSpan * float64(child.leafCount) / float64(totalLeaves)
+	for i, child := range n.children {
+		childSpan := angles[i]
 		mid := childStart + childSpan/2
-		child.x = n.x + spacing*math.Cos(mid)
-		child.y = n.y + spacing*math.Sin(mid)
-		layoutRadialSubtree(child, childStart, childSpan, spacing)
+		child.x = n.x + effectiveSpacing*math.Cos(mid)
+		child.y = n.y + effectiveSpacing*math.Sin(mid)
+		layoutRadialSubtree(child, childStart, childSpan, spacing, depth+1)
 		childStart += childSpan
 	}
+}
+
+// allocateAngles distributes totalAngle among children so that each
+// child receives at least enough angular room for its width at the
+// given radius (spacing). Minimum angles are always respected;
+// remaining angle is distributed proportionally by leaf count.
+func allocateAngles(children []*layoutNode, totalAngle, spacing float64) []float64 {
+	if len(children) == 0 {
+		return nil
+	}
+	totalLeaves := 0
+	for _, c := range children {
+		totalLeaves += c.leafCount
+	}
+	angles := make([]float64, len(children))
+	mins := make([]float64, len(children))
+	minSum := 0.0
+	for i, c := range children {
+		halfW := c.width / 2
+		// angular half-width needed so the node edges just touch;
+		// add a 30 % padding for visual breathing room.
+		minHalf := math.Asin(math.Min(1, halfW/spacing))
+		mins[i] = 2.6 * minHalf
+		minSum += mins[i]
+	}
+	if minSum >= totalAngle {
+		// Not enough room — scale minimums down proportionally.
+		scale := totalAngle / minSum
+		for i := range angles {
+			angles[i] = mins[i] * scale
+		}
+		return angles
+	}
+	// Allocate minimums first, then distribute the remainder
+	// proportionally by leaf count.
+	remainder := totalAngle - minSum
+	for i, c := range children {
+		prop := remainder * float64(c.leafCount) / float64(totalLeaves)
+		angles[i] = mins[i] + prop
+	}
+	return angles
 }
 
 type bounds struct {
@@ -434,39 +441,18 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 
 	textStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", textCol, fontSize)
 
-	// Optional icon caption sits above the label rows. Until the
-	// project ships a Font Awesome / Material Design glyph table,
-	// the renderer prints the raw class string in a muted italic
-	// at the top of the node. This at least surfaces what was
-	// declared rather than silently dropping the icon.
-	textTopOffset := 0.0
-	if n.node.Icon != "" {
-		iconStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx;font-style:italic;opacity:0.7", textCol, fontSize-2)
-		children = append(children, &text{
-			X: 0, Y: svgutil.Float(-h/2 + iconRowH/2 + 2),
-			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
-			Style:   iconStyle,
-			Content: n.node.Icon,
-		})
-		textTopOffset = iconRowH / 2
-	}
-
-	// Center the stacked label rows in the available space below
-	// any icon caption. lineCenters holds each row's y coordinate
-	// using the node's center as the origin.
+	// Center the stacked label rows vertically inside the node.
 	totalH := 0.0
 	for _, lh := range n.lineHeights {
 		totalH += lh
 	}
-	startY := textTopOffset - totalH/2
+	startY := -totalH / 2
 	for i, segs := range n.segments {
 		lh := n.lineHeights[i]
 		ly := startY + lh/2
-		// Fast path: a single plain segment on this line gets
-		// chardata so the tdewolff/canvas PNG rasterizer (which
-		// drops text whose content lives in <tspan> children)
-		// still draws the label.
 		if len(segs) == 1 && !segs[0].bold && !segs[0].italic {
+			// Fast path: plain text uses chardata, which the
+			// tdewolff/canvas PNG rasterizer can render.
 			children = append(children, &text{
 				X: 0, Y: svgutil.Float(ly),
 				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
@@ -474,7 +460,15 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 				Content: segs[0].text,
 			})
 		} else {
-			var tspans []any
+			// Multi-segment text: render each segment as a separate
+			// <text> element positioned horizontally.  This works
+			// in both browsers and the tdewolff/canvas PNG rasterizer
+			// (which drops <tspan> children).
+			totalSegW := 0.0
+			for _, seg := range segs {
+				totalSegW += seg.width
+			}
+			xOff := -totalSegW / 2
 			for _, seg := range segs {
 				segStyle := textStyle
 				if seg.bold {
@@ -483,14 +477,15 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 				if seg.italic {
 					segStyle += ";font-style:italic"
 				}
-				tspans = append(tspans, &svgTspan{Style: segStyle, Content: seg.text})
+				segX := xOff + seg.width/2
+				children = append(children, &text{
+					X: svgutil.Float(segX), Y: svgutil.Float(ly),
+					Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
+					Style:   segStyle,
+					Content: seg.text,
+				})
+				xOff += seg.width
 			}
-			children = append(children, &svgText{
-				X: 0, Y: svgutil.Float(ly),
-				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
-				Style:    textStyle,
-				Children: tspans,
-			})
 		}
 		startY += lh
 	}

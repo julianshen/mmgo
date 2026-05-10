@@ -33,7 +33,7 @@ refreshed as part of the same commit.
 | state        | simple, traffic_light                                                                                                                |
 | er           | blog, simple                                                                                                                         |
 | gantt        | release, simple                                                                                                                      |
-| mindmap      | project, simple                                                                                                                      |
+| mindmap      | deep, icons_classes, markdown, project, quoted, shapes, simple                                                                       |
 | timeline     | career, simple                                                                                                                       |
 | c4           | container, context                                                                                                                   |
 | block        | pipeline, simple                                                                                                                     |

@@ -386,9 +386,9 @@ func TestRenderMultiLineLabel(t *testing.T) {
 	}
 }
 
-// An icon decoration on a node renders as a muted italic caption
-// inside the node, rather than being silently dropped.
-func TestRenderIconCaption(t *testing.T) {
+// Icons are stored in the AST but not rendered until a font glyph
+// table is available; the label text must still appear.
+func TestRenderIconIgnored(t *testing.T) {
 	d := &diagram.MindmapDiagram{
 		Root: &diagram.MindmapNode{
 			Text: "Library",
@@ -400,11 +400,11 @@ func TestRenderIconCaption(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	if !strings.Contains(raw, ">fa fa-book<") {
-		t.Errorf("expected icon class string emitted in:\n%s", raw)
+	if strings.Contains(raw, "fa fa-book") {
+		t.Errorf("icon class string should not be rendered")
 	}
-	if !strings.Contains(raw, "font-style:italic") {
-		t.Errorf("expected italic styling on icon caption")
+	if !strings.Contains(raw, ">Library<") {
+		t.Errorf("node text missing despite icon declaration")
 	}
 }
 
