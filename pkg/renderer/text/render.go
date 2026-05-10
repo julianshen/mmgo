@@ -30,12 +30,33 @@ func LabelElements(label string, cx, cy, fontSize float64, anchor, dominant, tex
 	}
 
 	lineHeight := fontSize * 1.2
-	startY := cy - float64(len(lines)-1)*lineHeight/2
 
-	var elems []any
+	// Compute per-line heights so a line with tall math (e.g. \frac{a}{b})
+	// reserves more vertical space than a plain text line.
+	parsed := make([][]Segment, len(lines))
+	lineHeights := make([]float64, len(lines))
+	totalH := 0.0
 	for i, line := range lines {
 		segs := Parse(line)
-		ly := startY + float64(i)*lineHeight
+		_, lh := MeasureSegments(segs, ruler, fontSize, boldWidthFactor)
+		if lh < lineHeight {
+			lh = lineHeight
+		}
+		parsed[i] = segs
+		lineHeights[i] = lh
+		totalH += lh
+	}
+
+	// Centre the block of lines vertically on cy.
+	startTop := cy - totalH/2
+	yCursor := startTop
+
+	var elems []any
+	for i := range lines {
+		segs := parsed[i]
+		lh := lineHeights[i]
+		ly := yCursor + lh/2
+		yCursor += lh
 
 		// Fast path: single plain-text segment.
 		if len(segs) == 1 && segs[0].Math == "" && !segs[0].Bold && !segs[0].Italic {
@@ -71,7 +92,7 @@ func LabelElements(label string, cx, cy, fontSize float64, anchor, dominant, tex
 		fill := extractFill(textStyle)
 		for _, seg := range segs {
 			if seg.Math != "" {
-				res := RenderMath(seg.Math, fontSize, lineHeight, fill)
+				res := RenderMath(seg.Math, fontSize, 0, fill)
 				if res == nil {
 					// Fallback to plain text.
 					fx, fanchor := xOff, svgutil.AnchorStart
@@ -90,11 +111,7 @@ func LabelElements(label string, cx, cy, fontSize float64, anchor, dominant, tex
 						Content:  CleanMathFallback(seg.Math),
 					})
 				} else {
-					_, origH := MathSize(seg.Math, fontSize)
 					scale := 1.0
-					if origH > lineHeight {
-						scale = lineHeight / origH
-					}
 					var mx float64
 					switch anchor {
 					case svgutil.AnchorStart:
@@ -172,13 +189,17 @@ func MeasureLabel(label string, ruler interface {
 	}
 	lineHeight := fontSize * 1.2
 	maxW := 0.0
+	totalH := 0.0
 	for _, line := range lines {
 		segs := Parse(line)
-		lw, _ := MeasureSegments(segs, ruler, fontSize, boldWidthFactor)
+		lw, lh := MeasureSegments(segs, ruler, fontSize, boldWidthFactor)
 		if lw > maxW {
 			maxW = lw
 		}
+		if lh < lineHeight {
+			lh = lineHeight
+		}
+		totalH += lh
 	}
-	totalH := lineHeight * float64(len(lines))
 	return maxW, totalH
 }

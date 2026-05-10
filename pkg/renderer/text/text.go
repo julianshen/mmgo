@@ -211,7 +211,7 @@ func MathSize(expr string, fontSize float64) (w, h float64) {
 		}
 	}()
 
-	_, w, h, err := math.Render(expr, fontSize)
+	_, w, h, err := math.RenderRich(expr, fontSize)
 	if err != nil {
 		w = fallbackW
 		h = fallbackH
@@ -234,26 +234,52 @@ func setMathSizeCache(key string, w, h float64) {
 // ------------------------------------------------------------------
 
 // ParseMathSVG parses the SVG fragment produced by the math renderer
-// (a sequence of <path> and <rect> elements) into proper svgutil
-// types so they can be marshaled without escaping.
+// (a sequence of <path>, <rect>, and optional <g transform="...">...</g>
+// elements) into proper svgutil types so they can be marshaled without
+// escaping.
 func ParseMathSVG(svg string) []any {
-	var elems []any
+	elems, _ := parseMathSVG(svg)
+	return elems
+}
+
+func parseMathSVG(svg string) (elems []any, rest string) {
 	for {
 		svg = strings.TrimSpace(svg)
-		if svg == "" {
-			break
+		if svg == "" || strings.HasPrefix(svg, "</") {
+			return elems, svg
 		}
-		start := strings.IndexByte(svg, '<')
-		if start < 0 {
-			break
+		if !strings.HasPrefix(svg, "<") {
+			return elems, svg
 		}
-		end := strings.Index(svg[start:], "/>")
+		// Group element <g ...>...</g> (no self-close).
+		if strings.HasPrefix(svg, "<g ") || strings.HasPrefix(svg, "<g>") {
+			openEnd := strings.IndexByte(svg, '>')
+			if openEnd < 0 {
+				return elems, ""
+			}
+			openTag := svg[:openEnd+1]
+			attrs := parseAttrs(openTag)
+			children, after := parseMathSVG(svg[openEnd+1:])
+			// Skip the closing </g>.
+			closeIdx := strings.Index(after, "</g>")
+			if closeIdx >= 0 {
+				after = after[closeIdx+len("</g>"):]
+			}
+			elems = append(elems, &svgutil.Group{
+				Transform: attrs["transform"],
+				Style:     attrs["style"],
+				Children:  children,
+			})
+			svg = after
+			continue
+		}
+		// Self-closing element.
+		end := strings.Index(svg, "/>")
 		if end < 0 {
-			break
+			return elems, ""
 		}
-		end += start + 2
-		tag := svg[start:end]
-		svg = svg[end:]
+		tag := svg[:end+2]
+		svg = svg[end+2:]
 
 		attrs := parseAttrs(tag)
 		switch {
@@ -274,7 +300,22 @@ func ParseMathSVG(svg string) []any {
 			})
 		}
 	}
-	return elems
+}
+
+// applyFill recursively sets the style attribute on every Path/Rect leaf
+// so renderers without CSS inheritance (tdewolff/canvas) still pick up
+// the fill colour.
+func applyFill(elems []any, style string) {
+	for _, el := range elems {
+		switch e := el.(type) {
+		case *svgutil.Path:
+			e.Style = style
+		case *svgutil.Rect:
+			e.Style = style
+		case *svgutil.Group:
+			applyFill(e.Children, style)
+		}
+	}
 }
 
 func parseAttrs(tag string) map[string]string {
@@ -362,7 +403,7 @@ func RenderMath(expr string, fontSize, targetH float64, fill string) *MathRender
 				err = fmt.Errorf("math render panic: %v", r)
 			}
 		}()
-		svgMath, mw, mh, err = math.Render(expr, fontSize)
+		svgMath, mw, mh, err = math.RenderRich(expr, fontSize)
 	}()
 	if err != nil {
 		return nil
@@ -374,16 +415,7 @@ func RenderMath(expr string, fontSize, targetH float64, fill string) *MathRender
 	}
 
 	if fill != "" {
-		style := "fill:" + fill
-		for i, el := range elems {
-			switch e := el.(type) {
-			case *svgutil.Path:
-				e.Style = style
-			case *svgutil.Rect:
-				e.Style = style
-			}
-			elems[i] = el
-		}
+		applyFill(elems, "fill:"+fill)
 	}
 
 	scale := 1.0

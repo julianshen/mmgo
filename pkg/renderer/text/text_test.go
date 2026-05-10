@@ -189,10 +189,14 @@ func TestRenderMath(t *testing.T) {
 	}
 }
 
-func TestRenderMathUnsupported(t *testing.T) {
-	// Superscript panics in go-latex; should return nil (fallback).
+func TestRenderMathSuperscript(t *testing.T) {
+	// Top-level superscripts are now handled via the rich renderer
+	// (split + per-segment render). The result should be non-nil.
 	res := RenderMath("x^2", 14, 14, "")
-	if res != nil {
-		t.Errorf("expected nil for unsupported math, got %+v", res)
+	if res == nil {
+		t.Fatal("expected non-nil result for x^2")
+	}
+	if res.Width <= 0 || res.Height <= 0 {
+		t.Errorf("invalid dimensions: %g x %g", res.Width, res.Height)
 	}
 }
