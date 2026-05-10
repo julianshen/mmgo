@@ -38,13 +38,20 @@ func TestRenderFraction(t *testing.T) {
 	}
 }
 
-func TestRenderGreekUnsupported(t *testing.T) {
-	// Greek letters are not supported by go-latex/mtex; they render as
-	// backslashes. The whitelist rejects them so callers fall back to
-	// plain text.
-	_, _, _, err := Render("\\alpha + \\beta", 14)
-	if err == nil {
-		t.Fatal("expected error for unsupported Greek letters")
+func TestRenderGreek(t *testing.T) {
+	// go-latex/mtex doesn't have Greek glyphs; it renders the backslash
+	// literally.  We let mtex attempt the render and rely on the caller
+	// (text.RenderMath) to fall back to plain text when the result is
+	// indistinguishable from the input.
+	svg, w, h, err := Render("\\alpha + \\beta", 14)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if w <= 0 || h <= 0 {
+		t.Errorf("invalid dimensions: w=%g, h=%g", w, h)
+	}
+	if !strings.Contains(svg, "path") {
+		t.Error("expected path elements in output")
 	}
 }
 

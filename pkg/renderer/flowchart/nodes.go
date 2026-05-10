@@ -265,7 +265,7 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 	// Use rich-text rendering when the label contains math ($$...$$)
 	// or markdown formatting; otherwise fall through to the fast path.
 	if ruler != nil && strings.Contains(label, "$$") {
-		textElems := text.LabelElements(label, cx, cy, fontSize, svgutil.AnchorMiddle, textStyle, ruler, 1.2)
+		textElems := text.LabelElements(label, cx, cy, fontSize, svgutil.AnchorMiddle, svgutil.BaselineCentral, textStyle, ruler, 1.2)
 		elems = append(elems, textElems...)
 		return elems
 	}

@@ -16,9 +16,12 @@ import (
 //
 // fontSize is used for text measurement and styling. textStyle should
 // be a CSS style string like "fill:#000;font-size:14px".
+// dominant sets the SVG dominant-baseline attribute on text elements;
+// use dominant for centred labels or svgutil.BaselineAuto
+// for baseline-aligned text.
 //
 // ruler must implement Measure(text string, fontSize float64) (w, h float64).
-func LabelElements(label string, cx, cy, fontSize float64, anchor, textStyle string, ruler interface {
+func LabelElements(label string, cx, cy, fontSize float64, anchor, dominant, textStyle string, ruler interface {
 	Measure(text string, fontSize float64) (width, height float64)
 }, boldWidthFactor float64) []any {
 	lines := strings.Split(label, "\n")
@@ -40,7 +43,7 @@ func LabelElements(label string, cx, cy, fontSize float64, anchor, textStyle str
 				X:       svgutil.Float(cx),
 				Y:       svgutil.Float(ly),
 				Anchor:  anchor,
-				Dominant: svgutil.BaselineCentral,
+				Dominant: dominant,
 				Style:   textStyle,
 				Content: segs[0].Text,
 			})
@@ -82,7 +85,7 @@ func LabelElements(label string, cx, cy, fontSize float64, anchor, textStyle str
 						X:        svgutil.Float(fx),
 						Y:        svgutil.Float(ly),
 						Anchor:   fanchor,
-						Dominant: svgutil.BaselineCentral,
+						Dominant: dominant,
 						Style:    textStyle,
 						Content:  CleanMathFallback(seg.Math),
 					})
@@ -134,7 +137,7 @@ func LabelElements(label string, cx, cy, fontSize float64, anchor, textStyle str
 					X:        svgutil.Float(segX),
 					Y:        svgutil.Float(ly),
 					Anchor:   segAnchor,
-					Dominant: svgutil.BaselineCentral,
+					Dominant: dominant,
 					Style:    segStyle,
 					Content:  seg.Text,
 				})

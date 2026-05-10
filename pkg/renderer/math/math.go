@@ -2,7 +2,6 @@ package math
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/go-latex/latex/drawtex"
@@ -11,24 +10,6 @@ import (
 	"golang.org/x/image/font/sfnt"
 	"golang.org/x/image/math/fixed"
 )
-
-var mathCmdRe = regexp.MustCompile(`\\([a-zA-Z]+)`)
-
-var supportedCmds = map[string]bool{
-	"frac": true,
-	"sqrt": true,
-}
-
-// CanRender reports whether expr contains only commands that go-latex/mtex
-// supports.  When false, math.Render will fall back to plain text.
-func CanRender(expr string) bool {
-	for _, m := range mathCmdRe.FindAllStringSubmatch(expr, -1) {
-		if !supportedCmds[m[1]] {
-			return false
-		}
-	}
-	return true
-}
 
 // Render renders a LaTeX math expression to an SVG fragment.
 // It returns the SVG content (a sequence of <path> and <rect> elements),
@@ -39,9 +20,6 @@ func Render(expr string, fontSize float64) (svg string, w, h float64, err error)
 	expr = normalizeMathExpr(expr)
 	if fontSize <= 0 {
 		fontSize = defaultFontSize
-	}
-	if !CanRender(expr) {
-		return "", 0, 0, fmt.Errorf("math render: unsupported command")
 	}
 	fonts := lm.Fonts()
 	r := &svgRenderer{}

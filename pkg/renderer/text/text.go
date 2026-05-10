@@ -70,59 +70,71 @@ func parseMarkdown(s string) []Segment {
 	remaining := s
 
 	for len(remaining) > 0 {
+		// Find the earliest opening marker among ***, **, and *.
 		biIdx := strings.Index(remaining, "***")
+		boldIdx := indexOfBold(remaining)
+		italicIdx := indexOfItalic(remaining)
+
+		firstIdx := -1
+		var kind int // 0=***, 1=**, 2=*
 		if biIdx >= 0 {
-			end := strings.Index(remaining[biIdx+3:], "***")
+			firstIdx = biIdx
+			kind = 0
+		}
+		if boldIdx >= 0 && (firstIdx < 0 || boldIdx < firstIdx) {
+			firstIdx = boldIdx
+			kind = 1
+		}
+		if italicIdx >= 0 && (firstIdx < 0 || italicIdx < firstIdx) {
+			firstIdx = italicIdx
+			kind = 2
+		}
+
+		if firstIdx < 0 {
+			// No more markdown markers.
+			segments = append(segments, Segment{Text: remaining})
+			break
+		}
+
+		if firstIdx > 0 {
+			segments = append(segments, Segment{Text: remaining[:firstIdx]})
+		}
+
+		switch kind {
+		case 0: // ***
+			end := strings.Index(remaining[firstIdx+3:], "***")
 			if end >= 0 {
-				if biIdx > 0 {
-					segments = append(segments, Segment{Text: remaining[:biIdx]})
-				}
 				segments = append(segments, Segment{
-					Text:   remaining[biIdx+3 : biIdx+3+end],
+					Text:   remaining[firstIdx+3 : firstIdx+3+end],
 					Bold:   true,
 					Italic: true,
 				})
-				remaining = remaining[biIdx+3+end+3:]
-				continue
+				remaining = remaining[firstIdx+3+end+3:]
+			} else {
+				segments = append(segments, Segment{Text: remaining[firstIdx:]})
+				remaining = ""
 			}
-		}
-
-		boldIdx := indexOfBold(remaining)
-		if boldIdx >= 0 {
-			if boldIdx > 0 {
-				segments = append(segments, Segment{Text: remaining[:boldIdx]})
-			}
-			after := remaining[boldIdx+2:]
+		case 1: // **
+			after := remaining[firstIdx+2:]
 			end := strings.Index(after, "**")
 			if end >= 0 {
 				segments = append(segments, Segment{Text: after[:end], Bold: true})
 				remaining = after[end+2:]
-				continue
+			} else {
+				segments = append(segments, Segment{Text: remaining[firstIdx:]})
+				remaining = ""
 			}
-			segments = append(segments, Segment{Text: remaining[boldIdx:]})
-			remaining = ""
-			continue
-		}
-
-		italicIdx := indexOfItalic(remaining)
-		if italicIdx >= 0 {
-			if italicIdx > 0 {
-				segments = append(segments, Segment{Text: remaining[:italicIdx]})
-			}
-			after := remaining[italicIdx+1:]
+		case 2: // *
+			after := remaining[firstIdx+1:]
 			end := strings.Index(after, "*")
 			if end >= 0 {
 				segments = append(segments, Segment{Text: after[:end], Italic: true})
 				remaining = after[end+1:]
-				continue
+			} else {
+				segments = append(segments, Segment{Text: remaining[firstIdx:]})
+				remaining = ""
 			}
-			segments = append(segments, Segment{Text: remaining[italicIdx:]})
-			remaining = ""
-			continue
 		}
-
-		segments = append(segments, Segment{Text: remaining})
-		remaining = ""
 	}
 
 	if len(segments) == 0 {
@@ -186,18 +198,23 @@ func MathSize(expr string, fontSize float64) (w, h float64) {
 	}
 	mathSizeCacheMu.RUnlock()
 
+	// Fallback dimensions scale with fontSize so layout stays proportional
+	// when the renderer is unavailable or the expression is unsupported.
+	fallbackW := float64(len(expr)) * fontSize * 0.5
+	fallbackH := fontSize * 1.2
+
 	defer func() {
 		if r := recover(); r != nil {
-			w = float64(len(expr)) * 7
-			h = 16
+			w = fallbackW
+			h = fallbackH
 			setMathSizeCache(key, w, h)
 		}
 	}()
 
 	_, w, h, err := math.Render(expr, fontSize)
 	if err != nil {
-		w = float64(len(expr)) * 7
-		h = 16
+		w = fallbackW
+		h = fallbackH
 	}
 	setMathSizeCache(key, w, h)
 	return w, h

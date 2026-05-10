@@ -193,6 +193,6 @@ func TestRenderMathUnsupported(t *testing.T) {
 	// Superscript panics in go-latex; should return nil (fallback).
 	res := RenderMath("x^2", 14, 14, "")
 	if res != nil {
-		t.Logf("expected nil for unsupported math, got %+v", res)
+		t.Errorf("expected nil for unsupported math, got %+v", res)
 	}
 }

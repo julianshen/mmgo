@@ -569,7 +569,7 @@ func multilineText(content string, cx, cy float64, anchor, dominant, style strin
 				Style: style, Content: content,
 			}}
 		}
-		return richtext.LabelElements(content, cx, cy, fontSize, anchor, style, &estimateRuler{}, 1.2)
+		return richtext.LabelElements(content, cx, cy, fontSize, anchor, dominant, style, &estimateRuler{}, 1.2)
 	}
 	lineH := labelLineHeight(fontSize)
 	totalH := lineH * float64(len(lines)-1)
@@ -577,7 +577,7 @@ func multilineText(content string, cx, cy float64, anchor, dominant, style strin
 	out := make([]any, 0, len(lines))
 	for i, ln := range lines {
 		if strings.Contains(ln, "$$") {
-			out = append(out, richtext.LabelElements(ln, cx, startY+float64(i)*lineH, fontSize, anchor, style, &estimateRuler{}, 1.2)...)
+			out = append(out, richtext.LabelElements(ln, cx, startY+float64(i)*lineH, fontSize, anchor, dominant, style, &estimateRuler{}, 1.2)...)
 		} else {
 			out = append(out, &text{
 				X: svgFloat(cx), Y: svgFloat(startY + float64(i)*lineH),

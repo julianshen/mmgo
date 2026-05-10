@@ -273,7 +273,7 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 			Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 		})
 		if strings.Contains(e.Label, "$$") {
-			textElems := text.LabelElements(e.Label, lx, ly, fontSize, svgutil.AnchorMiddle, textStyle, ruler, 1.2)
+			textElems := text.LabelElements(e.Label, lx, ly, fontSize, svgutil.AnchorMiddle, svgutil.BaselineCentral, textStyle, ruler, 1.2)
 			elems = append(elems, textElems...)
 		} else {
 			elems = append(elems, &Text{

@@ -8,7 +8,7 @@ import (
 
 func TestLabelElementsPlain(t *testing.T) {
 	r := &mockRuler{}
-	elems := LabelElements("hello", 100, 50, 14, svgutil.AnchorMiddle, "fill:#000", r, 1.2)
+	elems := LabelElements("hello", 100, 50, 14, svgutil.AnchorMiddle, svgutil.BaselineCentral, "fill:#000", r, 1.2)
 	if len(elems) != 1 {
 		t.Fatalf("want 1 element, got %d", len(elems))
 	}
@@ -23,7 +23,7 @@ func TestLabelElementsPlain(t *testing.T) {
 
 func TestLabelElementsMath(t *testing.T) {
 	r := &mockRuler{}
-	elems := LabelElements("$$\\frac{1}{2}$$", 100, 50, 14, svgutil.AnchorMiddle, "fill:#000", r, 1.2)
+	elems := LabelElements("$$\\frac{1}{2}$$", 100, 50, 14, svgutil.AnchorMiddle, svgutil.BaselineCentral, "fill:#000", r, 1.2)
 	if len(elems) == 0 {
 		t.Skip("math rendering not available")
 	}
@@ -36,7 +36,7 @@ func TestLabelElementsMath(t *testing.T) {
 
 func TestLabelElementsMultiLine(t *testing.T) {
 	r := &mockRuler{}
-	elems := LabelElements("line1\nline2", 100, 50, 14, svgutil.AnchorMiddle, "fill:#000", r, 1.2)
+	elems := LabelElements("line1\nline2", 100, 50, 14, svgutil.AnchorMiddle, svgutil.BaselineCentral, "fill:#000", r, 1.2)
 	if len(elems) != 2 {
 		t.Fatalf("want 2 elements, got %d", len(elems))
 	}
