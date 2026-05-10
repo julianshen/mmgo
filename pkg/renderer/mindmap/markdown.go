@@ -7,6 +7,46 @@ type textSegment struct {
 	bold   bool
 	italic bool
 	width  float64 // measured text width at render font size
+	math   string  // LaTeX math expression (if non-empty, text is ignored)
+}
+
+// parseSegments splits s into text segments, handling both math
+// delimiters ($$...$$) and markdown formatting.
+func parseSegments(s string) []textSegment {
+	var result []textSegment
+	remaining := s
+
+	for len(remaining) > 0 {
+		mathStart := strings.Index(remaining, "$$")
+		if mathStart < 0 {
+			// No more math - parse rest as markdown
+			result = append(result, parseMarkdown(remaining)...)
+			break
+		}
+
+		// Text before math delimiter
+		if mathStart > 0 {
+			result = append(result, parseMarkdown(remaining[:mathStart])...)
+		}
+
+		// Find closing $$
+		after := remaining[mathStart+2:]
+		mathEnd := strings.Index(after, "$$")
+		if mathEnd < 0 {
+			// Unclosed math - treat rest as plain text
+			result = append(result, textSegment{text: remaining[mathStart:]})
+			break
+		}
+
+		expr := after[:mathEnd]
+		result = append(result, textSegment{math: expr})
+		remaining = after[mathEnd+2:]
+	}
+
+	if len(result) == 0 {
+		result = append(result, textSegment{text: s})
+	}
+	return result
 }
 
 func parseMarkdown(s string) []textSegment {

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
+	mathrender "github.com/julianshen/mmgo/pkg/renderer/math"
 	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
@@ -144,24 +145,35 @@ func buildTree(n *diagram.MindmapNode, ruler *textmeasure.Ruler, fontSize float6
 	maxLineW := 0.0
 	totalH := 0.0
 	for i, line := range lines {
-		segs := parseMarkdown(line)
+		segs := parseSegments(line)
 		segments[i] = segs
 		lineW := 0.0
+		lineH := 0.0
 		for j, seg := range segs {
+			if seg.math != "" {
+				mw, mh := mathSize(seg.math)
+				segs[j].width = mw
+				if mh > lineH {
+					lineH = mh
+				}
+				lineW += mw
+				continue
+			}
 			sw, lh := ruler.Measure(seg.text, fontSize)
 			if seg.bold {
 				sw *= boldWidthFactor
 			}
 			segs[j].width = sw
 			lineW += sw
-			if j == 0 {
-				lineHeights[i] = lh
+			if lh > lineH {
+				lineH = lh
 			}
 		}
+		lineHeights[i] = lineH
 		if lineW > maxLineW {
 			maxLineW = lineW
 		}
-		totalH += lineHeights[i]
+		totalH += lineH
 	}
 
 	w := maxLineW + 2*nodePadX
@@ -194,6 +206,31 @@ func buildTree(n *diagram.MindmapNode, ruler *textmeasure.Ruler, fontSize float6
 	}
 	ln.leafCount = leafCount
 	return ln
+}
+
+// mathSizeCache caches rendered math sizes to avoid re-rendering.
+var mathSizeCache = make(map[string]struct{ w, h float64 })
+
+func mathSize(expr string) (w, h float64) {
+	if cached, ok := mathSizeCache[expr]; ok {
+		return cached.w, cached.h
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			// go-latex panics on unsupported macros.
+			// Fall back to text measurement.
+			w = float64(len(expr)) * 7
+			h = 16
+			mathSizeCache[expr] = struct{ w, h float64 }{w, h}
+		}
+	}()
+	_, w, h, err := mathrender.Render(expr)
+	if err != nil {
+		w = float64(len(expr)) * 7
+		h = 16
+	}
+	mathSizeCache[expr] = struct{ w, h float64 }{w, h}
+	return w, h
 }
 
 func layoutRadial(root *layoutNode, spacing float64) {
@@ -450,7 +487,7 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 	for i, segs := range n.segments {
 		lh := n.lineHeights[i]
 		ly := startY + lh/2
-		if len(segs) == 1 && !segs[0].bold && !segs[0].italic {
+		if len(segs) == 1 && !segs[0].bold && !segs[0].italic && segs[0].math == "" {
 			// Fast path: plain text uses chardata, which the
 			// tdewolff/canvas PNG rasterizer can render.
 			children = append(children, &text{
@@ -470,20 +507,62 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 			}
 			xOff := -totalSegW / 2
 			for _, seg := range segs {
-				segStyle := textStyle
-				if seg.bold {
-					segStyle += ";font-weight:bold"
+			if seg.math != "" {
+				// Render math as embedded SVG paths.
+				var svgMath string
+				var mw, mh float64
+				var renderErr error
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							renderErr = fmt.Errorf("math render panic: %v", r)
+						}
+					}()
+					svgMath, mw, mh, renderErr = mathrender.Render(seg.math)
+				}()
+				if renderErr != nil {
+					// Fallback to plain text on error.
+					children = append(children, &text{
+						X: svgutil.Float(xOff + seg.width/2), Y: svgutil.Float(ly),
+						Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
+						Style:   textStyle,
+						Content: seg.math,
+					})
+				} else {
+					// Scale math to match line height while preserving aspect ratio.
+					scale := 1.0
+					if mh > lh {
+						scale = lh / mh
+					}
+					scaledW := mw * scale
+					scaledH := mh * scale
+					// Center vertically: ly is the baseline, adjust for math center.
+					my := ly + (lh-scaledH)/2 - lh/2 + scaledH/2
+					mx := xOff + seg.width/2 - scaledW/2
+						mathElems := parseMathSVG(svgMath)
+						if len(mathElems) > 0 {
+							children = append(children, &group{
+								Transform: fmt.Sprintf("translate(%.2f,%.2f) scale(%.3f)", mx, my, scale),
+								Children:  mathElems,
+							})
+						}
 				}
-				if seg.italic {
-					segStyle += ";font-style:italic"
+			} else {
+					segStyle := textStyle
+					if seg.bold {
+						segStyle += ";font-weight:bold"
+					}
+					if seg.italic {
+						segStyle += ";font-style:italic"
+					}
+					segX := xOff + seg.width/2
+					children = append(children, &text{
+						X: svgutil.Float(segX), Y: svgutil.Float(ly),
+						Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
+						Style:   segStyle,
+						Content: seg.text,
+					})
 				}
-				segX := xOff + seg.width/2
-				children = append(children, &text{
-					X: svgutil.Float(segX), Y: svgutil.Float(ly),
-					Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
-					Style:   segStyle,
-					Content: seg.text,
-				})
 				xOff += seg.width
 			}
 		}

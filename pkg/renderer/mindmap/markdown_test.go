@@ -136,9 +136,73 @@ func TestParseMarkdownMultipleBold(t *testing.T) {
 		t.Errorf("seg[0] = %+v", segs[0])
 	}
 	if segs[1].text != " " {
-		t.Errorf("seg[1] = %q", segs[1].text)
+		t.Errorf("seg[1] = %+v", segs[1])
 	}
 	if segs[2].text != "b" || !segs[2].bold {
 		t.Errorf("seg[2] = %+v", segs[2])
+	}
+}
+
+func TestParseSegmentsMathOnly(t *testing.T) {
+	segs := parseSegments("$$\\frac{1}{2}$$")
+	if len(segs) != 1 {
+		t.Fatalf("want 1 segment, got %d: %+v", len(segs), segs)
+	}
+	if segs[0].math != `\frac{1}{2}` {
+		t.Errorf("math = %q", segs[0].math)
+	}
+	if segs[0].text != "" {
+		t.Errorf("text should be empty, got %q", segs[0].text)
+	}
+}
+
+func TestParseSegmentsMathAndText(t *testing.T) {
+	segs := parseSegments("before $$\\alpha$$ after")
+	if len(segs) != 3 {
+		t.Fatalf("want 3 segments, got %d: %+v", len(segs), segs)
+	}
+	if segs[0].text != "before " || segs[0].math != "" {
+		t.Errorf("seg[0] = %+v", segs[0])
+	}
+	if segs[1].math != `\alpha` {
+		t.Errorf("seg[1].math = %q", segs[1].math)
+	}
+	if segs[2].text != " after" || segs[2].math != "" {
+		t.Errorf("seg[2] = %+v", segs[2])
+	}
+}
+
+func TestParseSegmentsUnclosedMath(t *testing.T) {
+	segs := parseSegments("$$\\frac{1}{2}")
+	if len(segs) != 1 {
+		t.Fatalf("want 1 segment, got %d: %+v", len(segs), segs)
+	}
+	if segs[0].text != "$$\\frac{1}{2}" {
+		t.Errorf("text = %q", segs[0].text)
+	}
+	if segs[0].math != "" {
+		t.Errorf("math should be empty, got %q", segs[0].math)
+	}
+}
+
+func TestParseSegmentsMathWithMarkdown(t *testing.T) {
+	segs := parseSegments("**bold** $$\\sqrt{x}$$ *italic*")
+	if len(segs) != 5 {
+		t.Fatalf("want 5 segments, got %d: %+v", len(segs), segs)
+	}
+	if !segs[0].bold || segs[0].text != "bold" {
+		t.Errorf("seg[0] = %+v", segs[0])
+	}
+	if segs[1].text != " " || segs[1].math != "" {
+		t.Errorf("seg[1] = %+v", segs[1])
+	}
+	if segs[2].math != `\sqrt{x}` {
+		t.Errorf("seg[2].math = %q", segs[2].math)
+	}
+	if segs[3].text != " " || segs[3].math != "" {
+		t.Errorf("seg[3] = %+v", segs[3])
+	}
+	if !segs[4].italic || segs[4].text != "italic" {
+		t.Errorf("seg[4] = %+v", segs[4])
 	}
 }
