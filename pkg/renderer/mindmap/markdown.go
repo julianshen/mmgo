@@ -6,6 +6,7 @@ type textSegment struct {
 	text   string
 	bold   bool
 	italic bool
+	width  float64 // measured text width at render font size
 }
 
 func parseMarkdown(s string) []textSegment {

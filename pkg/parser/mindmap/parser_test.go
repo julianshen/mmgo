@@ -1,6 +1,7 @@
 package mindmap
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -373,5 +374,208 @@ style Body fill:#fee,stroke:#900`))
 	got := d.Styles[0]
 	if got.NodeID != "Body" || got.CSS != "fill:#fee;stroke:#900" {
 		t.Errorf("style = %+v", got)
+	}
+}
+
+func TestParseQuotedDescription(t *testing.T) {
+	d, err := Parse(strings.NewReader(`mindmap
+    root["String containing []"]`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Root.ID != "root" {
+		t.Errorf("id = %q, want root", d.Root.ID)
+	}
+	if d.Root.Text != "String containing []" {
+		t.Errorf("text = %q, want 'String containing []'", d.Root.Text)
+	}
+	if d.Root.Shape != diagram.MindmapShapeSquare {
+		t.Errorf("shape = %v, want square", d.Root.Shape)
+	}
+}
+
+func TestParseQuotedDescriptionInChild(t *testing.T) {
+	d, err := Parse(strings.NewReader(`mindmap
+    root["String containing []"]
+      child1("String containing ()")`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Root.Text != "String containing []" {
+		t.Errorf("root text = %q", d.Root.Text)
+	}
+	if d.Root.Shape != diagram.MindmapShapeSquare {
+		t.Errorf("root shape = %v, want square", d.Root.Shape)
+	}
+	if len(d.Root.Children) != 1 {
+		t.Fatalf("want 1 child, got %d", len(d.Root.Children))
+	}
+	child := d.Root.Children[0]
+	if child.Text != "String containing ()" {
+		t.Errorf("child text = %q, want 'String containing ()'", child.Text)
+	}
+	if child.Shape != diagram.MindmapShapeRound {
+		t.Errorf("child shape = %v, want round", child.Shape)
+	}
+}
+
+func TestParseLeadingEmptyLines(t *testing.T) {
+	cases := []string{
+		"\n \nmindmap\nroot\n A\n \n\n B",
+		"\n\n\nmindmap\nroot\n A\n \n\n B",
+	}
+	for i, input := range cases {
+		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
+			d, err := Parse(strings.NewReader(input))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if d.Root == nil || d.Root.Text != "root" {
+				t.Errorf("root = %+v", d.Root)
+			}
+			if len(d.Root.Children) != 2 {
+				t.Errorf("want 2 children, got %d", len(d.Root.Children))
+			}
+		})
+	}
+}
+
+func TestParseQuotedDescriptionAllShapes(t *testing.T) {
+	cases := []struct {
+		input string
+		id    string
+		shape diagram.MindmapNodeShape
+		text  string
+	}{
+		{"(\"round\")", "round", diagram.MindmapShapeRound, "round"},
+		{"[\"square\"]", "square", diagram.MindmapShapeSquare, "square"},
+		{"((\"circle\"))", "circle", diagram.MindmapShapeCircle, "circle"},
+		{"{{\"hexagon\"}}", "hexagon", diagram.MindmapShapeHexagon, "hexagon"},
+		{"))\"bang\"((", "bang", diagram.MindmapShapeBang, "bang"},
+		{")\"cloud\"(", "cloud", diagram.MindmapShapeCloud, "cloud"},
+		{"(-\"cloud2\"-)", "cloud2", diagram.MindmapShapeCloud, "cloud2"},
+		// explicit ID + quoted description
+		{"id(\"quoted\")", "id", diagram.MindmapShapeRound, "quoted"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			input := "mindmap\n    " + tc.input
+			d, err := Parse(strings.NewReader(input))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if d.Root.ID != tc.id {
+				t.Errorf("id = %q, want %q", d.Root.ID, tc.id)
+			}
+			if d.Root.Shape != tc.shape {
+				t.Errorf("shape = %v, want %v", d.Root.Shape, tc.shape)
+			}
+			if d.Root.Text != tc.text {
+				t.Errorf("text = %q, want %q", d.Root.Text, tc.text)
+			}
+		})
+	}
+}
+
+// NSTR2 form: backtick-wrapped description inside quotes.
+func TestParseQuotedBacktickDescription(t *testing.T) {
+	d, err := Parse(strings.NewReader("mindmap\n    root[\"`hello world`\"]"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Root.Text != "hello world" {
+		t.Errorf("text = %q, want 'hello world'", d.Root.Text)
+	}
+	if d.Root.Shape != diagram.MindmapShapeSquare {
+		t.Errorf("shape = %v, want square", d.Root.Shape)
+	}
+}
+
+// A node without an id but with a quoted description uses the
+// description as its id, matching Mermaid's nodeWithoutId rule.
+func TestParseQuotedDescriptionNoID(t *testing.T) {
+	d, err := Parse(strings.NewReader(`mindmap
+    ["hello world"]`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Root.ID != "hello world" {
+		t.Errorf("id = %q, want 'hello world'", d.Root.ID)
+	}
+	if d.Root.Text != "hello world" {
+		t.Errorf("text = %q, want 'hello world'", d.Root.Text)
+	}
+}
+
+// Fallback behavior when quoted descriptions are malformed or
+// contain unexpected content (empty, unclosed, trailing junk, etc.).
+func TestParseQuotedDescriptionEdgeCases(t *testing.T) {
+	cases := []struct {
+		name      string
+		input     string
+		wantText  string
+		wantShape diagram.MindmapNodeShape
+	}{
+		{
+			name:      "empty quotes parsed as literal empty string in shape",
+			input:     `mindmap
+    [""]`,
+			wantText:  `""`,
+			wantShape: diagram.MindmapShapeSquare,
+		},
+		{
+			name:      "unclosed quote falls back to literal text",
+			input:     `mindmap
+    ["unclosed]`,
+			wantText:  `"unclosed`,
+			wantShape: diagram.MindmapShapeSquare,
+		},
+		{
+			name:      "trailing junk after quoted close falls back to default",
+			input:     `mindmap
+    ["hello"]extra`,
+			wantText:  `["hello"]extra`,
+			wantShape: diagram.MindmapShapeDefault,
+		},
+		{
+			name:      "whitespace-only quotes accepted as content",
+			input:     `mindmap
+    ["   "]`,
+			wantText:  "   ",
+			wantShape: diagram.MindmapShapeSquare,
+		},
+		{
+			name:      "quotes inside non-quoted label not intercepted",
+			input:     `mindmap
+    root[He said "hello"]`,
+			wantText:  `He said "hello"`,
+			wantShape: diagram.MindmapShapeSquare,
+		},
+		{
+			name:      "unclosed backtick quote falls back to literal",
+			input:     "mindmap\n    [\"`hello]",
+			wantText:  "\"`hello",
+			wantShape: diagram.MindmapShapeSquare,
+		},
+		{
+			name:      "bare backtick inside NSTR2 falls back to literal",
+			input:     "mindmap\n    [\"`hello``world`\"]",
+			wantText:  "\"`hello``world`\"",
+			wantShape: diagram.MindmapShapeSquare,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := Parse(strings.NewReader(tc.input))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if d.Root.Text != tc.wantText {
+				t.Errorf("text = %q, want %q", d.Root.Text, tc.wantText)
+			}
+			if d.Root.Shape != tc.wantShape {
+				t.Errorf("shape = %v, want %v", d.Root.Shape, tc.wantShape)
+			}
+		})
 	}
 }

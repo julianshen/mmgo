@@ -145,12 +145,9 @@ func Parse(r io.Reader) (*diagram.MindmapDiagram, error) {
 	return d, nil
 }
 
-// expandLabel applies the spec-mandated label transforms: a label
-// wrapped in matching backticks (`` `**bold**` ``) has the
-// backticks stripped (the contents already render as markdown via
-// the renderer's tspan emitter), and the literal two-character
-// `\n` sequence becomes a real newline so multi-line labels work.
-// Plain labels pass through unchanged.
+// expandLabel strips surrounding backticks (the renderer handles
+// markdown inside) and converts the literal `\n` escape into a real
+// newline for multi-line labels.
 func expandLabel(s string) string {
 	s = parserutil.ExpandLineBreaks(s)
 	if len(s) >= 2 && s[0] == '`' && s[len(s)-1] == '`' {
@@ -200,12 +197,61 @@ func parseNodeContent(s string) (id, text string, shape diagram.MindmapNodeShape
 	return id, text, shape
 }
 
+// parseQuotedContent extracts a double-quoted description from s.
+// Quoted descriptions let authors embed shape delimiter characters
+// (e.g. [], (), {}) inside node text without triggering shape parsing.
+//
+// The Mermaid grammar supports two forms:
+//
+//	"description"       → NSTR
+//	"`description`"     → NSTR2 (backtick-wrapped inside quotes)
+//
+// The caller should ensure s starts with a double-quote character.
+// ok is false when the closing delimiter is not found.
+func parseQuotedContent(s string) (content string, consumed int, ok bool) {
+	// NSTR2: "`...`" — content cannot contain backticks or quotes.
+	// The closing sequence is exactly `\".
+	if len(s) >= 2 && s[1] == '`' {
+		for i := 2; i < len(s); i++ {
+			switch s[i] {
+			case '"':
+				return "", 0, false // bare quote inside NSTR2
+			case '`':
+				if i+1 < len(s) && s[i+1] == '"' {
+					return s[2:i], i + 2, true
+				}
+				return "", 0, false // bare backtick not followed by quote
+			}
+		}
+		return "", 0, false // no closing found
+	}
+
+	// NSTR: "..." — content cannot contain quotes.
+	for i := 1; i < len(s); i++ {
+		if s[i] == '"' {
+			return s[1:i], i + 1, true
+		}
+	}
+	return "", 0, false // no closing found
+}
+
 func parseShapeOnly(s string) (string, diagram.MindmapNodeShape) {
 	for _, p := range shapePatterns {
 		if !strings.HasPrefix(s, p.prefix) {
 			continue
 		}
 		after := s[len(p.prefix):]
+
+		// Quoted descriptions must be resolved before naive suffix
+		// matching so delimiter characters inside quotes are not
+		// misinterpreted as shape boundaries.
+		if strings.HasPrefix(after, `"`) {
+			content, consumed, ok := parseQuotedContent(after)
+			if ok && content != "" && after[consumed:] == p.suffix {
+				return content, p.shape
+			}
+		}
+
 		closeIdx := strings.Index(after, p.suffix)
 		if closeIdx < 0 {
 			continue

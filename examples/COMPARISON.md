@@ -16,7 +16,7 @@ for side-by-side inspection.
 | state        | 2 | 2 | 2 | |
 | er           | 2 | 2 | 2 | |
 | gantt        | 2 | 2 | 2 | |
-| mindmap      | 2 | 2 | 2 | |
+| mindmap      | 7 | 7 | 7 | |
 | timeline     | 2 | 2 | 2 | |
 | c4           | 2 | 2 | 2 | |
 | block        | 2 | 2 | **0** | mmdc rejects `block-beta` inline-edge syntax that mmgo accepts |
