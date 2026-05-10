@@ -109,10 +109,17 @@ const (
 	displayScale = 1.2
 	// trackingScale stretches glyph and rect x-positions horizontally.
 	// mtex's stock spacing between binary operators (≈ 0.2 em) renders
-	// quite tight against Noto Sans Math glyphs, so we space everything
-	// out by 12% — readable without distorting glyph shapes (the glyph
-	// path coordinates themselves are not scaled, only the placement).
-	trackingScale = 1.12
+	// quite tight against Noto Sans Math glyphs, and even adjacent
+	// letters (dx, dt, f(x) come out touching. A 1.22x multiplier on
+	// glyph anchor x positions opens up readable gaps; glyph path
+	// coordinates themselves are not scaled, only placement.
+	trackingScale = 1.35
+	// barOverhang extends fraction bars and \sqrt vinculum rects by a
+	// small amount on each side so they reach slightly past the
+	// numerator/denominator/radicand — matches typesetting convention
+	// and stops a fraction like 1/2 from having a bar exactly the width
+	// of "1".
+	barOverhang = 1.5
 )
 
 // svgRenderer implements mtex.Renderer by converting drawtex
@@ -240,11 +247,13 @@ func (r *svgRenderer) renderGlyph(buf *sfnt.Buffer, op drawtex.GlyphOp) {
 func (r *svgRenderer) renderRect(op drawtex.RectOp) {
 	// Stretch x-positions for tracking, mirroring renderGlyph. Width is
 	// scaled too so vinculum bars (over \sqrt) keep covering the
-	// radicand even after glyph anchors shift right.
-	x := op.X1 * trackingScale
+	// radicand even after glyph anchors shift right. Then add a small
+	// overhang on each side so the bar visually clears the
+	// numerator/denominator/radicand.
+	x := op.X1*trackingScale - barOverhang
 	// Canvas and SVG both use y-down: Y1 is the top edge.
 	y := op.Y1
-	w := (op.X2 - op.X1) * trackingScale
+	w := (op.X2-op.X1)*trackingScale + 2*barOverhang
 	h := op.Y2 - op.Y1
 	r.noteY(y)
 	r.noteY(y + h)
