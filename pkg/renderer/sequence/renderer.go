@@ -144,8 +144,12 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 		pIndex[p.ID] = i
 	}
 	leftBleed, rightBleed := noteBleed(d.Items, pIndex, n)
-	if l := selfMsgLeftBleed(d.Items, pIndex, fontSize); l > leftBleed {
-		leftBleed = l
+	sl, sr := selfMsgBleeds(d.Items, pIndex, n, fontSize)
+	if sl > leftBleed {
+		leftBleed = sl
+	}
+	if sr > rightBleed {
+		rightBleed = sr
 	}
 	if extra := leftBleed - pad; extra > 0 {
 		// Shift everything right so left-side notes fit.
@@ -300,40 +304,69 @@ func noteBleed(items []diagram.SequenceItem, pIndex map[string]int, n int) (left
 	return
 }
 
-// selfMsgLeftBleed returns the pixel extent the layout's left edge
-// must reserve for self-message labels on the leftmost participant
-// (text-anchor:end at lifeline x, label rendered to the left).
-func selfMsgLeftBleed(items []diagram.SequenceItem, pIndex map[string]int, fontSize float64) float64 {
+// selfMsgBleeds returns the horizontal overflow caused by self-message
+// arcs on the leftmost (idx 0) and rightmost (idx n-1) participants.
+//
+// The arc bulges selfLoopW to the right of the lifeline; the label is
+// centered above the arc midpoint. So:
+//   - Leftmost: a label wider than the arc overhangs left of the lifeline.
+//   - Rightmost: the arc itself extends past the rightmost lifeline; a
+//     wide label may extend further still.
+func selfMsgBleeds(items []diagram.SequenceItem, pIndex map[string]int, n int, fontSize float64) (left, right float64) {
 	const gap = 4.0
-	var bleed float64
 	for _, item := range items {
 		switch {
 		case item.Message != nil:
 			m := item.Message
-			if m.From != m.To || m.Label == "" {
+			if m.From != m.To {
 				continue
 			}
 			idx, ok := pIndex[m.From]
-			if !ok || idx != 0 {
+			if !ok {
 				continue
 			}
+			var labelHalf float64
 			for _, ln := range splitLabelLines(m.Label) {
-				if w := textmeasure.EstimateWidth(ln, fontSize) + gap; w > bleed {
-					bleed = w
+				if w := textmeasure.EstimateWidth(ln, fontSize) / 2; w > labelHalf {
+					labelHalf = w
+				}
+			}
+			if idx == 0 {
+				if oh := labelHalf - selfLoopW/2 + gap; oh > left {
+					left = oh
+				}
+			}
+			if idx == n-1 {
+				arcOH := selfLoopW + gap
+				labelOH := selfLoopW/2 + labelHalf + gap
+				oh := arcOH
+				if labelOH > oh {
+					oh = labelOH
+				}
+				if oh > right {
+					right = oh
 				}
 			}
 		case item.Block != nil:
-			if l := selfMsgLeftBleed(item.Block.Items, pIndex, fontSize); l > bleed {
-				bleed = l
+			l, r := selfMsgBleeds(item.Block.Items, pIndex, n, fontSize)
+			if l > left {
+				left = l
+			}
+			if r > right {
+				right = r
 			}
 			for _, br := range item.Block.Branches {
-				if l := selfMsgLeftBleed(br.Items, pIndex, fontSize); l > bleed {
-					bleed = l
+				l, r := selfMsgBleeds(br.Items, pIndex, n, fontSize)
+				if l > left {
+					left = l
+				}
+				if r > right {
+					right = r
 				}
 			}
 		}
 	}
-	return bleed
+	return
 }
 
 // bodyRowsAndExtra returns the row count and any per-row extra
@@ -349,8 +382,13 @@ func extraLabelHeight(items []diagram.SequenceItem, fontSize float64) float64 {
 	var extra float64
 	for _, item := range items {
 		switch {
-		case item.Message != nil && item.Message.Label != "":
-			extra += extraLinesHeight(item.Message.Label, fontSize)
+		case item.Message != nil:
+			if item.Message.Label != "" {
+				extra += extraLinesHeight(item.Message.Label, fontSize)
+			}
+			if item.Message.From == item.Message.To {
+				extra += selfLoopRowExtra(fontSize)
+			}
 		case item.Note != nil && item.Note.Text != "":
 			extra += extraLinesHeight(item.Note.Text, fontSize)
 		case item.Block != nil:
