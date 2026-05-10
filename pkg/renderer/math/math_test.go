@@ -6,7 +6,7 @@ import (
 )
 
 func TestRenderBasic(t *testing.T) {
-	_, w, h, err := Render("x + y")
+	_, w, h, err := Render("x + y", 14)
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -16,7 +16,7 @@ func TestRenderBasic(t *testing.T) {
 }
 
 func TestRenderSqrt(t *testing.T) {
-	_, w, h, err := Render("\\sqrt{x}")
+	_, w, h, err := Render("\\sqrt{x}", 14)
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -26,7 +26,7 @@ func TestRenderSqrt(t *testing.T) {
 }
 
 func TestRenderFraction(t *testing.T) {
-	svg, w, h, err := Render("\\frac{1}{2}")
+	svg, w, h, err := Render("\\frac{1}{2}", 14)
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestRenderFraction(t *testing.T) {
 }
 
 func TestRenderGreek(t *testing.T) {
-	svg, w, h, err := Render("\\alpha + \\beta")
+	svg, w, h, err := Render("\\alpha + \\beta", 14)
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}

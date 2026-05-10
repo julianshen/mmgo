@@ -151,7 +151,7 @@ func buildTree(n *diagram.MindmapNode, ruler *textmeasure.Ruler, fontSize float6
 		lineH := 0.0
 		for j, seg := range segs {
 			if seg.Math != "" {
-				mw, mh := richtext.MathSize(seg.Math)
+				mw, mh := richtext.MathSize(seg.Math, fontSize)
 				segs[j].Width = mw
 				if mh > lineH {
 					lineH = mh
@@ -483,7 +483,7 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 			xOff := -totalSegW / 2
 			for _, seg := range segs {
 				if seg.Math != "" {
-					res := richtext.RenderMath(seg.Math, lh)
+					res := richtext.RenderMath(seg.Math, fontSize, lh)
 					if res == nil {
 						// Fallback to plain text on error.
 						children = append(children, &text{
@@ -495,16 +495,20 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 					} else {
 						scaledW := res.Width
 						scaledH := res.Height
-						my := ly + (lh-scaledH)/2 - lh/2 + scaledH/2
+						my := ly - scaledH/2
 						mx := xOff + seg.Width/2 - scaledW/2
 						scale := 1.0
 						if res.OrigHeight > lh {
 							scale = lh / res.OrigHeight
 						}
-						children = append(children, &group{
+						g := &group{
 							Transform: fmt.Sprintf("translate(%.2f,%.2f) scale(%.3f)", mx, my, scale),
 							Children:  res.Elements,
-						})
+						}
+						if fill := extractFill(textStyle); fill != "" {
+							g.Style = "fill:" + fill
+						}
+						children = append(children, g)
 					}
 				} else {
 					segStyle := textStyle
@@ -569,4 +573,14 @@ func stylesByID(styles []diagram.MindmapStyleDef) map[string]string {
 		out[s.NodeID] = s.CSS
 	}
 	return out
+}
+
+func extractFill(style string) string {
+	for _, part := range strings.Split(style, ";") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "fill:") {
+			return strings.TrimPrefix(part, "fill:")
+		}
+	}
+	return ""
 }

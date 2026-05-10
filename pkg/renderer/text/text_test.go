@@ -177,7 +177,7 @@ func TestParseMathSVG(t *testing.T) {
 }
 
 func TestRenderMath(t *testing.T) {
-	res := RenderMath(`\frac{1}{2}`, 14)
+	res := RenderMath(`\frac{1}{2}`, 14, 14)
 	if res == nil {
 		t.Skip("math rendering not available in test environment")
 	}
@@ -191,7 +191,7 @@ func TestRenderMath(t *testing.T) {
 
 func TestRenderMathUnsupported(t *testing.T) {
 	// Superscript panics in go-latex; should return nil (fallback).
-	res := RenderMath("x^2", 14)
+	res := RenderMath("x^2", 14, 14)
 	if res != nil {
 		t.Logf("expected nil for unsupported math, got %+v", res)
 	}

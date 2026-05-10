@@ -163,9 +163,10 @@ var (
 )
 
 // MathSize returns the rendered width and height of a LaTeX math
-// expression, using a package-level cache to avoid re-rendering.
-// On panic or error it falls back to a text-based estimate.
-func MathSize(expr string) (w, h float64) {
+// expression at the given font size, using a package-level cache to
+// avoid re-rendering. On panic or error it falls back to a text-based
+// estimate.
+func MathSize(expr string, fontSize float64) (w, h float64) {
 	mathSizeCacheMu.RLock()
 	if cached, ok := mathSizeCache[expr]; ok {
 		mathSizeCacheMu.RUnlock()
@@ -181,7 +182,7 @@ func MathSize(expr string) (w, h float64) {
 		}
 	}()
 
-	_, w, h, err := math.Render(expr)
+	_, w, h, err := math.Render(expr, fontSize)
 	if err != nil {
 		w = float64(len(expr)) * 7
 		h = 16
@@ -287,7 +288,7 @@ func MeasureSegments(segs []Segment, ruler interface {
 }, fontSize float64, boldWidthFactor float64) (totalW, maxH float64) {
 	for i, seg := range segs {
 		if seg.Math != "" {
-			mw, mh := MathSize(seg.Math)
+			mw, mh := MathSize(seg.Math, fontSize)
 			segs[i].Width = mw
 			totalW += mw
 			if mh > maxH {
@@ -319,7 +320,7 @@ type MathRenderResult struct {
 
 // RenderMath renders a math expression to SVG elements with optional
 // scaling to fit a target height. Returns nil elements on error.
-func RenderMath(expr string, targetH float64) *MathRenderResult {
+func RenderMath(expr string, fontSize, targetH float64) *MathRenderResult {
 	var svgMath string
 	var mw, mh float64
 	var err error
@@ -329,7 +330,7 @@ func RenderMath(expr string, targetH float64) *MathRenderResult {
 				err = fmt.Errorf("math render panic: %v", r)
 			}
 		}()
-		svgMath, mw, mh, err = math.Render(expr)
+		svgMath, mw, mh, err = math.Render(expr, fontSize)
 	}()
 	if err != nil {
 		return nil

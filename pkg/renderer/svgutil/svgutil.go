@@ -551,6 +551,7 @@ type Anchor struct {
 type Group struct {
 	XMLName   xml.Name `xml:"g"`
 	Class     string   `xml:"class,attr,omitempty"`
+	Style     string   `xml:"style,attr,omitempty"`
 	Transform string   `xml:"transform,attr,omitempty"`
 	Children  []any    `xml:",any"`
 }

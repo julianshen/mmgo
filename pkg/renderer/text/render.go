@@ -65,32 +65,52 @@ func LabelElements(label string, cx, cy, fontSize float64, anchor, textStyle str
 			xOff = cx - totalW/2
 		}
 
+		fill := extractFill(textStyle)
 		for _, seg := range segs {
 			if seg.Math != "" {
-				res := RenderMath(seg.Math, lineHeight)
+				res := RenderMath(seg.Math, fontSize, lineHeight)
 				if res == nil {
 					// Fallback to plain text.
+					fx, fanchor := xOff, svgutil.AnchorStart
+					switch anchor {
+					case svgutil.AnchorMiddle:
+						fx, fanchor = xOff+seg.Width/2, svgutil.AnchorMiddle
+					case svgutil.AnchorEnd:
+						fx, fanchor = xOff+seg.Width, svgutil.AnchorEnd
+					}
 					elems = append(elems, &svgutil.Text{
-						X:       svgutil.Float(xOff + seg.Width/2),
-						Y:       svgutil.Float(ly),
-						Anchor:  svgutil.AnchorMiddle,
+						X:        svgutil.Float(fx),
+						Y:        svgutil.Float(ly),
+						Anchor:   fanchor,
 						Dominant: svgutil.BaselineCentral,
-						Style:   textStyle,
-						Content: seg.Math,
+						Style:    textStyle,
+						Content:  seg.Math,
 					})
 				} else {
-					_, origH := MathSize(seg.Math)
+					_, origH := MathSize(seg.Math, fontSize)
 					scale := 1.0
 					if origH > lineHeight {
 						scale = lineHeight / origH
 					}
-					mx := xOff + seg.Width/2 - res.Width/2
-					// Adjust my so math is vertically centred on the line.
-					my := ly + (lineHeight-res.Height)/2 - lineHeight/2 + res.Height/2
-					elems = append(elems, &svgutil.Group{
+					var mx float64
+					switch anchor {
+					case svgutil.AnchorStart:
+						mx = xOff
+					case svgutil.AnchorEnd:
+						mx = xOff + seg.Width - res.Width
+					default:
+						mx = xOff + seg.Width/2 - res.Width/2
+					}
+					// Centre math vertically on the text line.
+					my := ly - res.Height/2
+					g := &svgutil.Group{
 						Transform: fmt.Sprintf("translate(%.2f,%.2f) scale(%.3f)", mx, my, scale),
 						Children:  res.Elements,
-					})
+					}
+					if fill != "" {
+						g.Style = "fill:" + fill
+					}
+					elems = append(elems, g)
 				}
 			} else {
 				segStyle := textStyle
@@ -100,26 +120,41 @@ func LabelElements(label string, cx, cy, fontSize float64, anchor, textStyle str
 				if seg.Italic {
 					segStyle += ";font-style:italic"
 				}
-				segAnchor := svgutil.AnchorMiddle
+				var segX float64
+				var segAnchor string
 				switch anchor {
 				case svgutil.AnchorStart:
-					segAnchor = svgutil.AnchorStart
+					segX, segAnchor = xOff, svgutil.AnchorStart
 				case svgutil.AnchorEnd:
-					segAnchor = svgutil.AnchorEnd
+					segX, segAnchor = xOff+seg.Width, svgutil.AnchorEnd
+				default:
+					segX, segAnchor = xOff+seg.Width/2, svgutil.AnchorMiddle
 				}
 				elems = append(elems, &svgutil.Text{
-					X:       svgutil.Float(xOff + seg.Width/2),
-					Y:       svgutil.Float(ly),
-					Anchor:  segAnchor,
+					X:        svgutil.Float(segX),
+					Y:        svgutil.Float(ly),
+					Anchor:   segAnchor,
 					Dominant: svgutil.BaselineCentral,
-					Style:   segStyle,
-					Content: seg.Text,
+					Style:    segStyle,
+					Content:  seg.Text,
 				})
 			}
 			xOff += seg.Width
 		}
 	}
 	return elems
+}
+
+// extractFill pulls the fill colour out of a CSS style string like
+// "fill:#000;font-size:14px". Returns "" when no fill is present.
+func extractFill(style string) string {
+	for _, part := range strings.Split(style, ";") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "fill:") {
+			return strings.TrimPrefix(part, "fill:")
+		}
+	}
+	return ""
 }
 
 // MeasureLabel returns the (width, height) of a label that may contain

@@ -14,11 +14,16 @@ import (
 // Render renders a LaTeX math expression to an SVG fragment.
 // It returns the SVG content (a sequence of <path> and <rect> elements),
 // the width, the height, and any error.
-func Render(expr string) (svg string, w, h float64, err error) {
+// fontSize controls the rendering scale; when 0 or negative, a default
+// of 14 is used.
+func Render(expr string, fontSize float64) (svg string, w, h float64, err error) {
 	expr = normalizeMathExpr(expr)
+	if fontSize <= 0 {
+		fontSize = defaultFontSize
+	}
 	fonts := lm.Fonts()
 	r := &svgRenderer{}
-	err = mtex.Render(r, expr, defaultFontSize, defaultDPI, fonts)
+	err = mtex.Render(r, expr, fontSize, defaultDPI, fonts)
 	if err != nil {
 		return "", 0, 0, fmt.Errorf("math render: %w", err)
 	}
