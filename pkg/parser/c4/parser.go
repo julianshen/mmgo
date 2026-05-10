@@ -196,6 +196,9 @@ func parseLine(d *diagram.C4Diagram, line string, scope *diagram.C4Boundary) err
 	case "LAYOUT_LEFT_RIGHT", "LAYOUT_LEFT_RIGHT()":
 		d.Direction = diagram.C4LayoutLeftRight
 		return nil
+	case "SHOW_LEGEND", "SHOW_LEGEND()":
+		d.ShowLegend = true
+		return nil
 	}
 	if rest, ok := strings.CutPrefix(line, "UpdateElementStyle("); ok {
 		parseUpdateElementStyle(d, strings.TrimSuffix(rest, ")"))
@@ -203,6 +206,16 @@ func parseLine(d *diagram.C4Diagram, line string, scope *diagram.C4Boundary) err
 	}
 	if rest, ok := strings.CutPrefix(line, "UpdateRelStyle("); ok {
 		parseUpdateRelStyle(d, strings.TrimSuffix(rest, ")"))
+		return nil
+	}
+	if rest, ok := strings.CutPrefix(line, "UpdateLayoutConfig("); ok {
+		parseUpdateLayoutConfig(d, strings.TrimSuffix(rest, ")"))
+		return nil
+	}
+	if rest, ok := strings.CutPrefix(line, "RelIndex("); ok {
+		if rel, ok := parseRelIndex(strings.TrimSuffix(rest, ")")); ok {
+			d.Relations = append(d.Relations, rel)
+		}
 		return nil
 	}
 	if dir, args, ok := matchRelation(line); ok {
@@ -270,6 +283,15 @@ func matchElementKeyword(line string) (diagram.C4ElementKind, string, bool) {
 func parseRelation(rest string) (diagram.C4Relation, bool) {
 	rest = strings.TrimSuffix(rest, ")")
 	pos, named := splitPositionalAndNamed(splitArgs(rest))
+	return buildRelation(pos, named)
+}
+
+// buildRelation populates a C4Relation from positional args
+// [from, to, label, ?techn] and the shared named-arg map. Used by
+// both parseRelation and parseRelIndex so the named-arg surface
+// (techn / tags / link / sprite / offsetX / offsetY) stays in lock-
+// step.
+func buildRelation(pos []string, named map[string]string) (diagram.C4Relation, bool) {
 	if len(pos) < 3 {
 		return diagram.C4Relation{}, false
 	}
@@ -405,6 +427,45 @@ func parseUpdateRelStyle(d *diagram.C4Diagram, rest string) {
 		}
 	}
 	d.RelStyles[key] = cur
+}
+
+// parseUpdateLayoutConfig parses
+// `UpdateLayoutConfig($c4ShapeInRow=N, $c4BoundaryInRow=M)`. Both
+// args are optional named ints; absent values stay zero so the
+// renderer sees "no override".
+func parseUpdateLayoutConfig(d *diagram.C4Diagram, rest string) {
+	_, named := splitPositionalAndNamed(splitArgs(rest))
+	if v, ok := named["c4ShapeInRow"]; ok {
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+			d.LayoutConfig.ShapesInRow = n
+		}
+	}
+	if v, ok := named["c4BoundaryInRow"]; ok {
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+			d.LayoutConfig.BoundariesInRow = n
+		}
+	}
+}
+
+// parseRelIndex parses `RelIndex(N, from, to, "label", ?"techn",
+// $named=...)`. The numeric first positional arg is the sequence
+// index; remaining args are routed through buildRelation so the
+// named-arg surface stays identical to plain Rel().
+func parseRelIndex(rest string) (diagram.C4Relation, bool) {
+	pos, named := splitPositionalAndNamed(splitArgs(rest))
+	if len(pos) < 4 {
+		return diagram.C4Relation{}, false
+	}
+	idx, err := strconv.Atoi(strings.TrimSpace(pos[0]))
+	if err != nil || idx < 1 {
+		return diagram.C4Relation{}, false
+	}
+	rel, ok := buildRelation(pos[1:], named)
+	if !ok {
+		return diagram.C4Relation{}, false
+	}
+	rel.Index = idx
+	return rel, true
 }
 
 // takesTechnology reports whether the kind's call signature reserves

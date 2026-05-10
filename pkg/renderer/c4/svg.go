@@ -7,6 +7,7 @@ type (
 	svgDoc   = svgutil.Doc
 	rect     = svgutil.Rect
 	line     = svgutil.Line
+	circle   = svgutil.Circle
 	text     = svgutil.Text
 	path     = svgutil.Path
 	polygon  = svgutil.Polygon
