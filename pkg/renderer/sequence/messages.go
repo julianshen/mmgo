@@ -105,8 +105,16 @@ func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel 
 			elems = append(elems, mr.renderMessage(*item.Message)...)
 			// Multiline labels render above the message line; reserve
 			// extra vertical space so the next row's label doesn't
-			// collide with the current label's top lines.
-			mr.curY += defaultRowHeight + extraLinesHeight(item.Message.Label, mr.fontSize)
+			// collide with the current label's top lines. Self-messages
+			// also need a tall-enough row so the arc (which extends
+			// selfLoopH below the anchor y) clears the next row's label.
+			advance := defaultRowHeight + extraLinesHeight(item.Message.Label, mr.fontSize)
+			if item.Message.From == item.Message.To {
+				if delta := selfLoopRowExtra(mr.fontSize); delta > 0 {
+					advance += delta
+				}
+			}
+			mr.curY += advance
 		case item.Note != nil:
 			elems = append(elems, mr.renderNote(*item.Note)...)
 			mr.curY += defaultRowHeight + extraLinesHeight(item.Note.Text, mr.fontSize)
@@ -243,11 +251,12 @@ func (mr *messageRenderer) renderSelfMessage(x, y float64, m diagram.Message) []
 	var elems []any
 	elems = append(elems, p)
 	if m.Label != "" {
-		// Label sits to the left of the lifeline (mmdc parity).
-		// The arc bulges right, so left is the only side that
-		// won't collide with the curve or get clipped at the
-		// layout's right edge for a rightmost participant.
-		elems = append(elems, multilineText(m.Label, x-4, y+selfLoopH/2, "end", "central", mr.msgTextStyle, mr.fontSize)...)
+		// Label sits centered above the arc (mmdc parity). The arc
+		// bulges selfLoopW to the right of the lifeline, so the
+		// horizontal anchor is the arc midpoint; the vertical anchor
+		// is just above the arc's top, matching the y-6 offset used
+		// for non-self messages.
+		elems = append(elems, multilineTextAbove(m.Label, x+selfLoopW/2, y-6, "middle", mr.msgTextStyle, mr.fontSize)...)
 	}
 	return elems
 }
@@ -544,6 +553,21 @@ func splitLabelLines(s string) []string {
 // Owned here so callers don't need to recompute it when positioning the
 // stack relative to other elements (see multilineTextAbove).
 func labelLineHeight(fontSize float64) float64 { return fontSize + 2 }
+
+// selfLoopRowExtra returns the additional row advance (beyond defaultRowHeight)
+// required when the current item is a self-message, so the arc — which extends
+// selfLoopH below the message anchor y — clears the next row's label-above-arrow
+// (drawn at next_y - 6 with one line of label height above the baseline).
+//
+// Returns 0 when defaultRowHeight already accommodates everything.
+func selfLoopRowExtra(fontSize float64) float64 {
+	const labelGap = 6.0
+	needed := selfLoopH + labelLineHeight(fontSize) + labelGap
+	if needed > defaultRowHeight {
+		return needed - defaultRowHeight
+	}
+	return 0
+}
 
 // multilineText returns one or more text elements forming a vertically
 // stacked label centered on (cx, cy). Used wherever a Mermaid label may

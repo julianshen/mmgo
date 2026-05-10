@@ -766,10 +766,10 @@ func TestRenderSelfMessageUsesArcPath(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
-func TestRenderSelfMessageLabelLeftOfLifeline(t *testing.T) {
-	// mmdc renders a self-message label to the *left* of the lifeline
-	// (text-anchor:end) so it doesn't collide with the right-side
-	// loop arc and avoids being clipped by the rightmost layout edge.
+func TestRenderSelfMessageLabelAboveArc(t *testing.T) {
+	// mmdc renders a self-message label centered *above* the loop arc,
+	// not beside the lifeline. Verify the text element is middle-anchored
+	// at roughly the arc's midpoint x (lifeline_x + selfLoopW/2).
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
 			{ID: "Worker", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
@@ -791,8 +791,8 @@ func TestRenderSelfMessageLabelLeftOfLifeline(t *testing.T) {
 	if m == nil {
 		t.Fatalf("did not find self-message label; raw: %s", raw)
 	}
-	if m[1] != "end" {
-		t.Errorf("self-message label should be end-anchored (left of lifeline), got text-anchor=%q", m[1])
+	if m[1] != "middle" {
+		t.Errorf("self-message label should be middle-anchored above arc, got text-anchor=%q", m[1])
 	}
 }
 
