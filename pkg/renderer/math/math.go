@@ -16,17 +16,31 @@ import (
 // fontSize controls the rendering scale; when 0 or negative, a default
 // of 14 is used.
 func Render(expr string, fontSize float64) (svg string, w, h float64, err error) {
+	s, w, h, _, err := RenderWithBaseline(expr, fontSize)
+	return s, w, h, err
+}
+
+// RenderWithBaseline is like Render but also returns the y-position of
+// the expression's primary baseline within the local SVG coordinate
+// system (where y=0 is the top of the rendered content). Callers that
+// need to align math with surrounding text by baseline use this value.
+func RenderWithBaseline(expr string, fontSize float64) (svg string, w, h, baseline float64, err error) {
 	expr = normalizeMathExpr(expr)
 	if fontSize <= 0 {
 		fontSize = defaultFontSize
 	}
-	return renderRaw(expr, fontSize*displayScale)
+	return renderRawWithBaseline(expr, fontSize*displayScale)
 }
 
 // renderRaw renders without applying displayScale; it's used internally
 // so the rich-renderer can apply displayScale once at the top level
 // instead of compounding it across recursive calls.
 func renderRaw(expr string, fontSize float64) (svg string, w, h float64, err error) {
+	s, w, h, _, err := renderRawWithBaseline(expr, fontSize)
+	return s, w, h, err
+}
+
+func renderRawWithBaseline(expr string, fontSize float64) (svg string, w, h, baseline float64, err error) {
 	// go-latex/mtex only resolves Greek letters and math operators
 	// when the parser is in math mode.  Bare expressions like \alpha
 	// are parsed in text mode and fall back to the backslash glyph.
@@ -36,22 +50,46 @@ func renderRaw(expr string, fontSize float64) (svg string, w, h float64, err err
 	}
 	fonts, err := MathFonts()
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("math render: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("math render: %w", err)
 	}
 	r := &svgRenderer{}
 	err = mtex.Render(r, expr, fontSize, defaultDPI, fonts)
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("math render: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("math render: %w", err)
 	}
 	// mtex's reported h is the bbox ascent — it understates total height
 	// for expressions with descenders or fractions. Use the observed
 	// y-range instead, and wrap the output in a translation so content
 	// starts at y=0.
 	if r.hasY {
+		baseline = medianBaseline(r.glyphYs) - r.minY
 		out := fmt.Sprintf(`<g transform="translate(0,%.3f)">%s</g>`, -r.minY, r.String())
-		return out, r.w, r.maxY - r.minY, nil
+		return out, r.w, r.maxY - r.minY, baseline, nil
 	}
-	return r.String(), r.w, r.h, nil
+	return r.String(), r.w, r.h, r.h, nil
+}
+
+// medianBaseline returns the median value of a slice of glyph baselines.
+// Median (rather than mean) keeps a stray descender or a stacked
+// numerator/denominator from biasing the result away from the inline
+// baseline that most glyphs share.
+func medianBaseline(ys []float64) float64 {
+	if len(ys) == 0 {
+		return 0
+	}
+	sorted := make([]float64, len(ys))
+	copy(sorted, ys)
+	// Insertion sort — n is small.
+	for i := 1; i < len(sorted); i++ {
+		for j := i; j > 0 && sorted[j-1] > sorted[j]; j-- {
+			sorted[j-1], sorted[j] = sorted[j], sorted[j-1]
+		}
+	}
+	mid := len(sorted) / 2
+	if len(sorted)%2 == 1 {
+		return sorted[mid]
+	}
+	return (sorted[mid-1] + sorted[mid]) / 2
 }
 
 // normalizeMathExpr cleans up common escaping issues in math expressions
@@ -65,10 +103,10 @@ const (
 	defaultFontSize = 14.0
 	defaultDPI      = 72.0
 	// displayScale enlarges math output relative to the surrounding text
-	// font size. Noto Sans Math glyphs at point-size N render visibly
-	// narrower than ordinary 16px text; scaling by 1.5 brings the math
-	// up to a comparable visual weight.
-	displayScale = 1.5
+	// font size. Noto Sans Math glyphs are visually a bit smaller than
+	// ordinary 16px text; a modest 1.2x bump brings the math to roughly
+	// the same x-height as adjacent text without overshadowing it.
+	displayScale = 1.2
 )
 
 // svgRenderer implements mtex.Renderer by converting drawtex
@@ -79,6 +117,12 @@ type svgRenderer struct {
 	dpi        float64
 	minY, maxY float64
 	hasY       bool
+	// glyphYs collects every glyph's op.Y (the baseline at which mtex
+	// placed that glyph). The median of these is a good approximation
+	// of the expression's primary baseline — for pure inline math every
+	// glyph shares the same op.Y, and for stacked content (fractions,
+	// roots) the median lands near the math axis.
+	glyphYs []float64
 }
 
 func (r *svgRenderer) noteY(y float64) {
@@ -106,6 +150,7 @@ func (r *svgRenderer) Render(w, h, dpi float64, cnv *drawtex.Canvas) error {
 	for _, op := range cnv.Ops() {
 		switch o := op.(type) {
 		case drawtex.GlyphOp:
+			r.glyphYs = append(r.glyphYs, o.Y)
 			r.renderGlyph(&buf, o)
 		case drawtex.RectOp:
 			r.renderRect(o)

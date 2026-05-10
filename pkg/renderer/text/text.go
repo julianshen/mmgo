@@ -381,11 +381,16 @@ func MeasureSegments(segs []Segment, ruler interface {
 
 // MathRenderResult holds the output of a successful math render call.
 type MathRenderResult struct {
-	Elements    []any   // svgutil.Path / svgutil.Rect elements
-	Width       float64 // scaled width
-	Height      float64 // scaled height
-	OrigWidth   float64 // original unscaled width
-	OrigHeight  float64 // original unscaled height
+	Elements   []any   // svgutil.Path / svgutil.Rect elements
+	Width      float64 // scaled width
+	Height     float64 // scaled height
+	OrigWidth  float64 // original unscaled width
+	OrigHeight float64 // original unscaled height
+	// Baseline is the y-coordinate (within the rendered fragment's local
+	// frame, where y=0 is the top of Elements) of the expression's
+	// primary baseline. Callers use it to align math with surrounding
+	// text by baseline rather than by bbox centre.
+	Baseline float64
 }
 
 // RenderMath renders a math expression to SVG elements with optional
@@ -395,7 +400,7 @@ type MathRenderResult struct {
 // that do not support CSS style inheritance from parent <g> nodes.
 func RenderMath(expr string, fontSize, targetH float64, fill string) *MathRenderResult {
 	var svgMath string
-	var mw, mh float64
+	var mw, mh, mbase float64
 	var err error
 	func() {
 		defer func() {
@@ -403,7 +408,7 @@ func RenderMath(expr string, fontSize, targetH float64, fill string) *MathRender
 				err = fmt.Errorf("math render panic: %v", r)
 			}
 		}()
-		svgMath, mw, mh, err = math.RenderRich(expr, fontSize)
+		svgMath, mw, mh, mbase, err = math.RenderRichWithBaseline(expr, fontSize)
 	}()
 	if err != nil {
 		return nil
@@ -429,6 +434,7 @@ func RenderMath(expr string, fontSize, targetH float64, fill string) *MathRender
 		Height:     mh * scale,
 		OrigWidth:  mw,
 		OrigHeight: mh,
+		Baseline:   mbase * scale,
 	}
 }
 

@@ -18,6 +18,14 @@ import (
 // individually, and concatenates the SVG fragments horizontally with the
 // special tokens rendered manually (comma glyph, raised/lowered groups).
 func RenderRich(expr string, fontSize float64) (svg string, w, h float64, err error) {
+	s, w, h, _, err := RenderRichWithBaseline(expr, fontSize)
+	return s, w, h, err
+}
+
+// RenderRichWithBaseline is like RenderRich but also returns the local
+// y-coordinate of the expression's primary baseline so callers can
+// baseline-align math with surrounding text.
+func RenderRichWithBaseline(expr string, fontSize float64) (svg string, w, h, baseline float64, err error) {
 	expr = normalizeMathExpr(expr)
 	if fontSize <= 0 {
 		fontSize = defaultFontSize
@@ -25,9 +33,9 @@ func RenderRich(expr string, fontSize float64) (svg string, w, h float64, err er
 	scaled := fontSize * displayScale
 	parts, ok := splitTopLevel(expr)
 	if !ok || len(parts) == 1 && parts[0].kind == partMath {
-		return renderRaw(stripNestedSupSub(expr), scaled)
+		return renderRawWithBaseline(stripNestedSupSub(expr), scaled)
 	}
-	return renderParts(parts, scaled)
+	return renderPartsWithBaseline(parts, scaled)
 }
 
 // stripNestedSupSub removes `^X` and `_X` patterns from the expression
@@ -184,35 +192,48 @@ func isAlpha(b byte) bool {
 // piece by (xCursor - localPieceMinX, 0). Since same fontSize produces
 // the same baseline location, simple horizontal stacking works.
 func renderParts(parts []rawPart, fontSize float64) (svg string, totalW, maxH float64, err error) {
+	s, w, h, _, e := renderPartsWithBaseline(parts, fontSize)
+	return s, w, h, e
+}
+
+// renderPartsWithBaseline assembles split parts and returns the
+// expression's primary baseline (in local SVG y) — taken from the first
+// math chunk (which sets the inline baseline for the whole expression).
+func renderPartsWithBaseline(parts []rawPart, fontSize float64) (svg string, totalW, maxH, baseline float64, err error) {
 	var sb strings.Builder
 	x := 0.0
 	maxH = 0.0
+	baselineSet := false
 	for _, p := range parts {
 		switch p.kind {
 		case partMath:
-			s, pw, ph, e := renderRaw(stripNestedSupSub(p.expr), fontSize)
+			s, pw, ph, pb, e := renderRawWithBaseline(stripNestedSupSub(p.expr), fontSize)
 			if e != nil {
-				return "", 0, 0, e
+				return "", 0, 0, 0, e
 			}
 			fmt.Fprintf(&sb, `<g transform="translate(%.3f,0)">%s</g>`, x, s)
 			x += pw
 			if ph > maxH {
 				maxH = ph
 			}
+			if !baselineSet {
+				baseline = pb
+				baselineSet = true
+			}
 		case partComma:
 			advance, glyphSVG, err := renderCharGlyph(',', fontSize)
 			if err != nil {
-				// Fall back to a small gap — better than failing.
 				x += fontSize * 0.3
 				continue
 			}
-			// Position comma so its baseline aligns with math baseline.
-			// Math output places its baseline near y = ascent of fonts;
-			// approximate by placing the comma at y offset of fontSize * 0.85
-			// (the typical ascent fraction of x-height + ascent).
+			// Position comma so its baseline aligns with the surrounding
+			// math's main baseline. mtex puts text-line glyphs at a baseline
+			// near 0.85 * fontSize (Noto Sans Math ascent). Add a thin
+			// space after the comma to mimic the small space mtex inserts
+			// after punctuation in math mode (\, ≈ 3mu = fontSize/6).
 			yBaseline := fontSize * 0.85
 			fmt.Fprintf(&sb, `<g transform="translate(%.3f,%.3f)">%s</g>`, x, yBaseline, glyphSVG)
-			x += advance
+			x += advance + fontSize*0.15
 		case partSup, partSub:
 			subSize := fontSize * 0.7
 			// Recurse via the rich path on the inner operand, but at
@@ -243,7 +264,7 @@ func renderParts(parts []rawPart, fontSize float64) (svg string, totalW, maxH fl
 			}
 		}
 	}
-	return sb.String(), x, maxH, nil
+	return sb.String(), x, maxH, baseline, nil
 }
 
 func absFloat(v float64) float64 {

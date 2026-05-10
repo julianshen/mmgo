@@ -121,8 +121,28 @@ func LabelElements(label string, cx, cy, fontSize float64, anchor, dominant, tex
 					default:
 						mx = xOff + seg.Width/2 - res.Width/2
 					}
-					// Centre math vertically on the text line.
-					my := ly - res.Height/2
+					// Vertical alignment depends on dominant-baseline:
+					//  - "auto" / unset / "alphabetic": ly is the text
+					//    baseline. Align math baseline to ly.
+					//  - "central" / "middle": ly is the visual centre.
+					//    Centre math bbox on ly.
+					//  - "hanging": ly is the cap-top. Align math top.
+					// Falling back to bbox-centre for unknown values keeps
+					// existing behaviour when callers haven't specified a
+					// dominant baseline.
+					var my float64
+					switch dominant {
+					case svgutil.BaselineAuto, "", "alphabetic":
+						if res.Baseline > 0 {
+							my = ly - res.Baseline
+						} else {
+							my = ly - res.Height
+						}
+					case "hanging", "text-before-edge":
+						my = ly
+					default: // central, middle
+						my = ly - res.Height/2
+					}
 					g := &svgutil.Group{
 						Transform: fmt.Sprintf("translate(%.2f,%.2f) scale(%.3f)", mx, my, scale),
 						Children:  res.Elements,
