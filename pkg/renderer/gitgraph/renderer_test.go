@@ -616,3 +616,204 @@ func lookupBranchPillY(t *testing.T, svg, branchLabel string) float64 {
 	}
 	return v
 }
+
+func TestCommitSlotsSequentialDefault(t *testing.T) {
+	commits := []diagram.GitCommit{
+		{ID: "c1", Branch: "main"},
+		{ID: "c2", Branch: "develop", Parents: []string{"c1"}},
+		{ID: "c3", Branch: "main", Parents: []string{"c1"}},
+	}
+	got := commitSlots(commits, false)
+	want := []int{0, 1, 2}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("slot[%d] = %d, want %d", i, got[i], want[i])
+		}
+	}
+}
+
+func TestCommitSlotsParallelCollapsesDepth(t *testing.T) {
+	// c2 (off c1) and c3 (off c1) sit at the same depth — both get
+	// slot 1 under parallelCommits, freeing column 2 for the merge.
+	commits := []diagram.GitCommit{
+		{ID: "c1", Branch: "main"},
+		{ID: "c2", Branch: "develop", Parents: []string{"c1"}},
+		{ID: "c3", Branch: "main", Parents: []string{"c1"}},
+		{ID: "m1", Branch: "main", Type: diagram.GitCommitMerge,
+			Parents: []string{"c3", "c2"}},
+	}
+	got := commitSlots(commits, true)
+	want := []int{0, 1, 1, 2}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("slot[%d] = %d, want %d (full=%v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestRenderParallelCommitsAlignsParallelBranches(t *testing.T) {
+	d := &diagram.GitGraphDiagram{
+		Branches: []string{"main", "develop"},
+		Commits: []diagram.GitCommit{
+			{ID: "c1", Branch: "main"},
+			{ID: "c2", Branch: "develop", Parents: []string{"c1"}},
+			{ID: "c3", Branch: "main", Parents: []string{"c1"}},
+		},
+	}
+	yes := true
+	out, err := Render(d, &Options{Config: Config{ParallelCommits: &yes}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	c2x := dotXFor(t, string(out), "c2")
+	c3x := dotXFor(t, string(out), "c3")
+	if c2x != c3x {
+		t.Errorf("parallelCommits should align c2 and c3 on x; got c2=%v, c3=%v", c2x, c3x)
+	}
+
+	// Sanity: without the flag, the same commits should sit on
+	// different columns.
+	out2, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if dotXFor(t, string(out2), "c2") == dotXFor(t, string(out2), "c3") {
+		t.Errorf("default rendering must keep sequential columns")
+	}
+}
+
+// dotXFor returns the cx of the commit dot whose adjacent text
+// content equals id. The renderer emits the dot before the id label,
+// and the label appears as `>id<` in the SVG, so we walk back from
+// the label to the most recent `cx="…"`.
+func dotXFor(t *testing.T, svg, id string) float64 {
+	t.Helper()
+	marker := ">" + id + "<"
+	idx := strings.Index(svg, marker)
+	if idx < 0 {
+		t.Fatalf("missing label %q in svg", id)
+	}
+	head := svg[:idx]
+	cxAt := strings.LastIndex(head, ` cx="`)
+	if cxAt < 0 {
+		t.Fatalf("no cx before label %q", id)
+	}
+	end := strings.Index(head[cxAt+5:], `"`)
+	v, err := strconv.ParseFloat(head[cxAt+5:cxAt+5+end], 64)
+	if err != nil {
+		t.Fatalf("parse cx for %q: %v", id, err)
+	}
+	return v
+}
+
+func TestCommitSlotsParallelHandlesCherryPick(t *testing.T) {
+	commits := []diagram.GitCommit{
+		{ID: "c1", Branch: "main"},
+		{ID: "c2", Branch: "develop", Parents: []string{"c1"}},
+		{ID: "cp", Branch: "main", Type: diagram.GitCommitCherryPick,
+			CherryPickOf: "c2", Parents: []string{"c1"}},
+	}
+	got := commitSlots(commits, true)
+	want := []int{0, 1, 1}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("slot[%d] = %d, want %d (full=%v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestRenderParallelCommitsBTInverts(t *testing.T) {
+	d := &diagram.GitGraphDiagram{
+		Direction: diagram.GitGraphDirBT,
+		Branches:  []string{"main", "develop"},
+		Commits: []diagram.GitCommit{
+			{ID: "c1", Branch: "main"},
+			{ID: "c2", Branch: "develop", Parents: []string{"c1"}},
+			{ID: "c3", Branch: "main", Parents: []string{"c1"}},
+		},
+	}
+	yes := true
+	out, err := Render(d, &Options{Config: Config{ParallelCommits: &yes}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// Under BT the commit axis is y, and parallel siblings c2/c3
+	// should share the same y after inversion.
+	c2y := dotYFor(t, string(out), "c2")
+	c3y := dotYFor(t, string(out), "c3")
+	if c2y != c3y {
+		t.Errorf("BT + parallelCommits: c2 and c3 should share y; got c2=%v c3=%v", c2y, c3y)
+	}
+	c1y := dotYFor(t, string(out), "c1")
+	// BT puts the latest depth at the top (low y), root at bottom
+	// (high y).
+	if !(c1y > c2y) {
+		t.Errorf("BT inversion: c1 (root) should be below c2; c1y=%v c2y=%v", c1y, c2y)
+	}
+}
+
+func TestRenderParallelCommitsShrinksWidth(t *testing.T) {
+	d := &diagram.GitGraphDiagram{
+		Branches: []string{"main", "develop"},
+		Commits: []diagram.GitCommit{
+			{ID: "c1", Branch: "main"},
+			{ID: "c2", Branch: "develop", Parents: []string{"c1"}},
+			{ID: "c3", Branch: "main", Parents: []string{"c1"}},
+		},
+	}
+	yes := true
+	parallel, err := Render(d, &Options{Config: Config{ParallelCommits: &yes}})
+	if err != nil {
+		t.Fatalf("Render parallel: %v", err)
+	}
+	sequential, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render sequential: %v", err)
+	}
+	if viewBoxWidth(t, parallel) >= viewBoxWidth(t, sequential) {
+		t.Errorf("parallelCommits should produce a narrower viewBox; parallel=%v sequential=%v",
+			viewBoxWidth(t, parallel), viewBoxWidth(t, sequential))
+	}
+}
+
+func dotYFor(t *testing.T, svg, id string) float64 {
+	t.Helper()
+	marker := ">" + id + "<"
+	idx := strings.Index(svg, marker)
+	if idx < 0 {
+		t.Fatalf("missing label %q in svg", id)
+	}
+	head := svg[:idx]
+	cyAt := strings.LastIndex(head, ` cy="`)
+	if cyAt < 0 {
+		t.Fatalf("no cy before label %q", id)
+	}
+	end := strings.Index(head[cyAt+5:], `"`)
+	v, err := strconv.ParseFloat(head[cyAt+5:cyAt+5+end], 64)
+	if err != nil {
+		t.Fatalf("parse cy for %q: %v", id, err)
+	}
+	return v
+}
+
+func viewBoxWidth(t *testing.T, svg []byte) float64 {
+	t.Helper()
+	s := string(svg)
+	at := strings.Index(s, `viewBox="`)
+	if at < 0 {
+		t.Fatalf("no viewBox attribute")
+	}
+	end := strings.Index(s[at+9:], `"`)
+	parts := strings.Fields(s[at+9 : at+9+end])
+	if len(parts) != 4 {
+		t.Fatalf("unexpected viewBox %q", s[at+9:at+9+end])
+	}
+	w, err := strconv.ParseFloat(parts[2], 64)
+	if err != nil {
+		t.Fatalf("parse viewBox w: %v", err)
+	}
+	return w
+}

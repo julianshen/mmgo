@@ -70,18 +70,23 @@ func Render(d *diagram.GitGraphDiagram, opts *Options) ([]byte, error) {
 		gutter = 0
 		maxPillW = 0 // pills aren't drawn, so they shouldn't reserve viewport room
 	}
-	g := newGeom(d.Direction, len(lanes), len(d.Commits), gutter)
+	slots := commitSlots(d.Commits, svgutil.BoolOr(cfg.ParallelCommits, false))
+	slotCount := 0
+	for _, s := range slots {
+		slotCount = max(slotCount, s+1)
+	}
+	g := newGeom(d.Direction, len(lanes), slotCount, gutter)
 	g.maxPillW = maxPillW
 
 	cx := make(map[string]float64, len(d.Commits))
 	cy := make(map[string]float64, len(d.Commits))
 	branchRange := make(map[string][2]float64, len(lanes))
 	for i, c := range d.Commits {
-		x, y := g.commitXY(i, laneOf[c.Branch])
+		x, y := g.commitXY(slots[i], laneOf[c.Branch])
 		cx[c.ID] = x
 		cy[c.ID] = y
 		// branchRange records the min/max along the commit axis only.
-		mainPx := g.commitMain(i)
+		mainPx := g.commitMain(slots[i])
 		if r, ok := branchRange[c.Branch]; ok {
 			if mainPx < r[0] {
 				r[0] = mainPx
@@ -283,6 +288,36 @@ type geom struct {
 	maxPillW float64
 }
 
+// commitSlots assigns each commit a slot along the commit axis.
+// Without parallelCommits, slot == declaration index — every commit
+// gets its own column. With parallelCommits, commits collapse onto
+// the lowest possible slot: max(parent slots) + 1, or 0 for roots.
+// This lets parallel branches share x-positions when their commits
+// are at the same logical depth from a common ancestor.
+func commitSlots(commits []diagram.GitCommit, parallel bool) []int {
+	slots := make([]int, len(commits))
+	if !parallel {
+		for i := range slots {
+			slots[i] = i
+		}
+		return slots
+	}
+	idIdx := make(map[string]int, len(commits))
+	for i, c := range commits {
+		idIdx[c.ID] = i
+	}
+	for i, c := range commits {
+		maxParent := -1
+		for _, p := range c.Parents {
+			if pi, ok := idIdx[p]; ok && slots[pi] > maxParent {
+				maxParent = slots[pi]
+			}
+		}
+		slots[i] = maxParent + 1
+	}
+	return slots
+}
+
 func newGeom(dir diagram.GitGraphDirection, nLanes, nCommits int, gutter float64) geom {
 	g := geom{dir: dir, nLanes: nLanes, nCommits: nCommits, gutter: gutter}
 	switch dir {
@@ -298,12 +333,15 @@ func newGeom(dir diagram.GitGraphDirection, nLanes, nCommits int, gutter float64
 	return g
 }
 
-// commitMain returns the pixel coord along the commit axis for index i,
-// honoring BT inversion.
-func (g geom) commitMain(i int) float64 {
-	idx := i
+// commitMain returns the pixel coord along the commit axis for the
+// given slot, honoring BT inversion. Slots are normally the commit's
+// index in the source order, but `parallelCommits: true` collapses
+// commits with the same logical depth (max-of-parents + 1) onto a
+// shared slot.
+func (g geom) commitMain(slot int) float64 {
+	idx := slot
 	if g.dir == diagram.GitGraphDirBT {
-		idx = g.nCommits - 1 - i
+		idx = g.nCommits - 1 - slot
 	}
 	return g.originMain + float64(idx)*commitStride
 }
@@ -313,9 +351,9 @@ func (g geom) laneCross(lane int) float64 {
 	return g.originCross + float64(lane)*laneHeight
 }
 
-// commitXY maps (commitIdx, laneIdx) to (x, y) in the rendered SVG.
-func (g geom) commitXY(i, lane int) (x, y float64) {
-	main := g.commitMain(i)
+// commitXY maps (slot, laneIdx) to (x, y) in the rendered SVG.
+func (g geom) commitXY(slot, lane int) (x, y float64) {
+	main := g.commitMain(slot)
 	cross := g.laneCross(lane)
 	if g.isVertical() {
 		return cross, main

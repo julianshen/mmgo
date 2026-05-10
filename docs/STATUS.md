@@ -4,14 +4,14 @@ Dashboard view of progress against [implementation-plan.md](implementation-plan.
 Updated at each step boundary and committed to git, so any client can read
 current state without relying on chat history.
 
-**Last updated:** 2026-05-07 (C4 UpdateLayoutConfig / Legend / RelIndex follow-ups)
+**Last updated:** 2026-05-07 (GitGraph parallelCommits, plus C4 UpdateLayoutConfig / Legend / RelIndex)
 
 ## Overall
 
 - **Current milestone:** v0.4.0 complete; working toward v0.5.0 (Gantt, mindmap, others)
 - **Current phase:** Phase 6 in progress
 - **At full spec parity:** Block (Step 27); Class / State / ER / Gantt / Mindmap; Timeline (Step 25); Quadrant (Step 28); Sankey (Step 26); Kanban (Step 30); XY (Step 32); **C4 (Step 29)** and **GitGraph (Step 31)** newly promoted after Phase 4
-- **Remaining minor follow-ups:** C4 (LAYOUT_LANDSCAPE, LAYOUT_AS_SKETCH); GitGraph (parallelCommits algorithmic pass, named theme resolution, validation). C4 `UpdateLayoutConfig` / `SHOW_LEGEND` / `RelIndex` landed in this PR. All Phase 6 diagram types are now ✅ on the spec surface that Mermaid itself implements.
+- **Remaining minor follow-ups:** GitGraph (named theme resolution, validation). `parallelCommits` now collapses commits onto shared slots by max-of-parents depth. `LAYOUT_LANDSCAPE` / `LAYOUT_AS_SKETCH` are PlantUML stdlib directives that Mermaid's C4 docs explicitly do not implement (parser silently no-ops them, matching upstream). All Phase 6 diagram types are now ✅ on the spec surface that Mermaid itself implements.
 - **Next:** New diagram types for Phase 7 milestones, or v1.0 API stabilization
 
 ## Phase 0: Project Scaffold
