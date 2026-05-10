@@ -3,6 +3,7 @@ package sequence
 import (
 	"encoding/xml"
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
@@ -187,7 +188,7 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 	// Notes anchored "right of" the last participant (and "left of"
 	// the first) extend past the participant boxes; reserve room so
 	// the note rect doesn't clip at the viewBox edge.
-	leftBleed, rightBleed := noteBleed(d.Items, pIndex, n)
+	leftBleed, rightBleed := noteBleed(d.Items, pIndex, n, fontSize)
 	sl, sr := selfMsgBleeds(d.Items, pIndex, n, fontSize)
 	if sl > leftBleed {
 		leftBleed = sl
@@ -300,11 +301,13 @@ func renderTitle(title string, lay seqLayout, th Theme, fontSize float64) []any 
 }
 
 // noteBleed returns the pixel extent past the leftmost and rightmost
-// participants needed to fit any "Note left of" / "Note right of"
-// items. Mirrors the geometry in messageRenderer.renderNote.
-func noteBleed(items []diagram.SequenceItem, pIndex map[string]int, n int) (left, right float64) {
-	const noteHalfW = 60.0 // half of noteW
-	const noteOff = 10.0   // matches noteOffset
+// participants needed to fit notes anchored at edge participants.
+// Mirrors the geometry in messageRenderer.renderNote, including width
+// growth for multi-line or long-text notes — covers all three positions
+// (left, right, over) so a long "Note over" attached to an edge
+// participant doesn't clip past x=0 / totalW.
+func noteBleed(items []diagram.SequenceItem, pIndex map[string]int, n int, fontSize float64) (left, right float64) {
+	const noteOff = 10.0 // matches noteOffset
 	for _, item := range items {
 		switch {
 		case item.Note != nil && len(item.Note.Participants) > 0:
@@ -312,22 +315,62 @@ func noteBleed(items []diagram.SequenceItem, pIndex map[string]int, n int) (left
 			if !ok {
 				continue
 			}
+			// Mirror renderNote's width formula so the bleed matches.
+			// Renamed from noteW to avoid shadowing the package-level
+			// noteW constant.
+			noteWidth := math.Max(noteW, noteTextWidth(item.Note.Text, fontSize)+2*notePad)
 			switch item.Note.Position {
 			case diagram.NotePositionLeft:
 				if idx == 0 {
-					if w := noteOff + 2*noteHalfW; w > left {
+					if w := noteOff + noteWidth; w > left {
 						left = w
 					}
 				}
 			case diagram.NotePositionRight:
 				if idx == n-1 {
-					if w := noteOff + 2*noteHalfW; w > right {
+					if w := noteOff + noteWidth; w > right {
 						right = w
 					}
 				}
+			case diagram.NotePositionOver:
+				// renderNote centers the rect at xs[idx] (single
+				// participant) or at the midpoint of two participants.
+				// Single participant: rect extends w/2 past the lifeline.
+				// Two-participant: cx is at the gap midpoint, so the
+				// extent past either edge lifeline is w/2 minus half
+				// the inter-participant gap. We don't know xs here, but
+				// the layout enforces a defaultParticipantGap floor on
+				// every gap, so subtracting half of that under-counts
+				// the actual mid-gap distance — which is fine: it just
+				// reserves a bit more headroom than strictly necessary.
+				minIdx, maxIdx := idx, idx
+				if len(item.Note.Participants) >= 2 {
+					if i2, ok2 := pIndex[item.Note.Participants[1]]; ok2 {
+						if i2 < minIdx {
+							minIdx = i2
+						}
+						if i2 > maxIdx {
+							maxIdx = i2
+						}
+					}
+				}
+				bleed := noteWidth / 2
+				if minIdx != maxIdx {
+					if span := bleed - defaultParticipantGap/2; span > 0 {
+						bleed = span
+					} else {
+						bleed = 0
+					}
+				}
+				if minIdx == 0 && bleed > left {
+					left = bleed
+				}
+				if maxIdx == n-1 && bleed > right {
+					right = bleed
+				}
 			}
 		case item.Block != nil:
-			l, r := noteBleed(item.Block.Items, pIndex, n)
+			l, r := noteBleed(item.Block.Items, pIndex, n, fontSize)
 			if l > left {
 				left = l
 			}
@@ -335,7 +378,7 @@ func noteBleed(items []diagram.SequenceItem, pIndex map[string]int, n int) (left
 				right = r
 			}
 			for _, br := range item.Block.Branches {
-				bl, br_ := noteBleed(br.Items, pIndex, n)
+				bl, br_ := noteBleed(br.Items, pIndex, n, fontSize)
 				if bl > left {
 					left = bl
 				}
@@ -492,7 +535,7 @@ func extraLabelHeight(items []diagram.SequenceItem, fontSize float64) float64 {
 				extra += selfLoopRowExtra(fontSize)
 			}
 		case item.Note != nil && item.Note.Text != "":
-			extra += extraLinesHeight(item.Note.Text, fontSize)
+			extra += noteRowExtra(item.Note.Text, fontSize)
 		case item.Block != nil:
 			// Non-rect blocks consume a full-row header so their
 			// b.Label inside the kind tab clears the first message

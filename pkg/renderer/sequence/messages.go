@@ -117,7 +117,7 @@ func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel 
 			mr.curY += advance
 		case item.Note != nil:
 			elems = append(elems, mr.renderNote(*item.Note)...)
-			mr.curY += defaultRowHeight + extraLinesHeight(item.Note.Text, mr.fontSize)
+			mr.curY += defaultRowHeight + noteRowExtra(item.Note.Text, mr.fontSize)
 		case item.Block != nil:
 			elems = append(elems, mr.renderBlock(*item.Block, depth)...)
 		}
@@ -286,8 +286,11 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 	y := mr.curY
 	x0 := mr.lay.participantX[idx0]
 
+	textW := noteTextWidth(n.Text, mr.fontSize)
+	h := noteHeight(n.Text, mr.fontSize)
+
 	var cx float64
-	w := noteW
+	w := math.Max(noteW, textW+2*notePad)
 	switch n.Position {
 	case diagram.NotePositionLeft:
 		cx = x0 - noteOffset - w/2
@@ -301,7 +304,10 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 			}
 			x1 := mr.lay.participantX[idx1]
 			cx = (x0 + x1) / 2
-			w = math.Abs(x1-x0) + 2*notePad
+			gapW := math.Abs(x1-x0) + 2*notePad
+			if gapW > w {
+				w = gapW
+			}
 		} else {
 			cx = x0
 		}
@@ -310,14 +316,58 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 	rx := cx - w/2
 	out := []any{
 		&rect{
-			X: svgFloat(rx), Y: svgFloat(y - noteH/2),
-			Width: svgFloat(w), Height: svgFloat(noteH),
+			X: svgFloat(rx), Y: svgFloat(y - h/2),
+			Width: svgFloat(w), Height: svgFloat(h),
 			RX: 3, RY: 3,
 			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f", mr.th.NoteFill, mr.th.MessageStroke, defaultStrokeWidth),
 		},
 	}
 	out = append(out, multilineText(n.Text, cx, y, "middle", "central", mr.msgTextStyle, mr.fontSize)...)
 	return out
+}
+
+// noteTextWidth returns the widest rendered line within s (split on
+// Mermaid's <br> tokens). Used to size note rectangles so multi-line
+// or long-line content doesn't overflow the default 120px width.
+//
+// Prefers real font metrics (via measureLine, which uses the
+// package-shared Ruler) over EstimateWidth so the rect hugs the text
+// instead of inheriting EstimateWidth's ~20% overestimate as visible
+// padding. Falls back to EstimateWidth if the ruler is unavailable.
+func noteTextWidth(s string, fontSize float64) float64 {
+	var maxW float64
+	for _, ln := range splitLabelLines(s) {
+		w := measureLine(ln, fontSize)
+		if w == 0 {
+			w = textmeasure.EstimateWidth(ln, fontSize)
+		}
+		if w > maxW {
+			maxW = w
+		}
+	}
+	return maxW
+}
+
+// noteHeight returns the rect height needed to contain s as multi-line
+// text plus notePad of vertical padding. Floors at noteH so the default
+// 14px-font, single-line case keeps its existing 30px height; for larger
+// fonts or extra lines the rect grows to fit content + padding.
+func noteHeight(s string, fontSize float64) float64 {
+	n := len(splitLabelLines(s))
+	contentH := fontSize + float64(n-1)*labelLineHeight(fontSize) + 2*notePad
+	return math.Max(noteH, contentH)
+}
+
+// noteRowExtra returns the per-row vertical headroom needed for a note,
+// over and above defaultRowHeight. Both renderItems (curY advance) and
+// extraLabelHeight (layout reservation) call this so a note rect taller
+// than defaultRowHeight (large font, or many <br/> lines) doesn't bleed
+// into the next row's content.
+func noteRowExtra(s string, fontSize float64) float64 {
+	if extra := noteHeight(s, fontSize) - defaultRowHeight; extra > 0 {
+		return extra
+	}
+	return 0
 }
 
 func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
