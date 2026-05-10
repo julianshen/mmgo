@@ -95,7 +95,7 @@ func TestRenderAllShapes(t *testing.T) {
 		t.Run(shape.String(), func(t *testing.T) {
 			n := diagram.Node{ID: "A", Label: "Test", Shape: shape}
 			nl := layout.NodeLayout{X: 100, Y: 50, Width: 80, Height: 40}
-			elems := renderNode(n, nl, 10, DefaultTheme(), 16)
+			elems := renderNode(n, nl, 10, DefaultTheme(), 16, nil)
 			if suppressLabel(shape) {
 				if len(elems) < 1 {
 					t.Fatalf("shape %s: expected at least 1 element, got %d", shape, len(elems))
@@ -123,7 +123,7 @@ func TestRenderAllShapes(t *testing.T) {
 func TestRenderRoundedRectHasRX(t *testing.T) {
 	elems := renderNode(
 		diagram.Node{ID: "A", Label: "R", Shape: diagram.NodeShapeRoundedRectangle},
-		layout.NodeLayout{X: 50, Y: 50, Width: 80, Height: 40}, 0, DefaultTheme(), 16)
+		layout.NodeLayout{X: 50, Y: 50, Width: 80, Height: 40}, 0, DefaultTheme(), 16, nil)
 	rect, ok := elems[0].(*Rect)
 	if !ok {
 		t.Fatalf("expected *Rect, got %T", elems[0])
@@ -136,7 +136,7 @@ func TestRenderRoundedRectHasRX(t *testing.T) {
 func TestRenderStadiumHasFullRX(t *testing.T) {
 	elems := renderNode(
 		diagram.Node{ID: "A", Label: "S", Shape: diagram.NodeShapeStadium},
-		layout.NodeLayout{X: 50, Y: 50, Width: 80, Height: 40}, 0, DefaultTheme(), 16)
+		layout.NodeLayout{X: 50, Y: 50, Width: 80, Height: 40}, 0, DefaultTheme(), 16, nil)
 	rect, ok := elems[0].(*Rect)
 	if !ok {
 		t.Fatalf("expected *Rect, got %T", elems[0])
@@ -149,7 +149,7 @@ func TestRenderStadiumHasFullRX(t *testing.T) {
 func TestRenderDoubleCircleHasTwoCircles(t *testing.T) {
 	elems := renderNode(
 		diagram.Node{ID: "A", Label: "D", Shape: diagram.NodeShapeDoubleCircle},
-		layout.NodeLayout{X: 50, Y: 50, Width: 80, Height: 40}, 0, DefaultTheme(), 16)
+		layout.NodeLayout{X: 50, Y: 50, Width: 80, Height: 40}, 0, DefaultTheme(), 16, nil)
 	circles := 0
 	for _, e := range elems {
 		if _, ok := e.(*Circle); ok {
@@ -164,7 +164,7 @@ func TestRenderDoubleCircleHasTwoCircles(t *testing.T) {
 func TestRenderSubroutineHasLines(t *testing.T) {
 	elems := renderNode(
 		diagram.Node{ID: "A", Label: "Sub", Shape: diagram.NodeShapeSubroutine},
-		layout.NodeLayout{X: 50, Y: 50, Width: 80, Height: 40}, 0, DefaultTheme(), 16)
+		layout.NodeLayout{X: 50, Y: 50, Width: 80, Height: 40}, 0, DefaultTheme(), 16, nil)
 	lines := 0
 	for _, e := range elems {
 		if _, ok := e.(*Line); ok {
@@ -179,7 +179,7 @@ func TestRenderSubroutineHasLines(t *testing.T) {
 func TestRenderMultiLineLabel(t *testing.T) {
 	elems := renderNode(
 		diagram.Node{ID: "A", Label: "Line1\nLine2\nLine3", Shape: diagram.NodeShapeRectangle},
-		layout.NodeLayout{X: 50, Y: 50, Width: 80, Height: 40}, 0, DefaultTheme(), 16)
+		layout.NodeLayout{X: 50, Y: 50, Width: 80, Height: 40}, 0, DefaultTheme(), 16, nil)
 	texts := 0
 	for _, e := range elems {
 		if txt, ok := e.(*Text); ok {

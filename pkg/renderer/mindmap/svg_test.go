@@ -4,11 +4,12 @@ import (
 	"testing"
 
 	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
+	richtext "github.com/julianshen/mmgo/pkg/renderer/text"
 )
 
 func TestParseMathSVGPathAndRect(t *testing.T) {
 	input := `<path d="M0.034 -6.271 L0.034 -6.268"/><rect x="0.000" y="-9.771" width="2.393" height="0.875"/><path d="M0.036 -17.152 L0.034 -17.152"/>`
-	elems := parseMathSVG(input)
+	elems := richtext.ParseMathSVG(input)
 	if len(elems) != 3 {
 		t.Fatalf("want 3 elements, got %d", len(elems))
 	}
@@ -39,7 +40,7 @@ func TestParseMathSVGPathAndRect(t *testing.T) {
 }
 
 func TestParseMathSVGEmpty(t *testing.T) {
-	elems := parseMathSVG("")
+	elems := richtext.ParseMathSVG("")
 	if len(elems) != 0 {
 		t.Errorf("want 0 elements, got %d", len(elems))
 	}
@@ -47,26 +48,9 @@ func TestParseMathSVGEmpty(t *testing.T) {
 
 func TestParseMathSVGInvalid(t *testing.T) {
 	// No closing />
-	elems := parseMathSVG("<path d=\"M0 0\"")
+	elems := richtext.ParseMathSVG("<path d=\"M0 0\"")
 	if len(elems) != 0 {
 		t.Errorf("want 0 elements for invalid input, got %d", len(elems))
-	}
-}
-
-func TestParseAttrs(t *testing.T) {
-	m := parseAttrs(`<path d="M0 0 L1 1" fill="none"/>`)
-	if m["d"] != "M0 0 L1 1" {
-		t.Errorf("d = %q", m["d"])
-	}
-	if m["fill"] != "none" {
-		t.Errorf("fill = %q", m["fill"])
-	}
-}
-
-func TestParseAttrsNoQuotes(t *testing.T) {
-	m := parseAttrs(`<path d=M0 0/>`)
-	if len(m) != 0 {
-		t.Errorf("want empty map for unquoted attr, got %+v", m)
 	}
 }
 
@@ -77,8 +61,8 @@ func TestRawSVGDeprecated(t *testing.T) {
 }
 
 func TestMathSVGIntegration(t *testing.T) {
-	// Verify parseMathSVG produces types compatible with svgutil.MarshalSVG.
-	elems := parseMathSVG(`<path d="M0 0"><rect x="1" y="2" width="3" height="4">`)
+	// Verify ParseMathSVG produces types compatible with svgutil.MarshalSVG.
+	elems := richtext.ParseMathSVG(`<path d="M0 0"/><rect x="1" y="2" width="3" height="4"/>`)
 	doc := svgutil.Doc{
 		XMLNS:   "http://www.w3.org/2000/svg",
 		ViewBox: "0 0 10 10",

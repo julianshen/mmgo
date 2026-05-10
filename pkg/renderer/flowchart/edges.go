@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
 	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
+	"github.com/julianshen/mmgo/pkg/renderer/text"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -270,11 +272,16 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 			RX: 3, RY: 3,
 			Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 		})
-		elems = append(elems, &Text{
-			X: svgFloat(lx), Y: svgFloat(ly),
-			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
-			FontSize: svgFloat(fontSize), Style: textStyle, Content: e.Label,
-		})
+		if strings.Contains(e.Label, "$$") {
+			textElems := text.LabelElements(e.Label, lx, ly, fontSize, svgutil.AnchorMiddle, textStyle, ruler, 1.2)
+			elems = append(elems, textElems...)
+		} else {
+			elems = append(elems, &Text{
+				X: svgFloat(lx), Y: svgFloat(ly),
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
+				FontSize: svgFloat(fontSize), Style: textStyle, Content: e.Label,
+			})
+		}
 	}
 
 	return elems
@@ -388,6 +395,9 @@ func branchLabelPos(port, stem layout.Point, cx, cy, fontSize float64) (x, y flo
 func measureLabel(ruler *textmeasure.Ruler, label string, fontSize float64) (w, h float64) {
 	if ruler == nil {
 		return 40, 20
+	}
+	if strings.Contains(label, "$$") {
+		return text.MeasureLabel(label, ruler, fontSize, 1.2)
 	}
 	return ruler.Measure(label, fontSize)
 }
