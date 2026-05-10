@@ -283,6 +283,15 @@ func matchElementKeyword(line string) (diagram.C4ElementKind, string, bool) {
 func parseRelation(rest string) (diagram.C4Relation, bool) {
 	rest = strings.TrimSuffix(rest, ")")
 	pos, named := splitPositionalAndNamed(splitArgs(rest))
+	return buildRelation(pos, named)
+}
+
+// buildRelation populates a C4Relation from positional args
+// [from, to, label, ?techn] and the shared named-arg map. Used by
+// both parseRelation and parseRelIndex so the named-arg surface
+// (techn / tags / link / sprite / offsetX / offsetY) stays in lock-
+// step.
+func buildRelation(pos []string, named map[string]string) (diagram.C4Relation, bool) {
 	if len(pos) < 3 {
 		return diagram.C4Relation{}, false
 	}
@@ -440,8 +449,8 @@ func parseUpdateLayoutConfig(d *diagram.C4Diagram, rest string) {
 
 // parseRelIndex parses `RelIndex(N, from, to, "label", ?"techn",
 // $named=...)`. The numeric first positional arg is the sequence
-// index; the rest mirror parseRelation's surface so all the named-
-// arg overrides flow through.
+// index; remaining args are routed through buildRelation so the
+// named-arg surface stays identical to plain Rel().
 func parseRelIndex(rest string) (diagram.C4Relation, bool) {
 	pos, named := splitPositionalAndNamed(splitArgs(rest))
 	if len(pos) < 4 {
@@ -451,27 +460,11 @@ func parseRelIndex(rest string) (diagram.C4Relation, bool) {
 	if err != nil || idx < 1 {
 		return diagram.C4Relation{}, false
 	}
-	rel := diagram.C4Relation{
-		Index: idx,
-		From:  pos[1],
-		To:    pos[2],
-		Label: parserutil.Unquote(pos[3]),
+	rel, ok := buildRelation(pos[1:], named)
+	if !ok {
+		return diagram.C4Relation{}, false
 	}
-	if len(pos) >= 5 {
-		rel.Technology = parserutil.Unquote(pos[4])
-	}
-	if v, ok := named["techn"]; ok && v != "" {
-		rel.Technology = v
-	}
-	rel.Tags = named["tags"]
-	rel.Link = named["link"]
-	rel.Sprite = named["sprite"]
-	if v, ok := named["offsetX"]; ok {
-		rel.OffsetX = parseFloatOrZero(v)
-	}
-	if v, ok := named["offsetY"]; ok {
-		rel.OffsetY = parseFloatOrZero(v)
-	}
+	rel.Index = idx
 	return rel, true
 }
 

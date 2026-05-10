@@ -953,3 +953,51 @@ UpdateLayoutConfig($c4ShapeInRow="-1", $c4BoundaryInRow="abc")
 		t.Errorf("malformed values must coerce to 0, got %+v", d.LayoutConfig)
 	}
 }
+
+func TestParseRelIndexRejectsZero(t *testing.T) {
+	input := `C4Context
+Person(u, "User")
+System(s, "Sys")
+RelIndex(0, u, s, "x")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Relations) != 0 {
+		t.Errorf("RelIndex(0,...) must be dropped; got %v", d.Relations)
+	}
+}
+
+func TestParseRelIndexRejectsTooFewArgs(t *testing.T) {
+	input := `C4Context
+Person(u, "User")
+RelIndex(1, u, "x")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Relations) != 0 {
+		t.Errorf("RelIndex with <4 positional args must be dropped; got %v", d.Relations)
+	}
+}
+
+func TestParseRelIndexNamedArgsPassThrough(t *testing.T) {
+	input := `C4Context
+Person(u, "User")
+System(s, "Sys")
+RelIndex(7, u, s, "calls", $tags="t1", $link="https://x", $sprite="sp", $offsetX="3", $offsetY="-4")
+`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Relations) != 1 {
+		t.Fatalf("want 1 relation, got %d", len(d.Relations))
+	}
+	r := d.Relations[0]
+	if r.Index != 7 || r.Tags != "t1" || r.Link != "https://x" || r.Sprite != "sp" || r.OffsetX != 3 || r.OffsetY != -4 {
+		t.Errorf("named-arg passthrough lost: %+v", r)
+	}
+}

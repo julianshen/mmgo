@@ -440,9 +440,6 @@ func renderEdges(d *diagram.C4Diagram, l *layout.Result, pad, titleOff, fontSize
 			})
 		}
 
-		// RelIndex marker: a small circled number near the source
-		// end of the curve, ~25% in. Skipped when Index==0 (the
-		// default for plain Rel(...) entries).
 		if rel.Index > 0 {
 			ix, iy := interpolate(pts, 0.25)
 			elems = append(elems, &circle{
