@@ -3,11 +3,41 @@ package sequence
 import (
 	"encoding/xml"
 	"fmt"
+	"sync"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
+
+// sharedRuler is parsed once and reused across Render calls so the
+// bundled font isn't re-parsed for every diagram. textmeasure.Ruler is
+// not safe for concurrent Measure calls (the per-size face cache is
+// unguarded), so callers serialize through rulerMu. We never Close it
+// because its lifetime equals the package's; a nil result is tolerated
+// — measureLine falls back to EstimateWidth.
+var (
+	sharedRuler = sync.OnceValue(func() *textmeasure.Ruler {
+		r, _ := textmeasure.NewDefaultRuler()
+		return r
+	})
+	rulerMu sync.Mutex
+)
+
+// measureLine returns the rendered width of s under sharedRuler. Real
+// font metrics matter wherever the measured value becomes a visible
+// dimension (rect width that hugs text, gap that hugs label width).
+// Returns 0 when the ruler is unavailable so callers can fall back.
+func measureLine(s string, fontSize float64) float64 {
+	r := sharedRuler()
+	if r == nil {
+		return 0
+	}
+	rulerMu.Lock()
+	defer rulerMu.Unlock()
+	w, _ := r.Measure(s, fontSize)
+	return w
+}
 
 func Render(d *diagram.SequenceDiagram, opts *Options) ([]byte, error) {
 	if d == nil {
@@ -101,12 +131,30 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 		}
 	}
 
+	// pIndex is built up front so it can drive both the per-segment
+	// label-gap pass below and the bleed/box passes further down.
+	pIndex := make(map[string]int, n)
+	for i, p := range d.Participants {
+		pIndex[p.ID] = i
+	}
+
+	// Cross-participant message labels render centered above the arrow
+	// between fromX and toX. If the label is wider than that span the
+	// text overflows the lifelines; widen the affected segment(s) so the
+	// label fits with msgLabelGap of breathing room each side. Multi-span
+	// messages distribute the requirement evenly across spanned segments.
+	segLabelMin := make([]float64, n-1)
+	collectMsgLabelGap(d.Items, pIndex, segLabelMin, fontSize)
+
 	xs := make([]float64, n)
 	xs[0] = pad + widths[0]/2
 	for i := 1; i < n; i++ {
 		gap := (widths[i-1] + widths[i]) / 2
 		if gap < defaultParticipantGap {
 			gap = defaultParticipantGap
+		}
+		if g := segLabelMin[i-1]; g > gap {
+			gap = g
 		}
 		xs[i] = xs[i-1] + gap
 	}
@@ -139,10 +187,6 @@ func computeLayout(d *diagram.SequenceDiagram, fontSize, pad float64) seqLayout 
 	// Notes anchored "right of" the last participant (and "left of"
 	// the first) extend past the participant boxes; reserve room so
 	// the note rect doesn't clip at the viewBox edge.
-	pIndex := make(map[string]int, n)
-	for i, p := range d.Participants {
-		pIndex[p.ID] = i
-	}
 	leftBleed, rightBleed := noteBleed(d.Items, pIndex, n)
 	sl, sr := selfMsgBleeds(d.Items, pIndex, n, fontSize)
 	if sl > leftBleed {
@@ -367,6 +411,64 @@ func selfMsgBleeds(items []diagram.SequenceItem, pIndex map[string]int, n int, f
 		}
 	}
 	return
+}
+
+// msgLabelGap is the breathing room reserved between a cross-participant
+// message label and each lifeline it spans across. The label renders
+// centered above the arrow, so the segment width must be at least
+// labelWidth + 2*msgLabelGap to keep text inside the lifeline span.
+const msgLabelGap = 6.0
+
+// collectMsgLabelGap walks items recursively and updates segNeeds[k]
+// with the minimum width required by message labels for the kth segment
+// (between participants k and k+1). Multi-span messages distribute their
+// requirement evenly across the segments they cross — over-allocates in
+// pathological cases (a single very wide segment among narrow ones) but
+// never under-allocates, and matches mermaid for the common single-span
+// case where the user's labels actually live.
+func collectMsgLabelGap(items []diagram.SequenceItem, pIndex map[string]int, segNeeds []float64, fontSize float64) {
+	if len(segNeeds) == 0 {
+		return
+	}
+	for _, item := range items {
+		switch {
+		case item.Message != nil:
+			m := item.Message
+			if m.From == m.To || m.Label == "" {
+				continue
+			}
+			fromIdx, ok1 := pIndex[m.From]
+			toIdx, ok2 := pIndex[m.To]
+			if !ok1 || !ok2 {
+				continue
+			}
+			lo, hi := fromIdx, toIdx
+			if hi < lo {
+				lo, hi = hi, lo
+			}
+			var labelW float64
+			for _, ln := range splitLabelLines(m.Label) {
+				w := measureLine(ln, fontSize)
+				if w == 0 {
+					w = textmeasure.EstimateWidth(ln, fontSize)
+				}
+				if w > labelW {
+					labelW = w
+				}
+			}
+			perSeg := (labelW + 2*msgLabelGap) / float64(hi-lo)
+			for k := lo; k < hi; k++ {
+				if perSeg > segNeeds[k] {
+					segNeeds[k] = perSeg
+				}
+			}
+		case item.Block != nil:
+			collectMsgLabelGap(item.Block.Items, pIndex, segNeeds, fontSize)
+			for _, br := range item.Block.Branches {
+				collectMsgLabelGap(br.Items, pIndex, segNeeds, fontSize)
+			}
+		}
+	}
 }
 
 // bodyRowsAndExtra returns the row count and any per-row extra
