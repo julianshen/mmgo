@@ -20,19 +20,24 @@ const (
 )
 
 var (
-	mathFontsOnce sync.Once
-	mathFonts     *ttf.Fonts
-	mathFontsErr  error
+	mathFontsMu  sync.Mutex
+	mathFonts    *ttf.Fonts
+	mathFontsErr error
 )
 
 // MathFonts returns a *ttf.Fonts populated with Noto Sans Math.
 // On the first call it downloads the font from the Noto fonts GitHub
 // release, caches it in the user's cache directory, and parses it.
-// Subsequent calls return the cached value.
+// Subsequent successful calls return the cached value; if a previous
+// call failed (e.g. transient network outage) the next call retries
+// rather than serving the cached error forever.
 func MathFonts() (*ttf.Fonts, error) {
-	mathFontsOnce.Do(func() {
-		mathFonts, mathFontsErr = loadMathFonts()
-	})
+	mathFontsMu.Lock()
+	defer mathFontsMu.Unlock()
+	if mathFonts != nil {
+		return mathFonts, nil
+	}
+	mathFonts, mathFontsErr = loadMathFonts()
 	return mathFonts, mathFontsErr
 }
 
@@ -61,7 +66,20 @@ func loadMathFonts() (*ttf.Fonts, error) {
 
 	ft, err := sfnt.Parse(data)
 	if err != nil {
-		return nil, fmt.Errorf("math font: parse: %w", err)
+		// Cached TTF is truncated/corrupted (e.g. interrupted download).
+		// Wipe it and try one fresh download before giving up.
+		_ = os.Remove(fontPath)
+		if dlErr := downloadAndExtract(cacheDir); dlErr != nil {
+			return nil, fmt.Errorf("math font: re-download after parse error %v: %w", err, dlErr)
+		}
+		data, err = os.ReadFile(fontPath)
+		if err != nil {
+			return nil, fmt.Errorf("math font: re-read: %w", err)
+		}
+		ft, err = sfnt.Parse(data)
+		if err != nil {
+			return nil, fmt.Errorf("math font: parse: %w", err)
+		}
 	}
 
 	// Noto Sans Math is a single font file; use it for all styles.
@@ -89,15 +107,9 @@ func downloadAndExtract(cacheDir string) error {
 		return fmt.Errorf("fetch %s: status %d", notoMathURL, resp.StatusCode)
 	}
 
-	f, err := os.Create(zipPath)
-	if err != nil {
-		return fmt.Errorf("create zip: %w", err)
+	if err := writeZip(zipPath, resp.Body); err != nil {
+		return err
 	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		f.Close()
-		return fmt.Errorf("write zip: %w", err)
-	}
-	f.Close()
 
 	// Extract the TTF.
 	zr, err := zip.OpenReader(zipPath)
@@ -117,17 +129,46 @@ func downloadAndExtract(cacheDir string) error {
 		defer rc.Close()
 
 		outPath := filepath.Join(cacheDir, "NotoSansMath-Regular.ttf")
-		out, err := os.Create(outPath)
-		if err != nil {
-			return fmt.Errorf("create ttf: %w", err)
+		if err := writeFile(outPath, rc); err != nil {
+			return err
 		}
-		if _, err := io.Copy(out, rc); err != nil {
-			out.Close()
-			return fmt.Errorf("write ttf: %w", err)
-		}
-		out.Close()
 		return nil
 	}
 
 	return fmt.Errorf("font %s not found in zip", notoMathTTF)
+}
+
+// writeZip writes r to path, making sure both the copy error and the
+// close error propagate via deferred close.
+func writeZip(path string, r io.Reader) (err error) {
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("create zip: %w", err)
+	}
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close zip: %w", closeErr)
+		}
+	}()
+	if _, err := io.Copy(f, r); err != nil {
+		return fmt.Errorf("write zip: %w", err)
+	}
+	return nil
+}
+
+// writeFile is writeZip's sibling for the extracted TTF.
+func writeFile(path string, r io.Reader) (err error) {
+	out, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("create ttf: %w", err)
+	}
+	defer func() {
+		if closeErr := out.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close ttf: %w", closeErr)
+		}
+	}()
+	if _, err := io.Copy(out, r); err != nil {
+		return fmt.Errorf("write ttf: %w", err)
+	}
+	return nil
 }

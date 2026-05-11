@@ -428,6 +428,17 @@ func RenderMath(expr string, fontSize, targetH float64, fill string) *MathRender
 		scale = targetH / mh
 	}
 
+	// If we report scaled Width/Height, the Elements themselves must
+	// scale to match — callers that lay out from Width/Height and emit
+	// res.Elements directly would otherwise draw glyphs that overflow
+	// the reported bbox. Wrap in a scaled <g> when scale != 1.
+	if scale != 1.0 {
+		elems = []any{&svgutil.Group{
+			Transform: fmt.Sprintf("scale(%.4f)", scale),
+			Children:  elems,
+		}}
+	}
+
 	return &MathRenderResult{
 		Elements:   elems,
 		Width:      mw * scale,

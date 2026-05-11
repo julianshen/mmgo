@@ -33,37 +33,35 @@ func RenderRichWithBaseline(expr string, fontSize float64) (svg string, w, h, ba
 	scaled := fontSize * displayScale
 	parts, ok := splitTopLevel(expr)
 	if !ok || len(parts) == 1 && parts[0].kind == partMath {
-		return renderRawWithBaseline(stripNestedSupSub(expr), scaled)
+		// Refuse to silently mutate the math: if there are nested ^/_
+		// constructs we can't render (e.g. b^2 inside \sqrt{...}), the
+		// caller's panic recovery should kick in and produce a plain-text
+		// fallback rather than us stripping the operator and pretending
+		// the render succeeded.
+		if hasNestedSupSub(expr) {
+			return "", 0, 0, 0, fmt.Errorf("math render: unsupported nested superscript/subscript")
+		}
+		return renderRawWithBaseline(expr, scaled)
 	}
 	return renderPartsWithBaseline(parts, scaled)
 }
 
-// stripNestedSupSub removes `^X` and `_X` patterns from the expression
-// where X is either a single char/macro or a `{...}` group. mtex panics
-// on superscripts and subscripts inside groups (e.g. `\frac{a}{b^2}`),
-// and there is no way to handle them without a full custom typesetter,
-// so the pragmatic fallback is to drop them — the rest of the expression
-// then renders structurally, just without the affected sup/sub.
-func stripNestedSupSub(expr string) string {
-	var sb strings.Builder
-	i := 0
-	for i < len(expr) {
+// hasNestedSupSub reports whether expr contains a `^` or `_` token at
+// any brace depth. mtex panics on these constructs and there is no way
+// to render them without a full custom typesetter, so callers fall back
+// to plain text rather than risk altering the mathematical meaning.
+func hasNestedSupSub(expr string) bool {
+	for i := 0; i < len(expr); i++ {
 		c := expr[i]
 		if c == '\\' && i+1 < len(expr) {
-			sb.WriteByte(c)
-			sb.WriteByte(expr[i+1])
-			i += 2
+			i++
 			continue
 		}
 		if c == '^' || c == '_' {
-			_, consumed := readOperand(expr[i+1:])
-			i += 1 + consumed
-			continue
+			return true
 		}
-		sb.WriteByte(c)
-		i++
 	}
-	return sb.String()
+	return false
 }
 
 type partKind int
@@ -207,7 +205,10 @@ func renderPartsWithBaseline(parts []rawPart, fontSize float64) (svg string, tot
 	for _, p := range parts {
 		switch p.kind {
 		case partMath:
-			s, pw, ph, pb, e := renderRawWithBaseline(stripNestedSupSub(p.expr), fontSize)
+			if hasNestedSupSub(p.expr) {
+				return "", 0, 0, 0, fmt.Errorf("math render: unsupported nested superscript/subscript")
+			}
+			s, pw, ph, pb, e := renderRawWithBaseline(p.expr, fontSize)
 			if e != nil {
 				return "", 0, 0, 0, e
 			}
@@ -224,6 +225,9 @@ func renderPartsWithBaseline(parts []rawPart, fontSize float64) (svg string, tot
 			advance, glyphSVG, err := renderCharGlyph(',', fontSize)
 			if err != nil {
 				x += fontSize * 0.3
+				if fontSize > maxH {
+					maxH = fontSize
+				}
 				continue
 			}
 			// Position comma so its baseline aligns with the surrounding
@@ -234,6 +238,10 @@ func renderPartsWithBaseline(parts []rawPart, fontSize float64) (svg string, tot
 			yBaseline := fontSize * 0.85
 			fmt.Fprintf(&sb, `<g transform="translate(%.3f,%.3f)">%s</g>`, x, yBaseline, glyphSVG)
 			x += advance + fontSize*0.15
+			// Track at least font-size height for comma-only segments.
+			if fontSize > maxH {
+				maxH = fontSize
+			}
 		case partSup, partSub:
 			subSize := fontSize * 0.7
 			// Recurse via the rich path on the inner operand, but at
@@ -249,7 +257,7 @@ func renderPartsWithBaseline(parts []rawPart, fontSize float64) (svg string, tot
 				s, pw, ph, e = renderParts(subParts, subSize)
 			}
 			if e != nil {
-				continue
+				return "", 0, 0, 0, e
 			}
 			var dy float64
 			if p.kind == partSup {

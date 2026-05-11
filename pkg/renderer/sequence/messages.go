@@ -106,11 +106,19 @@ func (mr *messageRenderer) renderItems(items []diagram.SequenceItem, isTopLevel 
 			elems = append(elems, mr.renderMessage(*item.Message)...)
 			// Multiline labels render above the message line; reserve
 			// extra vertical space so the next row's label doesn't
-			// collide with the current label's top lines.
-			mr.curY += defaultRowHeight + extraLinesHeight(item.Message.Label, mr.fontSize)
+			// collide with the current label's top lines. Self-messages
+			// also need a tall-enough row so the arc (which extends
+			// selfLoopH below the anchor y) clears the next row's label.
+			advance := defaultRowHeight + extraLinesHeight(item.Message.Label, mr.fontSize)
+			if item.Message.From == item.Message.To {
+				if delta := selfLoopRowExtra(mr.fontSize); delta > 0 {
+					advance += delta
+				}
+			}
+			mr.curY += advance
 		case item.Note != nil:
 			elems = append(elems, mr.renderNote(*item.Note)...)
-			mr.curY += defaultRowHeight + extraLinesHeight(item.Note.Text, mr.fontSize)
+			mr.curY += defaultRowHeight + noteRowExtra(item.Note.Text, mr.fontSize)
 		case item.Block != nil:
 			elems = append(elems, mr.renderBlock(*item.Block, depth)...)
 		}
@@ -224,6 +232,11 @@ func (mr *messageRenderer) renderStraightMessage(fromX, toX, y float64, m diagra
 	return elems
 }
 
+// renderSelfMessage renders a self-message — a curved arc that leaves the
+// lifeline at (x, y), bulges selfLoopW px to the right, and re-enters the
+// lifeline at (x, y+selfLoopH). The label, when present, is drawn centered
+// above the arc; row-height clearance for that label is reserved by the
+// caller via selfLoopRowExtra.
 func (mr *messageRenderer) renderSelfMessage(x, y float64, m diagram.Message) []any {
 	style := mr.messageLineStyle(m.ArrowType)
 	// Symmetric control points keep the curve's end tangent
@@ -244,11 +257,12 @@ func (mr *messageRenderer) renderSelfMessage(x, y float64, m diagram.Message) []
 	var elems []any
 	elems = append(elems, p)
 	if m.Label != "" {
-		// Label sits to the left of the lifeline (mmdc parity).
-		// The arc bulges right, so left is the only side that
-		// won't collide with the curve or get clipped at the
-		// layout's right edge for a rightmost participant.
-		elems = append(elems, multilineText(m.Label, x-4, y+selfLoopH/2, "end", "central", mr.msgTextStyle, mr.fontSize)...)
+		// Label sits centered above the arc (mmdc parity). The arc
+		// bulges selfLoopW to the right of the lifeline, so the
+		// horizontal anchor is the arc midpoint; the vertical anchor
+		// is just above the arc's top, matching the y-6 offset used
+		// for non-self messages.
+		elems = append(elems, multilineTextAbove(m.Label, x+selfLoopW/2, y-6, "middle", mr.msgTextStyle, mr.fontSize)...)
 	}
 	return elems
 }
@@ -273,8 +287,11 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 	y := mr.curY
 	x0 := mr.lay.participantX[idx0]
 
+	textW := noteTextWidth(n.Text, mr.fontSize)
+	h := noteHeight(n.Text, mr.fontSize)
+
 	var cx float64
-	w := noteW
+	w := math.Max(noteW, textW+2*notePad)
 	switch n.Position {
 	case diagram.NotePositionLeft:
 		cx = x0 - noteOffset - w/2
@@ -288,7 +305,10 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 			}
 			x1 := mr.lay.participantX[idx1]
 			cx = (x0 + x1) / 2
-			w = math.Abs(x1-x0) + 2*notePad
+			gapW := math.Abs(x1-x0) + 2*notePad
+			if gapW > w {
+				w = gapW
+			}
 		} else {
 			cx = x0
 		}
@@ -297,14 +317,58 @@ func (mr *messageRenderer) renderNote(n diagram.Note) []any {
 	rx := cx - w/2
 	out := []any{
 		&rect{
-			X: svgFloat(rx), Y: svgFloat(y - noteH/2),
-			Width: svgFloat(w), Height: svgFloat(noteH),
+			X: svgFloat(rx), Y: svgFloat(y - h/2),
+			Width: svgFloat(w), Height: svgFloat(h),
 			RX: 3, RY: 3,
 			Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.1f", mr.th.NoteFill, mr.th.MessageStroke, defaultStrokeWidth),
 		},
 	}
 	out = append(out, multilineText(n.Text, cx, y, "middle", "central", mr.msgTextStyle, mr.fontSize)...)
 	return out
+}
+
+// noteTextWidth returns the widest rendered line within s (split on
+// Mermaid's <br> tokens). Used to size note rectangles so multi-line
+// or long-line content doesn't overflow the default 120px width.
+//
+// Prefers real font metrics (via measureLine, which uses the
+// package-shared Ruler) over EstimateWidth so the rect hugs the text
+// instead of inheriting EstimateWidth's ~20% overestimate as visible
+// padding. Falls back to EstimateWidth if the ruler is unavailable.
+func noteTextWidth(s string, fontSize float64) float64 {
+	var maxW float64
+	for _, ln := range splitLabelLines(s) {
+		w := measureLine(ln, fontSize)
+		if w == 0 {
+			w = textmeasure.EstimateWidth(ln, fontSize)
+		}
+		if w > maxW {
+			maxW = w
+		}
+	}
+	return maxW
+}
+
+// noteHeight returns the rect height needed to contain s as multi-line
+// text plus notePad of vertical padding. Floors at noteH so the default
+// 14px-font, single-line case keeps its existing 30px height; for larger
+// fonts or extra lines the rect grows to fit content + padding.
+func noteHeight(s string, fontSize float64) float64 {
+	n := len(splitLabelLines(s))
+	contentH := fontSize + float64(n-1)*labelLineHeight(fontSize) + 2*notePad
+	return math.Max(noteH, contentH)
+}
+
+// noteRowExtra returns the per-row vertical headroom needed for a note,
+// over and above defaultRowHeight. Both renderItems (curY advance) and
+// extraLabelHeight (layout reservation) call this so a note rect taller
+// than defaultRowHeight (large font, or many <br/> lines) doesn't bleed
+// into the next row's content.
+func noteRowExtra(s string, fontSize float64) float64 {
+	if extra := noteHeight(s, fontSize) - defaultRowHeight; extra > 0 {
+		return extra
+	}
+	return 0
 }
 
 func (mr *messageRenderer) renderBlock(b diagram.Block, depth int) []any {
@@ -552,6 +616,21 @@ type estimateRuler struct{}
 
 func (e *estimateRuler) Measure(text string, fontSize float64) (width, height float64) {
 	return textmeasure.EstimateWidth(text, fontSize), fontSize
+}
+
+// selfLoopRowExtra returns the additional row advance (beyond defaultRowHeight)
+// required when the current item is a self-message, so the arc — which extends
+// selfLoopH below the message anchor y — clears the next row's label-above-arrow
+// (drawn at next_y - 6 with one line of label height above the baseline).
+//
+// Returns 0 when defaultRowHeight already accommodates everything.
+func selfLoopRowExtra(fontSize float64) float64 {
+	const labelGap = 6.0
+	needed := selfLoopH + labelLineHeight(fontSize) + labelGap
+	if needed > defaultRowHeight {
+		return needed - defaultRowHeight
+	}
+	return 0
 }
 
 // multilineText returns one or more text elements forming a vertically

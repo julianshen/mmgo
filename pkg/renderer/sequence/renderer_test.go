@@ -766,10 +766,10 @@ func TestRenderSelfMessageUsesArcPath(t *testing.T) {
 	assertValidSVG(t, out)
 }
 
-func TestRenderSelfMessageLabelLeftOfLifeline(t *testing.T) {
-	// mmdc renders a self-message label to the *left* of the lifeline
-	// (text-anchor:end) so it doesn't collide with the right-side
-	// loop arc and avoids being clipped by the rightmost layout edge.
+func TestRenderSelfMessageLabelAboveArc(t *testing.T) {
+	// mmdc renders a self-message label centered *above* the loop arc,
+	// not beside the lifeline. Verify the text element is middle-anchored
+	// at roughly the arc's midpoint x (lifeline_x + selfLoopW/2).
 	d := &diagram.SequenceDiagram{
 		Participants: []diagram.Participant{
 			{ID: "Worker", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
@@ -786,13 +786,28 @@ func TestRenderSelfMessageLabelLeftOfLifeline(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	re := regexp.MustCompile(`<text[^>]*text-anchor="(\w+)"[^>]*>Recursive step</text>`)
-	m := re.FindStringSubmatch(raw)
-	if m == nil {
+	textRE := regexp.MustCompile(`<text[^>]*\bx="([0-9.]+)"[^>]*\btext-anchor="(\w+)"[^>]*>Recursive step</text>`)
+	tm := textRE.FindStringSubmatch(raw)
+	if tm == nil {
 		t.Fatalf("did not find self-message label; raw: %s", raw)
 	}
-	if m[1] != "end" {
-		t.Errorf("self-message label should be end-anchored (left of lifeline), got text-anchor=%q", m[1])
+	labelX, _ := strconv.ParseFloat(tm[1], 64)
+	if tm[2] != "middle" {
+		t.Errorf("self-message label should be middle-anchored above arc, got text-anchor=%q", tm[2])
+	}
+
+	// The arc's first MoveTo coordinate is the lifeline x; assert the
+	// label sits at that x + selfLoopW/2 (the arc's horizontal midpoint).
+	pathRE := regexp.MustCompile(`<path d="M([0-9.]+),[0-9.]+ C`)
+	pm := pathRE.FindStringSubmatch(raw)
+	if pm == nil {
+		t.Fatalf("did not find self-message arc path; raw: %s", raw)
+	}
+	lifelineX, _ := strconv.ParseFloat(pm[1], 64)
+	wantX := lifelineX + 25.0 // selfLoopW/2 = 50/2
+	if diff := labelX - wantX; diff < -0.5 || diff > 0.5 {
+		t.Errorf("self-message label x = %v; want ~%v (lifelineX %v + selfLoopW/2)",
+			labelX, wantX, lifelineX)
 	}
 }
 
@@ -1158,6 +1173,52 @@ func TestRenderMessageArrow(t *testing.T) {
 	}
 	if !strings.Contains(raw, "marker-end") {
 		t.Error("expected arrow marker on solid message")
+	}
+	assertValidSVG(t, out)
+}
+
+// TestRenderLongMessageLabelExpandsGap guards that a cross-participant
+// message with a label wider than the default participant gap widens the
+// gap so the label fits between the lifelines instead of overflowing
+// them. Regression for the case where 3 long L→V messages all rendered
+// with text spilling past both lifelines.
+func TestRenderLongMessageLabelExpandsGap(t *testing.T) {
+	const longLabel = "layout change #2 (>300ms gap on e-ink) → cancel + reschedule"
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewMessageItem(diagram.Message{
+				From: "A", To: "B", Label: longLabel,
+				ArrowType: diagram.ArrowTypeSolid,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	// Pull the two lifeline x-coords (vertical lines drawn at participantX).
+	lineRe := regexp.MustCompile(`<line x1="([\d.]+)" y1="[\d.]+" x2="[\d.]+" y2="[\d.]+" style="stroke:#9370DB`)
+	matches := lineRe.FindAllStringSubmatch(raw, -1)
+	if len(matches) < 2 {
+		t.Fatalf("expected at least 2 lifelines, got %d", len(matches))
+	}
+	parse := func(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v }
+	x0 := parse(matches[0][1])
+	x1 := parse(matches[1][1])
+	gap := x1 - x0
+	// Use the ruler the renderer uses so the assertion matches the real
+	// label width (EstimateWidth's overestimate would mark a correctly-
+	// sized gap as failing).
+	r, _ := textmeasure.NewDefaultRuler()
+	defer func() { _ = r.Close() }()
+	labelW, _ := r.Measure(longLabel, 14)
+	if gap < labelW {
+		t.Errorf("lifeline gap = %.1f, want >= label width %.1f so the label fits between lifelines", gap, labelW)
 	}
 	assertValidSVG(t, out)
 }
@@ -1548,6 +1609,147 @@ func TestRenderNoteOverTwo(t *testing.T) {
 	}
 	if !strings.Contains(string(out), ">spanning<") {
 		t.Error("note text missing")
+	}
+	assertValidSVG(t, out)
+}
+
+// TestRenderNoteOverEdgeParticipantNoClip guards that a long "Note over"
+// anchored at an edge participant doesn't clip past the viewBox.
+// noteBleed used to handle only NotePositionLeft/Right; once renderNote
+// started growing rect width with text, edge "Note over" started
+// rendering at negative x (or past totalW).
+func TestRenderNoteOverEdgeParticipantNoClip(t *testing.T) {
+	const longNote = "this is a much longer note than the participant box width"
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+			{ID: "B", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewNoteItem(diagram.Note{
+				Participants: []string{"A"},
+				Text:         longNote,
+				Position:     diagram.NotePositionOver,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	vbRe := regexp.MustCompile(`viewBox="0 0 ([\d.]+) [\d.]+"`)
+	vbMatch := vbRe.FindStringSubmatch(raw)
+	if vbMatch == nil {
+		t.Fatal("viewBox not found")
+	}
+	totalW, _ := strconv.ParseFloat(vbMatch[1], 64)
+	noteRe := regexp.MustCompile(`<rect x="(-?[\d.]+)" y="-?[\d.]+" width="([\d.]+)" height="[\d.]+"[^>]*fill:` + regexp.QuoteMeta(DefaultTheme().NoteFill))
+	m := noteRe.FindStringSubmatch(raw)
+	if m == nil {
+		t.Fatal("note rect not found")
+	}
+	x, _ := strconv.ParseFloat(m[1], 64)
+	w, _ := strconv.ParseFloat(m[2], 64)
+	if x < 0 {
+		t.Errorf("note rect left edge x=%.2f is past viewBox left (0); noteBleed must reserve space for Note over on edge participant", x)
+	}
+	if x+w > totalW {
+		t.Errorf("note rect right edge %.2f exceeds viewBox width %.2f", x+w, totalW)
+	}
+	assertValidSVG(t, out)
+}
+
+// TestRenderNoteLargeFontReservesRowHeight guards that a note rendered
+// at a large fontSize (where the rect grows past defaultRowHeight)
+// reserves enough row clearance so the rect doesn't bleed into the
+// next item below. Regression for the case where noteHeight scaled
+// with fontSize but the per-note row advance still added only
+// extraLinesHeight (=0 for single-line text).
+func TestRenderNoteLargeFontReservesRowHeight(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewNoteItem(diagram.Note{
+				Participants: []string{"A"},
+				Text:         "single line",
+				Position:     diagram.NotePositionOver,
+			}),
+			diagram.NewNoteItem(diagram.Note{
+				Participants: []string{"A"},
+				Text:         "another single line",
+				Position:     diagram.NotePositionOver,
+			}),
+		},
+	}
+	out, err := Render(d, &Options{FontSize: 40})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	noteRe := regexp.MustCompile(`<rect x="-?[\d.]+" y="(-?[\d.]+)" width="[\d.]+" height="([\d.]+)"[^>]*fill:` + regexp.QuoteMeta(DefaultTheme().NoteFill))
+	matches := noteRe.FindAllStringSubmatch(raw, -1)
+	if len(matches) != 2 {
+		t.Fatalf("expected 2 note rects, got %d", len(matches))
+	}
+	parse := func(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v }
+	y0, h0 := parse(matches[0][1]), parse(matches[0][2])
+	y1 := parse(matches[1][1])
+	// Second rect's top must sit below the first rect's bottom.
+	if y1 < y0+h0 {
+		t.Errorf("second note (y=%.1f) overlaps first (y=%.1f, h=%.1f); row advance must accommodate noteHeight at fontSize=40", y1, y0, h0)
+	}
+	assertValidSVG(t, out)
+}
+
+// TestRenderNoteSizesToContent guards that note rectangles grow to fit
+// long single-line text and multi-line (<br/>) content, instead of
+// using the fixed 120x30 default that clipped wider notes.
+func TestRenderNoteSizesToContent(t *testing.T) {
+	d := &diagram.SequenceDiagram{
+		Participants: []diagram.Participant{
+			{ID: "A", Kind: diagram.ParticipantKindParticipant, CreatedAtItem: -1, DestroyedAtItem: -1},
+		},
+		Items: []diagram.SequenceItem{
+			diagram.NewNoteItem(diagram.Note{
+				Participants: []string{"A"},
+				Text:         "ViewModel emits new items;<br/>key() rebuilds grid",
+				Position:     diagram.NotePositionOver,
+			}),
+			diagram.NewNoteItem(diagram.Note{
+				Participants: []string{"A"},
+				Text:         "showRunnable never fires; alpha stays 0",
+				Position:     diagram.NotePositionOver,
+			}),
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	noteRe := regexp.MustCompile(`<rect x="-?[\d.]+" y="-?[\d.]+" width="([\d.]+)" height="([\d.]+)"[^>]*fill:` + regexp.QuoteMeta(DefaultTheme().NoteFill))
+	matches := noteRe.FindAllStringSubmatch(raw, -1)
+	if len(matches) != 2 {
+		t.Fatalf("expected 2 note rects, got %d", len(matches))
+	}
+	parse := func(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v }
+	// Multi-line note: width must exceed default 120 to fit the longest
+	// line, and height must exceed default 30 to fit a second line.
+	if w := parse(matches[0][1]); w <= 120 {
+		t.Errorf("multi-line note width = %v; want > 120 to fit text", w)
+	}
+	if h := parse(matches[0][2]); h <= 30 {
+		t.Errorf("multi-line note height = %v; want > 30 to fit two lines", h)
+	}
+	// Long single-line note: width grows, height stays at default.
+	if w := parse(matches[1][1]); w <= 120 {
+		t.Errorf("long single-line note width = %v; want > 120 to fit text", w)
+	}
+	if h := parse(matches[1][2]); h != 30 {
+		t.Errorf("single-line note height = %v; want 30", h)
 	}
 	assertValidSVG(t, out)
 }

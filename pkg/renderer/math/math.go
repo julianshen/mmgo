@@ -41,6 +41,15 @@ func renderRaw(expr string, fontSize float64) (svg string, w, h float64, err err
 }
 
 func renderRawWithBaseline(expr string, fontSize float64) (svg string, w, h, baseline float64, err error) {
+	// go-latex/mtex panics on a handful of unsupported AST nodes and
+	// punctuation; recover here so the library contract stays
+	// error-as-value for every caller, not just text.RenderMath.
+	defer func() {
+		if rec := recover(); rec != nil {
+			svg, w, h, baseline = "", 0, 0, 0
+			err = fmt.Errorf("math render: panic: %v", rec)
+		}
+	}()
 	// go-latex/mtex only resolves Greek letters and math operators
 	// when the parser is in math mode.  Bare expressions like \alpha
 	// are parsed in text mode and fall back to the backslash glyph.
@@ -129,6 +138,7 @@ type svgRenderer struct {
 	w, h       float64
 	dpi        float64
 	minY, maxY float64
+	maxX       float64 // running rightmost x written so r.w reflects rendered content
 	hasY       bool
 	// glyphYs collects every glyph's op.Y (the baseline at which mtex
 	// placed that glyph). The median of these is a good approximation
@@ -156,7 +166,10 @@ func (r *svgRenderer) Render(w, h, dpi float64, cnv *drawtex.Canvas) error {
 	// mtex.Render passes w and h in inches (box width/height divided by 72),
 	// but canvas operations (GlyphOp.X/Y, RectOp coordinates) are in points.
 	// Convert to points so the Y-flip in renderGlyph uses the same unit.
-	r.w = w * 72 * trackingScale
+	// r.w gets overwritten below from the actual maxX reached during
+	// rendering so single-glyph expressions don't report a width
+	// inflated by trackingScale when the glyph outlines weren't scaled.
+	r.w = w * 72
 	r.h = h * 72
 	r.dpi = dpi
 	var buf sfnt.Buffer
@@ -191,6 +204,13 @@ func (r *svgRenderer) Render(w, h, dpi float64, cnv *drawtex.Canvas) error {
 		}
 		return g.X*trackingScale + float64(bounds.Min.X)/64
 	}
+	// Track the rightmost rendered x — used below to set r.w so the
+	// reported expression width matches what was actually drawn.
+	noteRight := func(x float64) {
+		if x > r.maxX {
+			r.maxX = x
+		}
+	}
 	// Second pass — emit. For each RectOp, locate:
 	//   * the glyph just before the rect (the √ for vinculum bars) and
 	//     start the bar at that glyph's visual right edge, so the bar
@@ -201,6 +221,7 @@ func (r *svgRenderer) Render(w, h, dpi float64, cnv *drawtex.Canvas) error {
 		switch o := op.(type) {
 		case drawtex.GlyphOp:
 			r.glyphYs = append(r.glyphYs, o.Y)
+			noteRight(glyphRightAt(o))
 			r.renderGlyph(&buf, o)
 		case drawtex.RectOp:
 			leftEdge := o.X1
@@ -234,7 +255,11 @@ func (r *svgRenderer) Render(w, h, dpi float64, cnv *drawtex.Canvas) error {
 				}
 			}
 			r.renderRectAt(o, leftEdge, rightEdge)
+			noteRight(rightEdge + barOverhang)
 		}
+	}
+	if r.maxX > r.w {
+		r.w = r.maxX
 	}
 	return nil
 }
@@ -334,40 +359,3 @@ func (r *svgRenderer) renderRectAt(op drawtex.RectOp, leftEdge, rightEdge float6
 	fmt.Fprintf(&r.sb, `<rect x="%.3f" y="%.3f" width="%.3f" height="%.3f"/>`, x, y, w, h)
 }
 
-// renderRect is the legacy single-pass entrypoint, kept only because
-// the (currently dead) handler in the original implementation referred
-// to it. The two-pass Render path above uses renderRectAt instead.
-func (r *svgRenderer) renderRect(op drawtex.RectOp) {
-	r.renderRectAt(op, op.X1, op.X2)
-}
-
-func (r *svgRenderer) renderRectLegacy(op drawtex.RectOp) {
-	// Bars come in two flavours that need different treatment:
-	//
-	//   - \frac bar: starts at op.X1≈0, sits over numerator/denominator
-	//     glyphs that are themselves at op.X=0 (so they don't move under
-	//     tracking). Width stays at mtex's natural extent + small overhang.
-	//
-	//   - \sqrt vinculum: starts at op.X1 > 0 (just after the √ glyph)
-	//     and must cover the radicand, which DID move right under
-	//     tracking. Scale the width by trackingScale so the bar still
-	//     reaches past the now-shifted radicand.
-	//
-	// Width is in mtex coordinates and the glyph visual extent can
-	// exceed its advance (italic math letters lean past their advance),
-	// so we add a generous overhang on the right.
-	x := op.X1 - barOverhang
-	w := (op.X2 - op.X1)
-	if op.X1 > 1 {
-		// \sqrt vinculum — grow width with tracking so it still covers
-		// the radicand at its new shifted position.
-		w *= trackingScale
-	}
-	w += 2 * barOverhang
-	// Canvas and SVG both use y-down: Y1 is the top edge.
-	y := op.Y1
-	h := op.Y2 - op.Y1
-	r.noteY(y)
-	r.noteY(y + h)
-	fmt.Fprintf(&r.sb, `<rect x="%.3f" y="%.3f" width="%.3f" height="%.3f"/>`, x, y, w, h)
-}
