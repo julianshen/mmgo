@@ -176,32 +176,64 @@ func (r *svgRenderer) Render(w, h, dpi float64, cnv *drawtex.Canvas) error {
 		}
 		return g.X*trackingScale + float64(bounds.Max.X)/64
 	}
-	// Second pass — emit. For each RectOp, find the rightmost glyph
-	// whose anchor sits inside (X1, X2) and set the bar to end just
-	// past that glyph's actual right edge.
-	for i, op := range ops {
+	// glyphLeftAt returns the *visual* left edge of a glyph (font
+	// bbox min X, including italic side-bearings). Used to place a
+	// \sqrt vinculum so it starts at the right edge of the √ symbol
+	// rather than at its advance.
+	glyphLeftAt := func(g drawtex.GlyphOp) float64 {
+		if g.Glyph.Font == nil {
+			return g.X * trackingScale
+		}
+		ppem := fixed.I(int(g.Glyph.Size * dpi / 72))
+		bounds, _, err := g.Glyph.Font.GlyphBounds(&buf, g.Glyph.Num, ppem, 0)
+		if err != nil {
+			return g.X * trackingScale
+		}
+		return g.X*trackingScale + float64(bounds.Min.X)/64
+	}
+	// Second pass — emit. For each RectOp, locate:
+	//   * the glyph just before the rect (the √ for vinculum bars) and
+	//     start the bar at that glyph's visual right edge, so the bar
+	//     joins the radical sign instead of starting in front of it.
+	//   * the rightmost glyph whose anchor sits inside (X1, X2) and set
+	//     the bar end just past that glyph's actual right edge.
+	for _, op := range ops {
 		switch o := op.(type) {
 		case drawtex.GlyphOp:
 			r.glyphYs = append(r.glyphYs, o.Y)
 			r.renderGlyph(&buf, o)
 		case drawtex.RectOp:
-			// Locate the rightmost glyph extent covered by this rect.
-			rightEdge := o.X1 // fallback: just the start
+			leftEdge := o.X1
+			rightEdge := o.X1
 			for _, op2 := range ops {
 				g, ok := op2.(drawtex.GlyphOp)
 				if !ok {
 					continue
 				}
+				// The glyph immediately before the rect (its X+advance
+				// ≈ rect X1, within a small tolerance) is the one the
+				// bar is anchored to.
+				if g.X < o.X1 && g.X+float64(g.Glyph.Metrics.Advance) >= o.X1-0.01 {
+					if e := glyphRightAt(g); e > leftEdge {
+						leftEdge = e
+					}
+					// Also pull the bar's left edge in by the italic
+					// side-bearing so it joins the visible √ tip.
+					if l := glyphLeftAt(g); l < o.X1 && g.X+float64(g.Glyph.Metrics.Advance) > l {
+						// the glyph visual end:
+						if e := glyphRightAt(g); e > leftEdge {
+							leftEdge = e
+						}
+					}
+				}
 				if g.X+0.01 < o.X1 || g.X > o.X2 {
 					continue
 				}
-				e := glyphRightAt(g)
-				if e > rightEdge {
+				if e := glyphRightAt(g); e > rightEdge {
 					rightEdge = e
 				}
 			}
-			r.renderRectAt(o, rightEdge)
-			_ = i
+			r.renderRectAt(o, leftEdge, rightEdge)
 		}
 	}
 	return nil
@@ -279,19 +311,22 @@ func (r *svgRenderer) renderGlyph(buf *sfnt.Buffer, op drawtex.GlyphOp) {
 	}
 }
 
-// renderRectAt sizes a bar/vinculum to span from its mtex X1 to a
-// rightEdge derived from the actual radicand glyph extents. For \frac
-// bars the start glyphs sit at op.X=0 (so rightEdge==o.X1 from the
-// fallback) and the bar keeps mtex's natural width; for \sqrt vinculum
-// the rightEdge has been computed from the radicand and the bar tracks
-// it properly even when italic glyphs extend past their advance.
-func (r *svgRenderer) renderRectAt(op drawtex.RectOp, rightEdge float64) {
+// renderRectAt sizes a bar/vinculum to span from a leftEdge (the visual
+// right side of the preceding glyph — e.g. √'s tip — or the mtex X1
+// if no preceding glyph applies) to a rightEdge derived from the actual
+// radicand glyph extents. For \frac bars the start glyphs sit at op.X=0
+// (so both edges fall through to the mtex values) and the bar keeps its
+// natural width.
+func (r *svgRenderer) renderRectAt(op drawtex.RectOp, leftEdge, rightEdge float64) {
+	if leftEdge < op.X1 {
+		leftEdge = op.X1
+	}
 	naturalRight := op.X2
 	if rightEdge < naturalRight {
 		rightEdge = naturalRight
 	}
-	x := op.X1 - barOverhang
-	w := rightEdge - op.X1 + 2*barOverhang
+	x := leftEdge - barOverhang
+	w := rightEdge - leftEdge + 2*barOverhang
 	y := op.Y1
 	h := op.Y2 - op.Y1
 	r.noteY(y)
@@ -299,7 +334,14 @@ func (r *svgRenderer) renderRectAt(op drawtex.RectOp, rightEdge float64) {
 	fmt.Fprintf(&r.sb, `<rect x="%.3f" y="%.3f" width="%.3f" height="%.3f"/>`, x, y, w, h)
 }
 
+// renderRect is the legacy single-pass entrypoint, kept only because
+// the (currently dead) handler in the original implementation referred
+// to it. The two-pass Render path above uses renderRectAt instead.
 func (r *svgRenderer) renderRect(op drawtex.RectOp) {
+	r.renderRectAt(op, op.X1, op.X2)
+}
+
+func (r *svgRenderer) renderRectLegacy(op drawtex.RectOp) {
 	// Bars come in two flavours that need different treatment:
 	//
 	//   - \frac bar: starts at op.X1≈0, sits over numerator/denominator

@@ -121,23 +121,36 @@ func LabelElements(label string, cx, cy, fontSize float64, anchor, dominant, tex
 					default:
 						mx = xOff + seg.Width/2 - res.Width/2
 					}
-					// Vertical alignment depends on dominant-baseline:
-					// the math's BOTTOM (its overall bbox bottom) aligns
-					// with the surrounding text's letter baseline, so an
-					// inline expression like "Result is α" sits on the
-					// same line as the text. For dominant="central" the
-					// text baseline is ~0.25 em below ly; for "auto" the
-					// baseline is at ly directly.
-					var textBaselineY float64
-					switch dominant {
-					case svgutil.BaselineAuto, "", "alphabetic":
-						textBaselineY = ly
-					case "hanging", "text-before-edge":
-						textBaselineY = ly + fontSize
-					default: // central, middle
-						textBaselineY = ly + fontSize*0.25
+					// Vertical placement:
+					//   * mixed text + math: align math's BOTTOM (bbox
+					//     bottom) to the surrounding text's letter
+					//     baseline so an inline expression like
+					//     "Result is α" shares a line with the text.
+					//   * math-only line: centre the math's bbox on ly
+					//     so node labels with no surrounding text aren't
+					//     pushed into the top of their containing shape.
+					lineHasText := false
+					for _, s := range segs {
+						if s.Math == "" && strings.TrimSpace(s.Text) != "" {
+							lineHasText = true
+							break
+						}
 					}
-					my := textBaselineY - res.Height
+					var my float64
+					if lineHasText {
+						var textBaselineY float64
+						switch dominant {
+						case svgutil.BaselineAuto, "", "alphabetic":
+							textBaselineY = ly
+						case "hanging", "text-before-edge":
+							textBaselineY = ly + fontSize
+						default: // central, middle
+							textBaselineY = ly + fontSize*0.25
+						}
+						my = textBaselineY - res.Height
+					} else {
+						my = ly - res.Height/2
+					}
 					g := &svgutil.Group{
 						Transform: fmt.Sprintf("translate(%.2f,%.2f) scale(%.3f)", mx, my, scale),
 						Children:  res.Elements,
