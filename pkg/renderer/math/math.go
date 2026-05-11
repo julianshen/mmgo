@@ -113,7 +113,7 @@ const (
 	// letters (dx, dt, f(x) come out touching. A 1.22x multiplier on
 	// glyph anchor x positions opens up readable gaps; glyph path
 	// coordinates themselves are not scaled, only placement.
-	trackingScale = 1.35
+	trackingScale = 1.55
 	// barOverhang extends fraction bars and \sqrt vinculum rects by a
 	// small amount on each side so they reach slightly past the
 	// numerator/denominator/radicand — matches typesetting convention
