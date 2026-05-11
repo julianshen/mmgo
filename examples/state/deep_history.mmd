@@ -1,0 +1,13 @@
+stateDiagram-v2
+    [*] --> Booting
+    Booting --> Running
+
+    state Running {
+        [*] --> Normal
+        Normal --> DH
+    }
+
+    state DH <<deepHistory>>
+    DH --> Running : restore
+    Running --> Maintenance : schedule
+    Maintenance --> DH : done

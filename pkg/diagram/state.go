@@ -7,9 +7,11 @@ const (
 	StateKindFork             // <<fork>>
 	StateKindJoin             // <<join>>
 	StateKindChoice           // <<choice>>
+	StateKindHistory          // <<history>>
+	StateKindDeepHistory      // <<deepHistory>>
 )
 
-var stateKindNames = []string{"normal", "fork", "join", "choice"}
+var stateKindNames = []string{"normal", "fork", "join", "choice", "history", "deepHistory"}
 
 func (s StateKind) String() string { return enumString(s, stateKindNames) }
 

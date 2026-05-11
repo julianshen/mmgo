@@ -1,0 +1,15 @@
+stateDiagram-v2
+    classDef ok fill:#90EE90,stroke:#006400
+    classDef err fill:#FFB6C1,stroke:#8B0000
+    classDef warn fill:#FFFACD,stroke:#B8860B
+
+    [*] --> Idle
+    Idle --> Processing : start
+    Processing --> Ready : success
+    Processing --> Failed : failure
+    Ready --> [*]
+    Failed --> Idle : retry
+
+    class Idle,Ready ok
+    class Failed err
+    class Processing warn

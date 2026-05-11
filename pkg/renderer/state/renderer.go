@@ -32,6 +32,7 @@ const (
 	forkBarW          = 60.0
 	forkBarH          = 6.0
 	choiceSize        = 30.0
+	historyR          = 12.0
 	pseudoStartPrefix = "__start_"
 	pseudoEndPrefix   = "__end_"
 )
@@ -64,7 +65,11 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	leafStates := leafStatesOnly(allStates)
 	for _, s := range leafStates {
 		w, h := stateNodeSize(s, ruler, fontSize)
-		g.SetNode(s.ID, graph.NodeAttrs{Label: s.Label, Width: w, Height: h})
+		attrs := graph.NodeAttrs{Label: s.Label, Width: w, Height: h}
+		if s.Kind == diagram.StateKindChoice {
+			attrs.Shape = graph.ShapeDiamond
+		}
+		g.SetNode(s.ID, attrs)
 	}
 	// Composite states aren't in the dagre graph, but transitions
 	// can still reference them (`[*] --> Active`). Redirect such
@@ -155,7 +160,7 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	// Composite boxes go behind edges + leaf states so the frame
 	// doesn't occlude inner content.
 	children = append(children, renderCompositeBoxes(composites, fontSize, th)...)
-	children = append(children, renderEdges(d, l, pad, fontSize, ruler, th)...)
+	children = append(children, renderEdges(d, l, pad, fontSize, ruler, th, leafRep)...)
 	children = append(children, renderNodes(d, leafStates, l, pad, fontSize, th)...)
 	children = append(children, renderStateNotes(notes, l, pad, fontSize, th)...)
 
@@ -553,6 +558,8 @@ func stateNodeSize(s diagram.StateDef, ruler *textmeasure.Ruler, fontSize float6
 		return forkBarW, forkBarH
 	case diagram.StateKindChoice:
 		return choiceSize, choiceSize
+	case diagram.StateKindHistory, diagram.StateKindDeepHistory:
+		return historyR * 2, historyR * 2
 	}
 	tw, _ := ruler.Measure(s.Label, fontSize)
 	w = tw + 2*statePadX
@@ -616,6 +623,21 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 			*buf = append(*buf, &polygon{
 				Points: pts,
 				Style:  fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.StateFill, th.ChoiceFill),
+			})
+		case diagram.StateKindHistory, diagram.StateKindDeepHistory:
+			label := "H"
+			if s.Kind == diagram.StateKindDeepHistory {
+				label = "H*"
+			}
+			*buf = append(*buf, &circle{
+				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(historyR),
+				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.Background, th.StateStroke),
+			})
+			*buf = append(*buf, &text{
+				X: svgFloat(cx), Y: svgFloat(cy),
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.StateText, fontSize-1),
+				Content: label,
 			})
 		default:
 			w := nl.Width
@@ -710,7 +732,7 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 	return elems
 }
 
-func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler, th Theme) []any {
+func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler, th Theme, leafRep map[string]string) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -722,12 +744,31 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		return edgeKeys[i].To < edgeKeys[j].To
 	})
 
+	// Build transMap using the same redirected keys that dagre sees so
+	// composite transitions (Active --> B) can find their labels.
 	transMap := make(map[string][]diagram.StateTransition)
 	for _, t := range d.Transitions {
-		from := t.From
-		to := t.To
+		from, to := t.From, t.To
+		if from != "[*]" {
+			if rep, ok := leafRep[from]; ok {
+				from = rep
+			}
+		}
+		if to != "[*]" {
+			if rep, ok := leafRep[to]; ok {
+				to = rep
+			}
+		}
 		key := from + "->" + to
 		transMap[key] = append(transMap[key], t)
+	}
+
+	// Index choice-node IDs for shape-aware edge clipping.
+	choiceIDs := make(map[string]struct{})
+	for _, s := range collectAllStates(d.States) {
+		if s.Kind == diagram.StateKindChoice {
+			choiceIDs[s.ID] = struct{}{}
+		}
 	}
 
 	var elems []any
@@ -749,11 +790,11 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		srcDir := pts[1]
 		dstDir := pts[len(pts)-2]
 		if src, ok := l.Nodes[eid.From]; ok {
-			x, y := clipNodeEdge(eid.From, src, pad, srcDir)
+			x, y := clipNodeEdge(eid.From, src, pad, srcDir, choiceIDs)
 			pts[0] = layout.Point{X: x, Y: y}
 		}
 		if dst, ok := l.Nodes[eid.To]; ok {
-			x, y := clipNodeEdge(eid.To, dst, pad, dstDir)
+			x, y := clipNodeEdge(eid.To, dst, pad, dstDir, choiceIDs)
 			pts[len(pts)-1] = layout.Point{X: x, Y: y}
 		}
 
@@ -846,10 +887,10 @@ func isPseudoNode(id string) bool {
 
 // clipNodeEdge picks the right boundary clip for a state node. Regular
 // states are rounded rects so a rect clip suffices; pseudo (start/end)
-// nodes are circles, and clipping to their visible radius keeps the
-// arrowhead tucked against the glyph instead of floating in the
-// 20×20 layout box reserved around it.
-func clipNodeEdge(id string, n layout.NodeLayout, pad float64, dir layout.Point) (float64, float64) {
+// nodes are circles; choice nodes are diamonds. Clipping to the visible
+// outline keeps the arrowhead tucked against the glyph instead of
+// floating inside the layout box reserved around it.
+func clipNodeEdge(id string, n layout.NodeLayout, pad float64, dir layout.Point, choiceIDs map[string]struct{}) (float64, float64) {
 	cx := n.X + pad
 	cy := n.Y + pad
 	if isStartNode(id) {
@@ -857,6 +898,9 @@ func clipNodeEdge(id string, n layout.NodeLayout, pad float64, dir layout.Point)
 	}
 	if isEndNode(id) {
 		return svgutil.ClipToCircleEdge(cx, cy, endRingR, dir.X, dir.Y)
+	}
+	if _, ok := choiceIDs[id]; ok {
+		return svgutil.ClipToDiamondEdge(cx, cy, n.Width, n.Height, dir.X, dir.Y)
 	}
 	return svgutil.ClipToRectEdge(cx, cy, n.Width, n.Height, dir.X, dir.Y)
 }

@@ -762,3 +762,84 @@ func TestResolveThemeNilOpts(t *testing.T) {
 		t.Error("resolveTheme with zero Options should return DefaultTheme exactly")
 	}
 }
+
+// History states render as a circle with an "H" label.
+func TestRenderHistoryState(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "H", Label: "H", Kind: diagram.StateKindHistory},
+			{ID: "A", Label: "A"},
+		},
+		Transitions: []diagram.StateTransition{
+			{From: "H", To: "A"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">H<") {
+		t.Error("history label missing")
+	}
+	if !strings.Contains(raw, "<circle") {
+		t.Error("history state should render as a circle")
+	}
+}
+
+// Deep-history states render as a circle with an "H*" label.
+func TestRenderDeepHistoryState(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "DH", Label: "DH", Kind: diagram.StateKindDeepHistory},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), ">H*<") {
+		t.Error("deep-history label missing")
+	}
+}
+
+// A transition label on an edge to a composite state is rendered.
+func TestRenderCompositeTransitionLabel(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "Active", Label: "Active", Children: []diagram.StateDef{
+				{ID: "Running", Label: "Running"},
+			}},
+		},
+		Transitions: []diagram.StateTransition{
+			{From: "[*]", To: "Active", Label: "boot"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), ">boot<") {
+		t.Errorf("transition label to composite missing\n%s", out)
+	}
+}
+
+// Choice nodes render as a diamond polygon.
+func TestRenderChoiceNode(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "C", Label: "C", Kind: diagram.StateKindChoice},
+			{ID: "A", Label: "A"},
+		},
+		Transitions: []diagram.StateTransition{
+			{From: "C", To: "A"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "<polygon") {
+		t.Error("choice state should render as a polygon")
+	}
+}

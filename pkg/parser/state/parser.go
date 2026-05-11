@@ -406,72 +406,92 @@ func parseStateDescription(line string) (id, desc string, ok bool) {
 }
 
 func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef) error {
+	var label, id string
+	var after string
+
 	if strings.HasPrefix(rest, "\"") {
-		return p.parseAliasDecl(rest, target)
+		// Quoted label form: state "Label" or state "Label" as ID
+		endQuote := strings.Index(rest[1:], "\"")
+		if endQuote < 0 {
+			return fmt.Errorf("unterminated quote in state declaration")
+		}
+		label = rest[1 : endQuote+1]
+		after = strings.TrimSpace(rest[endQuote+2:])
+		if idPart, ok := strings.CutPrefix(after, "as "); ok {
+			idPart = strings.TrimSpace(idPart)
+			id, after = splitStateIDAndTail(idPart)
+		} else {
+			// No "as" keyword — use the quoted string as both ID and label.
+			id = label
+			after = ""
+		}
+	} else {
+		id, after = splitStateIDAndTail(rest)
+		label = id
 	}
-	// `:::cssClass` shorthand attaches a named CSS class to the
-	// state. The marker sits at the end of the identifier; strip
-	// it before any further parsing.
+
+	// Strip `:::cssClass` shorthand from the tail.
 	cssClass := ""
-	if i := strings.Index(rest, ":::"); i >= 0 {
-		cssClass = strings.TrimSpace(rest[i+3:])
-		// Stop at the first whitespace / brace so `state Foo:::hot {`
-		// peels the class name correctly.
+	if i := strings.Index(after, ":::"); i >= 0 {
+		cssClass = strings.TrimSpace(after[i+3:])
 		if j := strings.IndexAny(cssClass, " \t{"); j >= 0 {
 			cssClass = strings.TrimSpace(cssClass[:j])
 		}
-		// Reattach what came after to drive the rest of parsing.
-		tail := rest[i+3+len(cssClass):]
-		rest = strings.TrimSpace(rest[:i] + " " + strings.TrimSpace(tail))
+		tail := after[i+3+len(cssClass):]
+		after = strings.TrimSpace(after[:i] + " " + strings.TrimSpace(tail))
 	}
-	if braceIdx := strings.IndexByte(rest, '{'); braceIdx >= 0 {
-		name := strings.TrimSpace(rest[:braceIdx])
-		s := upsertState(target, name)
-		if s == nil {
-			return fmt.Errorf("invalid composite state name %q", name)
-		}
-		if cssClass != "" {
-			s.CSSClasses = append(s.CSSClasses, cssClass)
-		}
+
+	s := upsertState(target, id)
+	if s == nil {
+		return fmt.Errorf("invalid state name %q", id)
+	}
+	s.Label = label
+	if cssClass != "" {
+		s.CSSClasses = append(s.CSSClasses, cssClass)
+	}
+
+	after = strings.TrimSpace(after)
+	if after == "{" || strings.HasPrefix(after, "{") {
 		return p.parseCompositeBody(s)
 	}
-	parts := strings.Fields(rest)
-	if len(parts) >= 2 && strings.HasPrefix(parts[1], "<<") && strings.HasSuffix(parts[1], ">>") {
-		id := parts[0]
-		annotation := strings.Trim(parts[1], "<>")
-		s := upsertState(target, id)
-		if s != nil {
-			s.Kind = parseStateKind(annotation)
-			if cssClass != "" {
-				s.CSSClasses = append(s.CSSClasses, cssClass)
-			}
-		}
+	if strings.HasPrefix(after, "<<") && strings.HasSuffix(after, ">>") {
+		annotation := strings.Trim(after, "<>")
+		s.Kind = parseStateKind(annotation)
 		return nil
-	}
-	if len(parts) >= 1 {
-		s := upsertState(target, parts[0])
-		if s != nil && cssClass != "" {
-			s.CSSClasses = append(s.CSSClasses, cssClass)
-		}
 	}
 	return nil
 }
 
-func (p *parser) parseAliasDecl(rest string, target *[]diagram.StateDef) error {
-	endQuote := strings.Index(rest[1:], "\"")
-	if endQuote < 0 {
-		return fmt.Errorf("unterminated quote in state declaration")
+// splitStateIDAndTail splits a state declaration remainder into the
+// identifier and everything that follows ({, :::css, <<kind>>).
+// It finds the earliest special token so that `Foo:::hot <<fork>>`
+// splits as ("Foo", "<<fork>>") after the CSS class is stripped
+// elsewhere.
+func splitStateIDAndTail(s string) (id, tail string) {
+	s = strings.TrimSpace(s)
+	braceIdx := strings.IndexByte(s, '{')
+	cssIdx := strings.Index(s, ":::")
+	kindIdx := strings.Index(s, "<<")
+
+	minIdx := -1
+	if braceIdx >= 0 {
+		minIdx = braceIdx
 	}
-	label := rest[1 : endQuote+1]
-	after := strings.TrimSpace(rest[endQuote+2:])
-	if id, ok := strings.CutPrefix(after, "as "); ok {
-		id = strings.TrimSpace(id)
-		s := upsertState(target, id)
-		if s != nil {
-			s.Label = label
-		}
+	if cssIdx >= 0 && (minIdx < 0 || cssIdx < minIdx) {
+		minIdx = cssIdx
 	}
-	return nil
+	if kindIdx >= 0 && (minIdx < 0 || kindIdx < minIdx) {
+		minIdx = kindIdx
+	}
+
+	if minIdx >= 0 {
+		return strings.TrimSpace(s[:minIdx]), strings.TrimSpace(s[minIdx:])
+	}
+	parts := strings.Fields(s)
+	if len(parts) == 0 {
+		return "", ""
+	}
+	return parts[0], strings.TrimSpace(s[len(parts[0]):])
 }
 
 // parseCompositeBody reads inner-state lines until the matching `}`.
@@ -543,6 +563,10 @@ func parseStateKind(annotation string) diagram.StateKind {
 		return diagram.StateKindJoin
 	case "choice":
 		return diagram.StateKindChoice
+	case "history":
+		return diagram.StateKindHistory
+	case "deephistory", "deep_history":
+		return diagram.StateKindDeepHistory
 	default:
 		return diagram.StateKindNormal
 	}
