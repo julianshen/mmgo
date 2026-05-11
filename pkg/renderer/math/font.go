@@ -101,7 +101,7 @@ func downloadAndExtract(cacheDir string) error {
 	if err != nil {
 		return fmt.Errorf("fetch %s: %w", notoMathURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("fetch %s: status %d", notoMathURL, resp.StatusCode)
@@ -116,7 +116,7 @@ func downloadAndExtract(cacheDir string) error {
 	if err != nil {
 		return fmt.Errorf("open zip: %w", err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 
 	for _, zf := range zr.File {
 		if zf.Name != notoMathTTF {
@@ -126,7 +126,7 @@ func downloadAndExtract(cacheDir string) error {
 		if err != nil {
 			return fmt.Errorf("open %s in zip: %w", zf.Name, err)
 		}
-		defer rc.Close()
+		defer func() { _ = rc.Close() }()
 
 		outPath := filepath.Join(cacheDir, "NotoSansMath-Regular.ttf")
 		if err := writeFile(outPath, rc); err != nil {
