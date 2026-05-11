@@ -1,0 +1,7 @@
+sequenceDiagram
+    participant M as Math Engine
+    participant U as User
+    U->>M: Solve $$\\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$
+    M-->>U: Result is $$\\alpha$$
+    U->>M: Compute $$\\sqrt{-1}$$
+    M-->>U: Imaginary unit $$i$$

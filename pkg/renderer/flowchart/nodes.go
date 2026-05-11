@@ -8,6 +8,8 @@ import (
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
+	"github.com/julianshen/mmgo/pkg/renderer/text"
+	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
 const (
@@ -20,7 +22,7 @@ const (
 	stackOffset = 4.0
 )
 
-func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fontSize float64) []any {
+func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fontSize float64, ruler *textmeasure.Ruler) []any {
 	shapeStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:%.2f", th.NodeFill, th.NodeStroke, defaultStrokeWidth)
 	textStyle := fmt.Sprintf("fill:%s;font-size:%.2fpx", th.NodeText, fontSize)
 
@@ -259,6 +261,15 @@ func renderNode(n diagram.Node, nl layout.NodeLayout, pad float64, th Theme, fon
 	if label == "" {
 		label = n.ID
 	}
+
+	// Use rich-text rendering when the label contains math ($$...$$)
+	// or markdown formatting; otherwise fall through to the fast path.
+	if ruler != nil && strings.Contains(label, "$$") {
+		textElems := text.LabelElements(label, cx, cy, fontSize, svgutil.AnchorMiddle, svgutil.BaselineCentral, textStyle, ruler, 1.2)
+		elems = append(elems, textElems...)
+		return elems
+	}
+
 	lines := strings.Split(label, "\n")
 	lineHeight := fontSize * 1.2
 	startY := cy - float64(len(lines)-1)*lineHeight/2

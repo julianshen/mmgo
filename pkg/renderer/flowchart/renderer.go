@@ -138,7 +138,7 @@ func Render(d *diagram.FlowchartDiagram, l *layout.Result, opts *Options) ([]byt
 	innerChildren = append(innerChildren, regionElems...)
 	innerChildren = append(innerChildren, subgraphElems...)
 	innerChildren = append(innerChildren, renderEdges(d, l, pad, th, fontSize, ruler)...)
-	innerChildren = append(innerChildren, renderNodes(d, l, pad, th, fontSize)...)
+	innerChildren = append(innerChildren, renderNodes(d, l, pad, th, fontSize, ruler)...)
 	if contentGroup != nil {
 		contentGroup.Children = innerChildren
 		children = append(children, contentGroup)
@@ -165,14 +165,14 @@ func buildDefs(d *diagram.FlowchartDiagram, th Theme) *Defs {
 	return &Defs{Markers: buildMarkers(d, th)}
 }
 
-func renderNodes(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th Theme, fontSize float64) []any {
+func renderNodes(d *diagram.FlowchartDiagram, l *layout.Result, pad float64, th Theme, fontSize float64, ruler *textmeasure.Ruler) []any {
 	var elems []any
 	for _, n := range d.AllNodes() {
 		nl, ok := l.Nodes[n.ID]
 		if !ok {
 			continue
 		}
-		nodeElems := renderNode(n, nl, pad, th, fontSize)
+		nodeElems := renderNode(n, nl, pad, th, fontSize, ruler)
 		applyStyleOverrides(nodeElems, n, d.Styles)
 		applyClassAttr(nodeElems, n)
 		elems = append(elems, nodeElems...)

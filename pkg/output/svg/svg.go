@@ -52,6 +52,7 @@ import (
 	staterenderer "github.com/julianshen/mmgo/pkg/renderer/state"
 	timelinerenderer "github.com/julianshen/mmgo/pkg/renderer/timeline"
 	xychartrenderer "github.com/julianshen/mmgo/pkg/renderer/xychart"
+	"github.com/julianshen/mmgo/pkg/renderer/text"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -1137,9 +1138,15 @@ func nodeSize(label string, ruler *textmeasure.Ruler, fontSize float64) (w, h fl
 	if label == "" {
 		return minNodeWidth, minNodeHeight
 	}
-	mw, mh := ruler.Measure(label, fontSize)
+	var mw float64
+	if ruler != nil && strings.Contains(label, "$$") {
+		mw, h = text.MeasureLabel(label, ruler, fontSize, 1.2)
+		h += nodePaddingY
+	} else {
+		mw, h = ruler.Measure(label, fontSize)
+		h = h*lineHeightFactor + nodePaddingY
+	}
 	w = mw + nodePaddingX
-	h = mh*lineHeightFactor + nodePaddingY
 	if w < minNodeWidth {
 		w = minNodeWidth
 	}

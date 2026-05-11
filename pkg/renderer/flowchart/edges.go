@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
 	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
+	"github.com/julianshen/mmgo/pkg/renderer/text"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -245,8 +247,16 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 	}
 
 	if e.Label != "" {
-		lx := el.LabelPos.X + pad
-		ly := el.LabelPos.Y + pad
+		// Use the midpoint of the *clipped* polyline instead of
+		// el.LabelPos, which the layout computed from node centres
+		// (before edge clipping). For non-trivial shapes like diamonds
+		// the centre-to-centre midpoint can fall inside the source
+		// node's bbox, making tall labels (math fractions, \sqrt) crash
+		// into the shape. Computing from pts (which already runs through
+		// clipToShape above) places the label between the visible borders.
+		mid := clippedMidpoint(pts)
+		lx := mid.X
+		ly := mid.Y
 		// Branch edges (source is a multi-outlet node) get their label
 		// positioned 40% along the first segment from the exit port,
 		// offset perpendicular outward so readers can tell which
@@ -270,11 +280,16 @@ func renderEdge(e diagram.Edge, el layout.EdgeLayout, pad float64, th Theme, fon
 			RX: 3, RY: 3,
 			Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 		})
-		elems = append(elems, &Text{
-			X: svgFloat(lx), Y: svgFloat(ly),
-			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
-			FontSize: svgFloat(fontSize), Style: textStyle, Content: e.Label,
-		})
+		if strings.Contains(e.Label, "$$") {
+			textElems := text.LabelElements(e.Label, lx, ly, fontSize, svgutil.AnchorMiddle, svgutil.BaselineCentral, textStyle, ruler, 1.2)
+			elems = append(elems, textElems...)
+		} else {
+			elems = append(elems, &Text{
+				X: svgFloat(lx), Y: svgFloat(ly),
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
+				FontSize: svgFloat(fontSize), Style: textStyle, Content: e.Label,
+			})
+		}
 	}
 
 	return elems
@@ -379,6 +394,22 @@ func branchLabelPos(port, stem layout.Point, cx, cy, fontSize float64) (x, y flo
 	return sx + nx*off, sy + ny*off
 }
 
+// clippedMidpoint returns the polyline midpoint by length over the
+// already-clipped points. Mirrors layout.midpointOf but operates on
+// the clipped path: for a 2-point edge it's the average of the
+// endpoints, for longer polylines it lands on the middle segment.
+func clippedMidpoint(pts []layout.Point) layout.Point {
+	if len(pts) < 2 {
+		return layout.Point{}
+	}
+	if len(pts) == 2 {
+		return layout.Point{X: (pts[0].X + pts[1].X) / 2, Y: (pts[0].Y + pts[1].Y) / 2}
+	}
+	mid := len(pts) / 2
+	a, b := pts[mid-1], pts[mid]
+	return layout.Point{X: (a.X + b.X) / 2, Y: (a.Y + b.Y) / 2}
+}
+
 // measureLabel returns the rendered (width, height) of label at the
 // given font size. ruler is the production text measurer; when nil
 // (test helpers that don't initialize a real ruler) it returns a small
@@ -388,6 +419,9 @@ func branchLabelPos(port, stem layout.Point, cx, cy, fontSize float64) (x, y flo
 func measureLabel(ruler *textmeasure.Ruler, label string, fontSize float64) (w, h float64) {
 	if ruler == nil {
 		return 40, 20
+	}
+	if strings.Contains(label, "$$") {
+		return text.MeasureLabel(label, ruler, fontSize, 1.2)
 	}
 	return ruler.Measure(label, fontSize)
 }

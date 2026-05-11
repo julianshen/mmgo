@@ -9,6 +9,7 @@ import (
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
+	richtext "github.com/julianshen/mmgo/pkg/renderer/text"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -609,6 +610,14 @@ func splitLabelLines(s string) []string {
 // stack relative to other elements (see multilineTextAbove).
 func labelLineHeight(fontSize float64) float64 { return fontSize + 2 }
 
+// estimateRuler wraps textmeasure.EstimateWidth to satisfy the ruler
+// interface used by richtext.LabelElements.
+type estimateRuler struct{}
+
+func (e *estimateRuler) Measure(text string, fontSize float64) (width, height float64) {
+	return textmeasure.EstimateWidth(text, fontSize), fontSize
+}
+
 // selfLoopRowExtra returns the additional row advance (beyond defaultRowHeight)
 // required when the current item is a self-message, so the arc — which extends
 // selfLoopH below the message anchor y — clears the next row's label-above-arrow
@@ -630,22 +639,31 @@ func selfLoopRowExtra(fontSize float64) float64 {
 func multilineText(content string, cx, cy float64, anchor, dominant, style string, fontSize float64) []any {
 	lines := splitLabelLines(content)
 	if len(lines) <= 1 {
-		return []any{&text{
-			X: svgFloat(cx), Y: svgFloat(cy),
-			Anchor: anchor, Dominant: dominant,
-			Style: style, Content: content,
-		}}
+		// Fast path for plain text; use rich-text renderer when math
+		// delimiters are present.
+		if !strings.Contains(content, "$$") {
+			return []any{&text{
+				X: svgFloat(cx), Y: svgFloat(cy),
+				Anchor: anchor, Dominant: dominant,
+				Style: style, Content: content,
+			}}
+		}
+		return richtext.LabelElements(content, cx, cy, fontSize, anchor, dominant, style, &estimateRuler{}, 1.2)
 	}
 	lineH := labelLineHeight(fontSize)
 	totalH := lineH * float64(len(lines)-1)
 	startY := cy - totalH/2
 	out := make([]any, 0, len(lines))
 	for i, ln := range lines {
-		out = append(out, &text{
-			X: svgFloat(cx), Y: svgFloat(startY + float64(i)*lineH),
-			Anchor: anchor, Dominant: dominant,
-			Style: style, Content: ln,
-		})
+		if strings.Contains(ln, "$$") {
+			out = append(out, richtext.LabelElements(ln, cx, startY+float64(i)*lineH, fontSize, anchor, dominant, style, &estimateRuler{}, 1.2)...)
+		} else {
+			out = append(out, &text{
+				X: svgFloat(cx), Y: svgFloat(startY + float64(i)*lineH),
+				Anchor: anchor, Dominant: dominant,
+				Style: style, Content: ln,
+			})
+		}
 	}
 	return out
 }

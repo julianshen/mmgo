@@ -60,7 +60,7 @@ func TestRenderRectangleNodeGeometry(t *testing.T) {
 	nl := layout.NodeLayout{X: 100, Y: 50, Width: 80, Height: 40}
 	pad := 10.0
 
-	elems := renderNode(n, nl, pad, DefaultTheme(), 16)
+	elems := renderNode(n, nl, pad, DefaultTheme(), 16, nil)
 	if len(elems) < 2 {
 		t.Fatalf("expected at least 2 elements (rect + text), got %d", len(elems))
 	}

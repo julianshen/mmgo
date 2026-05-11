@@ -12,7 +12,7 @@ func renderShape(t *testing.T, shape diagram.NodeShape) []any {
 	t.Helper()
 	n := diagram.Node{ID: "A", Label: "Test", Shape: shape}
 	nl := layout.NodeLayout{X: 100, Y: 50, Width: 80, Height: 40}
-	return renderNode(n, nl, 10, DefaultTheme(), 16)
+	return renderNode(n, nl, 10, DefaultTheme(), 16, nil)
 }
 
 // countType returns how many elems are of the given concrete type.

@@ -7,6 +7,7 @@ import (
 
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
+	richtext "github.com/julianshen/mmgo/pkg/renderer/text"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -40,7 +41,7 @@ type layoutNode struct {
 	// extent so the renderer can stack multi-line labels without
 	// re-measuring. For single-line labels both have length 1
 	// and the existing single-tspan fast path still applies.
-	segments    [][]textSegment
+	segments    [][]richtext.Segment
 	lineHeights []float64
 	// extraCSS holds the merged classDef + per-node `style` rule
 	// CSS for this node, applied on top of the theme-based fill so
@@ -139,29 +140,40 @@ func buildTree(n *diagram.MindmapNode, ruler *textmeasure.Ruler, fontSize float6
 	// us) and parse each line's markdown independently so a label
 	// like "**Bold** title\nSubtitle" gets two stacked text rows.
 	lines := strings.Split(n.Text, "\n")
-	segments := make([][]textSegment, len(lines))
+	segments := make([][]richtext.Segment, len(lines))
 	lineHeights := make([]float64, len(lines))
 	maxLineW := 0.0
 	totalH := 0.0
 	for i, line := range lines {
-		segs := parseMarkdown(line)
+		segs := richtext.Parse(line)
 		segments[i] = segs
 		lineW := 0.0
+		lineH := 0.0
 		for j, seg := range segs {
-			sw, lh := ruler.Measure(seg.text, fontSize)
-			if seg.bold {
+			if seg.Math != "" {
+				mw, mh := richtext.MathSize(seg.Math, fontSize)
+				segs[j].Width = mw
+				if mh > lineH {
+					lineH = mh
+				}
+				lineW += mw
+				continue
+			}
+			sw, lh := ruler.Measure(seg.Text, fontSize)
+			if seg.Bold {
 				sw *= boldWidthFactor
 			}
-			segs[j].width = sw
+			segs[j].Width = sw
 			lineW += sw
-			if j == 0 {
-				lineHeights[i] = lh
+			if lh > lineH {
+				lineH = lh
 			}
 		}
+		lineHeights[i] = lineH
 		if lineW > maxLineW {
 			maxLineW = lineW
 		}
-		totalH += lineHeights[i]
+		totalH += lineH
 	}
 
 	w := maxLineW + 2*nodePadX
@@ -450,14 +462,14 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 	for i, segs := range n.segments {
 		lh := n.lineHeights[i]
 		ly := startY + lh/2
-		if len(segs) == 1 && !segs[0].bold && !segs[0].italic {
+		if len(segs) == 1 && !segs[0].Bold && !segs[0].Italic && segs[0].Math == "" {
 			// Fast path: plain text uses chardata, which the
 			// tdewolff/canvas PNG rasterizer can render.
 			children = append(children, &text{
 				X: 0, Y: svgutil.Float(ly),
 				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
 				Style:   textStyle,
-				Content: segs[0].text,
+				Content: segs[0].Text,
 			})
 		} else {
 			// Multi-segment text: render each segment as a separate
@@ -466,25 +478,52 @@ func renderShapeElements(n *layoutNode, fontSize float64, th Theme) []any {
 			// (which drops <tspan> children).
 			totalSegW := 0.0
 			for _, seg := range segs {
-				totalSegW += seg.width
+				totalSegW += seg.Width
 			}
 			xOff := -totalSegW / 2
 			for _, seg := range segs {
-				segStyle := textStyle
-				if seg.bold {
-					segStyle += ";font-weight:bold"
+				if seg.Math != "" {
+					fill := extractFill(textStyle)
+					res := richtext.RenderMath(seg.Math, fontSize, lh, fill)
+					if res == nil {
+						// Fallback to plain text on error.
+						children = append(children, &text{
+							X: svgutil.Float(xOff + seg.Width/2), Y: svgutil.Float(ly),
+							Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
+							Style:   textStyle,
+							Content: richtext.CleanMathFallback(seg.Math),
+						})
+					} else {
+						scaledW := res.Width
+						scaledH := res.Height
+						my := ly - scaledH/2
+						mx := xOff + seg.Width/2 - scaledW/2
+						scale := 1.0
+						if res.OrigHeight > lh {
+							scale = lh / res.OrigHeight
+						}
+						children = append(children, &group{
+							Transform: fmt.Sprintf("translate(%.2f,%.2f) scale(%.3f)", mx, my, scale),
+							Children:  res.Elements,
+						})
+					}
+				} else {
+					segStyle := textStyle
+					if seg.Bold {
+						segStyle += ";font-weight:bold"
+					}
+					if seg.Italic {
+						segStyle += ";font-style:italic"
+					}
+					segX := xOff + seg.Width/2
+					children = append(children, &text{
+						X: svgutil.Float(segX), Y: svgutil.Float(ly),
+						Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
+						Style:   segStyle,
+						Content: seg.Text,
+					})
 				}
-				if seg.italic {
-					segStyle += ";font-style:italic"
-				}
-				segX := xOff + seg.width/2
-				children = append(children, &text{
-					X: svgutil.Float(segX), Y: svgutil.Float(ly),
-					Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
-					Style:   segStyle,
-					Content: seg.text,
-				})
-				xOff += seg.width
+				xOff += seg.Width
 			}
 		}
 		startY += lh
@@ -531,4 +570,14 @@ func stylesByID(styles []diagram.MindmapStyleDef) map[string]string {
 		out[s.NodeID] = s.CSS
 	}
 	return out
+}
+
+func extractFill(style string) string {
+	for _, part := range strings.Split(style, ";") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "fill:") {
+			return strings.TrimPrefix(part, "fill:")
+		}
+	}
+	return ""
 }
