@@ -160,13 +160,48 @@ func (r *svgRenderer) Render(w, h, dpi float64, cnv *drawtex.Canvas) error {
 	r.h = h * 72
 	r.dpi = dpi
 	var buf sfnt.Buffer
-	for _, op := range cnv.Ops() {
+	ops := cnv.Ops()
+	// First pass: figure out how far each glyph actually extends (its
+	// rendered right edge after tracking) so that bars/vinculum can be
+	// sized to just clear the radicand they cover. Italic math letters
+	// like x routinely extend past their advance.
+	glyphRightAt := func(g drawtex.GlyphOp) float64 {
+		if g.Glyph.Font == nil {
+			return g.X * trackingScale
+		}
+		ppem := fixed.I(int(g.Glyph.Size * dpi / 72))
+		bounds, _, err := g.Glyph.Font.GlyphBounds(&buf, g.Glyph.Num, ppem, 0)
+		if err != nil {
+			return g.X*trackingScale + float64(g.Glyph.Metrics.Advance)
+		}
+		return g.X*trackingScale + float64(bounds.Max.X)/64
+	}
+	// Second pass — emit. For each RectOp, find the rightmost glyph
+	// whose anchor sits inside (X1, X2) and set the bar to end just
+	// past that glyph's actual right edge.
+	for i, op := range ops {
 		switch o := op.(type) {
 		case drawtex.GlyphOp:
 			r.glyphYs = append(r.glyphYs, o.Y)
 			r.renderGlyph(&buf, o)
 		case drawtex.RectOp:
-			r.renderRect(o)
+			// Locate the rightmost glyph extent covered by this rect.
+			rightEdge := o.X1 // fallback: just the start
+			for _, op2 := range ops {
+				g, ok := op2.(drawtex.GlyphOp)
+				if !ok {
+					continue
+				}
+				if g.X+0.01 < o.X1 || g.X > o.X2 {
+					continue
+				}
+				e := glyphRightAt(g)
+				if e > rightEdge {
+					rightEdge = e
+				}
+			}
+			r.renderRectAt(o, rightEdge)
+			_ = i
 		}
 	}
 	return nil
@@ -242,6 +277,26 @@ func (r *svgRenderer) renderGlyph(buf *sfnt.Buffer, op drawtex.GlyphOp) {
 		fmt.Fprintf(&d, "Z")
 		fmt.Fprintf(&r.sb, `<path d="%s"/>`, d.String())
 	}
+}
+
+// renderRectAt sizes a bar/vinculum to span from its mtex X1 to a
+// rightEdge derived from the actual radicand glyph extents. For \frac
+// bars the start glyphs sit at op.X=0 (so rightEdge==o.X1 from the
+// fallback) and the bar keeps mtex's natural width; for \sqrt vinculum
+// the rightEdge has been computed from the radicand and the bar tracks
+// it properly even when italic glyphs extend past their advance.
+func (r *svgRenderer) renderRectAt(op drawtex.RectOp, rightEdge float64) {
+	naturalRight := op.X2
+	if rightEdge < naturalRight {
+		rightEdge = naturalRight
+	}
+	x := op.X1 - barOverhang
+	w := rightEdge - op.X1 + 2*barOverhang
+	y := op.Y1
+	h := op.Y2 - op.Y1
+	r.noteY(y)
+	r.noteY(y + h)
+	fmt.Fprintf(&r.sb, `<rect x="%.3f" y="%.3f" width="%.3f" height="%.3f"/>`, x, y, w, h)
 }
 
 func (r *svgRenderer) renderRect(op drawtex.RectOp) {
