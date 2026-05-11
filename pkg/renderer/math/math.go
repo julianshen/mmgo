@@ -245,16 +245,30 @@ func (r *svgRenderer) renderGlyph(buf *sfnt.Buffer, op drawtex.GlyphOp) {
 }
 
 func (r *svgRenderer) renderRect(op drawtex.RectOp) {
-	// Bars (\frac, \sqrt vinculum) shift right with the rest of the
-	// content via trackingScale on X1, but the bar's own width stays at
-	// the natural mtex extent — scaling the width too made \sqrt's bar
-	// run several glyphs past its radicand. barOverhang adds a small
-	// extension on each side so the bar visibly clears the
-	// numerator/denominator/radicand instead of ending flush.
-	x := op.X1*trackingScale - barOverhang
+	// Bars come in two flavours that need different treatment:
+	//
+	//   - \frac bar: starts at op.X1≈0, sits over numerator/denominator
+	//     glyphs that are themselves at op.X=0 (so they don't move under
+	//     tracking). Width stays at mtex's natural extent + small overhang.
+	//
+	//   - \sqrt vinculum: starts at op.X1 > 0 (just after the √ glyph)
+	//     and must cover the radicand, which DID move right under
+	//     tracking. Scale the width by trackingScale so the bar still
+	//     reaches past the now-shifted radicand.
+	//
+	// Width is in mtex coordinates and the glyph visual extent can
+	// exceed its advance (italic math letters lean past their advance),
+	// so we add a generous overhang on the right.
+	x := op.X1 - barOverhang
+	w := (op.X2 - op.X1)
+	if op.X1 > 1 {
+		// \sqrt vinculum — grow width with tracking so it still covers
+		// the radicand at its new shifted position.
+		w *= trackingScale
+	}
+	w += 2 * barOverhang
 	// Canvas and SVG both use y-down: Y1 is the top edge.
 	y := op.Y1
-	w := (op.X2 - op.X1) + 2*barOverhang
 	h := op.Y2 - op.Y1
 	r.noteY(y)
 	r.noteY(y + h)
