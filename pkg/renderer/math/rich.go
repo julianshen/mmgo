@@ -33,23 +33,44 @@ func RenderRichWithBaseline(expr string, fontSize float64) (svg string, w, h, ba
 	scaled := fontSize * displayScale
 	parts, ok := splitTopLevel(expr)
 	if !ok || len(parts) == 1 && parts[0].kind == partMath {
-		// Refuse to silently mutate the math: if there are nested ^/_
-		// constructs we can't render (e.g. b^2 inside \sqrt{...}), the
-		// caller's panic recovery should kick in and produce a plain-text
-		// fallback rather than us stripping the operator and pretending
-		// the render succeeded.
-		if hasNestedSupSub(expr) {
-			return "", 0, 0, 0, fmt.Errorf("math render: unsupported nested superscript/subscript")
-		}
-		return renderRawWithBaseline(expr, scaled)
+		// Nested ^/_ (e.g. b^2 inside \sqrt{...}) is unsupported by
+		// mtex — but rendering the surrounding structure with the
+		// operand inlined (\frac{-b \pm \sqrt{b2 - 4ac}}{2a}) is far
+		// more useful than a stripped-backslash plain-text fallback
+		// like "frac{-b pm sqrt{b^2 - 4ac}}{2a}". Drop only the
+		// caret/underscore markers, keep the operand glyphs.
+		return renderRawWithBaseline(flattenNestedSupSub(expr), scaled)
 	}
 	return renderPartsWithBaseline(parts, scaled)
 }
 
+// flattenNestedSupSub strips `^` and `_` markers at any brace depth
+// while keeping the operand glyphs themselves, so that the surrounding
+// structure (fractions, roots, …) still renders. The output is not
+// mathematically equivalent — `b^2` becomes `b2` — but every visible
+// symbol from the source is preserved and the reader can still
+// recognise the formula.
+func flattenNestedSupSub(expr string) string {
+	var sb strings.Builder
+	for i := 0; i < len(expr); i++ {
+		c := expr[i]
+		if c == '\\' && i+1 < len(expr) {
+			sb.WriteByte(c)
+			sb.WriteByte(expr[i+1])
+			i++
+			continue
+		}
+		if c == '^' || c == '_' {
+			continue // drop the marker, keep the operand we encounter next
+		}
+		sb.WriteByte(c)
+	}
+	return sb.String()
+}
+
 // hasNestedSupSub reports whether expr contains a `^` or `_` token at
-// any brace depth. mtex panics on these constructs and there is no way
-// to render them without a full custom typesetter, so callers fall back
-// to plain text rather than risk altering the mathematical meaning.
+// any brace depth. Used as a guard before passing an expression to
+// mtex's recursive renderer.
 func hasNestedSupSub(expr string) bool {
 	for i := 0; i < len(expr); i++ {
 		c := expr[i]
@@ -205,10 +226,7 @@ func renderPartsWithBaseline(parts []rawPart, fontSize float64) (svg string, tot
 	for _, p := range parts {
 		switch p.kind {
 		case partMath:
-			if hasNestedSupSub(p.expr) {
-				return "", 0, 0, 0, fmt.Errorf("math render: unsupported nested superscript/subscript")
-			}
-			s, pw, ph, pb, e := renderRawWithBaseline(p.expr, fontSize)
+			s, pw, ph, pb, e := renderRawWithBaseline(flattenNestedSupSub(p.expr), fontSize)
 			if e != nil {
 				return "", 0, 0, 0, e
 			}
