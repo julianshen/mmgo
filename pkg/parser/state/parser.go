@@ -408,6 +408,7 @@ func parseStateDescription(line string) (id, desc string, ok bool) {
 func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef) error {
 	var label, id string
 	var after string
+	cssClass := ""
 
 	if strings.HasPrefix(rest, "\"") {
 		// Quoted label form: state "Label" or state "Label" as ID
@@ -419,26 +420,50 @@ func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef) error {
 		after = strings.TrimSpace(rest[endQuote+2:])
 		if idPart, ok := strings.CutPrefix(after, "as "); ok {
 			idPart = strings.TrimSpace(idPart)
-			id, after = splitStateIDAndTail(idPart)
+			if idPart == "" {
+				return fmt.Errorf("state declaration: missing identifier after 'as'")
+			}
+			rawID, tail := splitStateIDAndTail(idPart)
+			var ok bool
+			id, cssClass, ok = parserutil.ExtractCSSClassShorthand(rawID)
+			if !ok {
+				return fmt.Errorf("state declaration: chained CSS shorthand not allowed")
+			}
+			after = tail
 		} else {
 			// No "as" keyword — use the quoted string as both ID and label.
 			id = label
-			after = ""
 		}
 	} else {
-		id, after = splitStateIDAndTail(rest)
+		rawID, tail := splitStateIDAndTail(rest)
+		var ok bool
+		id, cssClass, ok = parserutil.ExtractCSSClassShorthand(rawID)
+		if !ok {
+			return fmt.Errorf("state declaration: chained CSS shorthand not allowed")
+		}
+		after = tail
 		label = id
 	}
 
-	// Strip `:::cssClass` shorthand from the tail.
-	cssClass := ""
-	if i := strings.Index(after, ":::"); i >= 0 {
-		cssClass = strings.TrimSpace(after[i+3:])
-		if j := strings.IndexAny(cssClass, " \t{"); j >= 0 {
-			cssClass = strings.TrimSpace(cssClass[:j])
+	// Handle CSS shorthand in `after` for quoted-no-as forms:
+	// e.g. state "Label":::hot or state "Label":::hot {.
+	if strings.HasPrefix(after, ":::") {
+		raw := strings.TrimSpace(after[3:])
+		if j := strings.IndexAny(raw, " \t{<"); j >= 0 {
+			if c := strings.TrimSpace(raw[:j]); c != "" && cssClass == "" {
+				cssClass = c
+			}
+			after = strings.TrimSpace(raw[j:])
+		} else {
+			if c := strings.TrimSpace(raw); c != "" && cssClass == "" {
+				cssClass = c
+			}
+			after = ""
 		}
-		tail := after[i+3+len(cssClass):]
-		after = strings.TrimSpace(after[:i] + " " + strings.TrimSpace(tail))
+	}
+
+	if id == "" {
+		return fmt.Errorf("state declaration: missing identifier")
 	}
 
 	s := upsertState(target, id)
@@ -463,22 +488,17 @@ func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef) error {
 }
 
 // splitStateIDAndTail splits a state declaration remainder into the
-// identifier and everything that follows ({, :::css, <<kind>>).
-// It finds the earliest special token so that `Foo:::hot <<fork>>`
-// splits as ("Foo", "<<fork>>") after the CSS class is stripped
-// elsewhere.
+// identifier and everything that follows ({ or <<kind>>). CSS shorthand
+// (:::css) is kept as part of the identifier; callers should strip it
+// with parserutil.ExtractCSSClassShorthand afterwards.
 func splitStateIDAndTail(s string) (id, tail string) {
 	s = strings.TrimSpace(s)
 	braceIdx := strings.IndexByte(s, '{')
-	cssIdx := strings.Index(s, ":::")
 	kindIdx := strings.Index(s, "<<")
 
 	minIdx := -1
 	if braceIdx >= 0 {
 		minIdx = braceIdx
-	}
-	if cssIdx >= 0 && (minIdx < 0 || cssIdx < minIdx) {
-		minIdx = cssIdx
 	}
 	if kindIdx >= 0 && (minIdx < 0 || kindIdx < minIdx) {
 		minIdx = kindIdx

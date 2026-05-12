@@ -839,7 +839,27 @@ func TestRenderChoiceNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if !strings.Contains(string(out), "<polygon") {
-		t.Error("choice state should render as a polygon")
+	raw := string(out)
+	if !strings.Contains(raw, "<polygon") {
+		t.Fatal("choice state should render as a polygon")
+	}
+	// Verify at least one polygon has four vertices (the diamond).
+	// The arrowhead marker also contains a 3-vertex polygon, so we
+	// check all matches rather than the first.
+	polyRe := regexp.MustCompile(`<polygon[^>]+points="([^"]+)"`)
+	foundDiamond := false
+	for _, m := range polyRe.FindAllStringSubmatch(raw, -1) {
+		pairs := strings.Fields(m[1])
+		if len(pairs) == 4 {
+			foundDiamond = true
+			break
+		}
+	}
+	if !foundDiamond {
+		t.Error("choice diamond with 4 vertices not found")
+	}
+	// The polygon should use the choice fill colour.
+	if !strings.Contains(raw, DefaultTheme().ChoiceFill) {
+		t.Error("choice fill colour missing")
 	}
 }

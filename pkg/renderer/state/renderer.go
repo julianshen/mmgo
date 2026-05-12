@@ -66,8 +66,11 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	for _, s := range leafStates {
 		w, h := stateNodeSize(s, ruler, fontSize)
 		attrs := graph.NodeAttrs{Label: s.Label, Width: w, Height: h}
-		if s.Kind == diagram.StateKindChoice {
+		switch s.Kind {
+		case diagram.StateKindChoice:
 			attrs.Shape = graph.ShapeDiamond
+		case diagram.StateKindHistory, diagram.StateKindDeepHistory:
+			attrs.Shape = graph.ShapeCircle
 		}
 		g.SetNode(s.ID, attrs)
 	}
@@ -160,7 +163,7 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	// Composite boxes go behind edges + leaf states so the frame
 	// doesn't occlude inner content.
 	children = append(children, renderCompositeBoxes(composites, fontSize, th)...)
-	children = append(children, renderEdges(d, l, pad, fontSize, ruler, th, leafRep)...)
+	children = append(children, renderEdges(d, l, pad, fontSize, ruler, th, leafRep, g)...)
 	children = append(children, renderNodes(d, leafStates, l, pad, fontSize, th)...)
 	children = append(children, renderStateNotes(notes, l, pad, fontSize, th)...)
 
@@ -732,7 +735,7 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 	return elems
 }
 
-func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler, th Theme, leafRep map[string]string) []any {
+func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler, th Theme, leafRep map[string]string, g *graph.Graph) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -763,14 +766,6 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		transMap[key] = append(transMap[key], t)
 	}
 
-	// Index choice-node IDs for shape-aware edge clipping.
-	choiceIDs := make(map[string]struct{})
-	for _, s := range collectAllStates(d.States) {
-		if s.Kind == diagram.StateKindChoice {
-			choiceIDs[s.ID] = struct{}{}
-		}
-	}
-
 	var elems []any
 	for _, eid := range edgeKeys {
 		el := l.Edges[eid]
@@ -790,11 +785,11 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		srcDir := pts[1]
 		dstDir := pts[len(pts)-2]
 		if src, ok := l.Nodes[eid.From]; ok {
-			x, y := clipNodeEdge(eid.From, src, pad, srcDir, choiceIDs)
+			x, y := clipNodeEdge(eid.From, src, pad, srcDir, g)
 			pts[0] = layout.Point{X: x, Y: y}
 		}
 		if dst, ok := l.Nodes[eid.To]; ok {
-			x, y := clipNodeEdge(eid.To, dst, pad, dstDir, choiceIDs)
+			x, y := clipNodeEdge(eid.To, dst, pad, dstDir, g)
 			pts[len(pts)-1] = layout.Point{X: x, Y: y}
 		}
 
@@ -890,7 +885,7 @@ func isPseudoNode(id string) bool {
 // nodes are circles; choice nodes are diamonds. Clipping to the visible
 // outline keeps the arrowhead tucked against the glyph instead of
 // floating inside the layout box reserved around it.
-func clipNodeEdge(id string, n layout.NodeLayout, pad float64, dir layout.Point, choiceIDs map[string]struct{}) (float64, float64) {
+func clipNodeEdge(id string, n layout.NodeLayout, pad float64, dir layout.Point, g *graph.Graph) (float64, float64) {
 	cx := n.X + pad
 	cy := n.Y + pad
 	if isStartNode(id) {
@@ -899,8 +894,13 @@ func clipNodeEdge(id string, n layout.NodeLayout, pad float64, dir layout.Point,
 	if isEndNode(id) {
 		return svgutil.ClipToCircleEdge(cx, cy, endRingR, dir.X, dir.Y)
 	}
-	if _, ok := choiceIDs[id]; ok {
-		return svgutil.ClipToDiamondEdge(cx, cy, n.Width, n.Height, dir.X, dir.Y)
+	if attrs, ok := g.NodeAttrs(id); ok {
+		switch attrs.Shape {
+		case graph.ShapeDiamond:
+			return svgutil.ClipToDiamondEdge(cx, cy, n.Width, n.Height, dir.X, dir.Y)
+		case graph.ShapeCircle:
+			return svgutil.ClipToCircleEdge(cx, cy, n.Width/2, dir.X, dir.Y)
+		}
 	}
 	return svgutil.ClipToRectEdge(cx, cy, n.Width, n.Height, dir.X, dir.Y)
 }

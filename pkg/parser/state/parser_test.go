@@ -822,6 +822,56 @@ func TestParseQuotedStateWithoutAs(t *testing.T) {
 	}
 }
 
+// `state "Label" { ... }` without `as` creates a composite whose ID
+// and label are both the quoted string.
+func TestParseQuotedStateWithoutAsComposite(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state "Active State" {
+        Running --> Paused
+    }`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.States) != 1 {
+		t.Fatalf("want 1 top-level state, got %d", len(d.States))
+	}
+	s := d.States[0]
+	if s.ID != "Active State" || s.Label != "Active State" {
+		t.Errorf("ID/Label = %q/%q", s.ID, s.Label)
+	}
+	if len(s.Children) != 2 {
+		t.Errorf("want 2 children, got %d", len(s.Children))
+	}
+}
+
+// Unterminated quote in state declaration errors.
+func TestParseUnterminatedQuoteStateDecl(t *testing.T) {
+	_, err := Parse(strings.NewReader(`stateDiagram-v2
+    state "No closing`))
+	if err == nil {
+		t.Fatal("expected error for unterminated quote")
+	}
+}
+
+// Empty state identifier errors instead of creating a phantom state.
+func TestParseEmptyStateIDError(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{"state_brace", "stateDiagram-v2\n    state {"},
+		{"state_kind", "stateDiagram-v2\n    state <<fork>>"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(strings.NewReader(tc.src))
+			if err == nil {
+				t.Errorf("expected error for empty state id")
+			}
+		})
+	}
+}
+
 // `state "Label" as ID { ... }` creates a composite with the given
 // label and identifier.
 func TestParseAliasedComposite(t *testing.T) {
@@ -891,6 +941,7 @@ func TestParseHistoryStates(t *testing.T) {
 	}{
 		{"state H <<history>>", diagram.StateKindHistory},
 		{"state DH <<deepHistory>>", diagram.StateKindDeepHistory},
+		{"state DH <<deep_history>>", diagram.StateKindDeepHistory},
 	} {
 		t.Run(tc.want.String(), func(t *testing.T) {
 			d, err := Parse(strings.NewReader("stateDiagram-v2\n    " + tc.decl))

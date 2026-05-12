@@ -23,6 +23,7 @@ const (
 	ShapeDefault NodeShape = iota
 	ShapeDiamond
 	ShapeHexagon
+	ShapeCircle
 )
 
 // NodeAttrs holds attributes associated with a graph node.
