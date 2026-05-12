@@ -125,11 +125,16 @@ func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
 		p.diagram.Transitions = append(p.diagram.Transitions, t)
 		return nil
 	}
-	if id, desc, ok := parseStateDescription(line); ok {
+	if id, label, ok := parseStateDescription(line); ok {
 		s := upsertState(target, id)
 		if s != nil {
-			s.Description = desc
+			s.Label = label
 		}
+		return nil
+	}
+	// Bare state identifier with no transition or description.
+	if !strings.ContainsAny(line, " \t") {
+		upsertState(target, line)
 		return nil
 	}
 	return nil
@@ -470,7 +475,12 @@ func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef) error {
 	if s == nil {
 		return fmt.Errorf("invalid state name %q", id)
 	}
-	s.Label = label
+	// Only overwrite an existing label when an explicit one is given
+	// (i.e. label differs from the bare id). This preserves labels set
+	// by prior `id : text` or `state "Label" as id` declarations.
+	if label != id {
+		s.Label = label
+	}
 	if cssClass != "" {
 		s.CSSClasses = append(s.CSSClasses, cssClass)
 	}
@@ -561,12 +571,26 @@ func parseTransition(line string) (diagram.StateTransition, bool) {
 		return diagram.StateTransition{}, false
 	}
 	from := strings.TrimSpace(line[:idx])
+	// Strip inline CSS shorthand from the LHS.
+	if i := strings.LastIndex(from, ":::"); i >= 0 {
+		from = strings.TrimSpace(from[:i])
+	}
 	rest := strings.TrimSpace(line[idx+3:])
+	// Strip inline CSS shorthand from the RHS before looking for
+	// the label separator so `A:::hot --> B` is parsed correctly.
 	to := rest
 	label := ""
-	if colonIdx := strings.Index(rest, ":"); colonIdx >= 0 {
+	if cssIdx := strings.Index(rest, ":::"); cssIdx >= 0 {
+		to = strings.TrimSpace(rest[:cssIdx])
+		// Any trailing content after the CSS shorthand is the label
+		// (e.g. `B:::hot : label` → to=B, label=label).
+		rest = strings.TrimSpace(rest[cssIdx+3:])
+		if colonIdx := strings.Index(rest, ":"); colonIdx >= 0 {
+			to = strings.TrimSpace(rest[:colonIdx])
+			label = parserutil.ExpandLineBreaks(strings.TrimSpace(rest[colonIdx+1:]))
+		}
+	} else if colonIdx := strings.Index(rest, ":"); colonIdx >= 0 {
 		to = strings.TrimSpace(rest[:colonIdx])
-		// Mermaid uses literal `\n` as a line-break in transition labels.
 		label = parserutil.ExpandLineBreaks(strings.TrimSpace(rest[colonIdx+1:]))
 	}
 	if from == "" || to == "" {

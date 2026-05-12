@@ -567,16 +567,6 @@ func stateNodeSize(s diagram.StateDef, ruler *textmeasure.Ruler, fontSize float6
 	tw, _ := ruler.Measure(s.Label, fontSize)
 	w = tw + 2*statePadX
 	h = titleBandHeight(fontSize)
-	if s.Description != "" {
-		descLines := strings.Split(s.Description, "\n")
-		for _, line := range descLines {
-			lw, _ := ruler.Measure(line, fontSize-1)
-			if lw+2*statePadX > w {
-				w = lw + 2*statePadX
-			}
-		}
-		h += statePadY + float64(len(descLines))*descLineHeight(fontSize)
-	}
 	if w < minStateW {
 		w = minStateW
 	}
@@ -657,38 +647,12 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 				RX: 8, RY: 8,
 				Style: rectStyle,
 			})
-			if s.Description != "" {
-				titleH := titleBandHeight(fontSize)
-				*buf = append(*buf, &text{
-					X: svgFloat(cx), Y: svgFloat(y + titleH/2),
-					Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
-					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize),
-					Content: s.Label,
-				})
-				*buf = append(*buf, &line{
-					X1: svgFloat(x), Y1: svgFloat(y + titleH),
-					X2: svgFloat(x + w), Y2: svgFloat(y + titleH),
-					Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.StateStroke),
-				})
-				descLines := strings.Split(s.Description, "\n")
-				lineH := descLineHeight(fontSize)
-				for i, ln := range descLines {
-					ly := y + titleH + statePadY/2 + float64(i)*lineH + lineH/2
-					*buf = append(*buf, &text{
-						X: svgFloat(cx), Y: svgFloat(ly),
-						Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
-						Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize-1),
-						Content: ln,
-					})
-				}
-			} else {
-				*buf = append(*buf, &text{
-					X: svgFloat(cx), Y: svgFloat(cy),
-					Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
-					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize),
-					Content: s.Label,
-				})
-			}
+			*buf = append(*buf, &text{
+				X: svgFloat(cx), Y: svgFloat(cy),
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize),
+				Content: s.Label,
+			})
 		}
 
 		if hasClick && click.URL != "" {

@@ -18,11 +18,7 @@ func (s StateKind) String() string { return enumString(s, stateKindNames) }
 type StateDef struct {
 	ID    string
 	Label string
-	// Description is optional secondary text parsed from
-	// `id : description` syntax. Renderers may show it below the
-	// state title in a separate compartment.
-	Description string
-	Kind        StateKind
+	Kind  StateKind
 	// Children holds the inner states for a composite state with
 	// a single (default) region. For composite states split by
 	// `--` separators into parallel regions, see Regions instead;

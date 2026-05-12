@@ -317,11 +317,11 @@ func TestParseBareStateDecl(t *testing.T) {
 	}
 }
 
-// `id : description` outside of a transition assigns the description
-// to that state. The state is auto-registered if not already present.
-func TestParseStateDescription(t *testing.T) {
+// `id : label` outside of a transition assigns the label to that state.
+// The state is auto-registered if not already present.
+func TestParseStateLabel(t *testing.T) {
 	d, err := Parse(strings.NewReader(`stateDiagram-v2
-    s1 : This is a description
+    s1 : This is a label
     s2 : Another one`))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -329,24 +329,24 @@ func TestParseStateDescription(t *testing.T) {
 	if len(d.States) != 2 {
 		t.Fatalf("want 2 states, got %d", len(d.States))
 	}
-	if d.States[0].ID != "s1" || d.States[0].Description != "This is a description" {
+	if d.States[0].ID != "s1" || d.States[0].Label != "This is a label" {
 		t.Errorf("s1 = %+v", d.States[0])
 	}
-	if d.States[1].Description != "Another one" {
+	if d.States[1].Label != "Another one" {
 		t.Errorf("s2 = %+v", d.States[1])
 	}
 }
 
-// Description shorthand can repeat; the latest description wins.
-func TestParseStateDescriptionUpdate(t *testing.T) {
+// Label shorthand can repeat; the latest label wins.
+func TestParseStateLabelUpdate(t *testing.T) {
 	d, err := Parse(strings.NewReader(`stateDiagram-v2
     s1 : first
     s1 : second`))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if d.States[0].Description != "second" {
-		t.Errorf("description = %q, want %q", d.States[0].Description, "second")
+	if d.States[0].Label != "second" {
+		t.Errorf("label = %q, want %q", d.States[0].Label, "second")
 	}
 }
 
@@ -983,5 +983,72 @@ func TestParseCompositeTransitionLabel(t *testing.T) {
 	}
 	if got := found["Active->Done"]; got != "finish" {
 		t.Errorf("Active->Done label = %q, want finish", got)
+	}
+}
+
+// A bare state identifier on its own line registers the state.
+func TestParseBareStateID(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    stateId`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.States) != 1 {
+		t.Fatalf("want 1 state, got %d", len(d.States))
+	}
+	if d.States[0].ID != "stateId" || d.States[0].Label != "stateId" {
+		t.Errorf("state = %+v", d.States[0])
+	}
+}
+
+// CSS shorthand on transition endpoints is stripped before state
+// registration so the state ID isn't polluted.
+func TestParseTransitionCSSShorthand(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    classDef hot fill:#f00
+    A:::hot --> B:::cold
+    B --> C`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ids := make(map[string]bool)
+	for _, s := range d.States {
+		ids[s.ID] = true
+	}
+	for _, id := range []string{"A", "B", "C"} {
+		if !ids[id] {
+			t.Errorf("state %q not found", id)
+		}
+	}
+	if ids["A:::hot"] || ids["B:::cold"] {
+		t.Error("CSS shorthand leaked into state IDs")
+	}
+	if len(d.Transitions) != 2 {
+		t.Fatalf("want 2 transitions, got %d", len(d.Transitions))
+	}
+	if d.Transitions[0].From != "A" || d.Transitions[0].To != "B" {
+		t.Errorf("transition[0] = %+v", d.Transitions[0])
+	}
+}
+
+// `id : text` on a composite state sets its label (display name).
+func TestParseCompositeLabelViaColon(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    NamedComposite : Another Composite
+    state NamedComposite {
+        [*] --> namedSimple
+    }`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.States) != 1 {
+		t.Fatalf("want 1 state, got %d", len(d.States))
+	}
+	s := d.States[0]
+	if s.ID != "NamedComposite" {
+		t.Errorf("ID = %q", s.ID)
+	}
+	if s.Label != "Another Composite" {
+		t.Errorf("Label = %q, want %q", s.Label, "Another Composite")
 	}
 }
