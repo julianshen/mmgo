@@ -421,20 +421,26 @@ const (
 )
 
 // layoutCompositeBoxes computes the bounding rect for each composite
-// state by walking the layout positions of its leaf descendants.
-// Multi-region composites also produce a per-region bbox slice that
-// renderCompositeBoxes uses to draw dashed dividers.
-//
-// Walks recursively so nested composites each get their own box.
+// state bottom-up so nested composites are sized from their own
+// children rather than all deepest leaves. This prevents ancestor
+// composites from degenerating to the same bbox as their deepest
+// descendant.
 func layoutCompositeBoxes(states []diagram.StateDef, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler) []placedComposite {
+	// boxByID stores the placed composite for every composite state so
+	// parent composites can include their children's boxes.
+	boxByID := make(map[string]placedComposite)
 	var out []placedComposite
+
 	var walk func([]diagram.StateDef)
 	walk = func(ss []diagram.StateDef) {
 		for _, s := range ss {
 			if len(s.Children) == 0 {
 				continue
 			}
-			bb := childrenBBox(s, l, pad)
+			// Compute child composites first (bottom-up).
+			walk(s.Children)
+
+			bb := compositeBBox(s, l, pad, boxByID)
 			if bb.Empty() {
 				continue
 			}
@@ -451,56 +457,65 @@ func layoutCompositeBoxes(states []diagram.StateDef, l *layout.Result, pad, font
 			if len(s.Regions) > 1 {
 				regionBBoxes = make([]svgutil.BBox, 0, len(s.Regions))
 				for _, region := range s.Regions {
-					rb := svgutil.NewInfiniteBBox()
-					accumulateLeafBBox(region, l, pad, &rb)
+					rb := regionBBox(region, l, pad, boxByID)
 					if !rb.Empty() {
 						regionBBoxes = append(regionBBoxes, rb)
 					}
 				}
 			}
-		out = append(out, placedComposite{
-			def: s, x: x, y: y, w: w, h: h, regions: regionBBoxes,
-			leafBB: bb,
-		})
-		walk(s.Children)
+			p := placedComposite{
+				def: s, x: x, y: y, w: w, h: h, regions: regionBBoxes,
+				leafBB: bb,
+			}
+			boxByID[s.ID] = p
+			out = append(out, p)
 		}
 	}
 	walk(states)
 	return out
 }
 
-func containsIDDeep(s diagram.StateDef, id string) bool {
-	if s.ID == id {
-		return true
-	}
-	for _, c := range s.Children {
-		if containsIDDeep(c, id) {
-			return true
-		}
-	}
-	return false
-}
-
-
-// childrenBBox accumulates the bbox of all leaf descendants of s.
-// Falls back to flattening Regions when Children is empty — defends
-// against AST callers that populated only Regions.
-func childrenBBox(s diagram.StateDef, l *layout.Result, pad float64) svgutil.BBox {
+// compositeBBox builds the bbox of a composite from its immediate
+// children only: direct leaves use their layout position; direct
+// composites use their already-computed box.
+func compositeBBox(s diagram.StateDef, l *layout.Result, pad float64, boxByID map[string]placedComposite) svgutil.BBox {
 	bb := svgutil.NewInfiniteBBox()
-	if len(s.Children) > 0 {
-		accumulateLeafBBox(s.Children, l, pad, &bb)
-	} else {
+	sources := s.Children
+	if len(sources) == 0 {
 		for _, region := range s.Regions {
-			accumulateLeafBBox(region, l, pad, &bb)
+			rb := regionBBox(region, l, pad, boxByID)
+			if !rb.Empty() {
+				bb.Expand((rb.MinX+rb.MaxX)/2, (rb.MinY+rb.MaxY)/2, rb.MaxX-rb.MinX, rb.MaxY-rb.MinY)
+			}
 		}
+		return bb
+	}
+	for _, c := range sources {
+		if len(c.Children) > 0 {
+			// Composite child: include its pre-computed box.
+			if childBox, ok := boxByID[c.ID]; ok {
+				bb.Expand(childBox.x+childBox.w/2, childBox.y+childBox.h/2, childBox.w, childBox.h)
+			}
+			continue
+		}
+		// Leaf child: include its layout node.
+		n, ok := l.Nodes[c.ID]
+		if !ok {
+			continue
+		}
+		bb.Expand(n.X+pad, n.Y+pad, n.Width, n.Height)
 	}
 	return bb
 }
 
-func accumulateLeafBBox(states []diagram.StateDef, l *layout.Result, pad float64, bb *svgutil.BBox) {
-	for _, c := range states {
+// regionBBox mirrors compositeBBox for a parallel-region slice.
+func regionBBox(region []diagram.StateDef, l *layout.Result, pad float64, boxByID map[string]placedComposite) svgutil.BBox {
+	bb := svgutil.NewInfiniteBBox()
+	for _, c := range region {
 		if len(c.Children) > 0 {
-			accumulateLeafBBox(c.Children, l, pad, bb)
+			if childBox, ok := boxByID[c.ID]; ok {
+				bb.Expand(childBox.x+childBox.w/2, childBox.y+childBox.h/2, childBox.w, childBox.h)
+			}
 			continue
 		}
 		n, ok := l.Nodes[c.ID]
@@ -509,6 +524,7 @@ func accumulateLeafBBox(states []diagram.StateDef, l *layout.Result, pad float64
 		}
 		bb.Expand(n.X+pad, n.Y+pad, n.Width, n.Height)
 	}
+	return bb
 }
 
 // renderCompositeBoxes emits the labelled rounded rect plus optional
