@@ -119,9 +119,15 @@ func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
 	if rest, ok := strings.CutPrefix(line, "class "); ok {
 		return p.parseClassBinding(rest, target)
 	}
-	if t, ok := parseTransition(line); ok {
-		upsertState(target, t.From)
-		upsertState(target, t.To)
+	if t, fromCSS, toCSS, ok := parseTransition(line); ok {
+		fromState := upsertState(target, t.From)
+		toState := upsertState(target, t.To)
+		if fromState != nil && fromCSS != "" {
+			fromState.CSSClasses = append(fromState.CSSClasses, fromCSS)
+		}
+		if toState != nil && toCSS != "" {
+			toState.CSSClasses = append(toState.CSSClasses, toCSS)
+		}
 		p.diagram.Transitions = append(p.diagram.Transitions, t)
 		return nil
 	}
@@ -565,38 +571,46 @@ func (p *parser) parseCompositeBody(parent *diagram.StateDef) error {
 	return fmt.Errorf("unclosed composite state")
 }
 
-func parseTransition(line string) (diagram.StateTransition, bool) {
+// parseTransition extracts a transition from a line, returning the
+// transition, any CSS class shorthand attached to the from/to states,
+// and whether the line is a transition at all.
+func parseTransition(line string) (diagram.StateTransition, string, string, bool) {
 	idx := strings.Index(line, "-->")
 	if idx < 0 {
-		return diagram.StateTransition{}, false
+		return diagram.StateTransition{}, "", "", false
 	}
 	from := strings.TrimSpace(line[:idx])
-	// Strip inline CSS shorthand from the LHS.
+	// Extract inline CSS shorthand from the LHS.
+	fromCSS := ""
 	if i := strings.LastIndex(from, ":::"); i >= 0 {
+		fromCSS = strings.TrimSpace(from[i+3:])
 		from = strings.TrimSpace(from[:i])
 	}
 	rest := strings.TrimSpace(line[idx+3:])
-	// Strip inline CSS shorthand from the RHS before looking for
+	// Extract inline CSS shorthand from the RHS before looking for
 	// the label separator so `A:::hot --> B` is parsed correctly.
 	to := rest
 	label := ""
+	toCSS := ""
 	if cssIdx := strings.Index(rest, ":::"); cssIdx >= 0 {
 		to = strings.TrimSpace(rest[:cssIdx])
 		// Any trailing content after the CSS shorthand is the label
-		// (e.g. `B:::hot : label` → to=B, label=label).
+		// (e.g. `B:::hot : label` → to=B, toCSS=hot, label=label).
 		rest = strings.TrimSpace(rest[cssIdx+3:])
 		if colonIdx := strings.Index(rest, ":"); colonIdx >= 0 {
-			to = strings.TrimSpace(rest[:colonIdx])
+			toCSS = strings.TrimSpace(rest[:colonIdx])
 			label = parserutil.ExpandLineBreaks(strings.TrimSpace(rest[colonIdx+1:]))
+		} else {
+			toCSS = rest
 		}
 	} else if colonIdx := strings.Index(rest, ":"); colonIdx >= 0 {
 		to = strings.TrimSpace(rest[:colonIdx])
 		label = parserutil.ExpandLineBreaks(strings.TrimSpace(rest[colonIdx+1:]))
 	}
 	if from == "" || to == "" {
-		return diagram.StateTransition{}, false
+		return diagram.StateTransition{}, "", "", false
 	}
-	return diagram.StateTransition{From: from, To: to, Label: label}, true
+	return diagram.StateTransition{From: from, To: to, Label: label}, fromCSS, toCSS, true
 }
 
 func parseStateKind(annotation string) diagram.StateKind {

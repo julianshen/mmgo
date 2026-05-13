@@ -408,6 +408,9 @@ type placedComposite struct {
 	x, y    float64
 	w, h    float64
 	regions []svgutil.BBox // empty for single-region composites
+	// leafBB is the raw bbox of the composite's leaf descendants
+	// before padding is applied; used to resolve sibling overlaps.
+	leafBB svgutil.BBox
 }
 
 const (
@@ -455,15 +458,29 @@ func layoutCompositeBoxes(states []diagram.StateDef, l *layout.Result, pad, font
 					}
 				}
 			}
-			out = append(out, placedComposite{
-				def: s, x: x, y: y, w: w, h: h, regions: regionBBoxes,
-			})
-			walk(s.Children)
+		out = append(out, placedComposite{
+			def: s, x: x, y: y, w: w, h: h, regions: regionBBoxes,
+			leafBB: bb,
+		})
+		walk(s.Children)
 		}
 	}
 	walk(states)
 	return out
 }
+
+func containsIDDeep(s diagram.StateDef, id string) bool {
+	if s.ID == id {
+		return true
+	}
+	for _, c := range s.Children {
+		if containsIDDeep(c, id) {
+			return true
+		}
+	}
+	return false
+}
+
 
 // childrenBBox accumulates the bbox of all leaf descendants of s.
 // Falls back to flattening Regions when Children is empty — defends

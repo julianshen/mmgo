@@ -536,6 +536,18 @@ func (b BBox) Empty() bool {
 	return math.IsInf(b.MinX, 1) || math.IsInf(b.MaxX, -1)
 }
 
+// Overlaps reports whether this bbox shares any area with another.
+func (b BBox) Overlaps(other BBox) bool {
+	return b.MinX < other.MaxX && b.MaxX > other.MinX &&
+		b.MinY < other.MaxY && b.MaxY > other.MinY
+}
+
+// CenterX returns the horizontal midpoint.
+func (b BBox) CenterX() float64 { return (b.MinX + b.MaxX) / 2 }
+
+// CenterY returns the vertical midpoint.
+func (b BBox) CenterY() float64 { return (b.MinY + b.MaxY) / 2 }
+
 // Anchor renders an SVG `<a>` hyperlink. Children inside (rects,
 // paths, text) become clickable. Uses the SVG 2 unprefixed `href`
 // attribute, which all modern renderers accept; older xlink:href
