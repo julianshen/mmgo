@@ -126,7 +126,7 @@ func TestLayoutScopeNestsPseudoStates(t *testing.T) {
 	}
 
 	// Composite size must grow with descendant content: Third < Second < First.
-	if !(third.height < second.height && second.height < first.height) {
+	if third.height >= second.height || second.height >= first.height {
 		t.Errorf("composite heights should nest: Third=%v Second=%v First=%v",
 			third.height, second.height, first.height)
 	}

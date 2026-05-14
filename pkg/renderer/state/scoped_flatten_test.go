@@ -68,7 +68,7 @@ func TestFlattenScopedLayoutNested(t *testing.T) {
 	}
 
 	// Depth grows with nesting.
-	if !(first.Depth < second.Depth && second.Depth < third.Depth) {
+	if first.Depth >= second.Depth || second.Depth >= third.Depth {
 		t.Errorf("composite depths should grow inward: First=%d Second=%d Third=%d",
 			first.Depth, second.Depth, third.Depth)
 	}
