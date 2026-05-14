@@ -353,13 +353,9 @@ func leafStatesOnly(states []diagram.StateDef) []diagram.StateDef {
 // emit. regionRects is non-nil for multi-region composites; each
 // entry is the bbox of one region's children, in source order.
 type placedComposite struct {
-	def     diagram.StateDef
-	x, y    float64
-	w, h    float64
-	regions []svgutil.BBox // empty for single-region composites
-	// leafBB is the raw bbox of the composite's leaf descendants
-	// before padding is applied; used to resolve sibling overlaps.
-	leafBB svgutil.BBox
+	def  diagram.StateDef
+	x, y float64
+	w, h float64
 	// depth is the nesting level (0 = top-level composite, 1 = child
 	// of a composite, etc.). Used to vary fill colour and padding.
 	depth int
@@ -411,7 +407,6 @@ func renderCompositeBoxes(composites []placedComposite, fontSize float64, th The
 		return nil
 	}
 	textStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.CompositeText, fontSize-1)
-	dividerStyle := fmt.Sprintf("stroke:%s;stroke-width:1;stroke-dasharray:5,4", th.CompositeStroke)
 	var elems []any
 	for _, p := range composites {
 		fill := compositeFillForDepth(th.CompositeFill, p.depth)
@@ -439,23 +434,6 @@ func renderCompositeBoxes(composites []placedComposite, fontSize float64, th The
 			X2: svgFloat(p.x + p.w - compositePadX), Y2: svgFloat(titleY),
 			Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.CompositeStroke),
 		})
-		// Multi-region divider, best-effort: regions can interleave
-		// without cluster-aware layout, in which case a divider would
-		// pass through a child rect — skip those pairs rather than
-		// draw misleadingly.
-		for i := 1; i < len(p.regions); i++ {
-			prev := p.regions[i-1]
-			curr := p.regions[i]
-			if prev.MaxY >= curr.MinY {
-				continue
-			}
-			y := (prev.MaxY + curr.MinY) / 2
-			elems = append(elems, &line{
-				X1: svgFloat(p.x + compositePadX), Y1: svgFloat(y),
-				X2: svgFloat(p.x + p.w - compositePadX), Y2: svgFloat(y),
-				Style: dividerStyle,
-			})
-		}
 	}
 	return elems
 }
@@ -466,13 +444,6 @@ func renderCompositeBoxes(composites []placedComposite, fontSize float64, th The
 // stateNodeSize accounted for.
 func titleBandHeight(fontSize float64) float64 {
 	return fontSize + 2*statePadY
-}
-
-// descLineHeight is the per-line height of the description
-// compartment. Shared between sizing and rendering for the same
-// reason as titleBandHeight.
-func descLineHeight(fontSize float64) float64 {
-	return fontSize + 2
 }
 
 func stateNodeSize(s diagram.StateDef, ruler *textmeasure.Ruler, fontSize float64) (w, h float64) {

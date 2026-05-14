@@ -1,6 +1,8 @@
 package state
 
 import (
+	"sort"
+
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
@@ -59,9 +61,6 @@ func flattenScopedLayout(root *scopedLayout) *flatScopedLayout {
 		Edges:       make(map[graph.EdgeID]layout.EdgeLayout),
 		PseudoOwner: make(map[string]string),
 	}
-	if root == nil {
-		return out
-	}
 	pad := defaultPadding
 	walkScope(root, pad, pad, 0, out)
 	// Bounding box: leaf/pseudo nodes contribute via their center +
@@ -101,14 +100,19 @@ func flattenScopedLayout(root *scopedLayout) *flatScopedLayout {
 // walkScope copies one scope's dagre result into the global view,
 // translated by (originX, originY). originX/Y is the top-left of the
 // scope's inner content area in the global frame.
+//
+// Nodes are visited in sorted ID order so that out.Composites — which
+// preserves visit order — is deterministic across runs (Go map
+// iteration would otherwise reorder the emitted <rect> sequence and
+// produce byte-different SVG goldens on every render).
 func walkScope(s *scopedLayout, originX, originY float64, depth int, out *flatScopedLayout) {
-	if s == nil || s.result == nil {
-		return
+	nodeIDs := make([]string, 0, len(s.result.Nodes))
+	for id := range s.result.Nodes {
+		nodeIDs = append(nodeIDs, id)
 	}
-	// Each scope's dagre result places nodes with (0,0) at the
-	// top-left of its own bbox. To translate into global coords we add
-	// originX/originY directly to each node's center.
-	for id, n := range s.result.Nodes {
+	sort.Strings(nodeIDs)
+	for _, id := range nodeIDs {
+		n := s.result.Nodes[id]
 		// Composite child node — emit a flatComposite for the outer
 		// rect AND recurse so the child's interior lands inside it.
 		if child, isComposite := s.children[id]; isComposite {
@@ -184,16 +188,8 @@ func buildPlacedComposites(states []diagram.StateDef, flats []flatComposite) []p
 	defByID := svgutil.IndexByID(collectAllStates(states), func(s diagram.StateDef) string { return s.ID })
 	out := make([]placedComposite, 0, len(flats))
 	for _, fc := range flats {
-		def := defByID[fc.ID]
-		// Ensure the rendered label falls back to the ID when empty.
-		if def.Label == "" {
-			def.Label = fc.Label
-			if def.Label == "" {
-				def.Label = fc.ID
-			}
-		}
 		out = append(out, placedComposite{
-			def: def,
+			def: defByID[fc.ID],
 			x:   fc.X, y: fc.Y,
 			w: fc.Width, h: fc.Height,
 			depth: fc.Depth,
@@ -205,10 +201,8 @@ func buildPlacedComposites(states []diagram.StateDef, flats []flatComposite) []p
 // labelOf returns the display label for a node in this scope, falling
 // back to the ID when no explicit label is recorded in nodeAttrs.
 func (s *scopedLayout) labelOf(id string) string {
-	if s != nil {
-		if attrs, ok := s.nodeAttrs[id]; ok && attrs.Label != "" {
-			return attrs.Label
-		}
+	if attrs, ok := s.nodeAttrs[id]; ok && attrs.Label != "" {
+		return attrs.Label
 	}
 	return id
 }

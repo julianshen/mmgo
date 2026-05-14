@@ -1,6 +1,7 @@
 package state
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -128,6 +129,98 @@ func TestLayoutScopeNestsPseudoStates(t *testing.T) {
 	if !(third.height < second.height && second.height < first.height) {
 		t.Errorf("composite heights should nest: Third=%v Second=%v First=%v",
 			third.height, second.height, first.height)
+	}
+}
+
+func TestSanitize(t *testing.T) {
+	cases := []struct {
+		in, want float64
+	}{
+		{42, 42},
+		{0, 0},
+		{-1, 0},
+		{math.NaN(), 0},
+		{math.Inf(1), 0},
+		{math.Inf(-1), 0},
+	}
+	for _, c := range cases {
+		got := sanitize(c.in)
+		if got != c.want {
+			t.Errorf("sanitize(%v) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestCompositeFillForDepth(t *testing.T) {
+	base := "#ffffff"
+	// Depth 0 returns the base colour exactly (factor=1.0).
+	if got := compositeFillForDepth(base, 0); got != base {
+		t.Errorf("depth 0 = %q, want %q", got, base)
+	}
+	// Each subsequent level darkens; values must be monotonic.
+	prev := base
+	for depth := 1; depth <= 4; depth++ {
+		got := compositeFillForDepth(base, depth)
+		if got >= prev {
+			t.Errorf("depth %d (%q) not darker than depth %d (%q)", depth, got, depth-1, prev)
+		}
+		prev = got
+	}
+}
+
+func TestPseudoIDFormat(t *testing.T) {
+	cases := []struct {
+		kind     pseudoKind
+		scope    string
+		idx      int
+		want     string
+		isStart  bool
+		isEnd    bool
+		isPseudo bool
+	}{
+		{pseudoStart, "", 1, "__start_root_1__", true, false, true},
+		{pseudoStart, "First", 2, "__start_First_2__", true, false, true},
+		{pseudoEnd, "", 1, "__end_root_1__", false, true, true},
+		{pseudoEnd, "Third", 3, "__end_Third_3__", false, true, true},
+	}
+	for _, c := range cases {
+		got := pseudoID(c.kind, c.scope, c.idx)
+		if got != c.want {
+			t.Errorf("pseudoID(%v,%q,%d) = %q, want %q", c.kind, c.scope, c.idx, got, c.want)
+		}
+		if isStartNode(got) != c.isStart {
+			t.Errorf("isStartNode(%q) = %v, want %v", got, !c.isStart, c.isStart)
+		}
+		if isEndNode(got) != c.isEnd {
+			t.Errorf("isEndNode(%q) = %v, want %v", got, !c.isEnd, c.isEnd)
+		}
+		if isPseudoNode(got) != c.isPseudo {
+			t.Errorf("isPseudoNode(%q) = %v, want %v", got, !c.isPseudo, c.isPseudo)
+		}
+	}
+}
+
+func TestDarkenHex(t *testing.T) {
+	cases := []struct {
+		hex    string
+		factor float64
+		want   string
+	}{
+		{"#ffffff", 0.5, "#7f7f7f"},
+		{"#000000", 0.9, "#000000"},
+		// Malformed inputs return unchanged.
+		{"not-hex", 0.5, "not-hex"},
+		{"#zz1234", 0.5, "#zz1234"},
+		{"#12zz34", 0.5, "#12zz34"},
+		{"#1234zz", 0.5, "#1234zz"},
+		// factor=0 clamps each channel through the c<0 guard.
+		{"#101010", 0, "#000000"},
+	}
+	for _, c := range cases {
+		got := darkenHex(c.hex, c.factor)
+		if got != c.want {
+			t.Errorf("darkenHex(%q, %v) = %q, want %q", c.hex, c.factor, got, c.want)
+		}
 	}
 }
 

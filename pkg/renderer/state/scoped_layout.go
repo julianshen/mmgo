@@ -177,8 +177,5 @@ func (s *scopedLayout) registerPseudo(g *graph.Graph, kind pseudoKind, scope str
 // compositeOf returns the sub-layout for a composite state if any.
 // nil result means `id` is a leaf in this scope (or not present).
 func (s *scopedLayout) compositeOf(id string) *scopedLayout {
-	if s == nil {
-		return nil
-	}
 	return s.children[id]
 }
