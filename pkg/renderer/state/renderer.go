@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
@@ -59,53 +60,39 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	}
 	defer func() { _ = ruler.Close() }()
 
+	// Recursive scope-aware layout: each composite is its own dagre
+	// sub-graph, with pseudo-state `[*]` nodes placed in the scope
+	// where they were written. The flatten pass projects every node /
+	// edge / composite rect into the diagram's global coordinate frame
+	// so the existing render primitives still work.
+	root := layoutScope("", d.States, d.Transitions, ruler, fontSize,
+		layout.Options{RankDir: svgutil.RankDirFor(d.Direction)})
+	flat := flattenScopedLayout(root)
+
+	l := &layout.Result{
+		Nodes:  flat.Nodes,
+		Edges:  flat.Edges,
+		Width:  flat.Width,
+		Height: flat.Height,
+	}
 	g := graph.New()
-	startIdx := 0
+	for id, attrs := range flat.NodeAttrs {
+		g.SetNode(id, attrs)
+	}
+	// All edges already target the correct node (leaf or composite),
+	// so the legacy leafRep redirect is empty.
+	leafRep := map[string]string{}
 	allStates := collectAllStates(d.States)
 	leafStates := leafStatesOnly(allStates)
-	for _, s := range leafStates {
-		w, h := stateNodeSize(s, ruler, fontSize)
-		attrs := graph.NodeAttrs{Label: s.Label, Width: w, Height: h}
-		switch s.Kind {
-		case diagram.StateKindChoice:
-			attrs.Shape = graph.ShapeDiamond
-		case diagram.StateKindHistory, diagram.StateKindDeepHistory:
-			attrs.Shape = graph.ShapeCircle
-		}
-		g.SetNode(s.ID, attrs)
-	}
-	// Composite states aren't in the dagre graph, but transitions
-	// can still reference them (`[*] --> Active`). Redirect such
-	// edges to a representative leaf descendant so dagre reserves
-	// space; without this the graph auto-creates a 0×0 phantom
-	// node that pulls a pseudo-state into the wrong area.
-	leafRep := compositeLeafRep(d.States)
-	for _, t := range d.Transitions {
-		from, to := t.From, t.To
-		if from == "[*]" {
-			startIdx++
-			from = fmt.Sprintf("%s%d__", pseudoStartPrefix, startIdx)
-			g.SetNode(from, graph.NodeAttrs{Width: pseudoNodeR * 2, Height: pseudoNodeR * 2})
-		} else if rep, ok := leafRep[from]; ok {
-			from = rep
-		}
-		if to == "[*]" {
-			startIdx++
-			to = fmt.Sprintf("%s%d__", pseudoEndPrefix, startIdx)
-			g.SetNode(to, graph.NodeAttrs{Width: pseudoNodeR * 2, Height: pseudoNodeR * 2})
-		} else if rep, ok := leafRep[to]; ok {
-			to = rep
-		}
-		g.SetEdge(from, to, graph.EdgeAttrs{Label: t.Label})
-	}
+	composites := buildPlacedComposites(d.States, flat.Composites)
+	// Coords from flatten are already in the global frame; the renderer
+	// helpers add pad to every coord, so feed them pad=0 to avoid a
+	// double shift.
+	pad := 0.0
 
-	l := layout.Layout(g, layout.Options{RankDir: svgutil.RankDirFor(d.Direction)})
-	pad := defaultPadding
-
-	contentW := sanitize(l.Width) + 2*pad
-	contentH := sanitize(l.Height) + 2*pad
+	contentW := flat.Width
+	contentH := flat.Height
 	notes := layoutStateNotes(d, l, pad, fontSize, ruler)
-	composites := layoutCompositeBoxes(d.States, l, pad, fontSize, ruler)
 
 	// Notes can extend outside the class layout's bounding box
 	// (left of leftmost state, etc.); expand the viewBox to include
@@ -411,6 +398,9 @@ type placedComposite struct {
 	// leafBB is the raw bbox of the composite's leaf descendants
 	// before padding is applied; used to resolve sibling overlaps.
 	leafBB svgutil.BBox
+	// depth is the nesting level (0 = top-level composite, 1 = child
+	// of a composite, etc.). Used to vary fill colour and padding.
+	depth int
 }
 
 const (
@@ -431,25 +421,27 @@ func layoutCompositeBoxes(states []diagram.StateDef, l *layout.Result, pad, font
 	boxByID := make(map[string]placedComposite)
 	var out []placedComposite
 
-	var walk func([]diagram.StateDef)
-	walk = func(ss []diagram.StateDef) {
+	var walk func([]diagram.StateDef, int)
+	walk = func(ss []diagram.StateDef, depth int) {
 		for _, s := range ss {
 			if len(s.Children) == 0 {
 				continue
 			}
 			// Compute child composites first (bottom-up).
-			walk(s.Children)
+			walk(s.Children, depth+1)
 
 			bb := compositeBBox(s, l, pad, boxByID)
 			if bb.Empty() {
 				continue
 			}
-			x := bb.MinX - compositePadX
-			y := bb.MinY - compositePadY - compositeLabelH
-			w := (bb.MaxX - bb.MinX) + 2*compositePadX
-			h := (bb.MaxY - bb.MinY) + 2*compositePadY + compositeLabelH
+			padX := compositePadX + float64(depth)*4
+			padY := compositePadY + float64(depth)*4
+			x := bb.MinX - padX
+			y := bb.MinY - padY - compositeLabelH
+			w := (bb.MaxX - bb.MinX) + 2*padX
+			h := (bb.MaxY - bb.MinY) + 2*padY + compositeLabelH
 			labelW, _ := ruler.Measure(s.Label, fontSize-1)
-			if minLabel := labelW + 2*compositePadX; w < minLabel {
+			if minLabel := labelW + 2*padX; w < minLabel {
 				x -= (minLabel - w) / 2
 				w = minLabel
 			}
@@ -465,13 +457,13 @@ func layoutCompositeBoxes(states []diagram.StateDef, l *layout.Result, pad, font
 			}
 			p := placedComposite{
 				def: s, x: x, y: y, w: w, h: h, regions: regionBBoxes,
-				leafBB: bb,
+				leafBB: bb, depth: depth,
 			}
 			boxByID[s.ID] = p
 			out = append(out, p)
 		}
 	}
-	walk(states)
+	walk(states, 0)
 	return out
 }
 
@@ -527,17 +519,50 @@ func regionBBox(region []diagram.StateDef, l *layout.Result, pad float64, boxByI
 	return bb
 }
 
+// darkenHex reduces each RGB channel of a 6-digit hex colour by
+// factor (0–1). factor=0.92 darkens by 8 %. Returns the original
+// string unchanged if parsing fails.
+func darkenHex(hex string, factor float64) string {
+	if len(hex) != 7 || hex[0] != '#' {
+		return hex
+	}
+	r, err1 := strconv.ParseInt(hex[1:3], 16, 0)
+	g, err2 := strconv.ParseInt(hex[3:5], 16, 0)
+	b, err3 := strconv.ParseInt(hex[5:7], 16, 0)
+	if err1 != nil || err2 != nil || err3 != nil {
+		return hex
+	}
+	darken := func(v int64) int {
+		c := int(float64(v) * factor)
+		if c < 0 {
+			c = 0
+		}
+		return c
+	}
+	return fmt.Sprintf("#%02x%02x%02x", darken(r), darken(g), darken(b))
+}
+
+// compositeFillForDepth returns a fill colour that darkens slightly
+// with each nesting level so nested composites are visually distinct
+// from their parents.
+func compositeFillForDepth(base string, depth int) string {
+	const darkenPerLevel = 0.92
+	factor := math.Pow(darkenPerLevel, float64(depth))
+	return darkenHex(base, factor)
+}
+
 // renderCompositeBoxes emits the labelled rounded rect plus optional
 // dashed region dividers for each pre-placed composite state.
 func renderCompositeBoxes(composites []placedComposite, fontSize float64, th Theme) []any {
 	if len(composites) == 0 {
 		return nil
 	}
-	boxStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.CompositeFill, th.CompositeStroke)
 	textStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.CompositeText, fontSize-1)
 	dividerStyle := fmt.Sprintf("stroke:%s;stroke-width:1;stroke-dasharray:5,4", th.CompositeStroke)
 	var elems []any
 	for _, p := range composites {
+		fill := compositeFillForDepth(th.CompositeFill, p.depth)
+		boxStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", fill, th.CompositeStroke)
 		elems = append(elems,
 			&rect{
 				X: svgFloat(p.x), Y: svgFloat(p.y),
@@ -552,6 +577,15 @@ func renderCompositeBoxes(composites []placedComposite, fontSize float64, th The
 				Content: p.def.Label,
 			},
 		)
+		// Title-bar divider: a subtle line separating the label band
+		// from the composite body so nested boxes read as framed
+		// containers rather than plain rounded rects.
+		titleY := p.y + compositeLabelH
+		elems = append(elems, &line{
+			X1: svgFloat(p.x + compositePadX), Y1: svgFloat(titleY),
+			X2: svgFloat(p.x + p.w - compositePadX), Y2: svgFloat(titleY),
+			Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.CompositeStroke),
+		})
 		// Multi-region divider, best-effort: regions can interleave
 		// without cluster-aware layout, in which case a divider would
 		// pass through a child rect — skip those pairs rather than

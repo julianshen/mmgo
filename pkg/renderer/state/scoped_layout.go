@@ -32,6 +32,15 @@ type scopedLayout struct {
 	// pseudoNodes records the synthetic ID assigned to each `[*]`
 	// endpoint in this scope, with metadata for the renderer.
 	pseudoNodes map[string]pseudoNodeInfo
+	// nodeAttrs preserves the graph.NodeAttrs supplied for each node
+	// in this scope, keyed by ID. Used by the renderer to look up
+	// labels and shapes after layout.
+	nodeAttrs map[string]graph.NodeAttrs
+	// labels maps the state ID to its display label for leaves and
+	// composites in this scope (composites carry their state label
+	// here so the flatten pass can surface it without re-walking
+	// the diagram tree).
+	labels map[string]string
 	// width, height are this scope's content size (the dagre bbox
 	// plus padding). When this scope is a composite child of another
 	// scope, the parent uses these dimensions for its node attrs.
@@ -49,20 +58,22 @@ type pseudoNodeInfo struct {
 }
 
 // pseudoStartID and pseudoEndID produce the synthetic node IDs used
-// for `[*]` endpoints within a scope. Scope-qualifying the names keeps
-// nested `[*]` nodes distinct across composites.
+// for `[*]` endpoints within a scope. The names preserve the legacy
+// `__start_…__` / `__end_…__` prefix so the existing isStartNode /
+// isEndNode helpers (which prefix-match) continue to recognise them,
+// while embedding the scope to keep nested `[*]` nodes distinct.
 func pseudoStartID(scope string, idx int) string {
 	if scope == "" {
-		return fmt.Sprintf("__root_start_%d__", idx)
+		return fmt.Sprintf("__start_root_%d__", idx)
 	}
-	return fmt.Sprintf("__%s_start_%d__", scope, idx)
+	return fmt.Sprintf("__start_%s_%d__", scope, idx)
 }
 
 func pseudoEndID(scope string, idx int) string {
 	if scope == "" {
-		return fmt.Sprintf("__root_end_%d__", idx)
+		return fmt.Sprintf("__end_root_%d__", idx)
 	}
-	return fmt.Sprintf("__%s_end_%d__", scope, idx)
+	return fmt.Sprintf("__end_%s_%d__", scope, idx)
 }
 
 // layoutScope recursively lays out a scope. It walks composite children
@@ -85,6 +96,8 @@ func layoutScope(
 		scopeID:     scope,
 		children:    make(map[string]*scopedLayout),
 		pseudoNodes: make(map[string]pseudoNodeInfo),
+		nodeAttrs:   make(map[string]graph.NodeAttrs),
+		labels:      make(map[string]string),
 	}
 
 	// 1. Recurse into composites first so their sizes are known.
@@ -99,10 +112,6 @@ func layoutScope(
 	g := graph.New()
 	for _, s := range statesInScope {
 		if child, ok := out.children[s.ID]; ok {
-			// Composite — reserve a node sized by its sub-layout plus
-			// title bar. The title bar height is added on top of the
-			// child's content height (the renderer will draw the title
-			// inside the same rect).
 			labelW, _ := ruler.Measure(s.Label, fontSize-1)
 			minLabel := labelW + 2*compositePadX
 			w := child.width
@@ -110,7 +119,10 @@ func layoutScope(
 				w = minLabel
 			}
 			h := child.height + compositeLabelH
-			g.SetNode(s.ID, graph.NodeAttrs{Label: s.Label, Width: w, Height: h})
+			attrs := graph.NodeAttrs{Label: s.Label, Width: w, Height: h}
+			g.SetNode(s.ID, attrs)
+			out.nodeAttrs[s.ID] = attrs
+			out.labels[s.ID] = s.Label
 			continue
 		}
 		w, h := stateNodeSize(s, ruler, fontSize)
@@ -122,6 +134,8 @@ func layoutScope(
 			attrs.Shape = graph.ShapeCircle
 		}
 		g.SetNode(s.ID, attrs)
+		out.nodeAttrs[s.ID] = attrs
+		out.labels[s.ID] = s.Label
 	}
 
 	// 3. Pseudo-state nodes + transition edges for this scope.
@@ -136,14 +150,18 @@ func layoutScope(
 			id := pseudoStartID(scope, startSeq)
 			from = id
 			out.pseudoNodes[id] = pseudoNodeInfo{Kind: "start", TransitionIndex: i}
-			g.SetNode(id, graph.NodeAttrs{Width: pseudoNodeR * 2, Height: pseudoNodeR * 2})
+			attrs := graph.NodeAttrs{Width: pseudoNodeR * 2, Height: pseudoNodeR * 2, Shape: graph.ShapeCircle}
+			g.SetNode(id, attrs)
+			out.nodeAttrs[id] = attrs
 		}
 		if to == "[*]" {
 			endSeq++
 			id := pseudoEndID(scope, endSeq)
 			to = id
 			out.pseudoNodes[id] = pseudoNodeInfo{Kind: "end", TransitionIndex: i}
-			g.SetNode(id, graph.NodeAttrs{Width: pseudoNodeR * 2, Height: pseudoNodeR * 2})
+			attrs := graph.NodeAttrs{Width: pseudoNodeR * 2, Height: pseudoNodeR * 2, Shape: graph.ShapeCircle}
+			g.SetNode(id, attrs)
+			out.nodeAttrs[id] = attrs
 		}
 		// `from`/`to` may still reference a composite ID — that's fine:
 		// composites are real nodes in this scope's graph, sized from

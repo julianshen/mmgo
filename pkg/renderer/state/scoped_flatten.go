@@ -1,6 +1,7 @@
 package state
 
 import (
+	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
 )
@@ -23,12 +24,13 @@ import (
 //
 // Width/Height are the bounding box of all flattened content.
 type flatScopedLayout struct {
-	Nodes        map[string]layout.NodeLayout
-	Edges        map[graph.EdgeID]layout.EdgeLayout
-	Composites   []flatComposite
-	PseudoOwner  map[string]string
-	Width        float64
-	Height       float64
+	Nodes       map[string]layout.NodeLayout
+	NodeAttrs   map[string]graph.NodeAttrs
+	Edges       map[graph.EdgeID]layout.EdgeLayout
+	Composites  []flatComposite
+	PseudoOwner map[string]string
+	Width       float64
+	Height      float64
 }
 
 // flatComposite is a composite state's outer rect in global coords.
@@ -52,6 +54,7 @@ type flatComposite struct {
 func flattenScopedLayout(root *scopedLayout) *flatScopedLayout {
 	out := &flatScopedLayout{
 		Nodes:       make(map[string]layout.NodeLayout),
+		NodeAttrs:   make(map[string]graph.NodeAttrs),
 		Edges:       make(map[graph.EdgeID]layout.EdgeLayout),
 		PseudoOwner: make(map[string]string),
 	}
@@ -116,7 +119,15 @@ func walkScope(s *scopedLayout, originX, originY float64, depth int, out *flatSc
 			fc.InteriorOrigin.X = nodeLeft
 			fc.InteriorOrigin.Y = nodeTop + compositeLabelH
 			out.Composites = append(out.Composites, fc)
-			// Recurse into the child's interior.
+			// Expose the composite as a flat node too so edge clipping
+			// can target it as a rectangle.
+			out.Nodes[id] = layout.NodeLayout{
+				X: nodeLeft + n.Width/2, Y: nodeTop + n.Height/2,
+				Width: n.Width, Height: n.Height,
+			}
+			out.NodeAttrs[id] = graph.NodeAttrs{Label: fc.Label, Width: n.Width, Height: n.Height}
+			// Recurse into the child's interior. The child's dagre
+			// origin (0,0) maps to the interior top-left + padding.
 			walkScope(child, fc.InteriorOrigin.X+defaultPadding, fc.InteriorOrigin.Y+defaultPadding, depth+1, out)
 			continue
 		}
@@ -128,8 +139,10 @@ func walkScope(s *scopedLayout, originX, originY float64, depth int, out *flatSc
 			Height:    n.Height,
 			ExitPorts: shiftPoints(n.ExitPorts, originX, originY),
 		}
-		if info, ok := s.pseudoNodes[id]; ok {
-			_ = info
+		if attrs, ok := s.nodeAttrs[id]; ok {
+			out.NodeAttrs[id] = attrs
+		}
+		if _, ok := s.pseudoNodes[id]; ok {
 			out.PseudoOwner[id] = s.scopeID
 		}
 	}
@@ -154,16 +167,48 @@ func shiftPoints(pts []layout.Point, dx, dy float64) []layout.Point {
 	return out
 }
 
-// labelOf returns the human label for a state in this scope. We don't
-// have direct access to StateDef here, but the dagre graph stored it
-// in NodeAttrs. Fallback to the ID when the label is empty.
+// buildPlacedComposites turns the flatten pass's composite list into
+// the renderer's placedComposite representation, attaching the original
+// StateDef so the rect emits its proper label/CSS metadata.
+func buildPlacedComposites(states []diagram.StateDef, flats []flatComposite) []placedComposite {
+	defByID := make(map[string]diagram.StateDef)
+	var walk func([]diagram.StateDef)
+	walk = func(ss []diagram.StateDef) {
+		for _, s := range ss {
+			defByID[s.ID] = s
+			if len(s.Children) > 0 {
+				walk(s.Children)
+			}
+		}
+	}
+	walk(states)
+	out := make([]placedComposite, 0, len(flats))
+	for _, fc := range flats {
+		def := defByID[fc.ID]
+		// Ensure the rendered label falls back to the ID when empty.
+		if def.Label == "" {
+			def.Label = fc.Label
+			if def.Label == "" {
+				def.Label = fc.ID
+			}
+		}
+		out = append(out, placedComposite{
+			def: def,
+			x:   fc.X, y: fc.Y,
+			w: fc.Width, h: fc.Height,
+			depth: fc.Depth,
+		})
+	}
+	return out
+}
+
+// labelOf returns the display label for a state in this scope, falling
+// back to the ID when no explicit label was recorded.
 func (s *scopedLayout) labelOf(id string) string {
-	// scopedLayout.result.Nodes only holds geometry — the label lives
-	// in the original graph.NodeAttrs which is not retained on Result.
-	// For composites we can look it up by re-iterating the children
-	// map: child layout's owner ID is the composite's state ID, but
-	// its display label may differ. Step 2c will thread StateDef
-	// references through scopedLayout; for now return the ID, which
-	// matches Mermaid's default label-equals-id behavior.
+	if s != nil {
+		if l, ok := s.labels[id]; ok && l != "" {
+			return l
+		}
+	}
 	return id
 }
