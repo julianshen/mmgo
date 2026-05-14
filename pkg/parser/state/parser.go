@@ -32,7 +32,7 @@ func Parse(r io.Reader) (*diagram.StateDiagram, error) {
 			headerSeen = true
 			continue
 		}
-		if err := p.parseLine(line, &p.diagram.States); err != nil {
+		if err := p.parseLine(line, &p.diagram.States, ""); err != nil {
 			return nil, fmt.Errorf("line %d: %w", p.lineNum, err)
 		}
 	}
@@ -66,7 +66,7 @@ func upsertState(target *[]diagram.StateDef, id string) *diagram.StateDef {
 	return &(*target)[len(*target)-1]
 }
 
-func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
+func (p *parser) parseLine(line string, target *[]diagram.StateDef, scope string) error {
 	// Keyword-prefixed lines win over bare-id matchers (Mermaid
 	// convention): `title : foo` is the diagram title, never a
 	// state-with-description for a state named "title".
@@ -98,7 +98,7 @@ func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
 		return p.parseLinkOrCallback(line, true)
 	}
 	if rest, ok := strings.CutPrefix(line, "state "); ok {
-		return p.parseStateDecl(strings.TrimSpace(rest), target)
+		return p.parseStateDecl(strings.TrimSpace(rest), target, scope)
 	}
 	if strings.HasPrefix(line, "note ") {
 		return p.parseNote(line, target)
@@ -128,6 +128,7 @@ func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
 		if toState != nil && toCSS != "" {
 			toState.CSSClasses = append(toState.CSSClasses, toCSS)
 		}
+		t.Scope = scope
 		p.diagram.Transitions = append(p.diagram.Transitions, t)
 		return nil
 	}
@@ -416,7 +417,7 @@ func parseStateDescription(line string) (id, desc string, ok bool) {
 	return id, strings.TrimSpace(line[colon+3:]), true
 }
 
-func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef) error {
+func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef, scope string) error {
 	var label, id string
 	var after string
 	cssClass := ""
@@ -491,6 +492,7 @@ func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef) error {
 		s.CSSClasses = append(s.CSSClasses, cssClass)
 	}
 
+	_ = scope // scope of the declaration itself is not currently needed; child transitions get s.ID as their scope via parseCompositeBody.
 	after = strings.TrimSpace(after)
 	if after == "{" || strings.HasPrefix(after, "{") {
 		return p.parseCompositeBody(s)
@@ -561,7 +563,7 @@ func (p *parser) parseCompositeBody(parent *diagram.StateDef) error {
 			hasSeparator = true
 			continue
 		}
-		if err := p.parseLine(line, target); err != nil {
+		if err := p.parseLine(line, target, parent.ID); err != nil {
 			return err
 		}
 	}

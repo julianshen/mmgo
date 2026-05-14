@@ -211,6 +211,45 @@ func TestParseNestedComposite(t *testing.T) {
 	}
 }
 
+func TestParseTransitionScope(t *testing.T) {
+	input := `stateDiagram-v2
+    [*] --> First
+    state First {
+        [*] --> Second
+        state Second {
+            [*] --> second
+            second --> Third
+            state Third {
+                [*] --> third
+                third --> [*]
+            }
+        }
+    }`
+	d, err := Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	want := []struct {
+		from, to, scope string
+	}{
+		{"[*]", "First", ""},
+		{"[*]", "Second", "First"},
+		{"[*]", "second", "Second"},
+		{"second", "Third", "Second"},
+		{"[*]", "third", "Third"},
+		{"third", "[*]", "Third"},
+	}
+	if len(d.Transitions) != len(want) {
+		t.Fatalf("transitions count = %d, want %d: %+v", len(d.Transitions), len(want), d.Transitions)
+	}
+	for i, w := range want {
+		got := d.Transitions[i]
+		if got.From != w.from || got.To != w.to || got.Scope != w.scope {
+			t.Errorf("transition[%d] = %+v, want From=%q To=%q Scope=%q", i, got, w.from, w.to, w.scope)
+		}
+	}
+}
+
 func TestParseCompositeWithAliasedChild(t *testing.T) {
 	input := `stateDiagram-v2
     state Active {

@@ -38,6 +38,12 @@ type StateTransition struct {
 	From  string
 	To    string
 	Label string
+	// Scope is the ID of the enclosing composite state in which the
+	// transition was written, or "" for the root scope. Pseudo-state
+	// endpoints ([*]) are resolved against this scope: `[*] --> Foo`
+	// inside `state Bar { … }` denotes the initial state of Bar, not
+	// of the root diagram.
+	Scope string
 }
 
 // NoteSide is which side of the target state a note is anchored on.
