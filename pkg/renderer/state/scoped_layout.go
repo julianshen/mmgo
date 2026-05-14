@@ -6,7 +6,6 @@ import (
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
-	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
 )
 
@@ -36,44 +35,47 @@ type scopedLayout struct {
 	// in this scope, keyed by ID. Used by the renderer to look up
 	// labels and shapes after layout.
 	nodeAttrs map[string]graph.NodeAttrs
-	// labels maps the state ID to its display label for leaves and
-	// composites in this scope (composites carry their state label
-	// here so the flatten pass can surface it without re-walking
-	// the diagram tree).
-	labels map[string]string
 	// width, height are this scope's content size (the dagre bbox
 	// plus padding). When this scope is a composite child of another
 	// scope, the parent uses these dimensions for its node attrs.
 	width, height float64
 }
 
-// pseudoNodeInfo describes a synthetic pseudo-state node injected for
-// a `[*]` endpoint. `Kind` is "start" when the transition's From was
-// `[*]` and "end" when its To was `[*]`. `TransitionIndex` indexes
-// back into the diagram's flat transitions slice so the renderer can
-// resolve the edge's label and clip target.
+// pseudoKind distinguishes the two flavours of synthetic pseudo-state
+// node injected for `[*]` endpoints — one each for the From and To
+// sides of a transition.
+type pseudoKind int8
+
+const (
+	pseudoStart pseudoKind = iota
+	pseudoEnd
+)
+
+func (k pseudoKind) tag() string {
+	if k == pseudoEnd {
+		return "end"
+	}
+	return "start"
+}
+
+// pseudoNodeInfo describes a synthetic pseudo-state node. TransitionIndex
+// indexes back into the diagram's flat transitions slice so the renderer
+// can resolve the edge's label and clip target.
 type pseudoNodeInfo struct {
-	Kind            string
+	Kind            pseudoKind
 	TransitionIndex int
 }
 
-// pseudoStartID and pseudoEndID produce the synthetic node IDs used
-// for `[*]` endpoints within a scope. The names preserve the legacy
-// `__start_…__` / `__end_…__` prefix so the existing isStartNode /
-// isEndNode helpers (which prefix-match) continue to recognise them,
-// while embedding the scope to keep nested `[*]` nodes distinct.
-func pseudoStartID(scope string, idx int) string {
+// pseudoID produces the synthetic node ID for a `[*]` endpoint. The
+// name preserves the legacy `__start_…__` / `__end_…__` prefix so the
+// existing isStartNode / isEndNode helpers (which prefix-match)
+// continue to recognise them, while embedding the scope to keep
+// nested `[*]` nodes distinct.
+func pseudoID(kind pseudoKind, scope string, idx int) string {
 	if scope == "" {
-		return fmt.Sprintf("__start_root_%d__", idx)
+		scope = "root"
 	}
-	return fmt.Sprintf("__start_%s_%d__", scope, idx)
-}
-
-func pseudoEndID(scope string, idx int) string {
-	if scope == "" {
-		return fmt.Sprintf("__end_root_%d__", idx)
-	}
-	return fmt.Sprintf("__end_%s_%d__", scope, idx)
+	return fmt.Sprintf("__%s_%s_%d__", kind.tag(), scope, idx)
 }
 
 // layoutScope recursively lays out a scope. It walks composite children
@@ -97,7 +99,6 @@ func layoutScope(
 		children:    make(map[string]*scopedLayout),
 		pseudoNodes: make(map[string]pseudoNodeInfo),
 		nodeAttrs:   make(map[string]graph.NodeAttrs),
-		labels:      make(map[string]string),
 	}
 
 	// 1. Recurse into composites first so their sizes are known.
@@ -122,7 +123,6 @@ func layoutScope(
 			attrs := graph.NodeAttrs{Label: s.Label, Width: w, Height: h}
 			g.SetNode(s.ID, attrs)
 			out.nodeAttrs[s.ID] = attrs
-			out.labels[s.ID] = s.Label
 			continue
 		}
 		w, h := stateNodeSize(s, ruler, fontSize)
@@ -135,7 +135,6 @@ func layoutScope(
 		}
 		g.SetNode(s.ID, attrs)
 		out.nodeAttrs[s.ID] = attrs
-		out.labels[s.ID] = s.Label
 	}
 
 	// 3. Pseudo-state nodes + transition edges for this scope.
@@ -147,25 +146,12 @@ func layoutScope(
 		from, to := t.From, t.To
 		if from == "[*]" {
 			startSeq++
-			id := pseudoStartID(scope, startSeq)
-			from = id
-			out.pseudoNodes[id] = pseudoNodeInfo{Kind: "start", TransitionIndex: i}
-			attrs := graph.NodeAttrs{Width: pseudoNodeR * 2, Height: pseudoNodeR * 2, Shape: graph.ShapeCircle}
-			g.SetNode(id, attrs)
-			out.nodeAttrs[id] = attrs
+			from = out.registerPseudo(g, pseudoStart, scope, startSeq, i)
 		}
 		if to == "[*]" {
 			endSeq++
-			id := pseudoEndID(scope, endSeq)
-			to = id
-			out.pseudoNodes[id] = pseudoNodeInfo{Kind: "end", TransitionIndex: i}
-			attrs := graph.NodeAttrs{Width: pseudoNodeR * 2, Height: pseudoNodeR * 2, Shape: graph.ShapeCircle}
-			g.SetNode(id, attrs)
-			out.nodeAttrs[id] = attrs
+			to = out.registerPseudo(g, pseudoEnd, scope, endSeq, i)
 		}
-		// `from`/`to` may still reference a composite ID — that's fine:
-		// composites are real nodes in this scope's graph, sized from
-		// their sub-layout. Dagre will route to the composite's edge.
 		g.SetEdge(from, to, graph.EdgeAttrs{Label: t.Label})
 	}
 
@@ -177,6 +163,17 @@ func layoutScope(
 	return out
 }
 
+// registerPseudo creates the synthetic `[*]` node for a transition
+// and records it on the scope so the flatten pass can surface it.
+func (s *scopedLayout) registerPseudo(g *graph.Graph, kind pseudoKind, scope string, seq, txIdx int) string {
+	id := pseudoID(kind, scope, seq)
+	s.pseudoNodes[id] = pseudoNodeInfo{Kind: kind, TransitionIndex: txIdx}
+	attrs := graph.NodeAttrs{Width: pseudoNodeR * 2, Height: pseudoNodeR * 2, Shape: graph.ShapeCircle}
+	g.SetNode(id, attrs)
+	s.nodeAttrs[id] = attrs
+	return id
+}
+
 // compositeOf returns the sub-layout for a composite state if any.
 // nil result means `id` is a leaf in this scope (or not present).
 func (s *scopedLayout) compositeOf(id string) *scopedLayout {
@@ -185,7 +182,3 @@ func (s *scopedLayout) compositeOf(id string) *scopedLayout {
 	}
 	return s.children[id]
 }
-
-// Ensure svgutil is referenced; some callers may want bboxes from here
-// later. Keeping the import live avoids tooling noise during step 2a.
-var _ = svgutil.BBox{}

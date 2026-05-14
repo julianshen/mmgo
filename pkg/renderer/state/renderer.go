@@ -79,9 +79,6 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	for id, attrs := range flat.NodeAttrs {
 		g.SetNode(id, attrs)
 	}
-	// All edges already target the correct node (leaf or composite),
-	// so the legacy leafRep redirect is empty.
-	leafRep := map[string]string{}
 	allStates := collectAllStates(d.States)
 	leafStates := leafStatesOnly(allStates)
 	composites := buildPlacedComposites(d.States, flat.Composites)
@@ -150,7 +147,7 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	// Composite boxes go behind edges + leaf states so the frame
 	// doesn't occlude inner content.
 	children = append(children, renderCompositeBoxes(composites, fontSize, th)...)
-	children = append(children, renderEdges(d, l, pad, fontSize, ruler, th, leafRep, g)...)
+	children = append(children, renderEdges(d, l, pad, fontSize, ruler, th, g)...)
 	children = append(children, renderNodes(d, leafStates, l, pad, fontSize, th)...)
 	children = append(children, renderStateNotes(notes, l, pad, fontSize, th)...)
 
@@ -339,41 +336,6 @@ func stateStylesByID(styles []diagram.StateStyleDef) map[string][]string {
 	return out
 }
 
-// compositeLeafRep maps each composite state's ID to the ID of its
-// first leaf descendant. Used to redirect transitions that reference
-// composites so dagre still reserves layout space for them. Missing
-// composites (no leaves at all) aren't mapped — transitions to those
-// fall through to the existing auto-create-phantom-node behavior.
-func compositeLeafRep(states []diagram.StateDef) map[string]string {
-	out := make(map[string]string)
-	var walk func(states []diagram.StateDef)
-	walk = func(ss []diagram.StateDef) {
-		for _, s := range ss {
-			if len(s.Children) == 0 {
-				continue
-			}
-			if leaf := firstLeafID(s.Children); leaf != "" {
-				out[s.ID] = leaf
-			}
-			walk(s.Children)
-		}
-	}
-	walk(states)
-	return out
-}
-
-func firstLeafID(states []diagram.StateDef) string {
-	for _, s := range states {
-		if len(s.Children) == 0 {
-			return s.ID
-		}
-		if leaf := firstLeafID(s.Children); leaf != "" {
-			return leaf
-		}
-	}
-	return ""
-}
-
 // leafStatesOnly returns the states that don't have a composite
 // body. Composite states are rendered as labelled bounding boxes
 // around their children rather than as nodes in the dagre layout.
@@ -409,115 +371,6 @@ const (
 	compositeLabelH  = 22.0
 	compositeCornerR = 8.0
 )
-
-// layoutCompositeBoxes computes the bounding rect for each composite
-// state bottom-up so nested composites are sized from their own
-// children rather than all deepest leaves. This prevents ancestor
-// composites from degenerating to the same bbox as their deepest
-// descendant.
-func layoutCompositeBoxes(states []diagram.StateDef, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler) []placedComposite {
-	// boxByID stores the placed composite for every composite state so
-	// parent composites can include their children's boxes.
-	boxByID := make(map[string]placedComposite)
-	var out []placedComposite
-
-	var walk func([]diagram.StateDef, int)
-	walk = func(ss []diagram.StateDef, depth int) {
-		for _, s := range ss {
-			if len(s.Children) == 0 {
-				continue
-			}
-			// Compute child composites first (bottom-up).
-			walk(s.Children, depth+1)
-
-			bb := compositeBBox(s, l, pad, boxByID)
-			if bb.Empty() {
-				continue
-			}
-			padX := compositePadX + float64(depth)*4
-			padY := compositePadY + float64(depth)*4
-			x := bb.MinX - padX
-			y := bb.MinY - padY - compositeLabelH
-			w := (bb.MaxX - bb.MinX) + 2*padX
-			h := (bb.MaxY - bb.MinY) + 2*padY + compositeLabelH
-			labelW, _ := ruler.Measure(s.Label, fontSize-1)
-			if minLabel := labelW + 2*padX; w < minLabel {
-				x -= (minLabel - w) / 2
-				w = minLabel
-			}
-			var regionBBoxes []svgutil.BBox
-			if len(s.Regions) > 1 {
-				regionBBoxes = make([]svgutil.BBox, 0, len(s.Regions))
-				for _, region := range s.Regions {
-					rb := regionBBox(region, l, pad, boxByID)
-					if !rb.Empty() {
-						regionBBoxes = append(regionBBoxes, rb)
-					}
-				}
-			}
-			p := placedComposite{
-				def: s, x: x, y: y, w: w, h: h, regions: regionBBoxes,
-				leafBB: bb, depth: depth,
-			}
-			boxByID[s.ID] = p
-			out = append(out, p)
-		}
-	}
-	walk(states, 0)
-	return out
-}
-
-// compositeBBox builds the bbox of a composite from its immediate
-// children only: direct leaves use their layout position; direct
-// composites use their already-computed box.
-func compositeBBox(s diagram.StateDef, l *layout.Result, pad float64, boxByID map[string]placedComposite) svgutil.BBox {
-	bb := svgutil.NewInfiniteBBox()
-	sources := s.Children
-	if len(sources) == 0 {
-		for _, region := range s.Regions {
-			rb := regionBBox(region, l, pad, boxByID)
-			if !rb.Empty() {
-				bb.Expand((rb.MinX+rb.MaxX)/2, (rb.MinY+rb.MaxY)/2, rb.MaxX-rb.MinX, rb.MaxY-rb.MinY)
-			}
-		}
-		return bb
-	}
-	for _, c := range sources {
-		if len(c.Children) > 0 {
-			// Composite child: include its pre-computed box.
-			if childBox, ok := boxByID[c.ID]; ok {
-				bb.Expand(childBox.x+childBox.w/2, childBox.y+childBox.h/2, childBox.w, childBox.h)
-			}
-			continue
-		}
-		// Leaf child: include its layout node.
-		n, ok := l.Nodes[c.ID]
-		if !ok {
-			continue
-		}
-		bb.Expand(n.X+pad, n.Y+pad, n.Width, n.Height)
-	}
-	return bb
-}
-
-// regionBBox mirrors compositeBBox for a parallel-region slice.
-func regionBBox(region []diagram.StateDef, l *layout.Result, pad float64, boxByID map[string]placedComposite) svgutil.BBox {
-	bb := svgutil.NewInfiniteBBox()
-	for _, c := range region {
-		if len(c.Children) > 0 {
-			if childBox, ok := boxByID[c.ID]; ok {
-				bb.Expand(childBox.x+childBox.w/2, childBox.y+childBox.h/2, childBox.w, childBox.h)
-			}
-			continue
-		}
-		n, ok := l.Nodes[c.ID]
-		if !ok {
-			continue
-		}
-		bb.Expand(n.X+pad, n.Y+pad, n.Width, n.Height)
-	}
-	return bb
-}
 
 // darkenHex reduces each RGB channel of a 6-digit hex colour by
 // factor (0–1). factor=0.92 darkens by 8 %. Returns the original
@@ -766,7 +619,7 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 	return elems
 }
 
-func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler, th Theme, leafRep map[string]string, g *graph.Graph) []any {
+func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler, th Theme, g *graph.Graph) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -778,22 +631,9 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		return edgeKeys[i].To < edgeKeys[j].To
 	})
 
-	// Build transMap using the same redirected keys that dagre sees so
-	// composite transitions (Active --> B) can find their labels.
-	transMap := make(map[string][]diagram.StateTransition)
+	transMap := make(map[string][]diagram.StateTransition, len(d.Transitions))
 	for _, t := range d.Transitions {
-		from, to := t.From, t.To
-		if from != "[*]" {
-			if rep, ok := leafRep[from]; ok {
-				from = rep
-			}
-		}
-		if to != "[*]" {
-			if rep, ok := leafRep[to]; ok {
-				to = rep
-			}
-		}
-		key := from + "->" + to
+		key := t.From + "->" + t.To
 		transMap[key] = append(transMap[key], t)
 	}
 

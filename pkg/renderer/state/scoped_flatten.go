@@ -4,6 +4,7 @@ import (
 	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	"github.com/julianshen/mmgo/pkg/layout/graph"
+	"github.com/julianshen/mmgo/pkg/renderer/svgutil"
 )
 
 // flatScopedLayout collapses a recursive scopedLayout into a single
@@ -63,14 +64,23 @@ func flattenScopedLayout(root *scopedLayout) *flatScopedLayout {
 	}
 	pad := defaultPadding
 	walkScope(root, pad, pad, 0, out)
-	// Bounding box: take the max extent across all placed shapes.
-	for _, n := range out.Nodes {
-		right := n.X + n.Width/2
-		bottom := n.Y + n.Height/2
-		if right > out.Width {
+	// Bounding box: leaf/pseudo nodes contribute via their center +
+	// half-extent. Composites also appear in Nodes (so edge clipping
+	// can target them), but the same rect is already in Composites
+	// with the top-left convention — skip them here to avoid counting
+	// each composite twice.
+	compositeIDs := make(map[string]struct{}, len(out.Composites))
+	for _, c := range out.Composites {
+		compositeIDs[c.ID] = struct{}{}
+	}
+	for id, n := range out.Nodes {
+		if _, isComposite := compositeIDs[id]; isComposite {
+			continue
+		}
+		if right := n.X + n.Width/2; right > out.Width {
 			out.Width = right
 		}
-		if bottom > out.Height {
+		if bottom := n.Y + n.Height/2; bottom > out.Height {
 			out.Height = bottom
 		}
 	}
@@ -82,7 +92,7 @@ func flattenScopedLayout(root *scopedLayout) *flatScopedLayout {
 			out.Height = b
 		}
 	}
-	// Add padding on the right/bottom edges to match the left/top inset.
+	// Right/bottom inset to mirror the left/top padding.
 	out.Width += pad
 	out.Height += pad
 	return out
@@ -171,17 +181,7 @@ func shiftPoints(pts []layout.Point, dx, dy float64) []layout.Point {
 // the renderer's placedComposite representation, attaching the original
 // StateDef so the rect emits its proper label/CSS metadata.
 func buildPlacedComposites(states []diagram.StateDef, flats []flatComposite) []placedComposite {
-	defByID := make(map[string]diagram.StateDef)
-	var walk func([]diagram.StateDef)
-	walk = func(ss []diagram.StateDef) {
-		for _, s := range ss {
-			defByID[s.ID] = s
-			if len(s.Children) > 0 {
-				walk(s.Children)
-			}
-		}
-	}
-	walk(states)
+	defByID := svgutil.IndexByID(collectAllStates(states), func(s diagram.StateDef) string { return s.ID })
 	out := make([]placedComposite, 0, len(flats))
 	for _, fc := range flats {
 		def := defByID[fc.ID]
@@ -202,12 +202,12 @@ func buildPlacedComposites(states []diagram.StateDef, flats []flatComposite) []p
 	return out
 }
 
-// labelOf returns the display label for a state in this scope, falling
-// back to the ID when no explicit label was recorded.
+// labelOf returns the display label for a node in this scope, falling
+// back to the ID when no explicit label is recorded in nodeAttrs.
 func (s *scopedLayout) labelOf(id string) string {
 	if s != nil {
-		if l, ok := s.labels[id]; ok && l != "" {
-			return l
+		if attrs, ok := s.nodeAttrs[id]; ok && attrs.Label != "" {
+			return attrs.Label
 		}
 	}
 	return id

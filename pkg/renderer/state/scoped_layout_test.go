@@ -49,8 +49,8 @@ func TestLayoutScopeNestsPseudoStates(t *testing.T) {
 		t.Errorf("root pseudoNodes = %d, want 1: %+v", len(root.pseudoNodes), root.pseudoNodes)
 	}
 	for _, info := range root.pseudoNodes {
-		if info.Kind != "start" {
-			t.Errorf("root pseudo kind = %q, want start", info.Kind)
+		if info.Kind != pseudoStart {
+			t.Errorf("root pseudo kind = %v, want pseudoStart", info.Kind)
 		}
 	}
 
@@ -82,9 +82,9 @@ func TestLayoutScopeNestsPseudoStates(t *testing.T) {
 	starts, ends := 0, 0
 	for _, info := range third.pseudoNodes {
 		switch info.Kind {
-		case "start":
+		case pseudoStart:
 			starts++
-		case "end":
+		case pseudoEnd:
 			ends++
 		}
 	}
@@ -134,7 +134,7 @@ func TestLayoutScopeNestsPseudoStates(t *testing.T) {
 func countStartPseudos(s *scopedLayout) int {
 	n := 0
 	for _, info := range s.pseudoNodes {
-		if info.Kind == "start" {
+		if info.Kind == pseudoStart {
 			n++
 		}
 	}
