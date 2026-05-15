@@ -401,20 +401,26 @@ func (p *parser) scanBlockNote() (string, error) {
 }
 
 // parseStateDescription matches `id : description text` outside of
-// any arrow-bearing transition. Mermaid's grammar requires whitespace
-// around the colon, so we only accept that form — same convention as
-// the class parser uses for single-line members. A bare `id:text`
-// is rejected (it's typically a typo or a misparsed transition).
+// any arrow-bearing transition. Mermaid accepts the colon with or
+// without surrounding whitespace, e.g. `id : desc`, `id: desc`, or
+// `id :desc` (per the syntax docs' composite-states example, which
+// uses `NamedComposite: Another Composite`). The triple-colon `:::`
+// is reserved for inline CSS class shorthand and never matches here.
 func parseStateDescription(line string) (id, desc string, ok bool) {
-	colon := strings.Index(line, " : ")
-	if colon < 0 {
+	colon := strings.IndexByte(line, ':')
+	if colon < 1 {
+		return "", "", false
+	}
+	// Skip the CSS class shorthand `id:::class` — that's handled
+	// elsewhere and is not a description.
+	if strings.HasPrefix(line[colon:], ":::") {
 		return "", "", false
 	}
 	id = strings.TrimSpace(line[:colon])
 	if id == "" || strings.ContainsAny(id, " \t") {
 		return "", "", false
 	}
-	return id, strings.TrimSpace(line[colon+3:]), true
+	return id, strings.TrimSpace(line[colon+1:]), true
 }
 
 func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef, scope string) error {
