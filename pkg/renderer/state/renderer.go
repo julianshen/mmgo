@@ -124,6 +124,13 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 			viewMaxY = bottom
 		}
 	}
+	// Reserve a band above the content for the visible title (Mermaid
+	// renders frontmatter `title:` as a centered heading).
+	titleBandH := 0.0
+	if d.Title != "" {
+		titleBandH = fontSize*1.4 + pad
+		viewMinY -= titleBandH
+	}
 	viewW := viewMaxX - viewMinX
 	viewH := viewMaxY - viewMinY
 
@@ -143,6 +150,15 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 		Width: svgFloat(viewW), Height: svgFloat(viewH),
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
+	if d.Title != "" {
+		children = append(children, &text{
+			X: svgFloat((viewMinX + viewMaxX) / 2),
+			Y: svgFloat(viewMinY + titleBandH/2),
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.StateText, fontSize+2),
+			Content: d.Title,
+		})
+	}
 
 	// Composite boxes go behind edges + leaf states so the frame
 	// doesn't occlude inner content.
@@ -310,6 +326,40 @@ func stateRectStyle(d *diagram.StateDiagram, s diagram.StateDef, stylesByID map[
 		}
 	}
 	parts = append(parts, stylesByID[s.ID]...)
+	return strings.Join(parts, ";")
+}
+
+// textPropsFromCSS extracts the CSS declarations from a state's
+// classDef override that affect the <text> element rather than the
+// containing <rect>: typography (font-*), text colour (color, mapped
+// to fill), and text alignment. The full override is already applied
+// to the rect via stateRectStyle; this returns the subset that has
+// to be merged into the label style separately so rect-only fill /
+// stroke don't bleed onto the text.
+func textPropsFromCSS(css string) string {
+	if css == "" {
+		return ""
+	}
+	var parts []string
+	for _, decl := range strings.Split(css, ";") {
+		decl = strings.TrimSpace(decl)
+		if decl == "" {
+			continue
+		}
+		colon := strings.IndexByte(decl, ':')
+		if colon < 1 {
+			continue
+		}
+		prop := strings.TrimSpace(decl[:colon])
+		val := strings.TrimSpace(decl[colon+1:])
+		switch prop {
+		case "color":
+			parts = append(parts, "fill:"+val)
+		case "font-style", "font-weight", "font-family", "font-size",
+			"text-decoration", "text-transform", "letter-spacing":
+			parts = append(parts, prop+":"+val)
+		}
+	}
 	return strings.Join(parts, ";")
 }
 
@@ -529,8 +579,10 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 			x := cx - w/2
 			y := cy - h/2
 			rectStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.StateFill, th.StateStroke)
+			textStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize)
 			if override := stateRectStyle(d, s, styles); override != "" {
 				rectStyle = rectStyle + ";" + override
+				textStyle = textStyle + ";" + textPropsFromCSS(override)
 			}
 			*buf = append(*buf, &rect{
 				X: svgFloat(x), Y: svgFloat(y),
@@ -541,7 +593,7 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 			*buf = append(*buf, &text{
 				X: svgFloat(cx), Y: svgFloat(cy),
 				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
-				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize),
+				Style:   textStyle,
 				Content: s.Label,
 			})
 		}

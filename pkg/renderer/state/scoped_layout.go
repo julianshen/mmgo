@@ -138,19 +138,28 @@ func layoutScope(
 	}
 
 	// 3. Pseudo-state nodes + transition edges for this scope.
-	startSeq, endSeq := 0, 0
+	// Mermaid treats every `[*]` reference within the same scope as
+	// the same conceptual node: N transitions like `Still --> [*]`
+	// and `Crash --> [*]` all converge on a single end glyph. We
+	// cache one start and one end pseudo per scope and reuse them
+	// across every transition that references `[*]`.
+	var startID, endID string
 	for i, t := range allTransitions {
 		if t.Scope != scope {
 			continue
 		}
 		from, to := t.From, t.To
 		if from == "[*]" {
-			startSeq++
-			from = out.registerPseudo(g, pseudoStart, scope, startSeq, i)
+			if startID == "" {
+				startID = out.registerPseudo(g, pseudoStart, scope, 1, i)
+			}
+			from = startID
 		}
 		if to == "[*]" {
-			endSeq++
-			to = out.registerPseudo(g, pseudoEnd, scope, endSeq, i)
+			if endID == "" {
+				endID = out.registerPseudo(g, pseudoEnd, scope, 1, i)
+			}
+			to = endID
 		}
 		g.SetEdge(from, to, graph.EdgeAttrs{Label: t.Label})
 	}
