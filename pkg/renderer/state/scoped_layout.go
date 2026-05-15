@@ -138,28 +138,33 @@ func layoutScope(
 	}
 
 	// 3. Pseudo-state nodes + transition edges for this scope.
-	// Mermaid treats every `[*]` reference within the same scope as
-	// the same conceptual node: N transitions like `Still --> [*]`
-	// and `Crash --> [*]` all converge on a single end glyph. We
-	// cache one start and one end pseudo per scope and reuse them
-	// across every transition that references `[*]`.
-	var startID, endID string
+	// Mermaid treats every `[*]` reference within the same scope AND
+	// region as one conceptual node: N transitions like `Still --> [*]`
+	// and `Crash --> [*]` all converge on a single end glyph. Parallel
+	// regions (separated by `--`) each get their own initial and final
+	// pseudo, so the dedup key is (scope, regionIdx).
+	startByRegion := make(map[int]string)
+	endByRegion := make(map[int]string)
 	for i, t := range allTransitions {
 		if t.Scope != scope {
 			continue
 		}
 		from, to := t.From, t.To
 		if from == "[*]" {
-			if startID == "" {
-				startID = out.registerPseudo(g, pseudoStart, scope, 1, i)
+			id, ok := startByRegion[t.RegionIdx]
+			if !ok {
+				id = out.registerPseudo(g, pseudoStart, scope, t.RegionIdx+1, i)
+				startByRegion[t.RegionIdx] = id
 			}
-			from = startID
+			from = id
 		}
 		if to == "[*]" {
-			if endID == "" {
-				endID = out.registerPseudo(g, pseudoEnd, scope, 1, i)
+			id, ok := endByRegion[t.RegionIdx]
+			if !ok {
+				id = out.registerPseudo(g, pseudoEnd, scope, t.RegionIdx+1, i)
+				endByRegion[t.RegionIdx] = id
 			}
-			to = endID
+			to = id
 		}
 		g.SetEdge(from, to, graph.EdgeAttrs{Label: t.Label})
 	}
