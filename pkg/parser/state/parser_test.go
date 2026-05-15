@@ -709,15 +709,43 @@ func TestParseClassBindingMissingNameError(t *testing.T) {
 	}
 }
 
-// `class id className` referencing an undeclared state errors
-// instead of silently spawning a phantom state — matches the
-// strictness of click/link/callback and of the class-diagram parser.
-func TestParseClassBindingUndefinedStateError(t *testing.T) {
-	_, err := Parse(strings.NewReader(`stateDiagram-v2
+// `---\ntitle: ...\n---` frontmatter is stripped before parsing,
+// with `title:` populating diagram.Title — Mermaid's universal
+// frontmatter convention.
+func TestParseFrontmatterTitle(t *testing.T) {
+	d, err := Parse(strings.NewReader(`---
+title: Simple sample
+---
+stateDiagram-v2
+    [*] --> Still
+    Still --> [*]`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.Title != "Simple sample" {
+		t.Errorf("Title = %q, want %q", d.Title, "Simple sample")
+	}
+	if len(d.Transitions) != 2 {
+		t.Errorf("Transitions count = %d, want 2", len(d.Transitions))
+	}
+}
+
+// `class id className` referencing an undeclared state is silently
+// skipped (Mermaid's behaviour — the syntax-docs styling example
+// binds `class end badBadEvent` where `end` is never declared).
+// Parsing succeeds and the surrounding diagram is unaffected.
+func TestParseClassBindingUndefinedStateSkipped(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
     classDef hot fill:#f00
+    Real --> Other
     class Ghost hot`))
-	if err == nil {
-		t.Error("expected error for class binding to undeclared state")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, s := range d.States {
+		if s.ID == "Ghost" {
+			t.Errorf("undeclared state %q was created", s.ID)
+		}
 	}
 }
 

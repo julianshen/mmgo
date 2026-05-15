@@ -11,12 +11,24 @@ import (
 )
 
 func Parse(r io.Reader) (*diagram.StateDiagram, error) {
+	src, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading input: %w", err)
+	}
 	p := &parser{
 		diagram: &diagram.StateDiagram{
 			CSSClasses: make(map[string]string),
 		},
 	}
-	p.scanner = bufio.NewScanner(r)
+	// Optional `---\n…\n---\n` frontmatter at the top supplies a
+	// diagram title (Mermaid's universal frontmatter convention).
+	front, body := parserutil.SplitFrontmatter(src)
+	if len(front) > 0 {
+		if t := parserutil.FrontmatterValue(front, "title"); t != "" {
+			p.diagram.Title = t
+		}
+	}
+	p.scanner = bufio.NewScanner(strings.NewReader(string(body)))
 	p.scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	headerSeen := false
 	for p.scanner.Scan() {
@@ -170,12 +182,11 @@ func (p *parser) parseStyleRule(line string) error {
 	return nil
 }
 
-// parseClassBinding handles `class id1,id2 className`. State IDs
-// must already exist; an unknown ID errors rather than silently
-// creating a phantom state (a bare typo like `class Foo bar` when
-// `Foo` was meant should not produce an undeclared shadow). Lookup
-// is recursive so `class Foo bar` works when Foo lives inside a
-// composite.
+// parseClassBinding handles `class id1,id2 className`. Bindings to
+// unknown state IDs are silently skipped (Mermaid's behaviour — the
+// syntax-docs example uses `class end badBadEvent` where `end` is
+// never declared as a real state). Lookup is recursive so a child of
+// a composite can be addressed by its bare ID.
 func (p *parser) parseClassBinding(rest string, target *[]diagram.StateDef) error {
 	parts := strings.SplitN(rest, " ", 2)
 	if len(parts) < 2 {
@@ -192,7 +203,7 @@ func (p *parser) parseClassBinding(rest string, target *[]diagram.StateDef) erro
 			s = findStateRecursive(p.diagram.States, id)
 		}
 		if s == nil {
-			return fmt.Errorf("class binding references undefined state %q", id)
+			continue
 		}
 		s.CSSClasses = append(s.CSSClasses, cssName)
 	}
