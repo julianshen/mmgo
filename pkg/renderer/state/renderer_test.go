@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -620,6 +621,57 @@ func TestLabelPositionAntiParallelEdgesSeparate(t *testing.T) {
 	if fwd.Y == rev.Y || (fwd.Y > base.Y) == (rev.Y > base.Y) {
 		t.Errorf("anti-parallel edges expected to offset to opposite sides, got fwd=%v rev=%v", fwd, rev)
 	}
+}
+
+// Anti-parallel edges (A→B plus B→A) must bow apart so their labels
+// don't stack at the same midpoint. The forward and reverse edges
+// should each render as a 3-point curve (Catmull-Rom path) with
+// distinct label X positions.
+func TestRenderAntiParallelEdgesBow(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "A", Label: "A"},
+			{ID: "B", Label: "B"},
+		},
+		Transitions: []diagram.StateTransition{
+			{From: "A", To: "B", Label: "start"},
+			{From: "B", To: "A", Label: "stop"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	svg := string(out)
+	// Both edges must have been emitted as <path> (curved), not <line>
+	// (straight) — confirms the deflection branch fired for each.
+	pathCount := strings.Count(svg, "marker-end=\"url(#state-arrow)\"")
+	if pathCount < 2 {
+		t.Fatalf("expected at least 2 edges with arrows, got %d in %s", pathCount, svg)
+	}
+	// `start` and `stop` chips must appear at distinct X anchors.
+	startX := extractLabelX(t, svg, "start")
+	stopX := extractLabelX(t, svg, "stop")
+	if math.Abs(startX-stopX) < 5 {
+		t.Errorf("start label X=%.2f and stop label X=%.2f too close (anti-parallel deflection should separate them)",
+			startX, stopX)
+	}
+}
+
+// extractLabelX returns the X attribute of the <text> element whose
+// content equals label. Test helper.
+func extractLabelX(t *testing.T, svg, label string) float64 {
+	t.Helper()
+	re := regexp.MustCompile(`<text x="([0-9.]+)"[^>]*>` + regexp.QuoteMeta(label) + `</text>`)
+	m := re.FindStringSubmatch(svg)
+	if m == nil {
+		t.Fatalf("label %q not found in svg", label)
+	}
+	x, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		t.Fatalf("parse X for %q: %v", label, err)
+	}
+	return x
 }
 
 // Pins backdrop ordering: the white rect must precede the text so

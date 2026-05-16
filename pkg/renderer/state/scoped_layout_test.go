@@ -132,6 +132,33 @@ func TestLayoutScopeNestsPseudoStates(t *testing.T) {
 	}
 }
 
+func TestTextPropsFromCSS(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", ""},
+		// Rect-only properties are dropped entirely.
+		{"fill:#f00;stroke:yellow;stroke-width:2", ""},
+		// color: maps to fill: for text.
+		{"color:white", "fill:white"},
+		// Typography passes through verbatim.
+		{"font-style:italic;font-weight:bold", "font-style:italic;font-weight:bold"},
+		// Mixed: keep text props, drop rect props.
+		{"fill:#f00;color:white;font-weight:bold", "fill:white;font-weight:bold"},
+		// Whitespace and trailing semicolons tolerated.
+		{" font-style : italic ; ; color : blue ", "font-style:italic;fill:blue"},
+		// Malformed declaration (no colon) skipped.
+		{"font-bold;color:red", "fill:red"},
+		// Unrelated prop dropped.
+		{"opacity:0.5", ""},
+	}
+	for _, c := range cases {
+		if got := textPropsFromCSS(c.in); got != c.want {
+			t.Errorf("textPropsFromCSS(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestSanitize(t *testing.T) {
 	cases := []struct {
 		in, want float64
