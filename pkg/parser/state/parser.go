@@ -62,17 +62,15 @@ func Parse(r io.Reader) (*diagram.StateDiagram, error) {
 }
 
 // stateWalkEntry pairs a state with the slice it lives in and the
-// path from root that reaches it. Both post-passes index off these.
+// path from root that reaches it.
 type stateWalkEntry struct {
 	state  *diagram.StateDef
 	parent *[]diagram.StateDef
 	path   []string // ancestor IDs from root (exclusive of state.ID)
 }
 
-// walkStateTree visits every state in the tree, yielding a
-// stateWalkEntry per node. The path slice handed to each entry is
-// freshly allocated per node so callers may retain it without the
-// next sibling recursion mutating the backing array.
+// walkStateTree returns one entry per state in the tree. Each entry's
+// path slice is independently allocated so callers may retain it.
 func walkStateTree(top *[]diagram.StateDef) []stateWalkEntry {
 	var out []stateWalkEntry
 	var walk func(slice *[]diagram.StateDef, path []string)
@@ -108,11 +106,13 @@ func resolveDuplicateStates(walked []stateWalkEntry) {
 	for _, e := range walked {
 		byID[e.state.ID] = append(byID[e.state.ID], e)
 	}
-	// Collect (parent, id) pairs to drop. Removal happens after the
-	// scan because a slice rebuild invalidates the &(*slice)[i]
-	// pointers captured during the walk.
-	drop := make(map[*[]diagram.StateDef]map[string]struct{})
-	for id, entries := range byID {
+	// Collect the specific StateDef pointers to drop. Keying by
+	// *StateDef (rather than by ID-per-parent) keeps the canonical
+	// entry safe even if a future parser refactor produces two
+	// same-ID children inside one parent slice — only the non-best
+	// entries' addresses are flagged for removal.
+	drop := make(map[*[]diagram.StateDef]map[*diagram.StateDef]struct{})
+	for _, entries := range byID {
 		if len(entries) < 2 {
 			continue
 		}
@@ -127,18 +127,19 @@ func resolveDuplicateStates(walked []stateWalkEntry) {
 				continue
 			}
 			if drop[e.parent] == nil {
-				drop[e.parent] = make(map[string]struct{})
+				drop[e.parent] = make(map[*diagram.StateDef]struct{})
 			}
-			drop[e.parent][id] = struct{}{}
+			drop[e.parent][e.state] = struct{}{}
 		}
 	}
-	for parent, ids := range drop {
+	for parent, dropped := range drop {
 		filtered := (*parent)[:0]
-		for _, s := range *parent {
-			if _, dropped := ids[s.ID]; dropped {
+		for i := range *parent {
+			s := &(*parent)[i]
+			if _, isDropped := dropped[s]; isDropped {
 				continue
 			}
-			filtered = append(filtered, s)
+			filtered = append(filtered, *s)
 		}
 		// Zero out the trailing slots so the GC can reclaim the
 		// removed StateDefs' transitively-held data.
@@ -218,15 +219,12 @@ func commonPrefix(a, b []string) []string {
 }
 
 // moreCanonicalState reports whether candidate is a more-attributed
-// view of the same logical state than current. The ordering prefers:
-//   - an explicit Kind annotation (history, choice, fork, …)
-//   - having Children (composite body)
-//   - having Regions (parallel composite)
-//   - a description label distinct from the ID
-//   - any CSSClasses
-//
-// Ties resolve to `current` so the first occurrence wins, which keeps
-// parsing order observable for diagnostics.
+// view of the same logical state than current. Attributes are scored
+// with bit-disjoint weights so a higher-priority attribute always
+// outvotes any combination of lower-priority ones: Kind > Children >
+// Regions > description Label > CSSClasses. Ties resolve to `current`
+// so the first occurrence wins, which keeps parsing order observable
+// for diagnostics.
 func moreCanonicalState(candidate, current diagram.StateDef) bool {
 	score := func(s diagram.StateDef) int {
 		n := 0

@@ -346,6 +346,109 @@ func TestParseCrossScopeForwardReference(t *testing.T) {
 	}
 }
 
+// After cross-scope promotion, the ORIGINAL inner-scope edge must
+// be gone (it was rewritten in place, not appended). A regression
+// that duplicated the edge instead of rewriting would slip past
+// TestParseCrossScopeForwardReference because that test only checks
+// the rewritten form is present.
+func TestParseCrossScopePromoteIsInPlace(t *testing.T) {
+	src := `stateDiagram-v2
+    state Running {
+        [*] --> Normal
+        Normal --> DH
+    }
+    state DH <<deepHistory>>`
+	d, err := Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, t2 := range d.Transitions {
+		if t2.From == "Normal" && t2.To == "DH" {
+			t.Errorf("original cross-scope edge `Normal --> DH` should have been rewritten in place, not retained: %+v", t2)
+		}
+	}
+}
+
+// A transition that already sits at the right scope should not be
+// touched by the promotion pass.
+func TestParseCrossScopeNoOpForLocalEdge(t *testing.T) {
+	src := `stateDiagram-v2
+    state DH <<deepHistory>>
+    Running --> DH : restore
+    state Running {
+        [*] --> Normal
+    }`
+	d, err := Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var restore *diagram.StateTransition
+	for i := range d.Transitions {
+		if d.Transitions[i].Label == "restore" {
+			restore = &d.Transitions[i]
+		}
+	}
+	if restore == nil {
+		t.Fatal("restore edge missing")
+	}
+	if restore.From != "Running" || restore.To != "DH" || restore.Scope != "" {
+		t.Errorf("local root-scope edge should remain (Running, DH, scope=\"\"); got %+v", restore)
+	}
+}
+
+// A transition whose endpoints don't exist anywhere in the diagram
+// (typo or external reference) must survive both passes unchanged so
+// downstream warnings can still surface it. No promotion, no
+// duplication, no panic on the missing path lookups.
+func TestParseCrossScopeDanglingEndpoint(t *testing.T) {
+	src := `stateDiagram-v2
+    A --> Missing
+    state A`
+	d, err := Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Transitions) != 1 {
+		t.Fatalf("want 1 transition, got %d: %+v", len(d.Transitions), d.Transitions)
+	}
+	got := d.Transitions[0]
+	if got.From != "A" || got.To != "Missing" || got.Scope != "" {
+		t.Errorf("dangling-endpoint edge should be unchanged; got %+v", got)
+	}
+}
+
+// When a transition's endpoints both live in different sibling
+// composites, the edge must promote up to the LCA (root) and both
+// endpoints get rewritten to their respective top-level composite
+// ancestors. This is the "cross-cluster wire" case.
+func TestParseCrossScopeBothEndpointsDeep(t *testing.T) {
+	src := `stateDiagram-v2
+    state A {
+        state inA
+    }
+    state B {
+        state inB
+    }
+    inA --> inB`
+	d, err := Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var cross *diagram.StateTransition
+	for i := range d.Transitions {
+		t := &d.Transitions[i]
+		if t.From == "A" && t.To == "B" {
+			cross = t
+		}
+	}
+	if cross == nil {
+		t.Fatalf("expected `A --> B` after promotion of `inA --> inB`; got transitions: %+v", d.Transitions)
+	}
+	if cross.Scope != "" {
+		t.Errorf("Scope should be root after LCA promotion to sibling composites; got %q", cross.Scope)
+	}
+}
+
 // Direct unit test for moreCanonicalState's preference ordering.
 func TestMoreCanonicalState(t *testing.T) {
 	plain := diagram.StateDef{ID: "X", Label: "X"}
