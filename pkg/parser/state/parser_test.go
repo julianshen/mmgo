@@ -272,13 +272,391 @@ func TestParseTransitionLabelContainsTripleColon(t *testing.T) {
 	}
 }
 
-func containsString(xs []string, want string) bool {
-	for _, x := range xs {
-		if x == want {
-			return true
+// containsString lives in parser.go; test file reuses it.
+
+// Forward references from inside a composite to a state declared at
+// an outer scope must resolve to the outer state, not produce a
+// phantom child. The transition's scope is promoted to the LCA so
+// dagre lays the edge out at the right level rather than re-creating
+// a phantom in the inner sub-graph.
+func TestParseCrossScopeForwardReference(t *testing.T) {
+	src := `stateDiagram-v2
+    state Running {
+        [*] --> Normal
+        Normal --> DH
+    }
+    state DH <<deepHistory>>
+    DH --> Running : restore`
+	d, err := Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	// DH must NOT appear as a child of Running — it lives at root.
+	var running *diagram.StateDef
+	for i := range d.States {
+		if d.States[i].ID == "Running" {
+			running = &d.States[i]
+			break
 		}
 	}
-	return false
+	if running == nil {
+		t.Fatal("Running state not found")
+	}
+	for _, c := range running.Children {
+		if c.ID == "DH" {
+			t.Errorf("DH should not be a child of Running; got phantom %+v", c)
+		}
+	}
+	// DH at root must carry the deep-history kind from `state DH <<deepHistory>>`.
+	var dh *diagram.StateDef
+	for i := range d.States {
+		if d.States[i].ID == "DH" {
+			dh = &d.States[i]
+			break
+		}
+	}
+	if dh == nil {
+		t.Fatal("DH not at root")
+	}
+	if dh.Kind != diagram.StateKindDeepHistory {
+		t.Errorf("DH.Kind = %v, want StateKindDeepHistory", dh.Kind)
+	}
+	// The cross-scope edge `Normal --> DH` (written inside Running)
+	// must be promoted so the edge sits at root scope, with From
+	// rewritten to Running (the ancestor of Normal at root level).
+	var crossEdge *diagram.StateTransition
+	for i := range d.Transitions {
+		t := &d.Transitions[i]
+		if t.From == "Running" && t.To == "DH" {
+			crossEdge = t
+			break
+		}
+	}
+	if crossEdge == nil {
+		t.Errorf("cross-scope edge `Normal --> DH` should be rewritten as `Running --> DH`; got transitions: %+v", d.Transitions)
+	} else if crossEdge.Scope != "" {
+		t.Errorf("promoted edge should have Scope=\"\" (root), got %q", crossEdge.Scope)
+	}
+}
+
+// After cross-scope promotion, the ORIGINAL inner-scope edge must
+// be gone (it was rewritten in place, not appended). A regression
+// that duplicated the edge instead of rewriting would slip past
+// TestParseCrossScopeForwardReference because that test only checks
+// the rewritten form is present.
+func TestParseCrossScopePromoteIsInPlace(t *testing.T) {
+	src := `stateDiagram-v2
+    state Running {
+        [*] --> Normal
+        Normal --> DH
+    }
+    state DH <<deepHistory>>`
+	d, err := Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, t2 := range d.Transitions {
+		if t2.From == "Normal" && t2.To == "DH" {
+			t.Errorf("original cross-scope edge `Normal --> DH` should have been rewritten in place, not retained: %+v", t2)
+		}
+	}
+}
+
+// A transition that already sits at the right scope should not be
+// touched by the promotion pass.
+func TestParseCrossScopeNoOpForLocalEdge(t *testing.T) {
+	src := `stateDiagram-v2
+    state DH <<deepHistory>>
+    Running --> DH : restore
+    state Running {
+        [*] --> Normal
+    }`
+	d, err := Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var restore *diagram.StateTransition
+	for i := range d.Transitions {
+		if d.Transitions[i].Label == "restore" {
+			restore = &d.Transitions[i]
+		}
+	}
+	if restore == nil {
+		t.Fatal("restore edge missing")
+	}
+	if restore.From != "Running" || restore.To != "DH" || restore.Scope != "" {
+		t.Errorf("local root-scope edge should remain (Running, DH, scope=\"\"); got %+v", restore)
+	}
+}
+
+// A transition whose endpoint isn't in the walked tree (e.g. a
+// fabricated StateDiagram from a synthesizer or a future parser
+// refactor that strips unreferenced states) must pass through both
+// passes unchanged: no promotion, no panic on the missing path
+// lookup, no spurious phantom creation. The natural parser path
+// always upserts both endpoints, so this exercises the safety
+// branch directly with a hand-built diagram.
+func TestPromoteCrossScopeDanglingEndpoint(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "A", Label: "A"},
+		},
+		Transitions: []diagram.StateTransition{
+			{From: "A", To: "Missing"},
+		},
+	}
+	walked := []stateWalkEntry{
+		{state: &d.States[0], parent: &d.States, path: nil},
+	}
+	promoteCrossScopeTransitions(d, walked)
+	if len(d.Transitions) != 1 {
+		t.Fatalf("transitions count changed: %+v", d.Transitions)
+	}
+	got := d.Transitions[0]
+	if got.From != "A" || got.To != "Missing" || got.Scope != "" {
+		t.Errorf("dangling-endpoint edge should be unchanged; got %+v", got)
+	}
+}
+
+// Ancestor → descendant edges (e.g. `Running --> Normal` where
+// Normal lives inside Running) must not be collapsed into a
+// self-loop on Running by promotion. The edge should layout at the
+// ancestor's scope where both the composite boundary and the
+// descendant are visible.
+func TestParseCrossScopeAncestorToDescendant(t *testing.T) {
+	src := `stateDiagram-v2
+    state Running {
+        state Normal
+    }
+    Running --> Normal : enter`
+	d, err := Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(d.Transitions) != 1 {
+		t.Fatalf("want 1 transition, got %d", len(d.Transitions))
+	}
+	got := d.Transitions[0]
+	if got.From != "Running" || got.To != "Normal" {
+		t.Errorf("endpoints should be (Running, Normal), got (%q, %q)", got.From, got.To)
+	}
+	if got.Scope != "Running" {
+		t.Errorf("Scope should be \"Running\" so the edge layouts inside Running's sub-graph; got %q", got.Scope)
+	}
+}
+
+// A `state X` declaration must beat an attribute-identical phantom
+// of the same ID when picking the canonical entry, regardless of
+// source-order or walk-order. Both directions:
+//   - phantom inside, real at root (Thread 3's repro)
+//   - real inside, phantom at root (mirror case)
+func TestParseDuplicateDedupPrefersExplicitDeclaration(t *testing.T) {
+	t.Run("inner_phantom_outer_real", func(t *testing.T) {
+		d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Running {
+        Normal --> DH
+    }
+    state DH`))
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		// DH must be at root, not inside Running.
+		var dhAtRoot bool
+		for _, s := range d.States {
+			if s.ID == "DH" {
+				dhAtRoot = true
+			}
+			if s.ID == "Running" {
+				for _, c := range s.Children {
+					if c.ID == "DH" {
+						t.Errorf("DH should be at root, not Running.Children")
+					}
+				}
+			}
+		}
+		if !dhAtRoot {
+			t.Error("DH missing from root")
+		}
+	})
+	t.Run("inner_real_outer_phantom", func(t *testing.T) {
+		d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Running {
+        state Normal
+    }
+    Running --> Normal`))
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		// Normal must remain inside Running, not be the root phantom.
+		var normalInside bool
+		for _, s := range d.States {
+			if s.ID == "Normal" {
+				t.Errorf("Normal should not be a root state; got %+v", s)
+			}
+			if s.ID == "Running" {
+				for _, c := range s.Children {
+					if c.ID == "Normal" {
+						normalInside = true
+					}
+				}
+			}
+		}
+		if !normalInside {
+			t.Error("Normal missing from Running.Children")
+		}
+	})
+}
+
+// Non-conflicting metadata (CSSClasses, explicit Label) from the
+// loser of a dedup must be merged into the canonical entry — Mermaid
+// users routinely tack `:::class` on transition endpoints, and the
+// `state X` declaration is canonical for Kind but doesn't carry the
+// transition-side CSS hint.
+func TestParseDuplicateDedupMergesCSSAndLabel(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Running {
+        Normal --> DH:::hot
+    }
+    state DH <<deepHistory>>`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var dh *diagram.StateDef
+	for i := range d.States {
+		if d.States[i].ID == "DH" {
+			dh = &d.States[i]
+		}
+	}
+	if dh == nil {
+		t.Fatal("DH missing")
+	}
+	if dh.Kind != diagram.StateKindDeepHistory {
+		t.Errorf("DH.Kind = %v, want StateKindDeepHistory", dh.Kind)
+	}
+	if !containsString(dh.CSSClasses, "hot") {
+		t.Errorf("CSS class %q should be merged into canonical DH; got %v", "hot", dh.CSSClasses)
+	}
+}
+
+// Regions slices are independent copies of region members, so a
+// phantom dropped from Children would otherwise still appear in
+// Regions. The post-prune sync must filter Regions against the
+// post-prune Children of the same composite.
+func TestParseDuplicateDedupSyncsRegions(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Active {
+        A --> DH
+        --
+        B --> DH
+    }
+    state DH <<deepHistory>>`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var active *diagram.StateDef
+	for i := range d.States {
+		if d.States[i].ID == "Active" {
+			active = &d.States[i]
+		}
+	}
+	if active == nil {
+		t.Fatal("Active missing")
+	}
+	for ri, region := range active.Regions {
+		for _, r := range region {
+			if r.ID == "DH" {
+				t.Errorf("region[%d] should not contain DH (deduped to root); got %v", ri, region)
+			}
+		}
+	}
+}
+
+// When a transition's endpoints both live in different sibling
+// composites, the edge must promote up to the LCA (root) and both
+// endpoints get rewritten to their respective top-level composite
+// ancestors. This is the "cross-cluster wire" case.
+func TestParseCrossScopeBothEndpointsDeep(t *testing.T) {
+	src := `stateDiagram-v2
+    state A {
+        state inA
+    }
+    state B {
+        state inB
+    }
+    inA --> inB`
+	d, err := Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var cross *diagram.StateTransition
+	for i := range d.Transitions {
+		t := &d.Transitions[i]
+		if t.From == "A" && t.To == "B" {
+			cross = t
+		}
+	}
+	if cross == nil {
+		t.Fatalf("expected `A --> B` after promotion of `inA --> inB`; got transitions: %+v", d.Transitions)
+	}
+	if cross.Scope != "" {
+		t.Errorf("Scope should be root after LCA promotion to sibling composites; got %q", cross.Scope)
+	}
+}
+
+// Direct unit test for moreCanonicalState's preference ordering.
+func TestMoreCanonicalState(t *testing.T) {
+	plain := diagram.StateDef{ID: "X", Label: "X"}
+	withKind := diagram.StateDef{ID: "X", Label: "X", Kind: diagram.StateKindChoice}
+	withChildren := diagram.StateDef{ID: "X", Label: "X", Children: []diagram.StateDef{{ID: "c"}}}
+	withLabel := diagram.StateDef{ID: "X", Label: "Long Label"}
+	withCSS := diagram.StateDef{ID: "X", Label: "X", CSSClasses: []string{"hot"}}
+
+	if !moreCanonicalState(withKind, plain) {
+		t.Error("a state with explicit Kind should beat a plain phantom")
+	}
+	if !moreCanonicalState(withChildren, plain) {
+		t.Error("a composite (Children) should beat a leaf")
+	}
+	if !moreCanonicalState(withKind, withChildren) {
+		t.Error("Kind weighs more than Children")
+	}
+	if !moreCanonicalState(withLabel, plain) {
+		t.Error("an explicit description Label should beat a default")
+	}
+	if !moreCanonicalState(withCSS, plain) {
+		t.Error("CSSClasses should beat a plain phantom")
+	}
+	// Ties resolve to current (returns false).
+	if moreCanonicalState(plain, plain) {
+		t.Error("equal candidates should not promote")
+	}
+}
+
+// commonPrefix returns the longest shared head of two paths.
+func TestCommonPrefix(t *testing.T) {
+	cases := []struct {
+		a, b []string
+		want []string
+	}{
+		{nil, nil, []string{}},
+		{[]string{"A"}, []string{"A"}, []string{"A"}},
+		{[]string{"A", "B"}, []string{"A", "C"}, []string{"A"}},
+		{[]string{"A", "B", "C"}, []string{"A", "B", "C"}, []string{"A", "B", "C"}},
+		{[]string{"A"}, []string{"B"}, []string{}},
+		{[]string{"A", "B"}, []string{"A"}, []string{"A"}},
+	}
+	for _, c := range cases {
+		got := commonPrefix(c.a, c.b)
+		if len(got) != len(c.want) {
+			t.Errorf("commonPrefix(%v, %v) = %v, want %v", c.a, c.b, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("commonPrefix(%v, %v)[%d] = %q, want %q", c.a, c.b, i, got[i], c.want[i])
+			}
+		}
+	}
 }
 
 func TestParseTransitionScope(t *testing.T) {
