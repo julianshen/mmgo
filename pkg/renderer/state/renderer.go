@@ -660,6 +660,16 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		transMap[key] = append(transMap[key], t)
 	}
 
+	// Detect anti-parallel edge pairs (e.g. `A --> B` plus `B --> A`)
+	// so we can bow them apart visually. Without this, both lines
+	// trace the same straight segment and the two labels collide at
+	// the same midpoint (the start/stop, deactivate/activate cases
+	// in the composite example).
+	hasEdge := make(map[[2]string]bool, len(l.Edges))
+	for eid := range l.Edges {
+		hasEdge[[2]string{eid.From, eid.To}] = true
+	}
+
 	var elems []any
 	for _, eid := range edgeKeys {
 		el := l.Edges[eid]
@@ -685,6 +695,31 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		if dst, ok := l.Nodes[eid.To]; ok {
 			x, y := clipNodeEdge(eid.To, dst, pad, dstDir, g)
 			pts[len(pts)-1] = layout.Point{X: x, Y: y}
+		}
+
+		// For an anti-parallel straight edge, inject a perpendicular
+		// midpoint deflection so the line bows away from its sibling.
+		// The sign of the offset is fixed relative to the edge tangent
+		// (always 90° CCW of the forward direction in SVG's Y-down
+		// frame), so a forward edge bows to one side and its reverse
+		// bows to the other — visually disambiguating both lines.
+		// Anchor the label to the deflected midpoint so the chips
+		// follow each curve instead of stacking on the straight
+		// centre with the partner edge.
+		labelAnchor := layout.Point{X: el.LabelPos.X + pad, Y: el.LabelPos.Y + pad}
+		if len(pts) == 2 && hasEdge[[2]string{eid.To, eid.From}] {
+			a, b := pts[0], pts[1]
+			dx, dy := b.X-a.X, b.Y-a.Y
+			length := math.Sqrt(dx*dx + dy*dy)
+			if length > 0 {
+				const arcOffset = 18.0
+				mx, my := (a.X+b.X)/2, (a.Y+b.Y)/2
+				// Perpendicular direction (rotate tangent 90° CCW in
+				// the math frame, i.e. CW in SVG's Y-down frame).
+				px, py := -dy/length*arcOffset, dx/length*arcOffset
+				pts = []layout.Point{a, {X: mx + px, Y: my + py}, b}
+				labelAnchor = layout.Point{X: mx + px, Y: my + py}
+			}
 		}
 
 		style := fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke)
@@ -715,8 +750,7 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 			t := candidates[0]
 			transMap[key] = candidates[1:]
 			if t.Label != "" {
-				base := layout.Point{X: el.LabelPos.X + pad, Y: el.LabelPos.Y + pad}
-				p := labelPosition(pts, base)
+				p := labelPosition(pts, labelAnchor)
 				lines := strings.Split(t.Label, "\n")
 				// Chip width is the widest line; height grows per line.
 				lineH := fontSize + 2
