@@ -793,7 +793,17 @@ func clipNodeEdge(id string, n layout.NodeLayout, pad float64, dir layout.Point,
 		case graph.ShapeDiamond:
 			return svgutil.ClipToDiamondEdge(cx, cy, n.Width, n.Height, dir.X, dir.Y)
 		case graph.ShapeCircle:
-			return svgutil.ClipToCircleEdge(cx, cy, n.Width/2, dir.X, dir.Y)
+			// History glyphs are drawn at the fixed historyR radius,
+			// not at n.Width/2 — the latter is whatever dagre reserved
+			// (which can be inflated to the default 100×40 if the
+			// state ID collides with a phantom reference). Pin to the
+			// visible glyph radius so the arrowhead lands on the
+			// circle outline rather than well outside it.
+			r := historyR
+			if n.Width/2 < r {
+				r = n.Width / 2
+			}
+			return svgutil.ClipToCircleEdge(cx, cy, r, dir.X, dir.Y)
 		}
 	}
 	return svgutil.ClipToRectEdge(cx, cy, n.Width, n.Height, dir.X, dir.Y)

@@ -211,6 +211,76 @@ func TestParseNestedComposite(t *testing.T) {
 	}
 }
 
+// Transition labels that contain `:::` (e.g. documenting an operator
+// or quoting code) must not be misread as endpoint CSS shorthand.
+// CSS shorthand only applies when `:::` appears on the endpoint
+// token, before the label colon.
+func TestParseTransitionLabelContainsTripleColon(t *testing.T) {
+	cases := []struct {
+		src                          string
+		from, to, label, fromCSS, toCSS string
+	}{
+		{
+			src: "stateDiagram-v2\nA --> B : foo:::bar",
+			from: "A", to: "B", label: "foo:::bar", fromCSS: "", toCSS: "",
+		},
+		{
+			src: "stateDiagram-v2\nA --> B : use ::: operator",
+			from: "A", to: "B", label: "use ::: operator", fromCSS: "", toCSS: "",
+		},
+		{
+			src: "stateDiagram-v2\nA --> B:::hot : go",
+			from: "A", to: "B", label: "go", fromCSS: "", toCSS: "hot",
+		},
+		{
+			src: "stateDiagram-v2\nA:::cold --> B:::hot : go",
+			from: "A", to: "B", label: "go", fromCSS: "cold", toCSS: "hot",
+		},
+	}
+	for _, c := range cases {
+		d, err := Parse(strings.NewReader(c.src))
+		if err != nil {
+			t.Errorf("parse %q: %v", c.src, err)
+			continue
+		}
+		if len(d.Transitions) != 1 {
+			t.Errorf("%q: want 1 transition, got %d", c.src, len(d.Transitions))
+			continue
+		}
+		got := d.Transitions[0]
+		if got.From != c.from || got.To != c.to || got.Label != c.label {
+			t.Errorf("%q: From=%q To=%q Label=%q; want From=%q To=%q Label=%q",
+				c.src, got.From, got.To, got.Label, c.from, c.to, c.label)
+		}
+		// CSS shorthand should attach to the right state (not phantom).
+		stateCSS := make(map[string][]string)
+		for _, s := range d.States {
+			stateCSS[s.ID] = s.CSSClasses
+		}
+		if c.fromCSS != "" {
+			if !containsString(stateCSS[c.from], c.fromCSS) {
+				t.Errorf("%q: state %q missing fromCSS %q (have %v)",
+					c.src, c.from, c.fromCSS, stateCSS[c.from])
+			}
+		}
+		if c.toCSS != "" {
+			if !containsString(stateCSS[c.to], c.toCSS) {
+				t.Errorf("%q: state %q missing toCSS %q (have %v)",
+					c.src, c.to, c.toCSS, stateCSS[c.to])
+			}
+		}
+	}
+}
+
+func containsString(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestParseTransitionScope(t *testing.T) {
 	input := `stateDiagram-v2
     [*] --> First

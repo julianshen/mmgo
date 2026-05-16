@@ -132,12 +132,14 @@ func (p *parser) parseLine(line string, target *[]diagram.StateDef, scope string
 		return p.parseClassBinding(rest, target)
 	}
 	if t, fromCSS, toCSS, ok := parseTransition(line); ok {
-		fromState := upsertState(target, t.From)
-		toState := upsertState(target, t.To)
-		if fromState != nil && fromCSS != "" {
+		// Upsert both endpoints and attach CSS in two passes — a
+		// single-pass `upsertState(from) … upsertState(to) … mutate`
+		// is unsafe because the second append may reallocate the
+		// backing array, invalidating the first pointer.
+		if fromState := upsertState(target, t.From); fromState != nil && fromCSS != "" {
 			fromState.CSSClasses = append(fromState.CSSClasses, fromCSS)
 		}
-		if toState != nil && toCSS != "" {
+		if toState := upsertState(target, t.To); toState != nil && toCSS != "" {
 			toState.CSSClasses = append(toState.CSSClasses, toCSS)
 		}
 		t.Scope = scope
@@ -602,37 +604,55 @@ func parseTransition(line string) (diagram.StateTransition, string, string, bool
 		return diagram.StateTransition{}, "", "", false
 	}
 	from := strings.TrimSpace(line[:idx])
-	// Extract inline CSS shorthand from the LHS.
 	fromCSS := ""
 	if i := strings.LastIndex(from, ":::"); i >= 0 {
 		fromCSS = strings.TrimSpace(from[i+3:])
 		from = strings.TrimSpace(from[:i])
 	}
 	rest := strings.TrimSpace(line[idx+3:])
-	// Extract inline CSS shorthand from the RHS before looking for
-	// the label separator so `A:::hot --> B` is parsed correctly.
+	// Split label off first using the canonical " : " separator
+	// (a bare `:` with both sides padded). This keeps any `:::` that
+	// happens to be inside the label (e.g. `A --> B : use ::: op`)
+	// from being misread as endpoint CSS shorthand.
 	to := rest
 	label := ""
+	if li := labelSeparatorIndex(rest); li >= 0 {
+		to = strings.TrimSpace(rest[:li])
+		label = parserutil.ExpandLineBreaks(strings.TrimSpace(rest[li+1:]))
+	}
 	toCSS := ""
-	if cssIdx := strings.Index(rest, ":::"); cssIdx >= 0 {
-		to = strings.TrimSpace(rest[:cssIdx])
-		// Any trailing content after the CSS shorthand is the label
-		// (e.g. `B:::hot : label` → to=B, toCSS=hot, label=label).
-		rest = strings.TrimSpace(rest[cssIdx+3:])
-		if colonIdx := strings.Index(rest, ":"); colonIdx >= 0 {
-			toCSS = strings.TrimSpace(rest[:colonIdx])
-			label = parserutil.ExpandLineBreaks(strings.TrimSpace(rest[colonIdx+1:]))
-		} else {
-			toCSS = rest
-		}
-	} else if colonIdx := strings.Index(rest, ":"); colonIdx >= 0 {
-		to = strings.TrimSpace(rest[:colonIdx])
-		label = parserutil.ExpandLineBreaks(strings.TrimSpace(rest[colonIdx+1:]))
+	if i := strings.LastIndex(to, ":::"); i >= 0 {
+		toCSS = strings.TrimSpace(to[i+3:])
+		to = strings.TrimSpace(to[:i])
 	}
 	if from == "" || to == "" {
 		return diagram.StateTransition{}, "", "", false
 	}
 	return diagram.StateTransition{From: from, To: to, Label: label}, fromCSS, toCSS, true
+}
+
+// labelSeparatorIndex returns the byte index of the first `:` that
+// separates the transition endpoint from its label, or -1 if there
+// is none. The colon must not be part of a `:::` CSS-class shorthand
+// (handled separately on the endpoint token). Mermaid accepts the
+// label colon with or without surrounding whitespace.
+func labelSeparatorIndex(s string) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] != ':' {
+			continue
+		}
+		// Skip `:::` (the colon is part of CSS shorthand, not a
+		// label separator).
+		if i+1 < len(s) && s[i+1] == ':' {
+			i += 2 // jump past the next two colons of `:::`
+			continue
+		}
+		if i > 0 && s[i-1] == ':' {
+			continue
+		}
+		return i
+	}
+	return -1
 }
 
 func parseStateKind(annotation string) diagram.StateKind {
