@@ -163,7 +163,7 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	// Composite boxes go behind edges + leaf states so the frame
 	// doesn't occlude inner content.
 	children = append(children, renderCompositeBoxes(composites, fontSize, th)...)
-	children = append(children, renderEdges(d, l, pad, fontSize, ruler, th, g)...)
+	children = append(children, renderEdges(d, l, pad, fontSize, ruler, th, g, flat.EdgeScopes)...)
 	children = append(children, renderNodes(d, leafStates, l, pad, fontSize, th)...)
 	children = append(children, renderStateNotes(notes, l, pad, fontSize, th)...)
 
@@ -725,7 +725,15 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 	return elems
 }
 
-func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler, th Theme, g *graph.Graph) []any {
+// transKey is the lookup key for renderEdges' transition-by-edge
+// disambiguation map. The scope prefix is what distinguishes two
+// otherwise-identical `From --> To` pairs declared inside different
+// composites.
+func transKey(scope, from, to string) string {
+	return scope + "\x00" + from + "->" + to
+}
+
+func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler, th Theme, g *graph.Graph, edgeScopes map[graph.EdgeID]string) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -737,9 +745,13 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		return edgeKeys[i].To < edgeKeys[j].To
 	})
 
+	// Key transitions by (Scope, From, To). Two composites can reuse
+	// the same local IDs and would otherwise share a transMap bucket;
+	// scoping the key keeps each edge's label paired with its
+	// originating transition.
 	transMap := make(map[string][]diagram.StateTransition, len(d.Transitions))
 	for _, t := range d.Transitions {
-		key := t.From + "->" + t.To
+		key := transKey(t.Scope, t.From, t.To)
 		transMap[key] = append(transMap[key], t)
 	}
 
@@ -828,7 +840,7 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		if isPseudoNode(origTo) {
 			origTo = "[*]"
 		}
-		key := origFrom + "->" + origTo
+		key := transKey(edgeScopes[eid], origFrom, origTo)
 		if candidates := transMap[key]; len(candidates) > 0 {
 			t := candidates[0]
 			transMap[key] = candidates[1:]

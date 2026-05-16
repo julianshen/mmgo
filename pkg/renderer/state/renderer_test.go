@@ -455,6 +455,44 @@ func TestRenderCompositeRegionDividerSkippedWhenInterleaved(t *testing.T) {
 	}
 }
 
+// Two scopes containing transitions that share `From->To` IDs (after
+// cross-scope dedup collapses them onto the same canonical states)
+// must each receive their own edge label — renderEdges queues by
+// `From->To` only, and without scope qualification both labels could
+// end up on the same edge, leaving the sibling unlabelled. This is
+// the regression for issue #222.
+func TestRenderEdgesScopedLabelLookup(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "First", Label: "First",
+				Children: []diagram.StateDef{
+					{ID: "shared_a", Label: "shared_a"},
+					{ID: "shared_b", Label: "shared_b"},
+				}},
+			{ID: "Second", Label: "Second",
+				Children: []diagram.StateDef{
+					{ID: "shared_a", Label: "shared_a"},
+					{ID: "shared_b", Label: "shared_b"},
+				}},
+		},
+		Transitions: []diagram.StateTransition{
+			{From: "shared_a", To: "shared_b", Label: "label-first", Scope: "First"},
+			{From: "shared_a", To: "shared_b", Label: "label-second", Scope: "Second"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	svg := string(out)
+	if !strings.Contains(svg, "label-first") {
+		t.Errorf("label-first missing from svg")
+	}
+	if !strings.Contains(svg, "label-second") {
+		t.Errorf("label-second missing from svg")
+	}
+}
+
 func TestRenderAccessibilityMetadata(t *testing.T) {
 	d := &diagram.StateDiagram{
 		Title:    "general",
