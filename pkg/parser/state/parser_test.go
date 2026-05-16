@@ -272,14 +272,7 @@ func TestParseTransitionLabelContainsTripleColon(t *testing.T) {
 	}
 }
 
-func containsString(xs []string, want string) bool {
-	for _, x := range xs {
-		if x == want {
-			return true
-		}
-	}
-	return false
-}
+// containsString lives in parser.go; test file reuses it.
 
 // Forward references from inside a composite to a state declared at
 // an outer scope must resolve to the outer state, not produce a
@@ -396,24 +389,185 @@ func TestParseCrossScopeNoOpForLocalEdge(t *testing.T) {
 	}
 }
 
-// A transition whose endpoints don't exist anywhere in the diagram
-// (typo or external reference) must survive both passes unchanged so
-// downstream warnings can still surface it. No promotion, no
-// duplication, no panic on the missing path lookups.
-func TestParseCrossScopeDanglingEndpoint(t *testing.T) {
+// A transition whose endpoint isn't in the walked tree (e.g. a
+// fabricated StateDiagram from a synthesizer or a future parser
+// refactor that strips unreferenced states) must pass through both
+// passes unchanged: no promotion, no panic on the missing path
+// lookup, no spurious phantom creation. The natural parser path
+// always upserts both endpoints, so this exercises the safety
+// branch directly with a hand-built diagram.
+func TestPromoteCrossScopeDanglingEndpoint(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "A", Label: "A"},
+		},
+		Transitions: []diagram.StateTransition{
+			{From: "A", To: "Missing"},
+		},
+	}
+	walked := []stateWalkEntry{
+		{state: &d.States[0], parent: &d.States, path: nil},
+	}
+	promoteCrossScopeTransitions(d, walked)
+	if len(d.Transitions) != 1 {
+		t.Fatalf("transitions count changed: %+v", d.Transitions)
+	}
+	got := d.Transitions[0]
+	if got.From != "A" || got.To != "Missing" || got.Scope != "" {
+		t.Errorf("dangling-endpoint edge should be unchanged; got %+v", got)
+	}
+}
+
+// Ancestor → descendant edges (e.g. `Running --> Normal` where
+// Normal lives inside Running) must not be collapsed into a
+// self-loop on Running by promotion. The edge should layout at the
+// ancestor's scope where both the composite boundary and the
+// descendant are visible.
+func TestParseCrossScopeAncestorToDescendant(t *testing.T) {
 	src := `stateDiagram-v2
-    A --> Missing
-    state A`
+    state Running {
+        state Normal
+    }
+    Running --> Normal : enter`
 	d, err := Parse(strings.NewReader(src))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	if len(d.Transitions) != 1 {
-		t.Fatalf("want 1 transition, got %d: %+v", len(d.Transitions), d.Transitions)
+		t.Fatalf("want 1 transition, got %d", len(d.Transitions))
 	}
 	got := d.Transitions[0]
-	if got.From != "A" || got.To != "Missing" || got.Scope != "" {
-		t.Errorf("dangling-endpoint edge should be unchanged; got %+v", got)
+	if got.From != "Running" || got.To != "Normal" {
+		t.Errorf("endpoints should be (Running, Normal), got (%q, %q)", got.From, got.To)
+	}
+	if got.Scope != "Running" {
+		t.Errorf("Scope should be \"Running\" so the edge layouts inside Running's sub-graph; got %q", got.Scope)
+	}
+}
+
+// A `state X` declaration must beat an attribute-identical phantom
+// of the same ID when picking the canonical entry, regardless of
+// source-order or walk-order. Both directions:
+//   - phantom inside, real at root (Thread 3's repro)
+//   - real inside, phantom at root (mirror case)
+func TestParseDuplicateDedupPrefersExplicitDeclaration(t *testing.T) {
+	t.Run("inner_phantom_outer_real", func(t *testing.T) {
+		d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Running {
+        Normal --> DH
+    }
+    state DH`))
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		// DH must be at root, not inside Running.
+		var dhAtRoot bool
+		for _, s := range d.States {
+			if s.ID == "DH" {
+				dhAtRoot = true
+			}
+			if s.ID == "Running" {
+				for _, c := range s.Children {
+					if c.ID == "DH" {
+						t.Errorf("DH should be at root, not Running.Children")
+					}
+				}
+			}
+		}
+		if !dhAtRoot {
+			t.Error("DH missing from root")
+		}
+	})
+	t.Run("inner_real_outer_phantom", func(t *testing.T) {
+		d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Running {
+        state Normal
+    }
+    Running --> Normal`))
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		// Normal must remain inside Running, not be the root phantom.
+		var normalInside bool
+		for _, s := range d.States {
+			if s.ID == "Normal" {
+				t.Errorf("Normal should not be a root state; got %+v", s)
+			}
+			if s.ID == "Running" {
+				for _, c := range s.Children {
+					if c.ID == "Normal" {
+						normalInside = true
+					}
+				}
+			}
+		}
+		if !normalInside {
+			t.Error("Normal missing from Running.Children")
+		}
+	})
+}
+
+// Non-conflicting metadata (CSSClasses, explicit Label) from the
+// loser of a dedup must be merged into the canonical entry — Mermaid
+// users routinely tack `:::class` on transition endpoints, and the
+// `state X` declaration is canonical for Kind but doesn't carry the
+// transition-side CSS hint.
+func TestParseDuplicateDedupMergesCSSAndLabel(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Running {
+        Normal --> DH:::hot
+    }
+    state DH <<deepHistory>>`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var dh *diagram.StateDef
+	for i := range d.States {
+		if d.States[i].ID == "DH" {
+			dh = &d.States[i]
+		}
+	}
+	if dh == nil {
+		t.Fatal("DH missing")
+	}
+	if dh.Kind != diagram.StateKindDeepHistory {
+		t.Errorf("DH.Kind = %v, want StateKindDeepHistory", dh.Kind)
+	}
+	if !containsString(dh.CSSClasses, "hot") {
+		t.Errorf("CSS class %q should be merged into canonical DH; got %v", "hot", dh.CSSClasses)
+	}
+}
+
+// Regions slices are independent copies of region members, so a
+// phantom dropped from Children would otherwise still appear in
+// Regions. The post-prune sync must filter Regions against the
+// post-prune Children of the same composite.
+func TestParseDuplicateDedupSyncsRegions(t *testing.T) {
+	d, err := Parse(strings.NewReader(`stateDiagram-v2
+    state Active {
+        A --> DH
+        --
+        B --> DH
+    }
+    state DH <<deepHistory>>`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var active *diagram.StateDef
+	for i := range d.States {
+		if d.States[i].ID == "Active" {
+			active = &d.States[i]
+		}
+	}
+	if active == nil {
+		t.Fatal("Active missing")
+	}
+	for ri, region := range active.Regions {
+		for _, r := range region {
+			if r.ID == "DH" {
+				t.Errorf("region[%d] should not contain DH (deduped to root); got %v", ri, region)
+			}
+		}
 	}
 }
 

@@ -56,7 +56,7 @@ func Parse(r io.Reader) (*diagram.StateDiagram, error) {
 	}
 	// resolveDuplicateStates may prune phantom children, so promote
 	// runs against a freshly-walked tree to keep paths accurate.
-	resolveDuplicateStates(walkStateTree(&p.diagram.States))
+	resolveDuplicateStates(walkStateTree(&p.diagram.States), p.declared)
 	promoteCrossScopeTransitions(p.diagram, walkStateTree(&p.diagram.States))
 	return p.diagram, nil
 }
@@ -101,7 +101,7 @@ func walkStateTree(top *[]diagram.StateDef) []stateWalkEntry {
 // later line; this post-pass finds duplicates and keeps only the
 // most-attributed entry. Phantom occurrences are dropped from their
 // parent's Children slice.
-func resolveDuplicateStates(walked []stateWalkEntry) {
+func resolveDuplicateStates(walked []stateWalkEntry, declared map[string]map[string]bool) {
 	byID := make(map[string][]stateWalkEntry, len(walked))
 	for _, e := range walked {
 		byID[e.state.ID] = append(byID[e.state.ID], e)
@@ -118,14 +118,20 @@ func resolveDuplicateStates(walked []stateWalkEntry) {
 		}
 		bestIdx := 0
 		for i := 1; i < len(entries); i++ {
-			if moreCanonicalState(*entries[i].state, *entries[bestIdx].state) {
+			if betterDuplicate(entries[i], entries[bestIdx], declared) {
 				bestIdx = i
 			}
 		}
+		// Before discarding losers, merge their CSSClasses and
+		// explicit (non-ID) Label into the canonical entry so
+		// `Normal --> DH:::hot` followed by `state DH <<deepHistory>>`
+		// keeps both the deep-history Kind and the `hot` class.
+		best := entries[bestIdx].state
 		for i, e := range entries {
 			if i == bestIdx {
 				continue
 			}
+			mergeStateAttributes(best, e.state)
 			if drop[e.parent] == nil {
 				drop[e.parent] = make(map[*diagram.StateDef]struct{})
 			}
@@ -147,6 +153,99 @@ func resolveDuplicateStates(walked []stateWalkEntry) {
 			(*parent)[i] = diagram.StateDef{}
 		}
 		*parent = filtered
+	}
+	// parseCompositeBody snapshots child slices into Regions when it
+	// crosses a `--` separator, so a phantom dropped from Children
+	// can still survive in Regions. Sweep Regions to keep them in
+	// sync with the post-prune Children of each composite.
+	syncRegionsWithChildren(walked)
+}
+
+// betterDuplicate orders two duplicate occurrences of the same state
+// ID. The strongest signal is an explicit `state X` declaration in
+// the entry's scope (recorded in declared); the parser-side phantom
+// produced by upserting a transition endpoint never appears there.
+// Attribute scoring (moreCanonicalState) is the secondary signal;
+// on a final tie the entry closer to root wins so renderer fallback
+// paths remain stable across runs.
+func betterDuplicate(candidate, current stateWalkEntry, declared map[string]map[string]bool) bool {
+	candDecl := isDeclaredAt(declared, candidate)
+	currDecl := isDeclaredAt(declared, current)
+	if candDecl != currDecl {
+		return candDecl
+	}
+	if moreCanonicalState(*candidate.state, *current.state) {
+		return true
+	}
+	if moreCanonicalState(*current.state, *candidate.state) {
+		return false
+	}
+	return len(candidate.path) < len(current.path)
+}
+
+func isDeclaredAt(declared map[string]map[string]bool, e stateWalkEntry) bool {
+	scope := ""
+	if len(e.path) > 0 {
+		scope = e.path[len(e.path)-1]
+	}
+	return declared[scope][e.state.ID]
+}
+
+// mergeStateAttributes folds non-conflicting metadata from `src` into
+// `dst` before `src` gets pruned. Only CSSClasses and an explicit
+// (non-ID) Label are propagated; Kind, Children, and Regions are
+// intentionally left to the canonical entry — those are the
+// attributes that determined canonicality in the first place.
+func mergeStateAttributes(dst, src *diagram.StateDef) {
+	if dst == nil || src == nil {
+		return
+	}
+	for _, cls := range src.CSSClasses {
+		if !containsString(dst.CSSClasses, cls) {
+			dst.CSSClasses = append(dst.CSSClasses, cls)
+		}
+	}
+	if (dst.Label == "" || dst.Label == dst.ID) &&
+		src.Label != "" && src.Label != src.ID {
+		dst.Label = src.Label
+	}
+}
+
+func containsString(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
+}
+
+// syncRegionsWithChildren rebuilds each composite's Regions to keep
+// only states whose IDs survived the Children prune. Region entries
+// are value copies (parseCompositeBody snapshots them at each `--`),
+// so filtering by ID against the post-prune Children is necessary.
+func syncRegionsWithChildren(walked []stateWalkEntry) {
+	for _, e := range walked {
+		s := e.state
+		if len(s.Regions) == 0 {
+			continue
+		}
+		valid := make(map[string]struct{}, len(s.Children))
+		for _, c := range s.Children {
+			valid[c.ID] = struct{}{}
+		}
+		for ri, region := range s.Regions {
+			filtered := region[:0]
+			for _, r := range region {
+				if _, ok := valid[r.ID]; ok {
+					filtered = append(filtered, r)
+				}
+			}
+			for i := len(filtered); i < len(region); i++ {
+				region[i] = diagram.StateDef{}
+			}
+			s.Regions[ri] = filtered
+		}
 	}
 }
 
@@ -184,6 +283,20 @@ func promoteCrossScopeTransitions(d *diagram.StateDiagram, walked []stateWalkEnt
 			continue
 		}
 		lca := commonPrefix(fromPath, toPath)
+		// Ancestor-descendant case: `Running --> Normal` where Normal
+		// lives inside Running. Rewriting the descendant to the LCA's
+		// child would collapse the edge into Running --> Running.
+		// Leave the original endpoints in place; the edge will be
+		// laid out at the descendant's scope where both the ancestor
+		// composite boundary and the descendant node are visible.
+		if t.From != "" && len(fromPath) < len(toPath) && toPathContains(toPath, t.From) {
+			t.Scope = t.From
+			continue
+		}
+		if t.To != "" && len(toPath) < len(fromPath) && toPathContains(fromPath, t.To) {
+			t.Scope = t.To
+			continue
+		}
 		layoutScopeID := ""
 		if len(lca) > 0 {
 			layoutScopeID = lca[len(lca)-1]
@@ -202,6 +315,17 @@ func promoteCrossScopeTransitions(d *diagram.StateDiagram, walked []stateWalkEnt
 		}
 		t.Scope = layoutScopeID
 	}
+}
+
+// toPathContains reports whether path contains id as one of its
+// ancestor entries.
+func toPathContains(path []string, id string) bool {
+	for _, p := range path {
+		if p == id {
+			return true
+		}
+	}
+	return false
 }
 
 // commonPrefix returns the longest path shared by a and b from the
@@ -252,6 +376,25 @@ type parser struct {
 	diagram *diagram.StateDiagram
 	scanner *bufio.Scanner
 	lineNum int
+	// declared records which (scope, id) pairs were explicitly
+	// introduced by a `state X` declaration as opposed to being
+	// upserted as a side-effect of parsing a transition. The
+	// duplicate-resolution pass consults this map to break ties
+	// between equally-scored same-ID occurrences across scopes:
+	// the explicit declaration is canonical, the phantom isn't.
+	// Outer key is the enclosing composite ID (or "" for root);
+	// inner key is the state ID.
+	declared map[string]map[string]bool
+}
+
+func (p *parser) markDeclared(scope, id string) {
+	if p.declared == nil {
+		p.declared = make(map[string]map[string]bool)
+	}
+	if p.declared[scope] == nil {
+		p.declared[scope] = make(map[string]bool)
+	}
+	p.declared[scope][id] = true
 }
 
 // upsertState returns a pointer to the state with the given id in
@@ -702,8 +845,8 @@ func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef, scope s
 	if cssClass != "" {
 		s.CSSClasses = append(s.CSSClasses, cssClass)
 	}
-
-	_, _ = scope, regionIdx // declaration scope/region aren't needed here; child transitions get their own scope via parseCompositeBody.
+	p.markDeclared(scope, id)
+	_ = regionIdx // child transitions get their own scope via parseCompositeBody.
 	after = strings.TrimSpace(after)
 	if after == "{" || strings.HasPrefix(after, "{") {
 		return p.parseCompositeBody(s)
