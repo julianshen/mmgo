@@ -274,6 +274,111 @@ func TestParseTransitionLabelContainsTripleColon(t *testing.T) {
 
 // containsString lives in parser.go; test file reuses it.
 
+// Quoted state IDs must be tokenised before any `:::`/`:` splitting
+// so that:
+//   - a transition endpoint `"Long Name"` resolves to the unquoted
+//     state ID `Long Name` declared by `state "Long Name"`
+//   - a quoted ID containing `:::` (`"A:::B"`) is treated as opaque
+//     and not split into endpoint + CSS class
+//   - a `-->` substring inside a quoted ID doesn't trigger transition
+//     parsing on the declaration line
+func TestParseQuotedEndpointConsistency(t *testing.T) {
+	cases := []struct {
+		name           string
+		src            string
+		wantStateIDs   []string
+		wantFrom, wantTo string
+		wantToCSS      string
+	}{
+		{
+			name: "endpoint_matches_declaration",
+			src: `stateDiagram-v2
+    state "Long Name"
+    [*] --> "Long Name"`,
+			wantStateIDs: []string{"Long Name"},
+			wantFrom:     "[*]",
+			wantTo:       "Long Name",
+		},
+		{
+			name: "quoted_id_with_triple_colon_is_opaque",
+			src: `stateDiagram-v2
+    state "A:::B"
+    "A:::B" --> C`,
+			wantStateIDs: []string{"A:::B", "C"},
+			wantFrom:     "A:::B",
+			wantTo:       "C",
+		},
+		{
+			name: "quoted_endpoint_then_css_shorthand",
+			src: `stateDiagram-v2
+    classDef hot fill:#f00
+    state "Long Name"
+    [*] --> "Long Name":::hot`,
+			wantStateIDs: []string{"Long Name"},
+			wantFrom:     "[*]",
+			wantTo:       "Long Name",
+			wantToCSS:    "hot",
+		},
+		{
+			name: "quoted_id_with_label_colon_inside_label",
+			src: `stateDiagram-v2
+    state "Foo"
+    state Bar
+    "Foo" --> Bar : an "edge: label"`,
+			wantStateIDs: []string{"Foo", "Bar"},
+			wantFrom:     "Foo",
+			wantTo:       "Bar",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d, err := Parse(strings.NewReader(c.src))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(d.States) != len(c.wantStateIDs) {
+				t.Errorf("state count = %d, want %d: %+v",
+					len(d.States), len(c.wantStateIDs), d.States)
+			}
+			for _, want := range c.wantStateIDs {
+				found := false
+				for _, s := range d.States {
+					if s.ID == want {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("state %q missing from %+v", want, d.States)
+				}
+			}
+			if len(d.Transitions) != 1 {
+				t.Fatalf("want 1 transition, got %d", len(d.Transitions))
+			}
+			tx := d.Transitions[0]
+			if tx.From != c.wantFrom || tx.To != c.wantTo {
+				t.Errorf("transition = (%q, %q), want (%q, %q)",
+					tx.From, tx.To, c.wantFrom, c.wantTo)
+			}
+			if c.wantToCSS != "" {
+				toState := stateByID(d, c.wantTo)
+				if toState == nil || !containsString(toState.CSSClasses, c.wantToCSS) {
+					t.Errorf("CSS class %q should be attached to %q; got %v",
+						c.wantToCSS, c.wantTo, toState)
+				}
+			}
+		})
+	}
+}
+
+func stateByID(d *diagram.StateDiagram, id string) *diagram.StateDef {
+	for i := range d.States {
+		if d.States[i].ID == id {
+			return &d.States[i]
+		}
+	}
+	return nil
+}
+
 // Forward references from inside a composite to a state declared at
 // an outer scope must resolve to the outer state, not produce a
 // phantom child. The transition's scope is promoted to the LCA so
