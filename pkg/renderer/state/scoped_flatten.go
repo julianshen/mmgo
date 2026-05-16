@@ -183,17 +183,44 @@ func shiftPoints(pts []layout.Point, dx, dy float64) []layout.Point {
 
 // buildPlacedComposites turns the flatten pass's composite list into
 // the renderer's placedComposite representation, attaching the original
-// StateDef so the rect emits its proper label/CSS metadata.
-func buildPlacedComposites(states []diagram.StateDef, flats []flatComposite) []placedComposite {
+// StateDef so the rect emits its proper label/CSS metadata. For
+// multi-region composites it also computes the global bbox of each
+// region from the flattened node positions, which renderCompositeBoxes
+// uses to place dashed `--` dividers between regions.
+func buildPlacedComposites(states []diagram.StateDef, flats []flatComposite, nodes map[string]layout.NodeLayout) []placedComposite {
 	defByID := svgutil.IndexByID(collectAllStates(states), func(s diagram.StateDef) string { return s.ID })
 	out := make([]placedComposite, 0, len(flats))
 	for _, fc := range flats {
-		out = append(out, placedComposite{
-			def: defByID[fc.ID],
+		def := defByID[fc.ID]
+		p := placedComposite{
+			def: def,
 			x:   fc.X, y: fc.Y,
 			w: fc.Width, h: fc.Height,
 			depth: fc.Depth,
-		})
+		}
+		if len(def.Regions) > 1 {
+			p.regions = regionBBoxes(def.Regions, nodes)
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// regionBBoxes returns one BBox per region, computed from the global
+// positions of the region's member states. Regions with no resolvable
+// members produce an empty BBox.
+func regionBBoxes(regions [][]diagram.StateDef, nodes map[string]layout.NodeLayout) []svgutil.BBox {
+	out := make([]svgutil.BBox, len(regions))
+	for i, region := range regions {
+		bb := svgutil.NewInfiniteBBox()
+		for _, s := range region {
+			n, ok := nodes[s.ID]
+			if !ok {
+				continue
+			}
+			bb.Expand(n.X, n.Y, n.Width, n.Height)
+		}
+		out[i] = bb
 	}
 	return out
 }
