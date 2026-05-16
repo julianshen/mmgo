@@ -933,50 +933,104 @@ func (p *parser) parseCompositeBody(parent *diagram.StateDef) error {
 // transition, any CSS class shorthand attached to the from/to states,
 // and whether the line is a transition at all.
 func parseTransition(line string) (diagram.StateTransition, string, string, bool) {
-	idx := strings.Index(line, "-->")
+	idx := indexArrowOutsideQuotes(line)
 	if idx < 0 {
 		return diagram.StateTransition{}, "", "", false
 	}
-	from := strings.TrimSpace(line[:idx])
-	fromCSS := ""
-	if i := strings.LastIndex(from, ":::"); i >= 0 {
-		fromCSS = strings.TrimSpace(from[i+3:])
-		from = strings.TrimSpace(from[:i])
-	}
+	from, fromCSS := extractEndpointAndCSS(strings.TrimSpace(line[:idx]))
 	rest := strings.TrimSpace(line[idx+3:])
-	// Split label off first using the canonical " : " separator
-	// (a bare `:` with both sides padded). This keeps any `:::` that
-	// happens to be inside the label (e.g. `A --> B : use ::: op`)
-	// from being misread as endpoint CSS shorthand.
+	// Split label off first using the canonical `:` separator,
+	// skipping past `:::` shorthand and any colons inside a quoted
+	// identifier so labels containing `:::` (e.g. `B : use ::: op`)
+	// aren't misread as endpoint CSS.
 	to := rest
 	label := ""
 	if li := labelSeparatorIndex(rest); li >= 0 {
 		to = strings.TrimSpace(rest[:li])
 		label = parserutil.ExpandLineBreaks(strings.TrimSpace(rest[li+1:]))
 	}
-	toCSS := ""
-	if i := strings.LastIndex(to, ":::"); i >= 0 {
-		toCSS = strings.TrimSpace(to[i+3:])
-		to = strings.TrimSpace(to[:i])
-	}
+	to, toCSS := extractEndpointAndCSS(to)
 	if from == "" || to == "" {
 		return diagram.StateTransition{}, "", "", false
 	}
 	return diagram.StateTransition{From: from, To: to, Label: label}, fromCSS, toCSS, true
 }
 
-// labelSeparatorIndex returns the byte index of the first `:` that
-// separates the transition endpoint from its label, or -1 if there
-// is none. The colon must not be part of a `:::` CSS-class shorthand
-// (handled separately on the endpoint token). Mermaid accepts the
-// label colon with or without surrounding whitespace.
-func labelSeparatorIndex(s string) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] != ':' {
+// extractEndpointAndCSS splits a single transition endpoint token
+// into the state identifier and an optional `:::cssClass` shorthand
+// attached to it. Quoted identifiers (`"Long Name"`, `"A:::B"`) are
+// opaque — neither `:::` inside the quotes nor `:` are interpreted.
+// An unquoted endpoint may carry one trailing `:::cssClass`.
+//
+// Returns an empty id when the input is malformed (unclosed quote
+// after a `"`, or arbitrary content between the closing quote and
+// the optional `:::class` suffix); the caller rejects the
+// transition, leaving the diagnostic to surface as an unparsed line.
+func extractEndpointAndCSS(s string) (id, cssClass string) {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "\"") {
+		closing := strings.IndexByte(s[1:], '"')
+		if closing < 0 {
+			return "", ""
+		}
+		id = s[1 : closing+1]
+		tail := strings.TrimSpace(s[closing+2:])
+		if tail == "" {
+			return id, ""
+		}
+		if rest, ok := strings.CutPrefix(tail, ":::"); ok {
+			return id, strings.TrimSpace(rest)
+		}
+		// Anything else after the closing quote (e.g. a stray
+		// second quoted segment in `"A"B"C"`) is malformed.
+		return "", ""
+	}
+	id = s
+	if i := strings.LastIndex(id, ":::"); i >= 0 {
+		cssClass = strings.TrimSpace(id[i+3:])
+		id = strings.TrimSpace(id[:i])
+	}
+	return id, cssClass
+}
+
+// indexArrowOutsideQuotes finds the first `-->` not contained inside
+// a double-quoted span. Quoted identifiers may legitimately contain
+// the `-->` substring (`state "from --> to"`) and shouldn't trigger
+// transition parsing on those lines.
+func indexArrowOutsideQuotes(line string) int {
+	inQuote := false
+	for i := 0; i+2 < len(line); i++ {
+		c := line[i]
+		if c == '"' {
+			inQuote = !inQuote
 			continue
 		}
-		// Skip `:::` (the colon is part of CSS shorthand, not a
-		// label separator).
+		if inQuote {
+			continue
+		}
+		if c == '-' && line[i+1] == '-' && line[i+2] == '>' {
+			return i
+		}
+	}
+	return -1
+}
+
+// labelSeparatorIndex returns the byte index of the first `:` that
+// separates the transition endpoint from its label, or -1 if there
+// is none. Colons inside `:::` CSS shorthand or inside a quoted
+// identifier are skipped. Mermaid accepts the label colon with or
+// without surrounding whitespace.
+func labelSeparatorIndex(s string) int {
+	inQuote := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '"' {
+			inQuote = !inQuote
+			continue
+		}
+		if inQuote || c != ':' {
+			continue
+		}
 		if i+1 < len(s) && s[i+1] == ':' {
 			i += 2 // jump past the next two colons of `:::`
 			continue
