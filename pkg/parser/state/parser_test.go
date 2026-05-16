@@ -370,6 +370,61 @@ func TestParseQuotedEndpointConsistency(t *testing.T) {
 	}
 }
 
+// Edge cases for the new quote-aware endpoint tokeniser: malformed
+// inputs must fall through gracefully without creating phantoms or
+// silently dropping data.
+func TestParseQuotedEndpointEdgeCases(t *testing.T) {
+	cases := []struct {
+		name           string
+		src            string
+		wantTransition bool
+	}{
+		{
+			name:           "unmatched_quote",
+			src:            "stateDiagram-v2\n\"unclosed --> Foo",
+			wantTransition: false,
+		},
+		{
+			name:           "empty_quoted_id_rejected",
+			src:            "stateDiagram-v2\n\"\" --> Foo",
+			wantTransition: false,
+		},
+		{
+			name:           "trailing_garbage_after_close_quote",
+			src:            "stateDiagram-v2\n\"A\"B\"C\" --> Foo",
+			wantTransition: false,
+		},
+		{
+			name:           "lhs_quoted_endpoint_with_css_shorthand",
+			src:            "stateDiagram-v2\nclassDef hot fill:#f00\n\"Long Name\":::hot --> Bar",
+			wantTransition: true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d, err := Parse(strings.NewReader(c.src))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			hasTransition := len(d.Transitions) > 0
+			if hasTransition != c.wantTransition {
+				t.Errorf("hasTransition = %v, want %v (transitions: %+v)",
+					hasTransition, c.wantTransition, d.Transitions)
+			}
+			if c.name == "lhs_quoted_endpoint_with_css_shorthand" && hasTransition {
+				tx := d.Transitions[0]
+				if tx.From != "Long Name" {
+					t.Errorf("LHS quoted endpoint stripped: From=%q, want %q", tx.From, "Long Name")
+				}
+				from := stateByID(d, "Long Name")
+				if from == nil || !containsString(from.CSSClasses, "hot") {
+					t.Errorf("CSS class `hot` should attach to %q; got %v", "Long Name", from)
+				}
+			}
+		})
+	}
+}
+
 func stateByID(d *diagram.StateDiagram, id string) *diagram.StateDef {
 	for i := range d.States {
 		if d.States[i].ID == id {

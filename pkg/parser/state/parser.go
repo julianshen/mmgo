@@ -961,18 +961,29 @@ func parseTransition(line string) (diagram.StateTransition, string, string, bool
 // attached to it. Quoted identifiers (`"Long Name"`, `"A:::B"`) are
 // opaque — neither `:::` inside the quotes nor `:` are interpreted.
 // An unquoted endpoint may carry one trailing `:::cssClass`.
+//
+// Returns an empty id when the input is malformed (unclosed quote
+// after a `"`, or arbitrary content between the closing quote and
+// the optional `:::class` suffix); the caller rejects the
+// transition, leaving the diagnostic to surface as an unparsed line.
 func extractEndpointAndCSS(s string) (id, cssClass string) {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "\"") {
 		closing := strings.IndexByte(s[1:], '"')
-		if closing >= 0 {
-			id = s[1 : closing+1]
-			tail := strings.TrimSpace(s[closing+2:])
-			if rest, ok := strings.CutPrefix(tail, ":::"); ok {
-				cssClass = strings.TrimSpace(rest)
-			}
-			return id, cssClass
+		if closing < 0 {
+			return "", ""
 		}
+		id = s[1 : closing+1]
+		tail := strings.TrimSpace(s[closing+2:])
+		if tail == "" {
+			return id, ""
+		}
+		if rest, ok := strings.CutPrefix(tail, ":::"); ok {
+			return id, strings.TrimSpace(rest)
+		}
+		// Anything else after the closing quote (e.g. a stray
+		// second quoted segment in `"A"B"C"`) is malformed.
+		return "", ""
 	}
 	id = s
 	if i := strings.LastIndex(id, ":::"); i >= 0 {
