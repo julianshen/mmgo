@@ -284,11 +284,12 @@ func TestParseTransitionLabelContainsTripleColon(t *testing.T) {
 //     parsing on the declaration line
 func TestParseQuotedEndpointConsistency(t *testing.T) {
 	cases := []struct {
-		name           string
-		src            string
-		wantStateIDs   []string
+		name             string
+		src              string
+		wantStateIDs     []string
 		wantFrom, wantTo string
-		wantToCSS      string
+		wantLabel        string
+		wantToCSS        string
 	}{
 		{
 			name: "endpoint_matches_declaration",
@@ -328,6 +329,7 @@ func TestParseQuotedEndpointConsistency(t *testing.T) {
 			wantStateIDs: []string{"Foo", "Bar"},
 			wantFrom:     "Foo",
 			wantTo:       "Bar",
+			wantLabel:    `an "edge: label"`,
 		},
 	}
 	for _, c := range cases {
@@ -358,6 +360,9 @@ func TestParseQuotedEndpointConsistency(t *testing.T) {
 			if tx.From != c.wantFrom || tx.To != c.wantTo {
 				t.Errorf("transition = (%q, %q), want (%q, %q)",
 					tx.From, tx.To, c.wantFrom, c.wantTo)
+			}
+			if c.wantLabel != "" && tx.Label != c.wantLabel {
+				t.Errorf("transition Label = %q, want %q", tx.Label, c.wantLabel)
 			}
 			if c.wantToCSS != "" {
 				toState := stateByID(d, c.wantTo)
