@@ -54,7 +54,193 @@ func Parse(r io.Reader) (*diagram.StateDiagram, error) {
 	if !headerSeen {
 		return nil, fmt.Errorf("missing stateDiagram header")
 	}
+	resolveDuplicateStates(&p.diagram.States)
+	promoteCrossScopeTransitions(p.diagram)
 	return p.diagram, nil
+}
+
+// promoteCrossScopeTransitions rewrites edges whose endpoints live in
+// different composite scopes so they lay out at the lowest common
+// ancestor. After resolveDuplicateStates has removed phantom children
+// for forward references, a transition written inside `state X { … }`
+// may target a state that lives outside X — in that case the edge
+// crosses scope boundaries and dagre would otherwise re-create a
+// phantom inside X's sub-graph. Replacing the inner endpoint with the
+// ancestor composite that's visible at the LCA preserves the
+// topological relationship; the arrow then exits the composite's
+// boundary as Mermaid renders it.
+func promoteCrossScopeTransitions(d *diagram.StateDiagram) {
+	if d == nil || len(d.Transitions) == 0 {
+		return
+	}
+	// Build path-from-root for each state ID.
+	pathByID := map[string][]string{}
+	var walk func(slice []diagram.StateDef, path []string)
+	walk = func(slice []diagram.StateDef, path []string) {
+		for _, s := range slice {
+			pathByID[s.ID] = append([]string{}, path...)
+			if len(s.Children) > 0 {
+				walk(s.Children, append(path, s.ID))
+			}
+		}
+	}
+	walk(d.States, nil)
+
+	// For each transition, find the LCA of From and To and rewrite
+	// any deeper endpoint to the ancestor at the LCA depth.
+	for i := range d.Transitions {
+		t := &d.Transitions[i]
+		fromPath, fromOK := pathByID[t.From]
+		toPath, toOK := pathByID[t.To]
+		// Pseudo-state endpoints (`[*]`) are scope-local by
+		// construction (they were synthesised in the scope where the
+		// transition was written), so leave them alone.
+		if t.From == "[*]" || t.To == "[*]" {
+			continue
+		}
+		if !fromOK || !toOK {
+			continue
+		}
+		lca := commonPrefix(fromPath, toPath)
+		// Compute the layout scope: the deepest ancestor common to
+		// both endpoints, or "" for root.
+		layoutScopeID := ""
+		if len(lca) > 0 {
+			layoutScopeID = lca[len(lca)-1]
+		}
+		// If From is deeper than the LCA, replace it with the
+		// ancestor composite that sits at the LCA's child level.
+		if len(fromPath) > len(lca) {
+			t.From = fromPath[len(lca)]
+		}
+		if len(toPath) > len(lca) {
+			t.To = toPath[len(lca)]
+		}
+		// RegionIdx only applies within the original scope; promoting
+		// to an outer layout scope makes the region-level distinction
+		// meaningless, so reset it.
+		if t.Scope != layoutScopeID {
+			t.RegionIdx = 0
+		}
+		t.Scope = layoutScopeID
+	}
+}
+
+// commonPrefix returns the longest path shared by a and b from the
+// root downward.
+func commonPrefix(a, b []string) []string {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	i := 0
+	for i < n && a[i] == b[i] {
+		i++
+	}
+	return a[:i]
+}
+
+// resolveDuplicateStates merges entries that share the same ID across
+// scopes down to a single canonical occurrence. Mermaid scopes state
+// IDs globally — `Normal --> DH` inside `state Running { … }` refers
+// to the same `DH` declared at root scope (or wherever else), not to
+// a new child inside Running. The parser, being single-pass and
+// upsert-driven, can create a phantom child for the forward reference
+// before the real `state DH <<deepHistory>>` declaration is seen on
+// a later line; this post-pass walks the tree, finds duplicates, and
+// keeps only the most-attributed entry (preferring an explicit Kind,
+// then existing Children, then a description label, then CSS).
+// Phantom occurrences are dropped from their parent's Children slice.
+func resolveDuplicateStates(top *[]diagram.StateDef) {
+	type entry struct {
+		state  *diagram.StateDef
+		parent *[]diagram.StateDef
+	}
+	byID := make(map[string][]entry)
+	var walk func(slice *[]diagram.StateDef)
+	walk = func(slice *[]diagram.StateDef) {
+		for i := range *slice {
+			s := &(*slice)[i]
+			byID[s.ID] = append(byID[s.ID], entry{state: s, parent: slice})
+			if len(s.Children) > 0 {
+				walk(&s.Children)
+			}
+		}
+	}
+	walk(top)
+
+	// Track which (parent, ID) pairs to drop. We can't remove during
+	// the walk because pointers into the slice would be invalidated;
+	// instead, collect the deletions and rebuild each affected slice.
+	drop := make(map[*[]diagram.StateDef]map[string]bool)
+	for id, entries := range byID {
+		if len(entries) < 2 {
+			continue
+		}
+		bestIdx := 0
+		for i := 1; i < len(entries); i++ {
+			if moreCanonicalState(*entries[i].state, *entries[bestIdx].state) {
+				bestIdx = i
+			}
+		}
+		for i, e := range entries {
+			if i == bestIdx {
+				continue
+			}
+			if drop[e.parent] == nil {
+				drop[e.parent] = make(map[string]bool)
+			}
+			drop[e.parent][id] = true
+		}
+	}
+	for parent, ids := range drop {
+		filtered := (*parent)[:0]
+		for _, s := range *parent {
+			if ids[s.ID] {
+				continue
+			}
+			filtered = append(filtered, s)
+		}
+		// Zero out the trailing slots so the GC can reclaim the
+		// removed StateDefs' transitively-held data.
+		for i := len(filtered); i < len(*parent); i++ {
+			(*parent)[i] = diagram.StateDef{}
+		}
+		*parent = filtered
+	}
+}
+
+// moreCanonicalState reports whether candidate is a more-attributed
+// view of the same logical state than current. The ordering prefers:
+//   - an explicit Kind annotation (history, choice, fork, …)
+//   - having Children (composite body)
+//   - having Regions (parallel composite)
+//   - a description label distinct from the ID
+//   - any CSSClasses
+//
+// Ties resolve to `current` so the first occurrence wins, which keeps
+// parsing order observable for diagnostics.
+func moreCanonicalState(candidate, current diagram.StateDef) bool {
+	score := func(s diagram.StateDef) int {
+		n := 0
+		if s.Kind != diagram.StateKindNormal {
+			n += 16
+		}
+		if len(s.Children) > 0 {
+			n += 8
+		}
+		if len(s.Regions) > 0 {
+			n += 4
+		}
+		if s.Label != "" && s.Label != s.ID {
+			n += 2
+		}
+		if len(s.CSSClasses) > 0 {
+			n += 1
+		}
+		return n
+	}
+	return score(candidate) > score(current)
 }
 
 type parser struct {

@@ -281,6 +281,127 @@ func containsString(xs []string, want string) bool {
 	return false
 }
 
+// Forward references from inside a composite to a state declared at
+// an outer scope must resolve to the outer state, not produce a
+// phantom child. The transition's scope is promoted to the LCA so
+// dagre lays the edge out at the right level rather than re-creating
+// a phantom in the inner sub-graph.
+func TestParseCrossScopeForwardReference(t *testing.T) {
+	src := `stateDiagram-v2
+    state Running {
+        [*] --> Normal
+        Normal --> DH
+    }
+    state DH <<deepHistory>>
+    DH --> Running : restore`
+	d, err := Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	// DH must NOT appear as a child of Running — it lives at root.
+	var running *diagram.StateDef
+	for i := range d.States {
+		if d.States[i].ID == "Running" {
+			running = &d.States[i]
+			break
+		}
+	}
+	if running == nil {
+		t.Fatal("Running state not found")
+	}
+	for _, c := range running.Children {
+		if c.ID == "DH" {
+			t.Errorf("DH should not be a child of Running; got phantom %+v", c)
+		}
+	}
+	// DH at root must carry the deep-history kind from `state DH <<deepHistory>>`.
+	var dh *diagram.StateDef
+	for i := range d.States {
+		if d.States[i].ID == "DH" {
+			dh = &d.States[i]
+			break
+		}
+	}
+	if dh == nil {
+		t.Fatal("DH not at root")
+	}
+	if dh.Kind != diagram.StateKindDeepHistory {
+		t.Errorf("DH.Kind = %v, want StateKindDeepHistory", dh.Kind)
+	}
+	// The cross-scope edge `Normal --> DH` (written inside Running)
+	// must be promoted so the edge sits at root scope, with From
+	// rewritten to Running (the ancestor of Normal at root level).
+	var crossEdge *diagram.StateTransition
+	for i := range d.Transitions {
+		t := &d.Transitions[i]
+		if t.From == "Running" && t.To == "DH" {
+			crossEdge = t
+			break
+		}
+	}
+	if crossEdge == nil {
+		t.Errorf("cross-scope edge `Normal --> DH` should be rewritten as `Running --> DH`; got transitions: %+v", d.Transitions)
+	} else if crossEdge.Scope != "" {
+		t.Errorf("promoted edge should have Scope=\"\" (root), got %q", crossEdge.Scope)
+	}
+}
+
+// Direct unit test for moreCanonicalState's preference ordering.
+func TestMoreCanonicalState(t *testing.T) {
+	plain := diagram.StateDef{ID: "X", Label: "X"}
+	withKind := diagram.StateDef{ID: "X", Label: "X", Kind: diagram.StateKindChoice}
+	withChildren := diagram.StateDef{ID: "X", Label: "X", Children: []diagram.StateDef{{ID: "c"}}}
+	withLabel := diagram.StateDef{ID: "X", Label: "Long Label"}
+	withCSS := diagram.StateDef{ID: "X", Label: "X", CSSClasses: []string{"hot"}}
+
+	if !moreCanonicalState(withKind, plain) {
+		t.Error("a state with explicit Kind should beat a plain phantom")
+	}
+	if !moreCanonicalState(withChildren, plain) {
+		t.Error("a composite (Children) should beat a leaf")
+	}
+	if !moreCanonicalState(withKind, withChildren) {
+		t.Error("Kind weighs more than Children")
+	}
+	if !moreCanonicalState(withLabel, plain) {
+		t.Error("an explicit description Label should beat a default")
+	}
+	if !moreCanonicalState(withCSS, plain) {
+		t.Error("CSSClasses should beat a plain phantom")
+	}
+	// Ties resolve to current (returns false).
+	if moreCanonicalState(plain, plain) {
+		t.Error("equal candidates should not promote")
+	}
+}
+
+// commonPrefix returns the longest shared head of two paths.
+func TestCommonPrefix(t *testing.T) {
+	cases := []struct {
+		a, b []string
+		want []string
+	}{
+		{nil, nil, []string{}},
+		{[]string{"A"}, []string{"A"}, []string{"A"}},
+		{[]string{"A", "B"}, []string{"A", "C"}, []string{"A"}},
+		{[]string{"A", "B", "C"}, []string{"A", "B", "C"}, []string{"A", "B", "C"}},
+		{[]string{"A"}, []string{"B"}, []string{}},
+		{[]string{"A", "B"}, []string{"A"}, []string{"A"}},
+	}
+	for _, c := range cases {
+		got := commonPrefix(c.a, c.b)
+		if len(got) != len(c.want) {
+			t.Errorf("commonPrefix(%v, %v) = %v, want %v", c.a, c.b, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("commonPrefix(%v, %v)[%d] = %q, want %q", c.a, c.b, i, got[i], c.want[i])
+			}
+		}
+	}
+}
+
 func TestParseTransitionScope(t *testing.T) {
 	input := `stateDiagram-v2
     [*] --> First
