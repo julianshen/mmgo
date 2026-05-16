@@ -30,6 +30,12 @@ type flatScopedLayout struct {
 	Nodes       map[string]layout.NodeLayout
 	NodeAttrs   map[string]graph.NodeAttrs
 	Edges       map[graph.EdgeID]layout.EdgeLayout
+	// EdgeScopes records the scope (composite ID, or "" for root)
+	// that each flattened edge came from. The same `From->To` pair
+	// can legitimately appear in two scopes; renderEdges uses
+	// EdgeScopes to disambiguate label lookup so labels stay paired
+	// with the correct edge.
+	EdgeScopes  map[graph.EdgeID]string
 	Composites  []flatComposite
 	PseudoOwner map[string]string
 	Width       float64
@@ -59,6 +65,7 @@ func flattenScopedLayout(root *scopedLayout) *flatScopedLayout {
 		Nodes:       make(map[string]layout.NodeLayout),
 		NodeAttrs:   make(map[string]graph.NodeAttrs),
 		Edges:       make(map[graph.EdgeID]layout.EdgeLayout),
+		EdgeScopes:  make(map[graph.EdgeID]string),
 		PseudoOwner: make(map[string]string),
 	}
 	pad := defaultPadding
@@ -160,13 +167,24 @@ func walkScope(s *scopedLayout, originX, originY float64, depth int, out *flatSc
 			out.PseudoOwner[id] = s.scopeID
 		}
 	}
-	// Edges: translate each control point.
+	// Edges: translate each control point. Each scope's dagre graph
+	// starts its EdgeID.ID counter at 0, so two scopes can produce
+	// the same (From, To, ID) triple. Bump the inserted ID until
+	// it's unique in the global map so neither edge is lost.
 	for id, e := range s.result.Edges {
-		out.Edges[id] = layout.EdgeLayout{
+		key := id
+		for {
+			if _, exists := out.Edges[key]; !exists {
+				break
+			}
+			key.ID++
+		}
+		out.Edges[key] = layout.EdgeLayout{
 			Points:   shiftPoints(e.Points, originX, originY),
 			LabelPos: layout.Point{X: e.LabelPos.X + originX, Y: e.LabelPos.Y + originY},
 			BackEdge: e.BackEdge,
 		}
+		out.EdgeScopes[key] = s.scopeID
 	}
 }
 
