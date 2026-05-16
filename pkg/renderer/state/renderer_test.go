@@ -398,14 +398,11 @@ func TestRenderTransitionToCompositeUsesLeafRep(t *testing.T) {
 	}
 }
 
-// Region divider is best-effort: drawn only when adjacent regions
-// don't overlap vertically. Without cluster-aware layout, dagre
-// often places regions side-by-side (same y range), so the divider
-// is correctly suppressed in this case.
-//
-// This test verifies the suppression: parallel regions whose
-// children dagre placed at the same y range get NO divider.
-func TestRenderCompositeRegionDividerSkippedWhenInterleaved(t *testing.T) {
+// When parallel regions inside a composite are laid out as separate
+// columns (the typical case for `--`-separated regions with no
+// cross-region edges), a dashed vertical divider should be drawn
+// between them. The divider X sits between the two region bboxes.
+func TestRenderCompositeRegionDividerForColumns(t *testing.T) {
 	d := &diagram.StateDiagram{
 		States: []diagram.StateDef{
 			{ID: "P", Label: "P",
@@ -427,8 +424,34 @@ func TestRenderCompositeRegionDividerSkippedWhenInterleaved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	if !strings.Contains(string(out), "stroke-dasharray:5,4") {
+		t.Errorf("column-arranged regions should draw a dashed divider; svg:\n%s", string(out))
+	}
+}
+
+// When regions are interleaved on both X and Y axes (e.g. dagre
+// flattened a contrived case), drawing a divider would mislead. The
+// renderer must suppress dividers in that case.
+func TestRenderCompositeRegionDividerSkippedWhenInterleaved(t *testing.T) {
+	// Construct an interleaved layout by giving every region member
+	// the same nominal position via a single shared state ID across
+	// regions — the region bboxes then overlap on both axes.
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "P", Label: "P",
+				Children: []diagram.StateDef{{ID: "Only", Label: "Only"}},
+				Regions: [][]diagram.StateDef{
+					{{ID: "Only", Label: "Only"}},
+					{{ID: "Only", Label: "Only"}},
+				}},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
 	if strings.Contains(string(out), "stroke-dasharray:5,4") {
-		t.Errorf("interleaved regions should not draw a divider")
+		t.Errorf("interleaved regions should not draw a divider; svg:\n%s", string(out))
 	}
 }
 

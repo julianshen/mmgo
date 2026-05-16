@@ -81,7 +81,7 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	}
 	allStates := collectAllStates(d.States)
 	leafStates := leafStatesOnly(allStates)
-	composites := buildPlacedComposites(d.States, flat.Composites)
+	composites := buildPlacedComposites(d.States, flat.Composites, flat.Nodes)
 	// Coords from flatten are already in the global frame; the renderer
 	// helpers add pad to every coord, so feed them pad=0 to avoid a
 	// double shift.
@@ -409,6 +409,11 @@ type placedComposite struct {
 	// depth is the nesting level (0 = top-level composite, 1 = child
 	// of a composite, etc.). Used to vary fill colour and padding.
 	depth int
+	// regions is the bounding box of each parallel region's members
+	// in global coordinates, populated only when len(def.Regions) > 1.
+	// Used by renderCompositeBoxes to draw dashed `--` dividers
+	// between non-overlapping regions.
+	regions []svgutil.BBox
 }
 
 const (
@@ -416,6 +421,10 @@ const (
 	compositePadY    = 12.0
 	compositeLabelH  = 22.0
 	compositeCornerR = 8.0
+	// regionDividerInset is the gap left between the composite's
+	// border / title-bar and the ends of a dashed `--` region
+	// divider, so the divider doesn't visually merge with them.
+	regionDividerInset = 2.0
 )
 
 // darkenHex reduces each RGB channel of a 6-digit hex colour by
@@ -484,8 +493,82 @@ func renderCompositeBoxes(composites []placedComposite, fontSize float64, th The
 			X2: svgFloat(p.x + p.w - compositePadX), Y2: svgFloat(titleY),
 			Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.CompositeStroke),
 		})
+		elems = append(elems, regionDividerLines(p, titleY, th)...)
 	}
 	return elems
+}
+
+// regionDividerLines emits a dashed line between each pair of
+// adjacent regions in a parallel composite. The orientation is
+// inferred from how the layout placed the regions:
+//   - regions arranged in columns (non-overlapping X ranges) get
+//     vertical dividers between them;
+//   - regions arranged in rows (non-overlapping Y ranges) get
+//     horizontal dividers.
+// When regions overlap on both axes (dagre interleaved them without
+// cluster-aware layout), no divider is drawn — a line through a
+// state rect would be misleading. titleY is the y of the composite's
+// title-bar divider so vertical region dividers can start just below
+// it and span the composite body.
+func regionDividerLines(p placedComposite, titleY float64, th Theme) []any {
+	if len(p.regions) < 2 {
+		return nil
+	}
+	bounds := make([]svgutil.BBox, 0, len(p.regions))
+	for _, r := range p.regions {
+		if !r.Empty() {
+			bounds = append(bounds, r)
+		}
+	}
+	if len(bounds) < 2 {
+		return nil
+	}
+	style := fmt.Sprintf("stroke:%s;stroke-width:1;stroke-dasharray:5,4", th.CompositeStroke)
+	bodyTop := titleY + regionDividerInset
+	bodyBottom := p.y + p.h - regionDividerInset
+	bodyLeft := p.x + regionDividerInset
+	bodyRight := p.x + p.w - regionDividerInset
+
+	// Try column arrangement: sort by MinX and require non-overlapping X.
+	sort.Slice(bounds, func(i, j int) bool { return bounds[i].MinX < bounds[j].MinX })
+	columns := true
+	for i := 1; i < len(bounds); i++ {
+		if bounds[i].MinX < bounds[i-1].MaxX {
+			columns = false
+			break
+		}
+	}
+	if columns {
+		var lines []any
+		for i := 1; i < len(bounds); i++ {
+			x := (bounds[i-1].MaxX + bounds[i].MinX) / 2
+			lines = append(lines, &line{
+				X1: svgFloat(x), Y1: svgFloat(bodyTop),
+				X2: svgFloat(x), Y2: svgFloat(bodyBottom),
+				Style: style,
+			})
+		}
+		return lines
+	}
+
+	// Fall back to row arrangement: sort by MinY and require
+	// non-overlapping Y.
+	sort.Slice(bounds, func(i, j int) bool { return bounds[i].MinY < bounds[j].MinY })
+	for i := 1; i < len(bounds); i++ {
+		if bounds[i].MinY < bounds[i-1].MaxY {
+			return nil // interleaved — divider would mislead.
+		}
+	}
+	var lines []any
+	for i := 1; i < len(bounds); i++ {
+		y := (bounds[i-1].MaxY + bounds[i].MinY) / 2
+		lines = append(lines, &line{
+			X1: svgFloat(bodyLeft), Y1: svgFloat(y),
+			X2: svgFloat(bodyRight), Y2: svgFloat(y),
+			Style: style,
+		})
+	}
+	return lines
 }
 
 // titleBandHeight is the vertical band reserved for the state's
