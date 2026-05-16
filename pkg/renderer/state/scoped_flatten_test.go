@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/julianshen/mmgo/pkg/diagram"
 	"github.com/julianshen/mmgo/pkg/layout"
 	parser "github.com/julianshen/mmgo/pkg/parser/state"
 	"github.com/julianshen/mmgo/pkg/textmeasure"
@@ -120,6 +121,54 @@ func TestFlattenScopedLayoutNested(t *testing.T) {
 		}
 	} else {
 		t.Errorf("third leaf missing from flat nodes")
+	}
+}
+
+// Each scope's dagre graph starts EdgeID.ID at 0, so two scopes can
+// produce identical (From, To, ID) keys. flattenScopedLayout must
+// preserve every edge by bumping the colliding ID, and each edge's
+// originating scope must be recorded in EdgeScopes for renderEdges'
+// label disambiguation. The natural parser path would dedup
+// shared states across scopes, so this test bypasses Parse() and
+// hands layoutScope a hand-built tree where the same `a --> b` edge
+// genuinely appears in two sibling composites.
+func TestFlattenScopedLayoutPreservesCollidingEdgeIDs(t *testing.T) {
+	states := []diagram.StateDef{
+		{ID: "First", Label: "First", Children: []diagram.StateDef{
+			{ID: "a", Label: "a"}, {ID: "b", Label: "b"},
+		}},
+		{ID: "Second", Label: "Second", Children: []diagram.StateDef{
+			{ID: "a", Label: "a"}, {ID: "b", Label: "b"},
+		}},
+	}
+	transitions := []diagram.StateTransition{
+		{From: "a", To: "b", Label: "first-edge", Scope: "First"},
+		{From: "a", To: "b", Label: "second-edge", Scope: "Second"},
+	}
+	ruler, err := textmeasure.NewDefaultRuler()
+	if err != nil {
+		t.Fatalf("ruler: %v", err)
+	}
+	defer func() { _ = ruler.Close() }()
+
+	root := layoutScope("", states, transitions, ruler, defaultFontSize, layout.Options{})
+	flat := flattenScopedLayout(root)
+
+	var firstScope, secondScope bool
+	for _, sc := range flat.EdgeScopes {
+		switch sc {
+		case "First":
+			firstScope = true
+		case "Second":
+			secondScope = true
+		}
+	}
+	if !firstScope || !secondScope {
+		t.Errorf("EdgeScopes missing one of First/Second; got %v", flat.EdgeScopes)
+	}
+	if len(flat.Edges) != len(flat.EdgeScopes) {
+		t.Errorf("Edges (%d) and EdgeScopes (%d) counts should match",
+			len(flat.Edges), len(flat.EdgeScopes))
 	}
 }
 

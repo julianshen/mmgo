@@ -726,12 +726,10 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 }
 
 // transKey is the lookup key for renderEdges' transition-by-edge
-// disambiguation map. The scope prefix is what distinguishes two
+// disambiguation map. The scope is what distinguishes two
 // otherwise-identical `From --> To` pairs declared inside different
 // composites.
-func transKey(scope, from, to string) string {
-	return scope + "\x00" + from + "->" + to
-}
+type transKey struct{ scope, from, to string }
 
 func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler, th Theme, g *graph.Graph, edgeScopes map[graph.EdgeID]string) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
@@ -749,10 +747,10 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 	// the same local IDs and would otherwise share a transMap bucket;
 	// scoping the key keeps each edge's label paired with its
 	// originating transition.
-	transMap := make(map[string][]diagram.StateTransition, len(d.Transitions))
+	transMap := make(map[transKey][]diagram.StateTransition, len(d.Transitions))
 	for _, t := range d.Transitions {
-		key := transKey(t.Scope, t.From, t.To)
-		transMap[key] = append(transMap[key], t)
+		k := transKey{scope: t.Scope, from: t.From, to: t.To}
+		transMap[k] = append(transMap[k], t)
 	}
 
 	// Detect anti-parallel edge pairs (e.g. `A --> B` plus `B --> A`)
@@ -840,10 +838,10 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		if isPseudoNode(origTo) {
 			origTo = "[*]"
 		}
-		key := transKey(edgeScopes[eid], origFrom, origTo)
-		if candidates := transMap[key]; len(candidates) > 0 {
+		k := transKey{scope: edgeScopes[eid], from: origFrom, to: origTo}
+		if candidates := transMap[k]; len(candidates) > 0 {
 			t := candidates[0]
-			transMap[key] = candidates[1:]
+			transMap[k] = candidates[1:]
 			if t.Label != "" {
 				p := labelPosition(pts, labelAnchor)
 				lines := strings.Split(t.Label, "\n")
