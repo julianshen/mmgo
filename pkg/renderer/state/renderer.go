@@ -421,6 +421,10 @@ const (
 	compositePadY    = 12.0
 	compositeLabelH  = 22.0
 	compositeCornerR = 8.0
+	// regionDividerInset is the gap left between the composite's
+	// border / title-bar and the ends of a dashed `--` region
+	// divider, so the divider doesn't visually merge with them.
+	regionDividerInset = 2.0
 )
 
 // darkenHex reduces each RGB channel of a 6-digit hex colour by
@@ -520,25 +524,24 @@ func regionDividerLines(p placedComposite, titleY float64, th Theme) []any {
 		return nil
 	}
 	style := fmt.Sprintf("stroke:%s;stroke-width:1;stroke-dasharray:5,4", th.CompositeStroke)
-	bodyTop := titleY + 2
-	bodyBottom := p.y + p.h - 2
-	bodyLeft := p.x + 2
-	bodyRight := p.x + p.w - 2
+	bodyTop := titleY + regionDividerInset
+	bodyBottom := p.y + p.h - regionDividerInset
+	bodyLeft := p.x + regionDividerInset
+	bodyRight := p.x + p.w - regionDividerInset
 
 	// Try column arrangement: sort by MinX and require non-overlapping X.
-	byX := append([]svgutil.BBox(nil), bounds...)
-	sort.Slice(byX, func(i, j int) bool { return byX[i].MinX < byX[j].MinX })
+	sort.Slice(bounds, func(i, j int) bool { return bounds[i].MinX < bounds[j].MinX })
 	columns := true
-	for i := 1; i < len(byX); i++ {
-		if byX[i].MinX < byX[i-1].MaxX {
+	for i := 1; i < len(bounds); i++ {
+		if bounds[i].MinX < bounds[i-1].MaxX {
 			columns = false
 			break
 		}
 	}
 	if columns {
 		var lines []any
-		for i := 1; i < len(byX); i++ {
-			x := (byX[i-1].MaxX + byX[i].MinX) / 2
+		for i := 1; i < len(bounds); i++ {
+			x := (bounds[i-1].MaxX + bounds[i].MinX) / 2
 			lines = append(lines, &line{
 				X1: svgFloat(x), Y1: svgFloat(bodyTop),
 				X2: svgFloat(x), Y2: svgFloat(bodyBottom),
@@ -550,16 +553,15 @@ func regionDividerLines(p placedComposite, titleY float64, th Theme) []any {
 
 	// Fall back to row arrangement: sort by MinY and require
 	// non-overlapping Y.
-	byY := append([]svgutil.BBox(nil), bounds...)
-	sort.Slice(byY, func(i, j int) bool { return byY[i].MinY < byY[j].MinY })
-	for i := 1; i < len(byY); i++ {
-		if byY[i].MinY < byY[i-1].MaxY {
+	sort.Slice(bounds, func(i, j int) bool { return bounds[i].MinY < bounds[j].MinY })
+	for i := 1; i < len(bounds); i++ {
+		if bounds[i].MinY < bounds[i-1].MaxY {
 			return nil // interleaved — divider would mislead.
 		}
 	}
 	var lines []any
-	for i := 1; i < len(byY); i++ {
-		y := (byY[i-1].MaxY + byY[i].MinY) / 2
+	for i := 1; i < len(bounds); i++ {
+		y := (bounds[i-1].MaxY + bounds[i].MinY) / 2
 		lines = append(lines, &line{
 			X1: svgFloat(bodyLeft), Y1: svgFloat(y),
 			X2: svgFloat(bodyRight), Y2: svgFloat(y),

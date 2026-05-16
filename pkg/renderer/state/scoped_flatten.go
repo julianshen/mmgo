@@ -207,20 +207,15 @@ func buildPlacedComposites(states []diagram.StateDef, flats []flatComposite, nod
 }
 
 // regionBBoxes returns one BBox per region, computed from the global
-// positions of the region's member states. Regions with no resolvable
-// members produce an empty BBox.
+// positions of the region's member states.
 func regionBBoxes(regions [][]diagram.StateDef, nodes map[string]layout.NodeLayout) []svgutil.BBox {
 	out := make([]svgutil.BBox, len(regions))
 	for i, region := range regions {
-		bb := svgutil.NewInfiniteBBox()
-		for _, s := range region {
-			n, ok := nodes[s.ID]
-			if !ok {
-				continue
-			}
-			bb.Expand(n.X, n.Y, n.Width, n.Height)
+		ids := make([]string, len(region))
+		for j, s := range region {
+			ids[j] = s.ID
 		}
-		out[i] = bb
+		out[i] = svgutil.BBoxOver(ids, nodes, 0)
 	}
 	return out
 }
