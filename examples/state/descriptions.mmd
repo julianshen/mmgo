@@ -1,0 +1,12 @@
+stateDiagram-v2
+    [*] --> Booting
+    Booting --> Online : initialized
+    Online --> Maintenance : schedule
+    Maintenance --> Online : done
+    Online --> ShuttingDown : shutdown
+    ShuttingDown --> [*]
+
+    Booting : System is starting up
+    Online : All services are running
+    Maintenance : Under scheduled maintenance
+    ShuttingDown : System is stopping

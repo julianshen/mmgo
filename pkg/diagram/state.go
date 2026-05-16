@@ -7,20 +7,18 @@ const (
 	StateKindFork             // <<fork>>
 	StateKindJoin             // <<join>>
 	StateKindChoice           // <<choice>>
+	StateKindHistory          // <<history>>
+	StateKindDeepHistory      // <<deepHistory>>
 )
 
-var stateKindNames = []string{"normal", "fork", "join", "choice"}
+var stateKindNames = []string{"normal", "fork", "join", "choice", "history", "deepHistory"}
 
 func (s StateKind) String() string { return enumString(s, stateKindNames) }
 
 type StateDef struct {
 	ID    string
 	Label string
-	// Description is optional secondary text parsed from
-	// `id : description` syntax. Renderers may show it below the
-	// state title in a separate compartment.
-	Description string
-	Kind        StateKind
+	Kind  StateKind
 	// Children holds the inner states for a composite state with
 	// a single (default) region. For composite states split by
 	// `--` separators into parallel regions, see Regions instead;
@@ -40,6 +38,21 @@ type StateTransition struct {
 	From  string
 	To    string
 	Label string
+	// Scope is the ID of the enclosing composite state in which the
+	// transition was written, or "" for the root scope. Pseudo-state
+	// endpoints ([*]) are resolved against this scope: `[*] --> Foo`
+	// inside `state Bar { … }` denotes the initial state of Bar, not
+	// of the root diagram.
+	Scope string
+	// RegionIdx distinguishes parallel regions within Scope. When the
+	// enclosing composite has no `--` separators, RegionIdx is 0 for
+	// every transition. With separators, transitions before the first
+	// `--` are region 0, between the first and second `--` are
+	// region 1, and so on. Mermaid scopes `[*]` per region (each
+	// region gets its own initial / final state), so the renderer
+	// keys pseudo-state dedup off (Scope, RegionIdx) rather than
+	// Scope alone.
+	RegionIdx int
 }
 
 // NoteSide is which side of the target state a note is anchored on.

@@ -1,0 +1,16 @@
+stateDiagram-v2
+    [*] --> Active
+
+    state Active {
+        [*] --> Idle
+        Idle --> Running : start
+        Running --> Idle : stop
+    }
+
+    state Inactive {
+        [*] --> Suspended
+        Suspended --> Shutdown : power off
+    }
+
+    Active --> Inactive : deactivate
+    Inactive --> Active : activate

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/julianshen/mmgo/pkg/diagram"
@@ -32,6 +33,7 @@ const (
 	forkBarW          = 60.0
 	forkBarH          = 6.0
 	choiceSize        = 30.0
+	historyR          = 12.0
 	pseudoStartPrefix = "__start_"
 	pseudoEndPrefix   = "__end_"
 )
@@ -58,46 +60,36 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 	}
 	defer func() { _ = ruler.Close() }()
 
+	// Recursive scope-aware layout: each composite is its own dagre
+	// sub-graph, with pseudo-state `[*]` nodes placed in the scope
+	// where they were written. The flatten pass projects every node /
+	// edge / composite rect into the diagram's global coordinate frame
+	// so the existing render primitives still work.
+	root := layoutScope("", d.States, d.Transitions, ruler, fontSize,
+		layout.Options{RankDir: svgutil.RankDirFor(d.Direction)})
+	flat := flattenScopedLayout(root)
+
+	l := &layout.Result{
+		Nodes:  flat.Nodes,
+		Edges:  flat.Edges,
+		Width:  flat.Width,
+		Height: flat.Height,
+	}
 	g := graph.New()
-	startIdx := 0
+	for id, attrs := range flat.NodeAttrs {
+		g.SetNode(id, attrs)
+	}
 	allStates := collectAllStates(d.States)
 	leafStates := leafStatesOnly(allStates)
-	for _, s := range leafStates {
-		w, h := stateNodeSize(s, ruler, fontSize)
-		g.SetNode(s.ID, graph.NodeAttrs{Label: s.Label, Width: w, Height: h})
-	}
-	// Composite states aren't in the dagre graph, but transitions
-	// can still reference them (`[*] --> Active`). Redirect such
-	// edges to a representative leaf descendant so dagre reserves
-	// space; without this the graph auto-creates a 0×0 phantom
-	// node that pulls a pseudo-state into the wrong area.
-	leafRep := compositeLeafRep(d.States)
-	for _, t := range d.Transitions {
-		from, to := t.From, t.To
-		if from == "[*]" {
-			startIdx++
-			from = fmt.Sprintf("%s%d__", pseudoStartPrefix, startIdx)
-			g.SetNode(from, graph.NodeAttrs{Width: pseudoNodeR * 2, Height: pseudoNodeR * 2})
-		} else if rep, ok := leafRep[from]; ok {
-			from = rep
-		}
-		if to == "[*]" {
-			startIdx++
-			to = fmt.Sprintf("%s%d__", pseudoEndPrefix, startIdx)
-			g.SetNode(to, graph.NodeAttrs{Width: pseudoNodeR * 2, Height: pseudoNodeR * 2})
-		} else if rep, ok := leafRep[to]; ok {
-			to = rep
-		}
-		g.SetEdge(from, to, graph.EdgeAttrs{Label: t.Label})
-	}
+	composites := buildPlacedComposites(d.States, flat.Composites)
+	// Coords from flatten are already in the global frame; the renderer
+	// helpers add pad to every coord, so feed them pad=0 to avoid a
+	// double shift.
+	pad := 0.0
 
-	l := layout.Layout(g, layout.Options{RankDir: svgutil.RankDirFor(d.Direction)})
-	pad := defaultPadding
-
-	contentW := sanitize(l.Width) + 2*pad
-	contentH := sanitize(l.Height) + 2*pad
+	contentW := flat.Width
+	contentH := flat.Height
 	notes := layoutStateNotes(d, l, pad, fontSize, ruler)
-	composites := layoutCompositeBoxes(d.States, l, pad, fontSize, ruler)
 
 	// Notes can extend outside the class layout's bounding box
 	// (left of leftmost state, etc.); expand the viewBox to include
@@ -132,6 +124,13 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 			viewMaxY = bottom
 		}
 	}
+	// Reserve a band above the content for the visible title (Mermaid
+	// renders frontmatter `title:` as a centered heading).
+	titleBandH := 0.0
+	if d.Title != "" {
+		titleBandH = fontSize*1.4 + pad
+		viewMinY -= titleBandH
+	}
 	viewW := viewMaxX - viewMinX
 	viewH := viewMaxY - viewMinY
 
@@ -151,11 +150,20 @@ func Render(d *diagram.StateDiagram, opts *Options) ([]byte, error) {
 		Width: svgFloat(viewW), Height: svgFloat(viewH),
 		Style: fmt.Sprintf("fill:%s;stroke:none", th.Background),
 	})
+	if d.Title != "" {
+		children = append(children, &text{
+			X: svgFloat((viewMinX + viewMaxX) / 2),
+			Y: svgFloat(viewMinY + titleBandH/2),
+			Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
+			Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.StateText, fontSize+2),
+			Content: d.Title,
+		})
+	}
 
 	// Composite boxes go behind edges + leaf states so the frame
 	// doesn't occlude inner content.
 	children = append(children, renderCompositeBoxes(composites, fontSize, th)...)
-	children = append(children, renderEdges(d, l, pad, fontSize, ruler, th)...)
+	children = append(children, renderEdges(d, l, pad, fontSize, ruler, th, g)...)
 	children = append(children, renderNodes(d, leafStates, l, pad, fontSize, th)...)
 	children = append(children, renderStateNotes(notes, l, pad, fontSize, th)...)
 
@@ -321,6 +329,40 @@ func stateRectStyle(d *diagram.StateDiagram, s diagram.StateDef, stylesByID map[
 	return strings.Join(parts, ";")
 }
 
+// textPropsFromCSS extracts the CSS declarations from a state's
+// classDef override that affect the <text> element rather than the
+// containing <rect>: typography (font-*), text colour (color, mapped
+// to fill), and text alignment. The full override is already applied
+// to the rect via stateRectStyle; this returns the subset that has
+// to be merged into the label style separately so rect-only fill /
+// stroke don't bleed onto the text.
+func textPropsFromCSS(css string) string {
+	if css == "" {
+		return ""
+	}
+	var parts []string
+	for _, decl := range strings.Split(css, ";") {
+		decl = strings.TrimSpace(decl)
+		if decl == "" {
+			continue
+		}
+		colon := strings.IndexByte(decl, ':')
+		if colon < 1 {
+			continue
+		}
+		prop := strings.TrimSpace(decl[:colon])
+		val := strings.TrimSpace(decl[colon+1:])
+		switch prop {
+		case "color":
+			parts = append(parts, "fill:"+val)
+		case "font-style", "font-weight", "font-family", "font-size",
+			"text-decoration", "text-transform", "letter-spacing":
+			parts = append(parts, prop+":"+val)
+		}
+	}
+	return strings.Join(parts, ";")
+}
+
 // stateClicksByID indexes click defs by state id; last-seen wins.
 func stateClicksByID(clicks []diagram.StateClickDef) map[string]diagram.StateClickDef {
 	return svgutil.IndexByID(clicks, func(c diagram.StateClickDef) string { return c.StateID })
@@ -344,41 +386,6 @@ func stateStylesByID(styles []diagram.StateStyleDef) map[string][]string {
 	return out
 }
 
-// compositeLeafRep maps each composite state's ID to the ID of its
-// first leaf descendant. Used to redirect transitions that reference
-// composites so dagre still reserves layout space for them. Missing
-// composites (no leaves at all) aren't mapped — transitions to those
-// fall through to the existing auto-create-phantom-node behavior.
-func compositeLeafRep(states []diagram.StateDef) map[string]string {
-	out := make(map[string]string)
-	var walk func(states []diagram.StateDef)
-	walk = func(ss []diagram.StateDef) {
-		for _, s := range ss {
-			if len(s.Children) == 0 {
-				continue
-			}
-			if leaf := firstLeafID(s.Children); leaf != "" {
-				out[s.ID] = leaf
-			}
-			walk(s.Children)
-		}
-	}
-	walk(states)
-	return out
-}
-
-func firstLeafID(states []diagram.StateDef) string {
-	for _, s := range states {
-		if len(s.Children) == 0 {
-			return s.ID
-		}
-		if leaf := firstLeafID(s.Children); leaf != "" {
-			return leaf
-		}
-	}
-	return ""
-}
-
 // leafStatesOnly returns the states that don't have a composite
 // body. Composite states are rendered as labelled bounding boxes
 // around their children rather than as nodes in the dagre layout.
@@ -396,10 +403,12 @@ func leafStatesOnly(states []diagram.StateDef) []diagram.StateDef {
 // emit. regionRects is non-nil for multi-region composites; each
 // entry is the bbox of one region's children, in source order.
 type placedComposite struct {
-	def     diagram.StateDef
-	x, y    float64
-	w, h    float64
-	regions []svgutil.BBox // empty for single-region composites
+	def  diagram.StateDef
+	x, y float64
+	w, h float64
+	// depth is the nesting level (0 = top-level composite, 1 = child
+	// of a composite, etc.). Used to vary fill colour and padding.
+	depth int
 }
 
 const (
@@ -409,81 +418,36 @@ const (
 	compositeCornerR = 8.0
 )
 
-// layoutCompositeBoxes computes the bounding rect for each composite
-// state by walking the layout positions of its leaf descendants.
-// Multi-region composites also produce a per-region bbox slice that
-// renderCompositeBoxes uses to draw dashed dividers.
-//
-// Walks recursively so nested composites each get their own box.
-func layoutCompositeBoxes(states []diagram.StateDef, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler) []placedComposite {
-	var out []placedComposite
-	var walk func([]diagram.StateDef)
-	walk = func(ss []diagram.StateDef) {
-		for _, s := range ss {
-			if len(s.Children) == 0 {
-				continue
-			}
-			bb := childrenBBox(s, l, pad)
-			if bb.Empty() {
-				continue
-			}
-			x := bb.MinX - compositePadX
-			y := bb.MinY - compositePadY - compositeLabelH
-			w := (bb.MaxX - bb.MinX) + 2*compositePadX
-			h := (bb.MaxY - bb.MinY) + 2*compositePadY + compositeLabelH
-			labelW, _ := ruler.Measure(s.Label, fontSize-1)
-			if minLabel := labelW + 2*compositePadX; w < minLabel {
-				x -= (minLabel - w) / 2
-				w = minLabel
-			}
-			var regionBBoxes []svgutil.BBox
-			if len(s.Regions) > 1 {
-				regionBBoxes = make([]svgutil.BBox, 0, len(s.Regions))
-				for _, region := range s.Regions {
-					rb := svgutil.NewInfiniteBBox()
-					accumulateLeafBBox(region, l, pad, &rb)
-					if !rb.Empty() {
-						regionBBoxes = append(regionBBoxes, rb)
-					}
-				}
-			}
-			out = append(out, placedComposite{
-				def: s, x: x, y: y, w: w, h: h, regions: regionBBoxes,
-			})
-			walk(s.Children)
-		}
+// darkenHex reduces each RGB channel of a 6-digit hex colour by
+// factor (0–1). factor=0.92 darkens by 8 %. Returns the original
+// string unchanged if parsing fails.
+func darkenHex(hex string, factor float64) string {
+	if len(hex) != 7 || hex[0] != '#' {
+		return hex
 	}
-	walk(states)
-	return out
+	r, err1 := strconv.ParseInt(hex[1:3], 16, 0)
+	g, err2 := strconv.ParseInt(hex[3:5], 16, 0)
+	b, err3 := strconv.ParseInt(hex[5:7], 16, 0)
+	if err1 != nil || err2 != nil || err3 != nil {
+		return hex
+	}
+	darken := func(v int64) int {
+		c := int(float64(v) * factor)
+		if c < 0 {
+			c = 0
+		}
+		return c
+	}
+	return fmt.Sprintf("#%02x%02x%02x", darken(r), darken(g), darken(b))
 }
 
-// childrenBBox accumulates the bbox of all leaf descendants of s.
-// Falls back to flattening Regions when Children is empty — defends
-// against AST callers that populated only Regions.
-func childrenBBox(s diagram.StateDef, l *layout.Result, pad float64) svgutil.BBox {
-	bb := svgutil.NewInfiniteBBox()
-	if len(s.Children) > 0 {
-		accumulateLeafBBox(s.Children, l, pad, &bb)
-	} else {
-		for _, region := range s.Regions {
-			accumulateLeafBBox(region, l, pad, &bb)
-		}
-	}
-	return bb
-}
-
-func accumulateLeafBBox(states []diagram.StateDef, l *layout.Result, pad float64, bb *svgutil.BBox) {
-	for _, c := range states {
-		if len(c.Children) > 0 {
-			accumulateLeafBBox(c.Children, l, pad, bb)
-			continue
-		}
-		n, ok := l.Nodes[c.ID]
-		if !ok {
-			continue
-		}
-		bb.Expand(n.X+pad, n.Y+pad, n.Width, n.Height)
-	}
+// compositeFillForDepth returns a fill colour that darkens slightly
+// with each nesting level so nested composites are visually distinct
+// from their parents.
+func compositeFillForDepth(base string, depth int) string {
+	const darkenPerLevel = 0.92
+	factor := math.Pow(darkenPerLevel, float64(depth))
+	return darkenHex(base, factor)
 }
 
 // renderCompositeBoxes emits the labelled rounded rect plus optional
@@ -492,11 +456,11 @@ func renderCompositeBoxes(composites []placedComposite, fontSize float64, th The
 	if len(composites) == 0 {
 		return nil
 	}
-	boxStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.CompositeFill, th.CompositeStroke)
 	textStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.CompositeText, fontSize-1)
-	dividerStyle := fmt.Sprintf("stroke:%s;stroke-width:1;stroke-dasharray:5,4", th.CompositeStroke)
 	var elems []any
 	for _, p := range composites {
+		fill := compositeFillForDepth(th.CompositeFill, p.depth)
+		boxStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", fill, th.CompositeStroke)
 		elems = append(elems,
 			&rect{
 				X: svgFloat(p.x), Y: svgFloat(p.y),
@@ -511,23 +475,15 @@ func renderCompositeBoxes(composites []placedComposite, fontSize float64, th The
 				Content: p.def.Label,
 			},
 		)
-		// Multi-region divider, best-effort: regions can interleave
-		// without cluster-aware layout, in which case a divider would
-		// pass through a child rect — skip those pairs rather than
-		// draw misleadingly.
-		for i := 1; i < len(p.regions); i++ {
-			prev := p.regions[i-1]
-			curr := p.regions[i]
-			if prev.MaxY >= curr.MinY {
-				continue
-			}
-			y := (prev.MaxY + curr.MinY) / 2
-			elems = append(elems, &line{
-				X1: svgFloat(p.x + compositePadX), Y1: svgFloat(y),
-				X2: svgFloat(p.x + p.w - compositePadX), Y2: svgFloat(y),
-				Style: dividerStyle,
-			})
-		}
+		// Title-bar divider: a subtle line separating the label band
+		// from the composite body so nested boxes read as framed
+		// containers rather than plain rounded rects.
+		titleY := p.y + compositeLabelH
+		elems = append(elems, &line{
+			X1: svgFloat(p.x + compositePadX), Y1: svgFloat(titleY),
+			X2: svgFloat(p.x + p.w - compositePadX), Y2: svgFloat(titleY),
+			Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.CompositeStroke),
+		})
 	}
 	return elems
 }
@@ -540,33 +496,18 @@ func titleBandHeight(fontSize float64) float64 {
 	return fontSize + 2*statePadY
 }
 
-// descLineHeight is the per-line height of the description
-// compartment. Shared between sizing and rendering for the same
-// reason as titleBandHeight.
-func descLineHeight(fontSize float64) float64 {
-	return fontSize + 2
-}
-
 func stateNodeSize(s diagram.StateDef, ruler *textmeasure.Ruler, fontSize float64) (w, h float64) {
 	switch s.Kind {
 	case diagram.StateKindFork, diagram.StateKindJoin:
 		return forkBarW, forkBarH
 	case diagram.StateKindChoice:
 		return choiceSize, choiceSize
+	case diagram.StateKindHistory, diagram.StateKindDeepHistory:
+		return historyR * 2, historyR * 2
 	}
 	tw, _ := ruler.Measure(s.Label, fontSize)
 	w = tw + 2*statePadX
 	h = titleBandHeight(fontSize)
-	if s.Description != "" {
-		descLines := strings.Split(s.Description, "\n")
-		for _, line := range descLines {
-			lw, _ := ruler.Measure(line, fontSize-1)
-			if lw+2*statePadX > w {
-				w = lw + 2*statePadX
-			}
-		}
-		h += statePadY + float64(len(descLines))*descLineHeight(fontSize)
-	}
 	if w < minStateW {
 		w = minStateW
 	}
@@ -617,14 +558,31 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 				Points: pts,
 				Style:  fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.StateFill, th.ChoiceFill),
 			})
+		case diagram.StateKindHistory, diagram.StateKindDeepHistory:
+			label := "H"
+			if s.Kind == diagram.StateKindDeepHistory {
+				label = "H*"
+			}
+			*buf = append(*buf, &circle{
+				CX: svgFloat(cx), CY: svgFloat(cy), R: svgFloat(historyR),
+				Style: fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.Background, th.StateStroke),
+			})
+			*buf = append(*buf, &text{
+				X: svgFloat(cx), Y: svgFloat(cy),
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
+				Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx;font-weight:bold", th.StateText, fontSize-1),
+				Content: label,
+			})
 		default:
 			w := nl.Width
 			h := nl.Height
 			x := cx - w/2
 			y := cy - h/2
 			rectStyle := fmt.Sprintf("fill:%s;stroke:%s;stroke-width:1.5", th.StateFill, th.StateStroke)
+			textStyle := fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize)
 			if override := stateRectStyle(d, s, styles); override != "" {
 				rectStyle = rectStyle + ";" + override
+				textStyle = textStyle + ";" + textPropsFromCSS(override)
 			}
 			*buf = append(*buf, &rect{
 				X: svgFloat(x), Y: svgFloat(y),
@@ -632,38 +590,12 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 				RX: 8, RY: 8,
 				Style: rectStyle,
 			})
-			if s.Description != "" {
-				titleH := titleBandHeight(fontSize)
-				*buf = append(*buf, &text{
-					X: svgFloat(cx), Y: svgFloat(y + titleH/2),
-					Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
-					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize),
-					Content: s.Label,
-				})
-				*buf = append(*buf, &line{
-					X1: svgFloat(x), Y1: svgFloat(y + titleH),
-					X2: svgFloat(x + w), Y2: svgFloat(y + titleH),
-					Style: fmt.Sprintf("stroke:%s;stroke-width:1", th.StateStroke),
-				})
-				descLines := strings.Split(s.Description, "\n")
-				lineH := descLineHeight(fontSize)
-				for i, ln := range descLines {
-					ly := y + titleH + statePadY/2 + float64(i)*lineH + lineH/2
-					*buf = append(*buf, &text{
-						X: svgFloat(cx), Y: svgFloat(ly),
-						Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
-						Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize-1),
-						Content: ln,
-					})
-				}
-			} else {
-				*buf = append(*buf, &text{
-					X: svgFloat(cx), Y: svgFloat(cy),
-					Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
-					Style:   fmt.Sprintf("fill:%s;font-size:%.0fpx", th.StateText, fontSize),
-					Content: s.Label,
-				})
-			}
+			*buf = append(*buf, &text{
+				X: svgFloat(cx), Y: svgFloat(cy),
+				Anchor: svgutil.AnchorMiddle, Dominant: svgutil.BaselineCentral,
+				Style:   textStyle,
+				Content: s.Label,
+			})
 		}
 
 		if hasClick && click.URL != "" {
@@ -710,7 +642,7 @@ func renderNodes(d *diagram.StateDiagram, states []diagram.StateDef, l *layout.R
 	return elems
 }
 
-func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler, th Theme) []any {
+func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float64, ruler *textmeasure.Ruler, th Theme, g *graph.Graph) []any {
 	edgeKeys := make([]graph.EdgeID, 0, len(l.Edges))
 	for eid := range l.Edges {
 		edgeKeys = append(edgeKeys, eid)
@@ -722,12 +654,20 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		return edgeKeys[i].To < edgeKeys[j].To
 	})
 
-	transMap := make(map[string][]diagram.StateTransition)
+	transMap := make(map[string][]diagram.StateTransition, len(d.Transitions))
 	for _, t := range d.Transitions {
-		from := t.From
-		to := t.To
-		key := from + "->" + to
+		key := t.From + "->" + t.To
 		transMap[key] = append(transMap[key], t)
+	}
+
+	// Detect anti-parallel edge pairs (e.g. `A --> B` plus `B --> A`)
+	// so we can bow them apart visually. Without this, both lines
+	// trace the same straight segment and the two labels collide at
+	// the same midpoint (the start/stop, deactivate/activate cases
+	// in the composite example).
+	hasEdge := make(map[[2]string]bool, len(l.Edges))
+	for eid := range l.Edges {
+		hasEdge[[2]string{eid.From, eid.To}] = true
 	}
 
 	var elems []any
@@ -749,12 +689,37 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 		srcDir := pts[1]
 		dstDir := pts[len(pts)-2]
 		if src, ok := l.Nodes[eid.From]; ok {
-			x, y := clipNodeEdge(eid.From, src, pad, srcDir)
+			x, y := clipNodeEdge(eid.From, src, pad, srcDir, g)
 			pts[0] = layout.Point{X: x, Y: y}
 		}
 		if dst, ok := l.Nodes[eid.To]; ok {
-			x, y := clipNodeEdge(eid.To, dst, pad, dstDir)
+			x, y := clipNodeEdge(eid.To, dst, pad, dstDir, g)
 			pts[len(pts)-1] = layout.Point{X: x, Y: y}
+		}
+
+		// For an anti-parallel straight edge, inject a perpendicular
+		// midpoint deflection so the line bows away from its sibling.
+		// The sign of the offset is fixed relative to the edge tangent
+		// (always 90° CCW of the forward direction in SVG's Y-down
+		// frame), so a forward edge bows to one side and its reverse
+		// bows to the other — visually disambiguating both lines.
+		// Anchor the label to the deflected midpoint so the chips
+		// follow each curve instead of stacking on the straight
+		// centre with the partner edge.
+		labelAnchor := layout.Point{X: el.LabelPos.X + pad, Y: el.LabelPos.Y + pad}
+		if len(pts) == 2 && hasEdge[[2]string{eid.To, eid.From}] {
+			a, b := pts[0], pts[1]
+			dx, dy := b.X-a.X, b.Y-a.Y
+			length := math.Sqrt(dx*dx + dy*dy)
+			if length > 0 {
+				const arcOffset = 18.0
+				mx, my := (a.X+b.X)/2, (a.Y+b.Y)/2
+				// Perpendicular direction (rotate tangent 90° CCW in
+				// the math frame, i.e. CW in SVG's Y-down frame).
+				px, py := -dy/length*arcOffset, dx/length*arcOffset
+				pts = []layout.Point{a, {X: mx + px, Y: my + py}, b}
+				labelAnchor = layout.Point{X: mx + px, Y: my + py}
+			}
 		}
 
 		style := fmt.Sprintf("stroke:%s;stroke-width:1.5;fill:none", th.EdgeStroke)
@@ -785,8 +750,7 @@ func renderEdges(d *diagram.StateDiagram, l *layout.Result, pad, fontSize float6
 			t := candidates[0]
 			transMap[key] = candidates[1:]
 			if t.Label != "" {
-				base := layout.Point{X: el.LabelPos.X + pad, Y: el.LabelPos.Y + pad}
-				p := labelPosition(pts, base)
+				p := labelPosition(pts, labelAnchor)
 				lines := strings.Split(t.Label, "\n")
 				// Chip width is the widest line; height grows per line.
 				lineH := fontSize + 2
@@ -846,10 +810,10 @@ func isPseudoNode(id string) bool {
 
 // clipNodeEdge picks the right boundary clip for a state node. Regular
 // states are rounded rects so a rect clip suffices; pseudo (start/end)
-// nodes are circles, and clipping to their visible radius keeps the
-// arrowhead tucked against the glyph instead of floating in the
-// 20×20 layout box reserved around it.
-func clipNodeEdge(id string, n layout.NodeLayout, pad float64, dir layout.Point) (float64, float64) {
+// nodes are circles; choice nodes are diamonds. Clipping to the visible
+// outline keeps the arrowhead tucked against the glyph instead of
+// floating inside the layout box reserved around it.
+func clipNodeEdge(id string, n layout.NodeLayout, pad float64, dir layout.Point, g *graph.Graph) (float64, float64) {
 	cx := n.X + pad
 	cy := n.Y + pad
 	if isStartNode(id) {
@@ -857,6 +821,24 @@ func clipNodeEdge(id string, n layout.NodeLayout, pad float64, dir layout.Point)
 	}
 	if isEndNode(id) {
 		return svgutil.ClipToCircleEdge(cx, cy, endRingR, dir.X, dir.Y)
+	}
+	if attrs, ok := g.NodeAttrs(id); ok {
+		switch attrs.Shape {
+		case graph.ShapeDiamond:
+			return svgutil.ClipToDiamondEdge(cx, cy, n.Width, n.Height, dir.X, dir.Y)
+		case graph.ShapeCircle:
+			// History glyphs are drawn at the fixed historyR radius,
+			// not at n.Width/2 — the latter is whatever dagre reserved
+			// (which can be inflated to the default 100×40 if the
+			// state ID collides with a phantom reference). Pin to the
+			// visible glyph radius so the arrowhead lands on the
+			// circle outline rather than well outside it.
+			r := historyR
+			if n.Width/2 < r {
+				r = n.Width / 2
+			}
+			return svgutil.ClipToCircleEdge(cx, cy, r, dir.X, dir.Y)
+		}
 	}
 	return svgutil.ClipToRectEdge(cx, cy, n.Width, n.Height, dir.X, dir.Y)
 }

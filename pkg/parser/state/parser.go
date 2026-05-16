@@ -11,12 +11,24 @@ import (
 )
 
 func Parse(r io.Reader) (*diagram.StateDiagram, error) {
+	src, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading input: %w", err)
+	}
 	p := &parser{
 		diagram: &diagram.StateDiagram{
 			CSSClasses: make(map[string]string),
 		},
 	}
-	p.scanner = bufio.NewScanner(r)
+	// Optional `---\n…\n---\n` frontmatter at the top supplies a
+	// diagram title (Mermaid's universal frontmatter convention).
+	front, body := parserutil.SplitFrontmatter(src)
+	if len(front) > 0 {
+		if t := parserutil.FrontmatterValue(front, "title"); t != "" {
+			p.diagram.Title = t
+		}
+	}
+	p.scanner = bufio.NewScanner(strings.NewReader(string(body)))
 	p.scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	headerSeen := false
 	for p.scanner.Scan() {
@@ -32,7 +44,7 @@ func Parse(r io.Reader) (*diagram.StateDiagram, error) {
 			headerSeen = true
 			continue
 		}
-		if err := p.parseLine(line, &p.diagram.States); err != nil {
+		if err := p.parseLine(line, &p.diagram.States, "", 0); err != nil {
 			return nil, fmt.Errorf("line %d: %w", p.lineNum, err)
 		}
 	}
@@ -66,7 +78,7 @@ func upsertState(target *[]diagram.StateDef, id string) *diagram.StateDef {
 	return &(*target)[len(*target)-1]
 }
 
-func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
+func (p *parser) parseLine(line string, target *[]diagram.StateDef, scope string, regionIdx int) error {
 	// Keyword-prefixed lines win over bare-id matchers (Mermaid
 	// convention): `title : foo` is the diagram title, never a
 	// state-with-description for a state named "title".
@@ -98,7 +110,7 @@ func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
 		return p.parseLinkOrCallback(line, true)
 	}
 	if rest, ok := strings.CutPrefix(line, "state "); ok {
-		return p.parseStateDecl(strings.TrimSpace(rest), target)
+		return p.parseStateDecl(strings.TrimSpace(rest), target, scope, regionIdx)
 	}
 	if strings.HasPrefix(line, "note ") {
 		return p.parseNote(line, target)
@@ -119,17 +131,32 @@ func (p *parser) parseLine(line string, target *[]diagram.StateDef) error {
 	if rest, ok := strings.CutPrefix(line, "class "); ok {
 		return p.parseClassBinding(rest, target)
 	}
-	if t, ok := parseTransition(line); ok {
-		upsertState(target, t.From)
-		upsertState(target, t.To)
+	if t, fromCSS, toCSS, ok := parseTransition(line); ok {
+		// Upsert both endpoints and attach CSS in two passes — a
+		// single-pass `upsertState(from) … upsertState(to) … mutate`
+		// is unsafe because the second append may reallocate the
+		// backing array, invalidating the first pointer.
+		if fromState := upsertState(target, t.From); fromState != nil && fromCSS != "" {
+			fromState.CSSClasses = append(fromState.CSSClasses, fromCSS)
+		}
+		if toState := upsertState(target, t.To); toState != nil && toCSS != "" {
+			toState.CSSClasses = append(toState.CSSClasses, toCSS)
+		}
+		t.Scope = scope
+		t.RegionIdx = regionIdx
 		p.diagram.Transitions = append(p.diagram.Transitions, t)
 		return nil
 	}
-	if id, desc, ok := parseStateDescription(line); ok {
+	if id, label, ok := parseStateDescription(line); ok {
 		s := upsertState(target, id)
 		if s != nil {
-			s.Description = desc
+			s.Label = label
 		}
+		return nil
+	}
+	// Bare state identifier with no transition or description.
+	if !strings.ContainsAny(line, " \t") {
+		upsertState(target, line)
 		return nil
 	}
 	return nil
@@ -158,12 +185,11 @@ func (p *parser) parseStyleRule(line string) error {
 	return nil
 }
 
-// parseClassBinding handles `class id1,id2 className`. State IDs
-// must already exist; an unknown ID errors rather than silently
-// creating a phantom state (a bare typo like `class Foo bar` when
-// `Foo` was meant should not produce an undeclared shadow). Lookup
-// is recursive so `class Foo bar` works when Foo lives inside a
-// composite.
+// parseClassBinding handles `class id1,id2 className`. Bindings to
+// unknown state IDs are silently skipped (Mermaid's behaviour — the
+// syntax-docs example uses `class end badBadEvent` where `end` is
+// never declared as a real state). Lookup is recursive so a child of
+// a composite can be addressed by its bare ID.
 func (p *parser) parseClassBinding(rest string, target *[]diagram.StateDef) error {
 	parts := strings.SplitN(rest, " ", 2)
 	if len(parts) < 2 {
@@ -180,7 +206,7 @@ func (p *parser) parseClassBinding(rest string, target *[]diagram.StateDef) erro
 			s = findStateRecursive(p.diagram.States, id)
 		}
 		if s == nil {
-			return fmt.Errorf("class binding references undefined state %q", id)
+			continue
 		}
 		s.CSSClasses = append(s.CSSClasses, cssName)
 	}
@@ -389,89 +415,141 @@ func (p *parser) scanBlockNote() (string, error) {
 }
 
 // parseStateDescription matches `id : description text` outside of
-// any arrow-bearing transition. Mermaid's grammar requires whitespace
-// around the colon, so we only accept that form — same convention as
-// the class parser uses for single-line members. A bare `id:text`
-// is rejected (it's typically a typo or a misparsed transition).
+// any arrow-bearing transition. Mermaid accepts the colon with or
+// without surrounding whitespace, e.g. `id : desc`, `id: desc`, or
+// `id :desc` (per the syntax docs' composite-states example, which
+// uses `NamedComposite: Another Composite`). The triple-colon `:::`
+// is reserved for inline CSS class shorthand and never matches here.
 func parseStateDescription(line string) (id, desc string, ok bool) {
-	colon := strings.Index(line, " : ")
-	if colon < 0 {
+	colon := strings.IndexByte(line, ':')
+	if colon < 1 {
+		return "", "", false
+	}
+	// Skip the CSS class shorthand `id:::class` — that's handled
+	// elsewhere and is not a description.
+	if strings.HasPrefix(line[colon:], ":::") {
 		return "", "", false
 	}
 	id = strings.TrimSpace(line[:colon])
 	if id == "" || strings.ContainsAny(id, " \t") {
 		return "", "", false
 	}
-	return id, strings.TrimSpace(line[colon+3:]), true
+	return id, strings.TrimSpace(line[colon+1:]), true
 }
 
-func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef) error {
-	if strings.HasPrefix(rest, "\"") {
-		return p.parseAliasDecl(rest, target)
-	}
-	// `:::cssClass` shorthand attaches a named CSS class to the
-	// state. The marker sits at the end of the identifier; strip
-	// it before any further parsing.
+func (p *parser) parseStateDecl(rest string, target *[]diagram.StateDef, scope string, regionIdx int) error {
+	var label, id string
+	var after string
 	cssClass := ""
-	if i := strings.Index(rest, ":::"); i >= 0 {
-		cssClass = strings.TrimSpace(rest[i+3:])
-		// Stop at the first whitespace / brace so `state Foo:::hot {`
-		// peels the class name correctly.
-		if j := strings.IndexAny(cssClass, " \t{"); j >= 0 {
-			cssClass = strings.TrimSpace(cssClass[:j])
+
+	if strings.HasPrefix(rest, "\"") {
+		// Quoted label form: state "Label" or state "Label" as ID
+		endQuote := strings.Index(rest[1:], "\"")
+		if endQuote < 0 {
+			return fmt.Errorf("unterminated quote in state declaration")
 		}
-		// Reattach what came after to drive the rest of parsing.
-		tail := rest[i+3+len(cssClass):]
-		rest = strings.TrimSpace(rest[:i] + " " + strings.TrimSpace(tail))
+		label = rest[1 : endQuote+1]
+		after = strings.TrimSpace(rest[endQuote+2:])
+		if idPart, ok := strings.CutPrefix(after, "as "); ok {
+			idPart = strings.TrimSpace(idPart)
+			if idPart == "" {
+				return fmt.Errorf("state declaration: missing identifier after 'as'")
+			}
+			rawID, tail := splitStateIDAndTail(idPart)
+			var ok bool
+			id, cssClass, ok = parserutil.ExtractCSSClassShorthand(rawID)
+			if !ok {
+				return fmt.Errorf("state declaration: chained CSS shorthand not allowed")
+			}
+			after = tail
+		} else {
+			// No "as" keyword — use the quoted string as both ID and label.
+			id = label
+		}
+	} else {
+		rawID, tail := splitStateIDAndTail(rest)
+		var ok bool
+		id, cssClass, ok = parserutil.ExtractCSSClassShorthand(rawID)
+		if !ok {
+			return fmt.Errorf("state declaration: chained CSS shorthand not allowed")
+		}
+		after = tail
+		label = id
 	}
-	if braceIdx := strings.IndexByte(rest, '{'); braceIdx >= 0 {
-		name := strings.TrimSpace(rest[:braceIdx])
-		s := upsertState(target, name)
-		if s == nil {
-			return fmt.Errorf("invalid composite state name %q", name)
+
+	// Handle CSS shorthand in `after` for quoted-no-as forms:
+	// e.g. state "Label":::hot or state "Label":::hot {.
+	if strings.HasPrefix(after, ":::") {
+		raw := strings.TrimSpace(after[3:])
+		if j := strings.IndexAny(raw, " \t{<"); j >= 0 {
+			if c := strings.TrimSpace(raw[:j]); c != "" && cssClass == "" {
+				cssClass = c
+			}
+			after = strings.TrimSpace(raw[j:])
+		} else {
+			if c := strings.TrimSpace(raw); c != "" && cssClass == "" {
+				cssClass = c
+			}
+			after = ""
 		}
-		if cssClass != "" {
-			s.CSSClasses = append(s.CSSClasses, cssClass)
-		}
+	}
+
+	if id == "" {
+		return fmt.Errorf("state declaration: missing identifier")
+	}
+
+	s := upsertState(target, id)
+	if s == nil {
+		return fmt.Errorf("invalid state name %q", id)
+	}
+	// Only overwrite an existing label when an explicit one is given
+	// (i.e. label differs from the bare id). This preserves labels set
+	// by prior `id : text` or `state "Label" as id` declarations.
+	if label != id {
+		s.Label = label
+	}
+	if cssClass != "" {
+		s.CSSClasses = append(s.CSSClasses, cssClass)
+	}
+
+	_, _ = scope, regionIdx // declaration scope/region aren't needed here; child transitions get their own scope via parseCompositeBody.
+	after = strings.TrimSpace(after)
+	if after == "{" || strings.HasPrefix(after, "{") {
 		return p.parseCompositeBody(s)
 	}
-	parts := strings.Fields(rest)
-	if len(parts) >= 2 && strings.HasPrefix(parts[1], "<<") && strings.HasSuffix(parts[1], ">>") {
-		id := parts[0]
-		annotation := strings.Trim(parts[1], "<>")
-		s := upsertState(target, id)
-		if s != nil {
-			s.Kind = parseStateKind(annotation)
-			if cssClass != "" {
-				s.CSSClasses = append(s.CSSClasses, cssClass)
-			}
-		}
+	if strings.HasPrefix(after, "<<") && strings.HasSuffix(after, ">>") {
+		annotation := strings.Trim(after, "<>")
+		s.Kind = parseStateKind(annotation)
 		return nil
-	}
-	if len(parts) >= 1 {
-		s := upsertState(target, parts[0])
-		if s != nil && cssClass != "" {
-			s.CSSClasses = append(s.CSSClasses, cssClass)
-		}
 	}
 	return nil
 }
 
-func (p *parser) parseAliasDecl(rest string, target *[]diagram.StateDef) error {
-	endQuote := strings.Index(rest[1:], "\"")
-	if endQuote < 0 {
-		return fmt.Errorf("unterminated quote in state declaration")
+// splitStateIDAndTail splits a state declaration remainder into the
+// identifier and everything that follows ({ or <<kind>>). CSS shorthand
+// (:::css) is kept as part of the identifier; callers should strip it
+// with parserutil.ExtractCSSClassShorthand afterwards.
+func splitStateIDAndTail(s string) (id, tail string) {
+	s = strings.TrimSpace(s)
+	braceIdx := strings.IndexByte(s, '{')
+	kindIdx := strings.Index(s, "<<")
+
+	minIdx := -1
+	if braceIdx >= 0 {
+		minIdx = braceIdx
 	}
-	label := rest[1 : endQuote+1]
-	after := strings.TrimSpace(rest[endQuote+2:])
-	if id, ok := strings.CutPrefix(after, "as "); ok {
-		id = strings.TrimSpace(id)
-		s := upsertState(target, id)
-		if s != nil {
-			s.Label = label
-		}
+	if kindIdx >= 0 && (minIdx < 0 || kindIdx < minIdx) {
+		minIdx = kindIdx
 	}
-	return nil
+
+	if minIdx >= 0 {
+		return strings.TrimSpace(s[:minIdx]), strings.TrimSpace(s[minIdx:])
+	}
+	parts := strings.Fields(s)
+	if len(parts) == 0 {
+		return "", ""
+	}
+	return parts[0], strings.TrimSpace(s[len(parts[0]):])
 }
 
 // parseCompositeBody reads inner-state lines until the matching `}`.
@@ -482,6 +560,7 @@ func (p *parser) parseAliasDecl(rest string, target *[]diagram.StateDef) error {
 func (p *parser) parseCompositeBody(parent *diagram.StateDef) error {
 	target := &parent.Children
 	regionStart := 0
+	regionIdx := 0
 	hasSeparator := false
 	for p.scanner.Scan() {
 		p.lineNum++
@@ -502,10 +581,11 @@ func (p *parser) parseCompositeBody(parent *diagram.StateDef) error {
 			region := append([]diagram.StateDef(nil), (*target)[regionStart:]...)
 			parent.Regions = append(parent.Regions, region)
 			regionStart = len(*target)
+			regionIdx++
 			hasSeparator = true
 			continue
 		}
-		if err := p.parseLine(line, target); err != nil {
+		if err := p.parseLine(line, target, parent.ID, regionIdx); err != nil {
 			return err
 		}
 	}
@@ -515,24 +595,64 @@ func (p *parser) parseCompositeBody(parent *diagram.StateDef) error {
 	return fmt.Errorf("unclosed composite state")
 }
 
-func parseTransition(line string) (diagram.StateTransition, bool) {
+// parseTransition extracts a transition from a line, returning the
+// transition, any CSS class shorthand attached to the from/to states,
+// and whether the line is a transition at all.
+func parseTransition(line string) (diagram.StateTransition, string, string, bool) {
 	idx := strings.Index(line, "-->")
 	if idx < 0 {
-		return diagram.StateTransition{}, false
+		return diagram.StateTransition{}, "", "", false
 	}
 	from := strings.TrimSpace(line[:idx])
+	fromCSS := ""
+	if i := strings.LastIndex(from, ":::"); i >= 0 {
+		fromCSS = strings.TrimSpace(from[i+3:])
+		from = strings.TrimSpace(from[:i])
+	}
 	rest := strings.TrimSpace(line[idx+3:])
+	// Split label off first using the canonical " : " separator
+	// (a bare `:` with both sides padded). This keeps any `:::` that
+	// happens to be inside the label (e.g. `A --> B : use ::: op`)
+	// from being misread as endpoint CSS shorthand.
 	to := rest
 	label := ""
-	if colonIdx := strings.Index(rest, ":"); colonIdx >= 0 {
-		to = strings.TrimSpace(rest[:colonIdx])
-		// Mermaid uses literal `\n` as a line-break in transition labels.
-		label = parserutil.ExpandLineBreaks(strings.TrimSpace(rest[colonIdx+1:]))
+	if li := labelSeparatorIndex(rest); li >= 0 {
+		to = strings.TrimSpace(rest[:li])
+		label = parserutil.ExpandLineBreaks(strings.TrimSpace(rest[li+1:]))
+	}
+	toCSS := ""
+	if i := strings.LastIndex(to, ":::"); i >= 0 {
+		toCSS = strings.TrimSpace(to[i+3:])
+		to = strings.TrimSpace(to[:i])
 	}
 	if from == "" || to == "" {
-		return diagram.StateTransition{}, false
+		return diagram.StateTransition{}, "", "", false
 	}
-	return diagram.StateTransition{From: from, To: to, Label: label}, true
+	return diagram.StateTransition{From: from, To: to, Label: label}, fromCSS, toCSS, true
+}
+
+// labelSeparatorIndex returns the byte index of the first `:` that
+// separates the transition endpoint from its label, or -1 if there
+// is none. The colon must not be part of a `:::` CSS-class shorthand
+// (handled separately on the endpoint token). Mermaid accepts the
+// label colon with or without surrounding whitespace.
+func labelSeparatorIndex(s string) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] != ':' {
+			continue
+		}
+		// Skip `:::` (the colon is part of CSS shorthand, not a
+		// label separator).
+		if i+1 < len(s) && s[i+1] == ':' {
+			i += 2 // jump past the next two colons of `:::`
+			continue
+		}
+		if i > 0 && s[i-1] == ':' {
+			continue
+		}
+		return i
+	}
+	return -1
 }
 
 func parseStateKind(annotation string) diagram.StateKind {
@@ -543,6 +663,10 @@ func parseStateKind(annotation string) diagram.StateKind {
 		return diagram.StateKindJoin
 	case "choice":
 		return diagram.StateKindChoice
+	case "history":
+		return diagram.StateKindHistory
+	case "deephistory", "deep_history":
+		return diagram.StateKindDeepHistory
 	default:
 		return diagram.StateKindNormal
 	}

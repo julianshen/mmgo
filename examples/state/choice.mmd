@@ -1,0 +1,10 @@
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> CheckState
+
+    state CheckState <<choice>>
+    CheckState --> Running : valid
+    CheckState --> Error : invalid
+
+    Running --> [*]
+    Error --> Idle : retry

@@ -1,0 +1,14 @@
+stateDiagram-v2
+    [*] --> ForkState
+
+    state ForkState <<fork>>
+    ForkState --> WorkerA
+    ForkState --> WorkerB
+    ForkState --> WorkerC
+
+    WorkerA --> JoinState
+    WorkerB --> JoinState
+    WorkerC --> JoinState
+
+    state JoinState <<join>>
+    JoinState --> [*]

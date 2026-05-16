@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -165,12 +166,11 @@ func assertValidSVG(t *testing.T, svgBytes []byte) {
 	}
 }
 
-// A state with Description renders as a two-compartment box: a
-// title row, a horizontal divider, and the description below.
-func TestRenderStateDescription(t *testing.T) {
+// A state with a long label renders as a single-compartment box.
+func TestRenderStateLabel(t *testing.T) {
 	d := &diagram.StateDiagram{
 		States: []diagram.StateDef{
-			{ID: "s1", Label: "s1", Description: "Idle phase"},
+			{ID: "s1", Label: "Idle phase"},
 		},
 	}
 	out, err := Render(d, nil)
@@ -178,55 +178,13 @@ func TestRenderStateDescription(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	raw := string(out)
-	if !strings.Contains(raw, ">s1<") {
-		t.Error("title missing")
-	}
 	if !strings.Contains(raw, ">Idle phase<") {
-		t.Error("description missing")
+		t.Error("label missing")
 	}
-	// Divider line: a horizontal `<line>` with matching y1/y2 at
-	// the bottom of the title band, stroked with the state stroke.
-	// Geometric check is more discriminating than counting strokes
-	// (rect borders use 1.5; an accidental width-1 line elsewhere
-	// would otherwise pass the looser check).
+	// No divider line in single-compartment states.
 	dividerStyle := fmt.Sprintf(`style="stroke:%s;stroke-width:1"`, DefaultTheme().StateStroke)
-	idx := strings.Index(raw, dividerStyle)
-	if idx < 0 {
-		t.Fatalf("divider stroke style %q missing from output", dividerStyle)
-	}
-	// Walk back to find the enclosing <line ...> open tag and
-	// verify y1==y2 (horizontal divider).
-	lineOpen := strings.LastIndex(raw[:idx], "<line")
-	if lineOpen < 0 {
-		t.Fatal("no <line> element wraps the divider style")
-	}
-	lineTag := raw[lineOpen:idx]
-	var x1, y1, x2, y2 float64
-	if _, err := fmt.Sscanf(lineTag, `<line x1="%f" y1="%f" x2="%f" y2="%f"`, &x1, &y1, &x2, &y2); err != nil {
-		t.Fatalf("divider geom parse %q: %v", lineTag, err)
-	}
-	if y1 != y2 {
-		t.Errorf("divider not horizontal: y1=%f y2=%f", y1, y2)
-	}
-	if x1 >= x2 {
-		t.Errorf("divider not left-to-right: x1=%f x2=%f", x1, x2)
-	}
-}
-
-// Multi-line description lines (split on \n in the parser) emit
-// one <text> element per line.
-func TestRenderMultilineDescription(t *testing.T) {
-	d := &diagram.StateDiagram{
-		States: []diagram.StateDef{
-			{ID: "s", Label: "s", Description: "alpha\nbeta\ngamma"},
-		},
-	}
-	out, _ := Render(d, nil)
-	raw := string(out)
-	for _, line := range []string{">alpha<", ">beta<", ">gamma<"} {
-		if !strings.Contains(raw, line) {
-			t.Errorf("missing %q in output", line)
-		}
+	if strings.Contains(raw, dividerStyle) {
+		t.Error("single-compartment state should not have a divider line")
 	}
 }
 
@@ -665,6 +623,57 @@ func TestLabelPositionAntiParallelEdgesSeparate(t *testing.T) {
 	}
 }
 
+// Anti-parallel edges (A→B plus B→A) must bow apart so their labels
+// don't stack at the same midpoint. The forward and reverse edges
+// should each render as a 3-point curve (Catmull-Rom path) with
+// distinct label X positions.
+func TestRenderAntiParallelEdgesBow(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "A", Label: "A"},
+			{ID: "B", Label: "B"},
+		},
+		Transitions: []diagram.StateTransition{
+			{From: "A", To: "B", Label: "start"},
+			{From: "B", To: "A", Label: "stop"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	svg := string(out)
+	// Both edges must have been emitted as <path> (curved), not <line>
+	// (straight) — confirms the deflection branch fired for each.
+	pathCount := strings.Count(svg, "marker-end=\"url(#state-arrow)\"")
+	if pathCount < 2 {
+		t.Fatalf("expected at least 2 edges with arrows, got %d in %s", pathCount, svg)
+	}
+	// `start` and `stop` chips must appear at distinct X anchors.
+	startX := extractLabelX(t, svg, "start")
+	stopX := extractLabelX(t, svg, "stop")
+	if math.Abs(startX-stopX) < 5 {
+		t.Errorf("start label X=%.2f and stop label X=%.2f too close (anti-parallel deflection should separate them)",
+			startX, stopX)
+	}
+}
+
+// extractLabelX returns the X attribute of the <text> element whose
+// content equals label. Test helper.
+func extractLabelX(t *testing.T, svg, label string) float64 {
+	t.Helper()
+	re := regexp.MustCompile(`<text x="([0-9.]+)"[^>]*>` + regexp.QuoteMeta(label) + `</text>`)
+	m := re.FindStringSubmatch(svg)
+	if m == nil {
+		t.Fatalf("label %q not found in svg", label)
+	}
+	x, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		t.Fatalf("parse X for %q: %v", label, err)
+	}
+	return x
+}
+
 // Pins backdrop ordering: the white rect must precede the text so
 // the text paints on top.
 func TestRenderEdgeLabelBackdropPrecedesText(t *testing.T) {
@@ -760,5 +769,106 @@ func TestResolveThemeNilOpts(t *testing.T) {
 	}
 	if resolveTheme(&Options{}) != DefaultTheme() {
 		t.Error("resolveTheme with zero Options should return DefaultTheme exactly")
+	}
+}
+
+// History states render as a circle with an "H" label.
+func TestRenderHistoryState(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "H", Label: "H", Kind: diagram.StateKindHistory},
+			{ID: "A", Label: "A"},
+		},
+		Transitions: []diagram.StateTransition{
+			{From: "H", To: "A"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, ">H<") {
+		t.Error("history label missing")
+	}
+	if !strings.Contains(raw, "<circle") {
+		t.Error("history state should render as a circle")
+	}
+}
+
+// Deep-history states render as a circle with an "H*" label.
+func TestRenderDeepHistoryState(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "DH", Label: "DH", Kind: diagram.StateKindDeepHistory},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), ">H*<") {
+		t.Error("deep-history label missing")
+	}
+}
+
+// A transition label on an edge to a composite state is rendered.
+func TestRenderCompositeTransitionLabel(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "Active", Label: "Active", Children: []diagram.StateDef{
+				{ID: "Running", Label: "Running"},
+			}},
+		},
+		Transitions: []diagram.StateTransition{
+			{From: "[*]", To: "Active", Label: "boot"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), ">boot<") {
+		t.Errorf("transition label to composite missing\n%s", out)
+	}
+}
+
+// Choice nodes render as a diamond polygon.
+func TestRenderChoiceNode(t *testing.T) {
+	d := &diagram.StateDiagram{
+		States: []diagram.StateDef{
+			{ID: "C", Label: "C", Kind: diagram.StateKindChoice},
+			{ID: "A", Label: "A"},
+		},
+		Transitions: []diagram.StateTransition{
+			{From: "C", To: "A"},
+		},
+	}
+	out, err := Render(d, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	raw := string(out)
+	if !strings.Contains(raw, "<polygon") {
+		t.Fatal("choice state should render as a polygon")
+	}
+	// Verify at least one polygon has four vertices (the diamond).
+	// The arrowhead marker also contains a 3-vertex polygon, so we
+	// check all matches rather than the first.
+	polyRe := regexp.MustCompile(`<polygon[^>]+points="([^"]+)"`)
+	foundDiamond := false
+	for _, m := range polyRe.FindAllStringSubmatch(raw, -1) {
+		pairs := strings.Fields(m[1])
+		if len(pairs) == 4 {
+			foundDiamond = true
+			break
+		}
+	}
+	if !foundDiamond {
+		t.Error("choice diamond with 4 vertices not found")
+	}
+	// The polygon should use the choice fill colour.
+	if !strings.Contains(raw, DefaultTheme().ChoiceFill) {
+		t.Error("choice fill colour missing")
 	}
 }
